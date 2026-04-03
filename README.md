@@ -12,7 +12,7 @@ Standalone repository for Gestalt plugins extracted from `github.com/valon-techn
 
 `Validate Plugins` runs on pushes and pull requests that touch plugin or workflow files. It:
 
-- installs a pinned `gestaltd` release
+- downloads a pinned `gestaltd` bootstrap asset from this repository's releases
 - runs `go test ./...` for compiled plugins
 - packages every plugin to verify releaseability
 
