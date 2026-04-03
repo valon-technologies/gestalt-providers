@@ -5,7 +5,7 @@
       <feComponentTransfer in="mask" result="threshold">
         <feFuncA type="discrete" tableValues="0 1"/>
       </feComponentTransfer>
-      <feFlood flood-color="#000" result="ink"/>
+      <feFlood flood-color="currentColor" result="ink"/>
       <feComposite in="ink" in2="threshold" operator="in"/>
     </filter>
   </defs>
