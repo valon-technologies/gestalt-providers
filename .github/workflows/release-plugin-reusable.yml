@@ -1,0 +1,114 @@
+name: Release Gestalt Plugin
+
+on:
+  workflow_call:
+    inputs:
+      plugin-dir:
+        description: Path to plugin directory containing plugin.yaml
+        type: string
+        default: '.'
+      version:
+        description: Semantic version for the release
+        type: string
+        required: true
+      gestaltd-version:
+        description: Pinned Gestaltd release version used to package plugins
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Normalize version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          echo "release=${VERSION#v}" >> "$GITHUB_OUTPUT"
+      - name: Resolve plugin metadata
+        id: plugin
+        run: |
+          set -euo pipefail
+
+          PLUGIN_DIR="${{ inputs.plugin-dir }}"
+          MANIFEST_PATH="${PLUGIN_DIR}/plugin.yaml"
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "ERROR: ${MANIFEST_PATH} not found"
+            exit 1
+          fi
+
+          SOURCE="$(sed -nE "s/^[[:space:]]*source:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "$MANIFEST_PATH" | head -n1)"
+          if [ -z "$SOURCE" ]; then
+            echo "ERROR: unable to parse source from ${MANIFEST_PATH}"
+            exit 1
+          fi
+
+          PLUGIN_NAME="${SOURCE##*/}"
+          VERSION="${{ steps.version.outputs.release }}"
+          PRERELEASE=false
+          case "$VERSION" in
+            *-alpha*|*-beta*|*-rc*) PRERELEASE=true ;;
+          esac
+
+          {
+            echo "name=${PLUGIN_NAME}"
+            echo "tag=${PLUGIN_NAME}/v${VERSION}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+          if [ -f "${PLUGIN_DIR}/go.mod" ]; then
+            echo "has-go-mod=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-go-mod=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Install gestaltd
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${RUNNER_TEMP}/gestaltd"
+          mkdir -p "$toolchain_dir"
+          gh release download "gestaltd/v${{ inputs.gestaltd-version }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "gestaltd-linux-x86_64.tar.gz" \
+            --dir "$toolchain_dir"
+          tar -xzf "${toolchain_dir}/gestaltd-linux-x86_64.tar.gz" -C "$toolchain_dir"
+          install -m 0755 "${toolchain_dir}/gestaltd" "$GOBIN/gestaltd"
+      - uses: actions/setup-go@v5
+        if: steps.plugin.outputs.has-go-mod == 'true'
+        with:
+          go-version-file: ${{ inputs.plugin-dir }}/go.mod
+      - name: Test compiled plugin
+        if: steps.plugin.outputs.has-go-mod == 'true'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          go test ./...
+      - name: Package plugin
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          gestaltd plugin release --version "${{ steps.version.outputs.release }}"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plugin.outputs.tag }}
+          PLUGIN_DIR: ${{ inputs.plugin-dir }}
+          PRERELEASE: ${{ steps.plugin.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          args=(release create "$TAG" --generate-notes)
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          args+=("${PLUGIN_DIR}"/dist/*)
+
+          gh "${args[@]}"

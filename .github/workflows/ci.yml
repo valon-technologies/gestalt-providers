@@ -1,0 +1,75 @@
+name: Validate Plugins
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.gitignore'
+      - 'README.md'
+      - 'plugins/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - '.gitignore'
+      - 'README.md'
+      - 'plugins/**'
+
+permissions:
+  contents: read
+
+env:
+  GESTALTD_VERSION: 0.0.1-alpha.42
+  VALIDATION_VERSION: 0.0.1-alpha.1
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Install gestaltd
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${RUNNER_TEMP}/gestaltd"
+          mkdir -p "$toolchain_dir"
+          gh release download "gestaltd/v${GESTALTD_VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "gestaltd-linux-x86_64.tar.gz" \
+            --dir "$toolchain_dir"
+          tar -xzf "${toolchain_dir}/gestaltd-linux-x86_64.tar.gz" -C "$toolchain_dir"
+          install -m 0755 "${toolchain_dir}/gestaltd" "$GOBIN/gestaltd"
+      - name: Validate every plugin
+        env:
+          OUTPUT_ROOT: ${{ runner.temp }}/dist
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUTPUT_ROOT"
+
+          for plugin_dir in $(find plugins -mindepth 1 -maxdepth 1 -type d | sort); do
+            plugin_name="$(basename "$plugin_dir")"
+            echo "::group::${plugin_name}"
+
+            if [ -f "${plugin_dir}/go.mod" ]; then
+              (cd "$plugin_dir" && go test ./...)
+            fi
+
+            rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
+            mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
+            (cd "$plugin_dir" && gestaltd plugin release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
+
+            if ! find "${OUTPUT_ROOT}/${plugin_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
+              echo "ERROR: ${plugin_name} produced no packaged artifacts"
+              exit 1
+            fi
+
+            echo "::endgroup::"
+          done

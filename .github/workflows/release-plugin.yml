@@ -1,0 +1,59 @@
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - '*/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      plugin-name: ${{ steps.parse.outputs.plugin-name }}
+      plugin-version: ${{ steps.parse.outputs.plugin-version }}
+      is-plugin: ${{ steps.validate.outputs.is-plugin }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PLUGIN_NAME="${TAG%%/*}"
+          PLUGIN_VERSION="${TAG##*/v}"
+          echo "plugin-name=${PLUGIN_NAME}" >> "$GITHUB_OUTPUT"
+          echo "plugin-version=${PLUGIN_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Validate plugin directory
+        id: validate
+        env:
+          PLUGIN_NAME: ${{ steps.parse.outputs.plugin-name }}
+        run: |
+          if [ "$PLUGIN_NAME" = "gestaltd" ]; then
+            echo "Detected gestaltd bootstrap tag; skipping plugin release workflow."
+            echo "is-plugin=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PLUGIN_DIR="plugins/${PLUGIN_NAME}"
+          if [ ! -d "$PLUGIN_DIR" ]; then
+            echo "ERROR: ${PLUGIN_DIR} does not exist"
+            exit 1
+          fi
+          if [ ! -f "${PLUGIN_DIR}/plugin.yaml" ]; then
+            echo "ERROR: ${PLUGIN_DIR}/plugin.yaml not found"
+            exit 1
+          fi
+          echo "is-plugin=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: prepare
+    if: needs.prepare.outputs.is-plugin == 'true'
+    uses: ./.github/workflows/release-plugin-reusable.yml
+    secrets: inherit
+    with:
+      plugin-dir: plugins/${{ needs.prepare.outputs.plugin-name }}
+      version: ${{ needs.prepare.outputs.plugin-version }}
+      gestaltd-version: 0.0.1-alpha.42
