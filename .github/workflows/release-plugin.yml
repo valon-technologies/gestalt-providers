@@ -1,0 +1,51 @@
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - 'plugin/*/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      plugin-name: ${{ steps.parse.outputs.plugin-name }}
+      plugin-version: ${{ steps.parse.outputs.plugin-version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PLUGIN_NAME="${TAG#plugin/}"
+          PLUGIN_NAME="${PLUGIN_NAME%%/*}"
+          PLUGIN_VERSION="${TAG##*/v}"
+          echo "plugin-name=${PLUGIN_NAME}" >> "$GITHUB_OUTPUT"
+          echo "plugin-version=${PLUGIN_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Validate plugin directory
+        env:
+          PLUGIN_NAME: ${{ steps.parse.outputs.plugin-name }}
+        run: |
+          PLUGIN_DIR="plugins/${PLUGIN_NAME}"
+          if [ ! -d "$PLUGIN_DIR" ]; then
+            echo "ERROR: ${PLUGIN_DIR} does not exist"
+            exit 1
+          fi
+          if [ ! -f "${PLUGIN_DIR}/plugin.yaml" ]; then
+            echo "ERROR: ${PLUGIN_DIR}/plugin.yaml not found"
+            exit 1
+          fi
+
+  release:
+    needs: prepare
+    uses: ./.github/workflows/release-plugin-reusable.yml
+    secrets: inherit
+    with:
+      plugin-dir: plugins/${{ needs.prepare.outputs.plugin-name }}
+      version: ${{ needs.prepare.outputs.plugin-version }}
+      gestaltd-version: dc16a16e1075435f83beb070d21233bc4355d8f6
+

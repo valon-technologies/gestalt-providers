@@ -1,0 +1,80 @@
+name: Validate Plugins
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.gitignore'
+      - 'README.md'
+      - 'plugins/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - '.gitignore'
+      - 'README.md'
+      - 'plugins/**'
+
+permissions:
+  contents: read
+
+env:
+  GESTALTD_VERSION: dc16a16e1075435f83beb070d21233bc4355d8f6
+  VALIDATION_VERSION: 0.0.1-alpha.1
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: valon-technologies/gestalt
+          ref: ${{ env.GESTALTD_VERSION }}
+          path: .gestalt-toolchain
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .gestalt-toolchain/server/go.mod
+      - name: Configure GitHub auth for private modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          go env -w GOPRIVATE=github.com/valon-technologies/*
+      - name: Build gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          cd .gestalt-toolchain/server
+          go build -o "$GOBIN/gestaltd" ./cmd/gestaltd
+      - name: Validate every plugin
+        env:
+          OUTPUT_ROOT: ${{ runner.temp }}/dist
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUTPUT_ROOT"
+
+          for plugin_dir in $(find plugins -mindepth 1 -maxdepth 1 -type d | sort); do
+            plugin_name="$(basename "$plugin_dir")"
+            echo "::group::${plugin_name}"
+
+            if [ -f "${plugin_dir}/go.mod" ]; then
+              (cd "$plugin_dir" && go test ./...)
+            fi
+
+            rm -rf "${OUTPUT_ROOT}/${plugin_name}"
+            mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
+            (cd "$plugin_dir" && gestaltd plugin release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
+
+            if ! find "${OUTPUT_ROOT}/${plugin_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
+              echo "ERROR: ${plugin_name} produced no packaged artifacts"
+              exit 1
+            fi
+
+            echo "::endgroup::"
+          done
+
