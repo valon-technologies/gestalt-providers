@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-plugins/plugins/gmail
+module github.com/valon-technologies/gestalt-plugins/gmail
 
 go 1.26
 

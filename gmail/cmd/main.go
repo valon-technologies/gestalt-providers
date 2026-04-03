@@ -7,13 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	bigquery "github.com/valon-technologies/gestalt-plugins/plugins/bigquery"
-	"github.com/valon-technologies/gestalt/sdk/go"
+	gmail "github.com/valon-technologies/gestalt-plugins/gmail"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("bigquery provider failed", "error", err)
+		slog.Error("gmail provider failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -21,5 +21,5 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	return gestalt.ServeProvider(ctx, bigquery.NewProvider())
+	return gestalt.ServeProvider(ctx, gmail.NewProvider())
 }

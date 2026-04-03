@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	slack "github.com/valon-technologies/gestalt-plugins/plugins/slack"
+	slack "github.com/valon-technologies/gestalt-plugins/slack"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 

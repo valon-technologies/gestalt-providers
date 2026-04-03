@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-plugins/plugins/slack
+module github.com/valon-technologies/gestalt-plugins/slack
 
 go 1.26
 

@@ -37,7 +37,7 @@ jobs:
             exit 0
           fi
 
-          PLUGIN_DIR="plugins/${PLUGIN_NAME}"
+          PLUGIN_DIR="${PLUGIN_NAME}"
           if [ ! -d "$PLUGIN_DIR" ]; then
             echo "ERROR: ${PLUGIN_DIR} does not exist"
             exit 1
@@ -54,6 +54,6 @@ jobs:
     uses: ./.github/workflows/release-plugin-reusable.yml
     secrets: inherit
     with:
-      plugin-dir: plugins/${{ needs.prepare.outputs.plugin-name }}
+      plugin-dir: ${{ needs.prepare.outputs.plugin-name }}
       version: ${{ needs.prepare.outputs.plugin-version }}
       gestaltd-version: 0.0.1-alpha.1
