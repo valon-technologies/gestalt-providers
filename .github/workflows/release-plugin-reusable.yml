@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      GESTALTD_REPOSITORY: valon-technologies/gestalt
       GOPRIVATE: github.com/valon-technologies/*
       GONOSUMDB: github.com/valon-technologies/*
     steps:
@@ -83,7 +84,7 @@ jobs:
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Install gestaltd
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           GOBIN: ${{ runner.temp }}/bin
         run: |
           mkdir -p "$GOBIN"
@@ -91,7 +92,7 @@ jobs:
           toolchain_dir="${RUNNER_TEMP}/gestaltd"
           mkdir -p "$toolchain_dir"
           gh release download "gestaltd/v${{ inputs.gestaltd-version }}" \
-            --repo "${GITHUB_REPOSITORY}" \
+            --repo "${GESTALTD_REPOSITORY}" \
             --pattern "gestaltd-linux-x86_64.tar.gz" \
             --dir "$toolchain_dir"
           tar -xzf "${toolchain_dir}/gestaltd-linux-x86_64.tar.gz" -C "$toolchain_dir"
