@@ -41,7 +41,7 @@ jobs:
           echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${RUNNER_TEMP}/gestaltd"
           mkdir -p "$toolchain_dir"
-          gh release download "gestaltd-toolchain/v${GESTALTD_VERSION}" \
+          gh release download "gestaltd/v${GESTALTD_VERSION}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pattern "gestaltd-linux-x86_64.tar.gz" \
             --dir "$toolchain_dir"
@@ -62,7 +62,7 @@ jobs:
               (cd "$plugin_dir" && go test ./...)
             fi
 
-            rm -rf "${OUTPUT_ROOT}/${plugin_name}"
+            rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
             mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
             (cd "$plugin_dir" && gestaltd plugin release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
 

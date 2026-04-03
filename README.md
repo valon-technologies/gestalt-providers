@@ -21,6 +21,6 @@ Standalone repository for Gestalt plugins extracted from `github.com/valon-techn
 
 1. Update the target plugin under `plugins/<name>`.
 2. Commit the change.
-3. Create and push a tag in the format `plugin/<name>/v<version>`.
+3. Create and push a tag in the format `<name>/v<version>`.
 
-The release workflow packages the plugin with `gestaltd`, creates a GitHub release using the same tag, and uploads the generated archives from `dist/`.
+The release workflow packages the plugin with `gestaltd`, creates a GitHub release using the same tag, and uploads the generated archives from `dist/`. CI bootstraps `gestaltd` from the `gestaltd/v<version>` release line in this repository.
