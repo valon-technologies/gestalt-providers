@@ -12,7 +12,7 @@ Standalone repository for Gestalt plugins extracted from `github.com/valon-techn
 
 `Validate Plugins` runs on pushes and pull requests that touch plugin or workflow files. It:
 
-- builds `gestaltd` from the pinned toolchain commit in `gestalt`
+- installs a pinned `gestaltd` release
 - runs `go test ./...` for compiled plugins
 - packages every plugin to verify releaseability
 
@@ -23,4 +23,3 @@ Standalone repository for Gestalt plugins extracted from `github.com/valon-techn
 3. Create and push a tag in the format `plugin/<name>/v<version>`.
 
 The release workflow packages the plugin with `gestaltd`, creates a GitHub release using the same tag, and uploads the generated archives from `dist/`.
-

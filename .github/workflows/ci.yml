@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  GESTALTD_VERSION: dc16a16e1075435f83beb070d21233bc4355d8f6
+  GESTALTD_VERSION: 0.0.1-alpha.42
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:
@@ -29,28 +29,19 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: valon-technologies/gestalt
-          ref: ${{ env.GESTALTD_VERSION }}
-          path: .gestalt-toolchain
       - uses: actions/setup-go@v5
         with:
-          go-version-file: .gestalt-toolchain/server/go.mod
-      - name: Configure GitHub auth for private modules
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-          go env -w GOPRIVATE=github.com/valon-technologies/*
-      - name: Build gestaltd
+          go-version: '1.26'
+      - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
         run: |
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
-          cd .gestalt-toolchain/server
-          go build -o "$GOBIN/gestaltd" ./cmd/gestaltd
+          container_id="$(docker create "valontechnologies/gestaltd:${GESTALTD_VERSION}")"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          docker cp "${container_id}:/gestaltd" "$GOBIN/gestaltd"
+          chmod +x "$GOBIN/gestaltd"
       - name: Validate every plugin
         env:
           OUTPUT_ROOT: ${{ runner.temp }}/dist
@@ -77,4 +68,3 @@ jobs:
 
             echo "::endgroup::"
           done
-
