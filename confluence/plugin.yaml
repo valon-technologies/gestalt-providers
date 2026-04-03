@@ -69,14 +69,23 @@ provider:
           method: GET
           path: /api/v2/pages
           parameters:
-            - name: body-format
-              type: string
+            - name: id
+              type: array
               in: query
-            - name: title
+            - name: space-id
+              type: array
+              in: query
+            - name: sort
               type: string
               in: query
             - name: status
               type: array
+              in: query
+            - name: title
+              type: string
+              in: query
+            - name: body-format
+              type: string
               in: query
             - name: subtype
               type: string
@@ -102,6 +111,9 @@ provider:
             - name: depth
               type: string
               in: query
+            - name: sort
+              type: string
+              in: query
             - name: status
               type: array
               in: query
@@ -125,6 +137,33 @@ provider:
               required: true
             - name: body-format
               type: string
+              in: query
+            - name: get-draft
+              type: bool
+              in: query
+            - name: status
+              type: array
+              in: query
+            - name: version
+              type: int
+              in: query
+            - name: include-labels
+              type: bool
+              in: query
+            - name: include-properties
+              type: bool
+              in: query
+            - name: include-operations
+              type: bool
+              in: query
+            - name: include-likes
+              type: bool
+              in: query
+            - name: include-versions
+              type: bool
+              in: query
+            - name: include-version
+              type: bool
               in: query
         - name: search_content
           description: Search Confluence content with CQL
@@ -152,6 +191,15 @@ provider:
           method: POST
           path: /api/v2/pages
           parameters:
+            - name: embedded
+              type: bool
+              in: query
+            - name: private
+              type: bool
+              in: query
+            - name: root-level
+              type: bool
+              in: query
             - name: spaceId
               type: string
               in: body
