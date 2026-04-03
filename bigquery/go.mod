@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-plugins/plugins/bigquery
+module github.com/valon-technologies/gestalt-plugins/bigquery
 
 go 1.26
 
