@@ -5,6 +5,7 @@ Standalone repository for Gestalt plugins extracted from `github.com/valon-techn
 ## Layout
 
 - `plugins/<name>` contains the source for each plugin package.
+- `sdk/go` contains the Go SDK snapshot used by compiled plugins in this repository.
 - Declarative plugins ship from their manifests and support files.
 - Compiled plugins (`bigquery`, `gmail`, and `slack`) are built and packaged with `gestaltd plugin release`.
 
