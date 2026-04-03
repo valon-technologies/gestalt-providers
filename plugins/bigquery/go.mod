@@ -53,5 +53,3 @@ require (
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/valon-technologies/gestalt/sdk/go => ../../sdk/go
