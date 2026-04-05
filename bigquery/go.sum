@@ -80,8 +80,8 @@ github.com/spiffe/go-spiffe/v2 v2.6.0 h1:l+DolpxNWYgruGQVV0xsfeya3CsC7m8iBzDnMps
 github.com/spiffe/go-spiffe/v2 v2.6.0/go.mod h1:gm2SeUoMZEtpnzPNs2Csc0D/gX33k1xIx7lEzqblHEs=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.3 h1:Ci+lsWJS1tHOxrOkjYfRjangd/2fTFest2dZiv3tAD8=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.3/go.mod h1:Jr9+YdUgY3A7lcdCknxz/eOCx+ao3CPi7RzCTsQrUXs=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.4 h1:m4+b0Xh1+80AjumsT0UX0go6yf7JD3x9ihSCBTfQyUQ=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.4/go.mod h1:Jr9+YdUgY3A7lcdCknxz/eOCx+ao3CPi7RzCTsQrUXs=
 github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=
 github.com/zeebo/assert v1.3.0/go.mod h1:Pq9JiuJQpG8JLJdtkwrJESF0Foym2/D9XMU5ciN/wJ0=
 github.com/zeebo/xxh3 v1.0.2 h1:xZmwmqxHZA8AI603jOQ0tMqmBr9lPeFwGg6d+xy9DC0=

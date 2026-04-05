@@ -5,7 +5,7 @@ go 1.26
 require (
 	cloud.google.com/go v0.123.0
 	cloud.google.com/go/bigquery v1.75.0
-	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.3
+	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.4
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.273.0
 )

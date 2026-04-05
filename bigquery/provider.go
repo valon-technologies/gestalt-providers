@@ -29,6 +29,9 @@ func (p *Provider) Name() string                           { return providerName
 func (p *Provider) DisplayName() string                    { return providerDisplayName }
 func (p *Provider) Description() string                    { return providerDescription }
 func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
+func (p *Provider) Configure(context.Context, string, map[string]any) error {
+	return nil
+}
 
 func (p *Provider) Catalog() *gestalt.Catalog {
 	return &gestalt.Catalog{

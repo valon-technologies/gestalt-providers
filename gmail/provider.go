@@ -32,6 +32,9 @@ func (p *Provider) Name() string                           { return "gmail" }
 func (p *Provider) DisplayName() string                    { return "Gmail" }
 func (p *Provider) Description() string                    { return "Send, draft, reply to, and forward email messages." }
 func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
+func (p *Provider) Configure(context.Context, string, map[string]any) error {
+	return nil
+}
 
 func (p *Provider) Catalog() *gestalt.Catalog {
 	return &gestalt.Catalog{

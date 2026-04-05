@@ -61,6 +61,9 @@ func (p *Provider) Description() string {
 	return "Slack helper operations for message lookup, mention scans, and thread participants."
 }
 func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
+func (p *Provider) Configure(context.Context, string, map[string]any) error {
+	return nil
+}
 
 func (p *Provider) Catalog() *gestalt.Catalog {
 	return &gestalt.Catalog{
