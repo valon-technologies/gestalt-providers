@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-plugins/rippling
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 display_name: Rippling
-description: Access company, employee, org structure, and leave data from Rippling.
+description: Access company, worker, org structure, and leave data from Rippling's REST API.
 icon_file: assets/icon.svg
 provider:
   connections:
@@ -14,236 +14,254 @@ provider:
             description: "Create one in [Rippling API Tokens](https://app.rippling.com/developer/api-tokens)"
   surfaces:
     rest:
-      base_url: https://api.rippling.com/platform/api
+      base_url: https://rest.ripplingapis.com
       operations:
-        - name: get_company
-          description: Get current company information for the connected Rippling token
+        - name: list_companies
+          description: List companies available to the authorized Rippling token
           method: GET
-          path: /companies/current
-        - name: list_departments
-          description: List departments for the current company
-          method: GET
-          path: /departments
+          path: /companies/
           parameters:
-            - name: limit
-              type: int
-              in: query
-              description: Maximum number of departments to return
-            - name: offset
-              type: int
-              in: query
-              description: Pagination offset
-        - name: list_bank_accounts
-          description: List bank accounts for the current company
-          method: GET
-          path: /bank_accounts
-        - name: list_employees
-          description: List active employees for the current company
-          method: GET
-          path: /employees
-          parameters:
-            - name: limit
-              type: int
-              in: query
-              description: Maximum number of employees to return
-            - name: offset
-              type: int
-              in: query
-              description: Pagination offset
-            - name: countryCode
+            - name: expand
               type: string
               in: query
-              description: Two-letter company entity country code filter
-        - name: list_employees_including_terminated
-          description: List active and terminated employees for the current company
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
+              in: query
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous companies response
+        - name: get_company
+          description: List companies available to the authorized Rippling token
           method: GET
-          path: /employees/include_terminated
+          path: /companies/
           parameters:
-            - name: limit
-              type: int
+            - name: expand
+              type: string
               in: query
-              description: Maximum number of employees to return
-            - name: offset
-              type: int
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
               in: query
-              description: Pagination offset
-            - name: EIN
-              type: int
+              description: Sort order for the results
+            - name: cursor
+              type: string
               in: query
-              description: Employer identification number filter
-            - name: send_all_roles
-              type: bool
-              in: query
-              description: Return all roles, including non-provisioned roles
-        - name: get_employee
-          description: Get a single employee by ID
+              description: Cursor returned by a previous companies response
+        - name: list_departments
+          description: List departments for the authorized company
           method: GET
-          path: /employees/{employee_id}
+          path: /departments/
+          parameters:
+            - name: expand
+              type: string
+              in: query
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
+              in: query
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous departments response
+        - name: list_employees
+          description: List workers for the authorized company
+          method: GET
+          path: /workers/
+          parameters:
+            - name: filter
+              type: string
+              in: query
+              description: Filter expression for workers
+            - name: expand
+              type: string
+              in: query
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
+              in: query
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous workers response
+        - name: list_employees_including_terminated
+          description: List workers, including terminated workers when requested via the filter query
+          method: GET
+          path: /workers/
+          parameters:
+            - name: filter
+              type: string
+              in: query
+              description: Filter expression for workers
+            - name: expand
+              type: string
+              in: query
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
+              in: query
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous workers response
+        - name: get_employee
+          description: Get a single worker by ID
+          method: GET
+          path: /workers/{employee_id}/
           parameters:
             - name: employee_id
               type: string
               in: path
               required: true
-              description: Unique identifier for the employee within Rippling
+              description: Unique identifier for the worker within Rippling
+            - name: expand
+              type: string
+              in: query
+              description: Comma-separated related resources to expand in the response
         - name: get_current_user
-          description: Get basic information about the Rippling user tied to the token
+          description: Get SSO identity data for the Rippling user tied to the token
           method: GET
-          path: /me
+          path: /sso-me/
+          parameters:
+            - name: expand
+              type: string
+              in: query
+              description: Comma-separated related resources to expand in the response
         - name: list_work_locations
-          description: List work locations for the current company
+          description: List work locations for the authorized company
           method: GET
-          path: /work_locations
+          path: /work-locations/
           parameters:
-            - name: limit
-              type: int
+            - name: order_by
+              type: string
               in: query
-              description: Maximum number of work locations to return
-            - name: offset
-              type: int
+              description: Sort order for the results
+            - name: cursor
+              type: string
               in: query
-              description: Pagination offset
+              description: Cursor returned by a previous work locations response
         - name: list_custom_fields
-          description: List custom fields for the current company
+          description: List custom fields for the authorized company
           method: GET
-          path: /custom_fields
+          path: /custom-fields/
           parameters:
-            - name: limit
-              type: int
+            - name: order_by
+              type: string
               in: query
-              description: Maximum number of custom fields to return
-            - name: offset
-              type: int
+              description: Sort order for the results
+            - name: cursor
+              type: string
               in: query
-              description: Pagination offset
+              description: Cursor returned by a previous custom fields response
         - name: list_teams
-          description: List teams for the current company
+          description: List teams for the authorized company
           method: GET
-          path: /teams
+          path: /teams/
           parameters:
-            - name: limit
-              type: int
+            - name: expand
+              type: string
               in: query
-              description: Maximum number of teams to return
-            - name: offset
-              type: int
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
               in: query
-              description: Pagination offset
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous teams response
         - name: list_levels
-          description: List levels for the current company
+          description: List levels for the authorized company
           method: GET
-          path: /levels
+          path: /levels/
           parameters:
-            - name: limit
-              type: int
-              in: query
-              description: Maximum number of levels to return
-            - name: offset
-              type: int
-              in: query
-              description: Pagination offset
-        - name: list_company_activity
-          description: List company activity events with optional cursor/date filtering
-          method: GET
-          path: /company_activity
-          parameters:
-            - name: startDate
+            - name: expand
               type: string
               in: query
-              description: Start date for activity retrieval (inclusive)
-            - name: endDate
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
               type: string
               in: query
-              description: End date for activity retrieval (inclusive)
-            - name: next
+              description: Sort order for the results
+            - name: cursor
               type: string
               in: query
-              description: Pagination cursor returned by a previous activity response
-            - name: limit
-              type: int
-              in: query
-              description: Maximum number of events to return
+              description: Cursor returned by a previous levels response
         - name: list_leave_requests
           description: List leave requests with optional filtering
           method: GET
-          path: /leave_requests
+          path: /leave-requests/
           parameters:
-            - name: id
+            - name: filter
               type: string
               in: query
-              description: Leave request ID
-            - name: role
+              description: Filter expression for leave requests
+            - name: expand
               type: string
               in: query
-              description: Employee role ID
-            - name: requestedBy
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
               type: string
               in: query
-              description: Requesting employee ID
-            - name: status
+              description: Sort order for the results
+            - name: cursor
               type: string
               in: query
-              description: Leave request status
-            - name: startDate
-              type: string
-              in: query
-              description: Start date of leave
-            - name: endDate
-              type: string
-              in: query
-              description: End date of leave
-            - name: leavePolicy
-              type: string
-              in: query
-              description: Leave policy ID
-            - name: processedBy
-              type: string
-              in: query
-              description: Employee ID that processed the request
-            - name: from
-              type: string
-              in: query
-              description: Start of overlapping date-range filter
-            - name: to
-              type: string
-              in: query
-              description: End of overlapping date-range filter
-            - name: limit
-              type: int
-              in: query
-              description: Maximum number of leave requests to return
-            - name: offset
-              type: int
-              in: query
-              description: Pagination offset
+              description: Cursor returned by a previous leave requests response
         - name: list_company_leave_types
-          description: List company leave types with optional managed-by filtering
+          description: List leave types configured for the authorized company
           method: GET
-          path: /company_leave_types
+          path: /leave-types/
           parameters:
-            - name: managedBy
+            - name: filter
               type: string
               in: query
-              description: Filter leave types by managing system identifier
+              description: Filter expression for leave types
+            - name: order_by
+              type: string
+              in: query
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous leave types response
         - name: list_leave_balances
           description: List leave balances for employees
           method: GET
-          path: /leave_balances
+          path: /leave-balances/
           parameters:
-            - name: limit
-              type: int
+            - name: filter
+              type: string
               in: query
-              description: Maximum number of balance records to return
-            - name: offset
-              type: int
+              description: Filter expression for leave balances
+            - name: expand
+              type: string
               in: query
-              description: Pagination offset
+              description: Comma-separated related resources to expand in the response
+            - name: order_by
+              type: string
+              in: query
+              description: Sort order for the results
+            - name: cursor
+              type: string
+              in: query
+              description: Cursor returned by a previous leave balances response
         - name: get_leave_balance
-          description: Get leave balances for a single employee role
+          description: Get a single leave balance by ID
           method: GET
-          path: /leave_balances/{role}
+          path: /leave-balances/{leave_balance_id}/
           parameters:
-            - name: role
+            - name: leave_balance_id
               type: string
               in: path
               required: true
-              description: Employee role ID returned by Rippling employee endpoints
+              description: Unique identifier for the leave balance
+            - name: expand
+              type: string
+              in: query
+              description: Comma-separated related resources to expand in the response
