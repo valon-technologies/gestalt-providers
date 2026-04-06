@@ -21,7 +21,7 @@ permissions:
 
 env:
   GESTALTD_REPOSITORY: valon-technologies/gestalt
-  GESTALTD_VERSION: 0.0.1-alpha.5
+  GESTALTD_VERSION: 0.0.1-alpha.10
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*

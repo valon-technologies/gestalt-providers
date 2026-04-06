@@ -2,105 +2,85 @@ package bigquery
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-const (
-	providerName        = "bigquery"
-	providerDisplayName = "BigQuery"
-	providerDescription = "Google BigQuery data warehouse"
-)
-
 type Provider struct {
 	runner queryRunner
 }
 
+type QueryInput struct {
+	ProjectID    string `json:"project_id" doc:"GCP project ID" required:"true"`
+	Query        string `json:"query" doc:"SQL query to execute" required:"true"`
+	MaxResults   *int   `json:"max_results,omitempty" doc:"Maximum number of rows to return" default:"500"`
+	TimeoutMs    *int   `json:"timeout_ms,omitempty" doc:"Query timeout in milliseconds" default:"60000"`
+	UseLegacySQL bool   `json:"use_legacy_sql,omitempty" doc:"Use legacy SQL syntax" default:"false"`
+}
+
+var Router = gestalt.MustRouter(
+	"bigquery",
+	gestalt.Register(
+		gestalt.Operation[QueryInput, queryResult]{
+			ID:          queryOperationName,
+			Method:      http.MethodPost,
+			Description: "Execute a BigQuery SQL query",
+		},
+		(*Provider).query,
+	),
+)
+
 var _ gestalt.Provider = (*Provider)(nil)
 
-func NewProvider() *Provider {
+func New() *Provider {
 	return &Provider{runner: sdkQueryRunner{}}
 }
 
-func (p *Provider) Name() string                           { return providerName }
-func (p *Provider) DisplayName() string                    { return providerDisplayName }
-func (p *Provider) Description() string                    { return providerDescription }
-func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
 func (p *Provider) Configure(context.Context, string, map[string]any) error {
 	return nil
 }
 
-func (p *Provider) Catalog() *gestalt.Catalog {
-	return &gestalt.Catalog{
-		Name:        providerName,
-		DisplayName: providerDisplayName,
-		Description: providerDescription,
-		Operations: []gestalt.CatalogOperation{
-			{
-				ID:          queryOperationName,
-				Description: "Execute a BigQuery SQL query",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: queryParamProjectID, Type: "string", Required: true, Description: "GCP project ID"},
-					{Name: queryParamSQL, Type: "string", Required: true, Description: "SQL query to execute"},
-					{Name: queryParamMaxResults, Type: "integer", Description: "Maximum number of rows to return", Default: defaultQueryMaxResults},
-					{Name: queryParamTimeoutMs, Type: "integer", Description: "Query timeout in milliseconds", Default: defaultQueryTimeoutMs},
-					{Name: queryParamUseLegacySQL, Type: "boolean", Description: "Use legacy SQL syntax", Default: defaultQueryUseLegacySQL},
-				},
-			},
-		},
+func (p *Provider) query(ctx context.Context, input QueryInput, req gestalt.Request) (gestalt.Response[queryResult], error) {
+	if input.ProjectID == "" {
+		return gestalt.Response[queryResult]{}, fmt.Errorf("%s is required", queryParamProjectID)
 	}
-}
-
-func (p *Provider) Execute(ctx context.Context, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	if operation != queryOperationName {
-		return nil, fmt.Errorf("unknown operation %q", operation)
+	if input.Query == "" {
+		return gestalt.Response[queryResult]{}, fmt.Errorf("%s is required", queryParamSQL)
 	}
 
-	projectID, _ := params[queryParamProjectID].(string)
-	if projectID == "" {
-		return nil, fmt.Errorf("%s is required", queryParamProjectID)
+	maxResults := defaultQueryMaxResults
+	if input.MaxResults != nil {
+		maxResults = *input.MaxResults
 	}
-
-	sql, _ := params[queryParamSQL].(string)
-	if sql == "" {
-		return nil, fmt.Errorf("%s is required", queryParamSQL)
-	}
-
-	maxResults := intParam(params, queryParamMaxResults, defaultQueryMaxResults)
 	if maxResults < 0 {
 		maxResults = 0
 	}
 
-	iter, err := p.runner.Run(ctx, projectID, token, sql, queryOptions{
-		Timeout:      timeDurationMs(intParam(params, queryParamTimeoutMs, defaultQueryTimeoutMs)),
-		UseLegacySQL: boolParam(params, queryParamUseLegacySQL, defaultQueryUseLegacySQL),
+	timeoutMs := defaultQueryTimeoutMs
+	if input.TimeoutMs != nil {
+		timeoutMs = *input.TimeoutMs
+	}
+
+	iter, err := p.runner.Run(ctx, input.ProjectID, req.Token, input.Query, queryOptions{
+		Timeout:      timeDurationMs(timeoutMs),
+		UseLegacySQL: input.UseLegacySQL,
 	})
 	if err != nil {
-		return nil, err
+		return gestalt.Response[queryResult]{}, err
 	}
 	defer func() { _ = iter.Close() }()
 
 	rows, err := readRows(iter, maxResults)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[queryResult]{}, err
 	}
 
-	body, err := json.Marshal(queryResult{
+	return gestalt.OK(queryResult{
 		Schema:      convertSchema(iter.Schema()),
 		Rows:        rows,
 		TotalRows:   iter.TotalRows(),
 		JobComplete: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshaling result: %w", err)
-	}
-
-	return &gestalt.OperationResult{
-		Status: http.StatusOK,
-		Body:   string(body),
-	}, nil
+	}), nil
 }

@@ -20,98 +20,97 @@ type Provider struct {
 	httpClient *http.Client
 }
 
+type SendMessageInput struct {
+	To       string `json:"to" doc:"Recipient email address" required:"true"`
+	Subject  string `json:"subject" doc:"Email subject" required:"true"`
+	Body     string `json:"body" doc:"Plain text body" required:"true"`
+	Cc       string `json:"cc,omitempty" doc:"CC recipients (comma-separated)"`
+	Bcc      string `json:"bcc,omitempty" doc:"BCC recipients (comma-separated)"`
+	HTMLBody string `json:"html_body,omitempty" doc:"HTML body (sent as alternative to plain text)"`
+}
+
+type CreateDraftInput struct {
+	To       string `json:"to" doc:"Recipient email address" required:"true"`
+	Subject  string `json:"subject" doc:"Email subject" required:"true"`
+	Body     string `json:"body" doc:"Plain text body" required:"true"`
+	Cc       string `json:"cc,omitempty" doc:"CC recipients (comma-separated)"`
+	Bcc      string `json:"bcc,omitempty" doc:"BCC recipients (comma-separated)"`
+	HTMLBody string `json:"html_body,omitempty" doc:"HTML body"`
+}
+
+type ReplyMessageInput struct {
+	MessageID string `json:"message_id" doc:"Original message ID" required:"true"`
+	Body      string `json:"body" doc:"Reply body" required:"true"`
+	Cc        string `json:"cc,omitempty" doc:"CC recipients (comma-separated)"`
+	ReplyAll  bool   `json:"reply_all,omitempty" doc:"Reply to all recipients"`
+	HTMLBody  string `json:"html_body,omitempty" doc:"HTML body"`
+}
+
+type ForwardMessageInput struct {
+	MessageID      string `json:"message_id" doc:"Message to forward" required:"true"`
+	To             string `json:"to" doc:"Forward recipient" required:"true"`
+	AdditionalText string `json:"additional_text,omitempty" doc:"Text to prepend to forwarded content"`
+	Cc             string `json:"cc,omitempty" doc:"CC recipients (comma-separated)"`
+}
+
+type messageOutput struct {
+	Data struct {
+		Message json.RawMessage `json:"message"`
+	} `json:"data"`
+}
+
+type draftOutput struct {
+	Data struct {
+		Draft json.RawMessage `json:"draft"`
+	} `json:"data"`
+}
+
+var Router = gestalt.MustRouter(
+	"gmail",
+	gestalt.Register(
+		gestalt.Operation[SendMessageInput, messageOutput]{
+			ID:          "messages.send",
+			Method:      http.MethodPost,
+			Description: "Send an email message",
+		},
+		(*Provider).sendMessage,
+	),
+	gestalt.Register(
+		gestalt.Operation[CreateDraftInput, draftOutput]{
+			ID:          "messages.createDraft",
+			Method:      http.MethodPost,
+			Description: "Create an email draft",
+		},
+		(*Provider).createDraft,
+	),
+	gestalt.Register(
+		gestalt.Operation[ReplyMessageInput, messageOutput]{
+			ID:          "messages.reply",
+			Method:      http.MethodPost,
+			Description: "Reply to an existing message",
+		},
+		(*Provider).replyToMessage,
+	),
+	gestalt.Register(
+		gestalt.Operation[ForwardMessageInput, messageOutput]{
+			ID:          "messages.forward",
+			Method:      http.MethodPost,
+			Description: "Forward a message to new recipients",
+		},
+		(*Provider).forwardMessage,
+	),
+)
+
 var _ gestalt.Provider = (*Provider)(nil)
 
-func NewProvider() *Provider {
+func New() *Provider {
 	return &Provider{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-func (p *Provider) Name() string                           { return "gmail" }
-func (p *Provider) DisplayName() string                    { return "Gmail" }
-func (p *Provider) Description() string                    { return "Send, draft, reply to, and forward email messages." }
-func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
 func (p *Provider) Configure(context.Context, string, map[string]any) error {
 	return nil
-}
-
-func (p *Provider) Catalog() *gestalt.Catalog {
-	return &gestalt.Catalog{
-		Name:        p.Name(),
-		DisplayName: p.DisplayName(),
-		Description: p.Description(),
-		Operations: []gestalt.CatalogOperation{
-			{
-				ID:          "messages.send",
-				Description: "Send an email message",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "to", Type: "string", Required: true, Description: "Recipient email address"},
-					{Name: "subject", Type: "string", Required: true, Description: "Email subject"},
-					{Name: "body", Type: "string", Required: true, Description: "Plain text body"},
-					{Name: "cc", Type: "string", Description: "CC recipients (comma-separated)"},
-					{Name: "bcc", Type: "string", Description: "BCC recipients (comma-separated)"},
-					{Name: "html_body", Type: "string", Description: "HTML body (sent as alternative to plain text)"},
-				},
-			},
-			{
-				ID:          "messages.createDraft",
-				Description: "Create an email draft",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "to", Type: "string", Required: true, Description: "Recipient email address"},
-					{Name: "subject", Type: "string", Required: true, Description: "Email subject"},
-					{Name: "body", Type: "string", Required: true, Description: "Plain text body"},
-					{Name: "cc", Type: "string", Description: "CC recipients (comma-separated)"},
-					{Name: "bcc", Type: "string", Description: "BCC recipients (comma-separated)"},
-					{Name: "html_body", Type: "string", Description: "HTML body"},
-				},
-			},
-			{
-				ID:          "messages.reply",
-				Description: "Reply to an existing message",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "message_id", Type: "string", Required: true, Description: "Original message ID"},
-					{Name: "body", Type: "string", Required: true, Description: "Reply body"},
-					{Name: "cc", Type: "string", Description: "CC recipients (comma-separated)"},
-					{Name: "reply_all", Type: "boolean", Description: "Reply to all recipients"},
-					{Name: "html_body", Type: "string", Description: "HTML body"},
-				},
-			},
-			{
-				ID:          "messages.forward",
-				Description: "Forward a message to new recipients",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "message_id", Type: "string", Required: true, Description: "Message to forward"},
-					{Name: "to", Type: "string", Required: true, Description: "Forward recipient"},
-					{Name: "additional_text", Type: "string", Description: "Text to prepend to forwarded content"},
-					{Name: "cc", Type: "string", Description: "CC recipients (comma-separated)"},
-				},
-			},
-		},
-	}
-}
-
-func (p *Provider) Execute(ctx context.Context, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	if token == "" {
-		return nil, fmt.Errorf("token is required")
-	}
-
-	switch operation {
-	case "messages.send":
-		return p.sendMessage(ctx, params, token)
-	case "messages.createDraft":
-		return p.createDraft(ctx, params, token)
-	case "messages.reply":
-		return p.replyToMessage(ctx, params, token)
-	case "messages.forward":
-		return p.forwardMessage(ctx, params, token)
-	default:
-		return nil, fmt.Errorf("unknown operation: %s", operation)
-	}
 }
 
 func (p *Provider) doGet(ctx context.Context, url string, token string) (json.RawMessage, error) {
@@ -154,25 +153,4 @@ func (p *Provider) doRequest(req *http.Request, token string) (json.RawMessage, 
 	}
 
 	return body, nil
-}
-
-func jsonResult(data any) (*gestalt.OperationResult, error) {
-	body, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling result: %w", err)
-	}
-	return &gestalt.OperationResult{Status: http.StatusOK, Body: string(body)}, nil
-}
-
-func stringParam(params map[string]any, key string) string {
-	s, _ := params[key].(string)
-	return s
-}
-
-func boolParamOr(params map[string]any, key string, defaultVal bool) bool {
-	v, ok := params[key].(bool)
-	if !ok {
-		return defaultVal
-	}
-	return v
 }

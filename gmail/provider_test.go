@@ -7,40 +7,22 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func TestProviderMetadata(t *testing.T) {
-	p := NewProvider()
-	if p.Name() != "gmail" {
-		t.Fatalf("Name() = %q, want %q", p.Name(), "gmail")
-	}
-	catalog := p.Catalog()
-	if catalog == nil {
-		t.Fatal("Catalog() returned nil")
-	}
-	if len(catalog.Operations) != 4 {
-		t.Fatalf("Catalog().Operations returned %d ops, want 4", len(catalog.Operations))
-	}
-	wantIDs := []string{
-		"messages.send",
-		"messages.createDraft",
-		"messages.reply",
-		"messages.forward",
-	}
-	for i, want := range wantIDs {
-		if got := catalog.Operations[i].ID; got != want {
-			t.Fatalf("Catalog().Operations[%d].ID = %q, want %q", i, got, want)
-		}
-	}
+func executeTestOperation(t *testing.T, p *Provider, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {
+	t.Helper()
+	return Router.Execute(context.Background(), p, operation, params, token)
 }
 
 func TestExecuteRequiresToken(t *testing.T) {
-	p := NewProvider()
-	_, err := p.Execute(context.Background(), "messages.send", map[string]any{
+	p := New()
+	_, err := executeTestOperation(t, p, "messages.send", map[string]any{
 		"to": "a@b.com", "subject": "Hi", "body": "Hi",
 	}, "")
 	if err == nil {
@@ -49,7 +31,7 @@ func TestExecuteRequiresToken(t *testing.T) {
 }
 
 func TestSendMessage(t *testing.T) {
-	p := NewProvider()
+	p := New()
 	p.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if !strings.HasSuffix(r.URL.Path, "/messages/send") {
 			t.Fatalf("path = %s", r.URL.Path)
@@ -79,7 +61,7 @@ func TestSendMessage(t *testing.T) {
 		}, nil
 	})
 
-	result, err := p.Execute(context.Background(), "messages.send", map[string]any{
+	result, err := executeTestOperation(t, p, "messages.send", map[string]any{
 		"to":      "bob@example.com",
 		"subject": "Hello",
 		"body":    "Hi Bob",
@@ -93,7 +75,7 @@ func TestSendMessage(t *testing.T) {
 }
 
 func TestSendMessageWithHTML(t *testing.T) {
-	p := NewProvider()
+	p := New()
 	p.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -111,7 +93,7 @@ func TestSendMessageWithHTML(t *testing.T) {
 		}, nil
 	})
 
-	_, err := p.Execute(context.Background(), "messages.send", map[string]any{
+	_, err := executeTestOperation(t, p, "messages.send", map[string]any{
 		"to":        "bob@example.com",
 		"subject":   "Hello",
 		"body":      "Hi Bob",
@@ -123,7 +105,7 @@ func TestSendMessageWithHTML(t *testing.T) {
 }
 
 func TestCreateDraft(t *testing.T) {
-	p := NewProvider()
+	p := New()
 	p.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if !strings.HasSuffix(r.URL.Path, "/drafts") {
 			t.Fatalf("path = %s, want /drafts", r.URL.Path)
@@ -140,7 +122,7 @@ func TestCreateDraft(t *testing.T) {
 		}, nil
 	})
 
-	result, err := p.Execute(context.Background(), "messages.createDraft", map[string]any{
+	result, err := executeTestOperation(t, p, "messages.createDraft", map[string]any{
 		"to":      "bob@example.com",
 		"subject": "Draft",
 		"body":    "Draft body",
@@ -154,7 +136,7 @@ func TestCreateDraft(t *testing.T) {
 }
 
 func TestReplyToMessage(t *testing.T) {
-	p := NewProvider()
+	p := New()
 	callCount := 0
 	p.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		callCount++
@@ -201,7 +183,7 @@ func TestReplyToMessage(t *testing.T) {
 		}, nil
 	})
 
-	_, err := p.Execute(context.Background(), "messages.reply", map[string]any{
+	_, err := executeTestOperation(t, p, "messages.reply", map[string]any{
 		"message_id": "orig-1",
 		"body":       "Thanks!",
 	}, "test-token")

@@ -28,6 +28,28 @@ type Provider struct {
 	baseURL    string
 }
 
+type GetMessageInput struct {
+	URL     string `json:"url,omitempty" doc:"Slack message URL"`
+	Channel string `json:"channel,omitempty" doc:"Channel ID"`
+	TS      string `json:"ts,omitempty" doc:"Message timestamp"`
+}
+
+type FindUserMentionsInput struct {
+	Channel     string `json:"channel" doc:"Channel ID to scan" required:"true"`
+	UserID      string `json:"user_id,omitempty" doc:"Optional user ID to filter mentions to"`
+	Limit       *int   `json:"limit,omitempty" doc:"Number of messages to scan" default:"100"`
+	Oldest      string `json:"oldest,omitempty" doc:"Only include messages after this Unix timestamp"`
+	Latest      string `json:"latest,omitempty" doc:"Only include messages before this Unix timestamp"`
+	IncludeBots bool   `json:"include_bots,omitempty" doc:"Include bot messages in the scan"`
+}
+
+type GetThreadParticipantsInput struct {
+	Channel         string `json:"channel" doc:"Channel ID containing the thread" required:"true"`
+	TS              string `json:"ts" doc:"Parent message timestamp" required:"true"`
+	IncludeUserInfo bool   `json:"include_user_info,omitempty" doc:"Fetch user profile details for participants"`
+	IncludeBots     *bool  `json:"include_bots,omitempty" doc:"Include bot users in the participant list" default:"true"`
+}
+
 type mention struct {
 	UserID      string `json:"user_id"`
 	MessageTS   string `json:"message_ts"`
@@ -46,101 +68,90 @@ type threadParticipant struct {
 	IsBot           *bool  `json:"is_bot,omitempty"`
 }
 
+type getMessageOutput struct {
+	Data struct {
+		Message map[string]any `json:"message"`
+	} `json:"data"`
+}
+
+type findUserMentionsOutput struct {
+	Data struct {
+		Mentions         []mention `json:"mentions"`
+		MentionedUserIDs []string  `json:"mentioned_user_ids"`
+		TotalMentions    int       `json:"total_mentions"`
+		MessagesScanned  int       `json:"messages_scanned"`
+	} `json:"data"`
+}
+
+type getThreadParticipantsOutput struct {
+	Data struct {
+		Participants     []threadParticipant `json:"participants"`
+		ParticipantCount int                 `json:"participant_count"`
+		TotalReplies     int                 `json:"total_replies"`
+	} `json:"data"`
+}
+
+var Router = gestalt.MustRouter(
+	"slack",
+	gestalt.Register(
+		gestalt.Operation[GetMessageInput, getMessageOutput]{
+			ID:          "conversations.getMessage",
+			Method:      http.MethodPost,
+			Description: "Fetch a single message by Slack URL or channel and timestamp",
+		},
+		(*Provider).getMessage,
+	),
+	gestalt.Register(
+		gestalt.Operation[FindUserMentionsInput, findUserMentionsOutput]{
+			ID:          "conversations.findUserMentions",
+			Method:      http.MethodPost,
+			Description: "Find Slack user mentions in channel messages",
+		},
+		(*Provider).findUserMentions,
+	),
+	gestalt.Register(
+		gestalt.Operation[GetThreadParticipantsInput, getThreadParticipantsOutput]{
+			ID:          "conversations.getThreadParticipants",
+			Method:      http.MethodPost,
+			Description: "Get unique participants in a Slack thread",
+		},
+		(*Provider).getThreadParticipants,
+	),
+)
+
 var _ gestalt.Provider = (*Provider)(nil)
 
-func NewProvider() *Provider {
+func New() *Provider {
 	return &Provider{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		baseURL:    slackAPIBaseURL,
 	}
 }
 
-func (p *Provider) Name() string        { return "slack" }
-func (p *Provider) DisplayName() string { return "Slack" }
-func (p *Provider) Description() string {
-	return "Slack helper operations for message lookup, mention scans, and thread participants."
-}
-func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
 func (p *Provider) Configure(context.Context, string, map[string]any) error {
 	return nil
 }
 
-func (p *Provider) Catalog() *gestalt.Catalog {
-	return &gestalt.Catalog{
-		Name:        p.Name(),
-		DisplayName: p.DisplayName(),
-		Description: p.Description(),
-		Operations: []gestalt.CatalogOperation{
-			{
-				ID:          "conversations.getMessage",
-				Description: "Fetch a single message by Slack URL or channel and timestamp",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "url", Type: "string", Description: "Slack message URL"},
-					{Name: "channel", Type: "string", Description: "Channel ID"},
-					{Name: "ts", Type: "string", Description: "Message timestamp"},
-				},
-			},
-			{
-				ID:          "conversations.findUserMentions",
-				Description: "Find Slack user mentions in channel messages",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "channel", Type: "string", Required: true, Description: "Channel ID to scan"},
-					{Name: "user_id", Type: "string", Description: "Optional user ID to filter mentions to"},
-					{Name: "limit", Type: "int", Description: "Number of messages to scan"},
-					{Name: "oldest", Type: "string", Description: "Only include messages after this Unix timestamp"},
-					{Name: "latest", Type: "string", Description: "Only include messages before this Unix timestamp"},
-					{Name: "include_bots", Type: "bool", Description: "Include bot messages in the scan"},
-				},
-			},
-			{
-				ID:          "conversations.getThreadParticipants",
-				Description: "Get unique participants in a Slack thread",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "channel", Type: "string", Required: true, Description: "Channel ID containing the thread"},
-					{Name: "ts", Type: "string", Required: true, Description: "Parent message timestamp"},
-					{Name: "include_user_info", Type: "bool", Description: "Fetch user profile details for participants"},
-					{Name: "include_bots", Type: "bool", Description: "Include bot users in the participant list"},
-				},
-			},
-		},
-	}
-}
-
-func (p *Provider) Execute(ctx context.Context, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	if token == "" {
-		return nil, fmt.Errorf("token is required")
+func (p *Provider) getMessage(ctx context.Context, input GetMessageInput, req gestalt.Request) (gestalt.Response[getMessageOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[getMessageOutput]{}, fmt.Errorf("token is required")
 	}
 
-	switch operation {
-	case "conversations.getMessage":
-		return p.getMessage(ctx, params, token)
-	case "conversations.findUserMentions":
-		return p.findUserMentions(ctx, params, token)
-	case "conversations.getThreadParticipants":
-		return p.getThreadParticipants(ctx, params, token)
-	default:
-		return nil, fmt.Errorf("unknown operation: %s", operation)
-	}
-}
+	channel := input.Channel
+	ts := input.TS
 
-func (p *Provider) getMessage(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	channel := stringParam(params, "channel")
-	ts := stringParam(params, "ts")
-
-	if messageURL := stringParam(params, "url"); messageURL != "" {
+	if input.URL != "" {
+		messageURL := input.URL
 		match := slackMessageURLPattern.FindStringSubmatch(messageURL)
 		if match == nil {
-			return nil, fmt.Errorf("invalid Slack message URL: %s", messageURL)
+			return gestalt.Response[getMessageOutput]{}, fmt.Errorf("invalid Slack message URL: %s", messageURL)
 		}
 		channel = match[1]
 		ts = match[2] + "." + match[3]
 	}
 
 	if channel == "" || ts == "" {
-		return nil, fmt.Errorf("either url or both channel and ts are required")
+		return gestalt.Response[getMessageOutput]{}, fmt.Errorf("either url or both channel and ts are required")
 	}
 
 	query := neturl.Values{
@@ -150,60 +161,62 @@ func (p *Provider) getMessage(ctx context.Context, params map[string]any, token 
 		"inclusive": []string{"true"},
 		"limit":     []string{"1"},
 	}
-	data, err := p.slackGET(ctx, "/conversations.history", query, token)
+	data, err := p.slackGET(ctx, "/conversations.history", query, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[getMessageOutput]{}, err
 	}
 
 	messages := mapSlice(data["messages"])
 	if len(messages) == 0 {
-		return nil, fmt.Errorf("no message found at timestamp %s", ts)
+		return gestalt.Response[getMessageOutput]{}, fmt.Errorf("no message found at timestamp %s", ts)
 	}
 
-	return jsonResult(map[string]any{
-		"data": map[string]any{
-			"message": messages[0],
-		},
-	})
+	var output getMessageOutput
+	output.Data.Message = messages[0]
+	return gestalt.OK(output), nil
 }
 
-func (p *Provider) findUserMentions(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	channel := stringParam(params, "channel")
-	if channel == "" {
-		return nil, fmt.Errorf("channel is required")
+func (p *Provider) findUserMentions(ctx context.Context, input FindUserMentionsInput, req gestalt.Request) (gestalt.Response[findUserMentionsOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[findUserMentionsOutput]{}, fmt.Errorf("token is required")
+	}
+	if input.Channel == "" {
+		return gestalt.Response[findUserMentionsOutput]{}, fmt.Errorf("channel is required")
 	}
 
+	limit := 100
+	if input.Limit != nil {
+		limit = *input.Limit
+	}
 	query := neturl.Values{
-		"channel": []string{channel},
-		"limit":   []string{strconv.Itoa(intParamOr(params, "limit", 100))},
+		"channel": []string{input.Channel},
+		"limit":   []string{strconv.Itoa(limit)},
 	}
-	if oldest := stringParam(params, "oldest"); oldest != "" {
-		query.Set("oldest", oldest)
+	if input.Oldest != "" {
+		query.Set("oldest", input.Oldest)
 	}
-	if latest := stringParam(params, "latest"); latest != "" {
-		query.Set("latest", latest)
+	if input.Latest != "" {
+		query.Set("latest", input.Latest)
 	}
 
-	data, err := p.slackGET(ctx, "/conversations.history", query, token)
+	data, err := p.slackGET(ctx, "/conversations.history", query, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[findUserMentionsOutput]{}, err
 	}
 
-	includeBots := boolParamOr(params, "include_bots", false)
-	filterUserID := stringParam(params, "user_id")
 	messages := mapSlice(data["messages"])
 	mentions := make([]mention, 0)
 	mentionedUserIDs := make(map[string]struct{})
 
 	for _, message := range messages {
-		if !includeBots && stringField(message, "bot_id") != "" {
+		if !input.IncludeBots && stringField(message, "bot_id") != "" {
 			continue
 		}
 
 		text := stringField(message, "text")
 		for _, match := range userMentionPattern.FindAllStringSubmatch(text, -1) {
 			userID := match[1]
-			if filterUserID != "" && userID != filterUserID {
+			if input.UserID != "" && userID != input.UserID {
 				continue
 			}
 			mentionedUserIDs[userID] = struct{}{}
@@ -212,7 +225,7 @@ func (p *Provider) findUserMentions(ctx context.Context, params map[string]any, 
 				MessageTS:   stringField(message, "ts"),
 				MentionedBy: stringField(message, "user"),
 				Text:        text,
-				Channel:     channel,
+				Channel:     input.Channel,
 			})
 		}
 	}
@@ -223,39 +236,40 @@ func (p *Provider) findUserMentions(ctx context.Context, params map[string]any, 
 	}
 	sort.Strings(userIDs)
 
-	return jsonResult(map[string]any{
-		"data": map[string]any{
-			"mentions":           mentions,
-			"mentioned_user_ids": userIDs,
-			"total_mentions":     len(mentions),
-			"messages_scanned":   len(messages),
-		},
-	})
+	var output findUserMentionsOutput
+	output.Data.Mentions = mentions
+	output.Data.MentionedUserIDs = userIDs
+	output.Data.TotalMentions = len(mentions)
+	output.Data.MessagesScanned = len(messages)
+	return gestalt.OK(output), nil
 }
 
-func (p *Provider) getThreadParticipants(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	channel := stringParam(params, "channel")
-	if channel == "" {
-		return nil, fmt.Errorf("channel is required")
+func (p *Provider) getThreadParticipants(ctx context.Context, input GetThreadParticipantsInput, req gestalt.Request) (gestalt.Response[getThreadParticipantsOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[getThreadParticipantsOutput]{}, fmt.Errorf("token is required")
 	}
-	ts := stringParam(params, "ts")
-	if ts == "" {
-		return nil, fmt.Errorf("ts is required")
+	if input.Channel == "" {
+		return gestalt.Response[getThreadParticipantsOutput]{}, fmt.Errorf("channel is required")
+	}
+	if input.TS == "" {
+		return gestalt.Response[getThreadParticipantsOutput]{}, fmt.Errorf("ts is required")
 	}
 
 	query := neturl.Values{
-		"channel": []string{channel},
-		"ts":      []string{ts},
+		"channel": []string{input.Channel},
+		"ts":      []string{input.TS},
 		"limit":   []string{"1000"},
 	}
-	data, err := p.slackGET(ctx, "/conversations.replies", query, token)
+	data, err := p.slackGET(ctx, "/conversations.replies", query, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[getThreadParticipantsOutput]{}, err
 	}
 
 	messages := mapSlice(data["messages"])
-	includeBots := boolParamOr(params, "include_bots", true)
-	includeUserInfo := boolParamOr(params, "include_user_info", false)
+	includeBots := true
+	if input.IncludeBots != nil {
+		includeBots = *input.IncludeBots
+	}
 	threadStarter := ""
 	if len(messages) > 0 {
 		threadStarter = stringField(messages[0], "user")
@@ -286,10 +300,10 @@ func (p *Provider) getThreadParticipants(ctx context.Context, params map[string]
 
 	participants := make([]threadParticipant, 0, len(participantsByUser))
 	for _, participant := range participantsByUser {
-		if includeUserInfo {
+		if input.IncludeUserInfo {
 			userData, err := p.slackGET(ctx, "/users.info", neturl.Values{
 				"user": []string{participant.UserID},
-			}, token)
+			}, req.Token)
 			if err == nil {
 				user := mapField(userData, "user")
 				profile := mapField(user, "profile")
@@ -315,13 +329,11 @@ func (p *Provider) getThreadParticipants(ctx context.Context, params map[string]
 		totalReplies = len(messages) - 1
 	}
 
-	return jsonResult(map[string]any{
-		"data": map[string]any{
-			"participants":      participants,
-			"participant_count": len(participants),
-			"total_replies":     totalReplies,
-		},
-	})
+	var output getThreadParticipantsOutput
+	output.Data.Participants = participants
+	output.Data.ParticipantCount = len(participants)
+	output.Data.TotalReplies = totalReplies
+	return gestalt.OK(output), nil
 }
 
 func (p *Provider) slackGET(ctx context.Context, endpoint string, query neturl.Values, token string) (map[string]any, error) {
@@ -379,71 +391,6 @@ func (p *Provider) slackRequest(ctx context.Context, method, endpoint string, qu
 	}
 
 	return data, nil
-}
-
-func jsonResult(data any) (*gestalt.OperationResult, error) {
-	body, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal result: %w", err)
-	}
-	return &gestalt.OperationResult{
-		Status: http.StatusOK,
-		Body:   string(body),
-	}, nil
-}
-
-func stringParam(params map[string]any, key string) string {
-	switch v := params[key].(type) {
-	case string:
-		return v
-	case json.Number:
-		return v.String()
-	case fmt.Stringer:
-		return v.String()
-	case int:
-		return strconv.Itoa(v)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	default:
-		return ""
-	}
-}
-
-func intParamOr(params map[string]any, key string, defaultValue int) int {
-	switch v := params[key].(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	case json.Number:
-		i, err := v.Int64()
-		if err == nil {
-			return int(i)
-		}
-	case string:
-		i, err := strconv.Atoi(v)
-		if err == nil {
-			return i
-		}
-	}
-	return defaultValue
-}
-
-func boolParamOr(params map[string]any, key string, defaultValue bool) bool {
-	switch v := params[key].(type) {
-	case bool:
-		return v
-	case string:
-		b, err := strconv.ParseBool(v)
-		if err == nil {
-			return b
-		}
-	}
-	return defaultValue
 }
 
 func mapSlice(value any) []map[string]any {
