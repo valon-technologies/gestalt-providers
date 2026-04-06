@@ -1,4 +1,4 @@
-package slack
+package provider
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -14,9 +16,14 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func newContractTestProvider(fn roundTripFunc) *Provider {
-	p := NewProvider()
+	p := New()
 	p.httpClient.Transport = fn
 	return p
+}
+
+func executeTestOperation(t *testing.T, p *Provider, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {
+	t.Helper()
+	return Router.Execute(context.Background(), p, operation, params, token)
 }
 
 func jsonHTTPResponse(status int, body string) *http.Response {
@@ -76,7 +83,7 @@ func TestExecuteConversationsGetMessageUsesHistoryLookupContract(t *testing.T) {
 		}`), nil
 	})
 
-	result, err := p.Execute(context.Background(), "conversations.getMessage", map[string]any{
+	result, err := executeTestOperation(t, p, "conversations.getMessage", map[string]any{
 		"url": "https://valon.slack.com/archives/C123ABC456/p1712161829000300",
 	}, "test-token")
 	if err != nil {
@@ -144,7 +151,7 @@ func TestExecuteConversationsFindUserMentionsUsesHistoryContract(t *testing.T) {
 		}`), nil
 	})
 
-	result, err := p.Execute(context.Background(), "conversations.findUserMentions", map[string]any{
+	result, err := executeTestOperation(t, p, "conversations.findUserMentions", map[string]any{
 		"channel":      "C123",
 		"user_id":      "UKEEP123",
 		"limit":        25,
@@ -259,7 +266,7 @@ func TestExecuteConversationsGetThreadParticipantsUsesRepliesAndUsersInfoContrac
 		}
 	})
 
-	result, err := p.Execute(context.Background(), "conversations.getThreadParticipants", map[string]any{
+	result, err := executeTestOperation(t, p, "conversations.getThreadParticipants", map[string]any{
 		"channel":           "C123",
 		"ts":                "1.0",
 		"include_user_info": true,
@@ -319,7 +326,7 @@ func TestExecutePropagatesSlackAPIHTTPError(t *testing.T) {
 		return jsonHTTPResponse(http.StatusTooManyRequests, `{"ok": false, "error": "rate_limited"}`), nil
 	})
 
-	_, err := p.Execute(context.Background(), "conversations.getMessage", map[string]any{
+	_, err := executeTestOperation(t, p, "conversations.getMessage", map[string]any{
 		"channel": "C123",
 		"ts":      "1234567890.123456",
 	}, "test-token")

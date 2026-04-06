@@ -30,7 +30,10 @@ That triggers the release workflow, packages the plugin, and publishes a GitHub 
 In Gestalt config, use:
 
 ```yaml
-plugin:
-  source: github.com/valon-technologies/gestalt-plugins/<plugin>
-  version: 0.1.0
+providers:
+  <plugin>:
+    from:
+      source:
+        ref: github.com/valon-technologies/gestalt-plugins/<plugin>
+        version: 0.1.0
 ```

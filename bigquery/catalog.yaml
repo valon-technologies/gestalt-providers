@@ -1,0 +1,26 @@
+name: bigquery
+operations:
+  - id: query
+    method: POST
+    description: Execute a BigQuery SQL query
+    parameters:
+      - name: project_id
+        type: string
+        description: GCP project ID
+        required: true
+      - name: query
+        type: string
+        description: SQL query to execute
+        required: true
+      - name: max_results
+        type: integer
+        description: Maximum number of rows to return
+        default: 500
+      - name: timeout_ms
+        type: integer
+        description: Query timeout in milliseconds
+        default: 60000
+      - name: use_legacy_sql
+        type: boolean
+        description: Use legacy SQL syntax
+        default: false

@@ -1,4 +1,4 @@
-package gmail
+package provider
 
 import (
 	"context"
@@ -10,71 +10,72 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-func (p *Provider) sendMessage(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	to := stringParam(params, "to")
-	subject := stringParam(params, "subject")
-	body := stringParam(params, "body")
-	if to == "" || subject == "" || body == "" {
-		return nil, fmt.Errorf("to, subject, and body are required")
+func (p *Provider) sendMessage(ctx context.Context, input SendMessageInput, req gestalt.Request) (gestalt.Response[messageOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("token is required")
+	}
+	if input.To == "" || input.Subject == "" || input.Body == "" {
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("to, subject, and body are required")
 	}
 
 	raw := buildMIME(mimeParams{
-		To:       to,
-		Subject:  subject,
-		Body:     body,
-		Cc:       stringParam(params, "cc"),
-		Bcc:      stringParam(params, "bcc"),
-		HtmlBody: stringParam(params, "html_body"),
+		To:       input.To,
+		Subject:  input.Subject,
+		Body:     input.Body,
+		Cc:       input.Cc,
+		Bcc:      input.Bcc,
+		HtmlBody: input.HTMLBody,
 	})
 
-	resp, err := p.doPost(ctx, gmailBaseURL+"/messages/send", map[string]string{"raw": raw}, token)
+	resp, err := p.doPost(ctx, gmailBaseURL+"/messages/send", map[string]string{"raw": raw}, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[messageOutput]{}, err
 	}
-	return jsonResult(map[string]any{
-		"data": map[string]json.RawMessage{"message": resp},
-	})
+	var output messageOutput
+	output.Data.Message = resp
+	return gestalt.OK(output), nil
 }
 
-func (p *Provider) createDraft(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	to := stringParam(params, "to")
-	subject := stringParam(params, "subject")
-	body := stringParam(params, "body")
-	if to == "" || subject == "" || body == "" {
-		return nil, fmt.Errorf("to, subject, and body are required")
+func (p *Provider) createDraft(ctx context.Context, input CreateDraftInput, req gestalt.Request) (gestalt.Response[draftOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[draftOutput]{}, fmt.Errorf("token is required")
+	}
+	if input.To == "" || input.Subject == "" || input.Body == "" {
+		return gestalt.Response[draftOutput]{}, fmt.Errorf("to, subject, and body are required")
 	}
 
 	raw := buildMIME(mimeParams{
-		To:       to,
-		Subject:  subject,
-		Body:     body,
-		Cc:       stringParam(params, "cc"),
-		Bcc:      stringParam(params, "bcc"),
-		HtmlBody: stringParam(params, "html_body"),
+		To:       input.To,
+		Subject:  input.Subject,
+		Body:     input.Body,
+		Cc:       input.Cc,
+		Bcc:      input.Bcc,
+		HtmlBody: input.HTMLBody,
 	})
 
 	resp, err := p.doPost(ctx, gmailBaseURL+"/drafts", map[string]any{
 		"message": map[string]string{"raw": raw},
-	}, token)
+	}, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[draftOutput]{}, err
 	}
-	return jsonResult(map[string]any{
-		"data": map[string]json.RawMessage{"draft": resp},
-	})
+	var output draftOutput
+	output.Data.Draft = resp
+	return gestalt.OK(output), nil
 }
 
-func (p *Provider) replyToMessage(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	messageID := stringParam(params, "message_id")
-	replyBody := stringParam(params, "body")
-	if messageID == "" || replyBody == "" {
-		return nil, fmt.Errorf("message_id and body are required")
+func (p *Provider) replyToMessage(ctx context.Context, input ReplyMessageInput, req gestalt.Request) (gestalt.Response[messageOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("token is required")
+	}
+	if input.MessageID == "" || input.Body == "" {
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("message_id and body are required")
 	}
 
-	origURL := gmailBaseURL + "/messages/" + url.PathEscape(messageID) + "?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Delivered-To"
-	origBody, err := p.doGet(ctx, origURL, token)
+	origURL := gmailBaseURL + "/messages/" + url.PathEscape(input.MessageID) + "?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Delivered-To"
+	origBody, err := p.doGet(ctx, origURL, req.Token)
 	if err != nil {
-		return nil, fmt.Errorf("fetching original message: %w", err)
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("fetching original message: %w", err)
 	}
 
 	var orig struct {
@@ -84,7 +85,7 @@ func (p *Provider) replyToMessage(ctx context.Context, params map[string]any, to
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(origBody, &orig); err != nil {
-		return nil, fmt.Errorf("parsing original message: %w", err)
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("parsing original message: %w", err)
 	}
 
 	origFrom := getHeader(orig.Payload.Headers, "From")
@@ -102,8 +103,8 @@ func (p *Provider) replyToMessage(ctx context.Context, params map[string]any, to
 	selfEmail := getHeader(orig.Payload.Headers, "Delivered-To")
 
 	to := origFrom
-	cc := stringParam(params, "cc")
-	if boolParamOr(params, "reply_all", false) {
+	cc := input.Cc
+	if input.ReplyAll {
 		var allCC []string
 		for _, v := range []string{origTo, origCc, cc} {
 			if v != "" {
@@ -116,9 +117,9 @@ func (p *Provider) replyToMessage(ctx context.Context, params map[string]any, to
 	raw := buildMIME(mimeParams{
 		To:         to,
 		Subject:    ensureReplyPrefix(origSubject),
-		Body:       replyBody,
+		Body:       input.Body,
 		Cc:         cc,
-		HtmlBody:   stringParam(params, "html_body"),
+		HtmlBody:   input.HTMLBody,
 		InReplyTo:  origMessageID,
 		References: references,
 	})
@@ -126,26 +127,27 @@ func (p *Provider) replyToMessage(ctx context.Context, params map[string]any, to
 	resp, err := p.doPost(ctx, gmailBaseURL+"/messages/send", map[string]any{
 		"raw":      raw,
 		"threadId": orig.ThreadID,
-	}, token)
+	}, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[messageOutput]{}, err
 	}
-	return jsonResult(map[string]any{
-		"data": map[string]json.RawMessage{"message": resp},
-	})
+	var output messageOutput
+	output.Data.Message = resp
+	return gestalt.OK(output), nil
 }
 
-func (p *Provider) forwardMessage(ctx context.Context, params map[string]any, token string) (*gestalt.OperationResult, error) {
-	messageID := stringParam(params, "message_id")
-	to := stringParam(params, "to")
-	if messageID == "" || to == "" {
-		return nil, fmt.Errorf("message_id and to are required")
+func (p *Provider) forwardMessage(ctx context.Context, input ForwardMessageInput, req gestalt.Request) (gestalt.Response[messageOutput], error) {
+	if req.Token == "" {
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("token is required")
+	}
+	if input.MessageID == "" || input.To == "" {
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("message_id and to are required")
 	}
 
-	origURL := gmailBaseURL + "/messages/" + url.PathEscape(messageID) + "?format=full"
-	origBody, err := p.doGet(ctx, origURL, token)
+	origURL := gmailBaseURL + "/messages/" + url.PathEscape(input.MessageID) + "?format=full"
+	origBody, err := p.doGet(ctx, origURL, req.Token)
 	if err != nil {
-		return nil, fmt.Errorf("fetching original message: %w", err)
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("fetching original message: %w", err)
 	}
 
 	var orig struct {
@@ -164,7 +166,7 @@ func (p *Provider) forwardMessage(ctx context.Context, params map[string]any, to
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(origBody, &orig); err != nil {
-		return nil, fmt.Errorf("parsing original message: %w", err)
+		return gestalt.Response[messageOutput]{}, fmt.Errorf("parsing original message: %w", err)
 	}
 
 	origSubject := getHeader(orig.Payload.Headers, "Subject")
@@ -174,26 +176,26 @@ func (p *Provider) forwardMessage(ctx context.Context, params map[string]any, to
 	origText := extractPlainText(orig.Payload.Parts, orig.Payload.Body.Data, orig.Payload.MimeType)
 
 	forwardedBody := ""
-	if additional := stringParam(params, "additional_text"); additional != "" {
-		forwardedBody = additional + "\r\n\r\n"
+	if input.AdditionalText != "" {
+		forwardedBody = input.AdditionalText + "\r\n\r\n"
 	}
 	forwardedBody += fmt.Sprintf("---------- Forwarded message ----------\r\nFrom: %s\r\nDate: %s\r\nSubject: %s\r\n\r\n%s",
 		origFrom, origDate, origSubject, origText)
 
 	raw := buildMIME(mimeParams{
-		To:      to,
+		To:      input.To,
 		Subject: ensureForwardPrefix(origSubject),
 		Body:    forwardedBody,
-		Cc:      stringParam(params, "cc"),
+		Cc:      input.Cc,
 	})
 
-	resp, err := p.doPost(ctx, gmailBaseURL+"/messages/send", map[string]string{"raw": raw}, token)
+	resp, err := p.doPost(ctx, gmailBaseURL+"/messages/send", map[string]string{"raw": raw}, req.Token)
 	if err != nil {
-		return nil, err
+		return gestalt.Response[messageOutput]{}, err
 	}
-	return jsonResult(map[string]any{
-		"data": map[string]json.RawMessage{"message": resp},
-	})
+	var output messageOutput
+	output.Data.Message = resp
+	return gestalt.OK(output), nil
 }
 
 func extractPlainText(parts []struct {

@@ -1,4 +1,4 @@
-package gmail
+package provider
 
 import (
 	"crypto/rand"
