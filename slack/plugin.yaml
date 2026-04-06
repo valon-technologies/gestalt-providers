@@ -4,6 +4,7 @@ display_name: Slack
 description: Send messages, search conversations, and manage channels.
 icon_file: assets/icon.svg
 provider:
+  static_catalog_path: catalog.yaml
   connections:
     default:
       auth:

@@ -13,31 +13,6 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func TestProviderMetadata(t *testing.T) {
-	p := NewProvider()
-	if p.Name() != "gmail" {
-		t.Fatalf("Name() = %q, want %q", p.Name(), "gmail")
-	}
-	catalog := p.Catalog()
-	if catalog == nil {
-		t.Fatal("Catalog() returned nil")
-	}
-	if len(catalog.Operations) != 4 {
-		t.Fatalf("Catalog().Operations returned %d ops, want 4", len(catalog.Operations))
-	}
-	wantIDs := []string{
-		"messages.send",
-		"messages.createDraft",
-		"messages.reply",
-		"messages.forward",
-	}
-	for i, want := range wantIDs {
-		if got := catalog.Operations[i].ID; got != want {
-			t.Fatalf("Catalog().Operations[%d].ID = %q, want %q", i, got, want)
-		}
-	}
-}
-
 func TestExecuteRequiresToken(t *testing.T) {
 	p := NewProvider()
 	_, err := p.Execute(context.Background(), "messages.send", map[string]any{

@@ -4,6 +4,7 @@ display_name: BigQuery
 description: Google BigQuery data warehouse
 icon_file: assets/icon.svg
 provider:
+  static_catalog_path: catalog.yaml
   connections:
     default:
       auth:

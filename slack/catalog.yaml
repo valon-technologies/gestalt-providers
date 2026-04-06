@@ -1,0 +1,56 @@
+name: slack
+operations:
+  - id: conversations.getMessage
+    method: POST
+    description: Fetch a single message by Slack URL or channel and timestamp
+    parameters:
+      - name: url
+        type: string
+        description: Slack message URL
+      - name: channel
+        type: string
+        description: Channel ID
+      - name: ts
+        type: string
+        description: Message timestamp
+  - id: conversations.findUserMentions
+    method: POST
+    description: Find Slack user mentions in channel messages
+    parameters:
+      - name: channel
+        type: string
+        required: true
+        description: Channel ID to scan
+      - name: user_id
+        type: string
+        description: Optional user ID to filter mentions to
+      - name: limit
+        type: int
+        description: Number of messages to scan
+      - name: oldest
+        type: string
+        description: Only include messages after this Unix timestamp
+      - name: latest
+        type: string
+        description: Only include messages before this Unix timestamp
+      - name: include_bots
+        type: bool
+        description: Include bot messages in the scan
+  - id: conversations.getThreadParticipants
+    method: POST
+    description: Get unique participants in a Slack thread
+    parameters:
+      - name: channel
+        type: string
+        required: true
+        description: Channel ID containing the thread
+      - name: ts
+        type: string
+        required: true
+        description: Parent message timestamp
+      - name: include_user_info
+        type: bool
+        description: Fetch user profile details for participants
+      - name: include_bots
+        type: bool
+        description: Include bot users in the participant list

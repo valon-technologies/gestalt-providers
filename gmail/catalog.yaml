@@ -1,0 +1,91 @@
+name: gmail
+operations:
+  - id: messages.send
+    method: POST
+    description: Send an email message
+    parameters:
+      - name: to
+        type: string
+        required: true
+        description: Recipient email address
+      - name: subject
+        type: string
+        required: true
+        description: Email subject
+      - name: body
+        type: string
+        required: true
+        description: Plain text body
+      - name: cc
+        type: string
+        description: CC recipients (comma-separated)
+      - name: bcc
+        type: string
+        description: BCC recipients (comma-separated)
+      - name: html_body
+        type: string
+        description: HTML body (sent as alternative to plain text)
+  - id: messages.createDraft
+    method: POST
+    description: Create an email draft
+    parameters:
+      - name: to
+        type: string
+        required: true
+        description: Recipient email address
+      - name: subject
+        type: string
+        required: true
+        description: Email subject
+      - name: body
+        type: string
+        required: true
+        description: Plain text body
+      - name: cc
+        type: string
+        description: CC recipients (comma-separated)
+      - name: bcc
+        type: string
+        description: BCC recipients (comma-separated)
+      - name: html_body
+        type: string
+        description: HTML body
+  - id: messages.reply
+    method: POST
+    description: Reply to an existing message
+    parameters:
+      - name: message_id
+        type: string
+        required: true
+        description: Original message ID
+      - name: body
+        type: string
+        required: true
+        description: Reply body
+      - name: cc
+        type: string
+        description: CC recipients (comma-separated)
+      - name: reply_all
+        type: boolean
+        description: Reply to all recipients
+      - name: html_body
+        type: string
+        description: HTML body
+  - id: messages.forward
+    method: POST
+    description: Forward a message to new recipients
+    parameters:
+      - name: message_id
+        type: string
+        required: true
+        description: Message to forward
+      - name: to
+        type: string
+        required: true
+        description: Forward recipient
+      - name: additional_text
+        type: string
+        description: Text to prepend to forwarded content
+      - name: cc
+        type: string
+        description: CC recipients (comma-separated)

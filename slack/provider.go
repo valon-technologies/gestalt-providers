@@ -55,58 +55,8 @@ func NewProvider() *Provider {
 	}
 }
 
-func (p *Provider) Name() string        { return "slack" }
-func (p *Provider) DisplayName() string { return "Slack" }
-func (p *Provider) Description() string {
-	return "Slack helper operations for message lookup, mention scans, and thread participants."
-}
-func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
 func (p *Provider) Configure(context.Context, string, map[string]any) error {
 	return nil
-}
-
-func (p *Provider) Catalog() *gestalt.Catalog {
-	return &gestalt.Catalog{
-		Name:        p.Name(),
-		DisplayName: p.DisplayName(),
-		Description: p.Description(),
-		Operations: []gestalt.CatalogOperation{
-			{
-				ID:          "conversations.getMessage",
-				Description: "Fetch a single message by Slack URL or channel and timestamp",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "url", Type: "string", Description: "Slack message URL"},
-					{Name: "channel", Type: "string", Description: "Channel ID"},
-					{Name: "ts", Type: "string", Description: "Message timestamp"},
-				},
-			},
-			{
-				ID:          "conversations.findUserMentions",
-				Description: "Find Slack user mentions in channel messages",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "channel", Type: "string", Required: true, Description: "Channel ID to scan"},
-					{Name: "user_id", Type: "string", Description: "Optional user ID to filter mentions to"},
-					{Name: "limit", Type: "int", Description: "Number of messages to scan"},
-					{Name: "oldest", Type: "string", Description: "Only include messages after this Unix timestamp"},
-					{Name: "latest", Type: "string", Description: "Only include messages before this Unix timestamp"},
-					{Name: "include_bots", Type: "bool", Description: "Include bot messages in the scan"},
-				},
-			},
-			{
-				ID:          "conversations.getThreadParticipants",
-				Description: "Get unique participants in a Slack thread",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: "channel", Type: "string", Required: true, Description: "Channel ID containing the thread"},
-					{Name: "ts", Type: "string", Required: true, Description: "Parent message timestamp"},
-					{Name: "include_user_info", Type: "bool", Description: "Fetch user profile details for participants"},
-					{Name: "include_bots", Type: "bool", Description: "Include bot users in the participant list"},
-				},
-			},
-		},
-	}
 }
 
 func (p *Provider) Execute(ctx context.Context, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {

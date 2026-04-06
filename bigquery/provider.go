@@ -9,12 +9,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-const (
-	providerName        = "bigquery"
-	providerDisplayName = "BigQuery"
-	providerDescription = "Google BigQuery data warehouse"
-)
-
 type Provider struct {
 	runner queryRunner
 }
@@ -25,34 +19,8 @@ func NewProvider() *Provider {
 	return &Provider{runner: sdkQueryRunner{}}
 }
 
-func (p *Provider) Name() string                           { return providerName }
-func (p *Provider) DisplayName() string                    { return providerDisplayName }
-func (p *Provider) Description() string                    { return providerDescription }
-func (p *Provider) ConnectionMode() gestalt.ConnectionMode { return gestalt.ConnectionModeUser }
 func (p *Provider) Configure(context.Context, string, map[string]any) error {
 	return nil
-}
-
-func (p *Provider) Catalog() *gestalt.Catalog {
-	return &gestalt.Catalog{
-		Name:        providerName,
-		DisplayName: providerDisplayName,
-		Description: providerDescription,
-		Operations: []gestalt.CatalogOperation{
-			{
-				ID:          queryOperationName,
-				Description: "Execute a BigQuery SQL query",
-				Method:      http.MethodPost,
-				Parameters: []gestalt.CatalogParameter{
-					{Name: queryParamProjectID, Type: "string", Required: true, Description: "GCP project ID"},
-					{Name: queryParamSQL, Type: "string", Required: true, Description: "SQL query to execute"},
-					{Name: queryParamMaxResults, Type: "integer", Description: "Maximum number of rows to return", Default: defaultQueryMaxResults},
-					{Name: queryParamTimeoutMs, Type: "integer", Description: "Query timeout in milliseconds", Default: defaultQueryTimeoutMs},
-					{Name: queryParamUseLegacySQL, Type: "boolean", Description: "Use legacy SQL syntax", Default: defaultQueryUseLegacySQL},
-				},
-			},
-		},
-	}
 }
 
 func (p *Provider) Execute(ctx context.Context, operation string, params map[string]any, token string) (*gestalt.OperationResult, error) {
