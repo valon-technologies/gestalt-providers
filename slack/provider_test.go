@@ -1,4 +1,4 @@
-package provider
+package slack
 
 import (
 	"context"
