@@ -300,20 +300,6 @@ func (p *Provider) getThreadParticipants(ctx context.Context, input GetThreadPar
 
 	participants := make([]threadParticipant, 0, len(participantsByUser))
 	for _, participant := range participantsByUser {
-		if input.IncludeUserInfo {
-			userData, err := p.slackGET(ctx, "/users.info", neturl.Values{
-				"user": []string{participant.UserID},
-			}, req.Token)
-			if err == nil {
-				user := mapField(userData, "user")
-				profile := mapField(user, "profile")
-				participant.DisplayName = stringField(profile, "display_name")
-				participant.RealName = stringField(user, "real_name")
-				if isBot, ok := boolField(user, "is_bot"); ok {
-					participant.IsBot = &isBot
-				}
-			}
-		}
 		participants = append(participants, *participant)
 	}
 
@@ -323,6 +309,23 @@ func (p *Provider) getThreadParticipants(ctx context.Context, input GetThreadPar
 		}
 		return participants[i].FirstReplyTS < participants[j].FirstReplyTS
 	})
+
+	for i := range participants {
+		if input.IncludeUserInfo {
+			userData, err := p.slackGET(ctx, "/users.info", neturl.Values{
+				"user": []string{participants[i].UserID},
+			}, req.Token)
+			if err == nil {
+				user := mapField(userData, "user")
+				profile := mapField(user, "profile")
+				participants[i].DisplayName = stringField(profile, "display_name")
+				participants[i].RealName = stringField(user, "real_name")
+				if isBot, ok := boolField(user, "is_bot"); ok {
+					participants[i].IsBot = &isBot
+				}
+			}
+		}
+	}
 
 	totalReplies := 0
 	if len(messages) > 0 {
