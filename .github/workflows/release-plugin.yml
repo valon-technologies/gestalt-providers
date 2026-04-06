@@ -56,4 +56,4 @@ jobs:
     with:
       plugin-dir: ${{ needs.prepare.outputs.plugin-name }}
       version: ${{ needs.prepare.outputs.plugin-version }}
-      gestaltd-version: 0.0.1-alpha.9
+      gestaltd-version: 0.0.1-alpha.10
