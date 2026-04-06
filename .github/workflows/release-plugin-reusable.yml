@@ -27,6 +27,7 @@ jobs:
       GESTALTD_REPOSITORY: valon-technologies/gestalt
       GOPRIVATE: github.com/valon-technologies/*
       GONOSUMDB: github.com/valon-technologies/*
+      UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
       - name: Normalize version
@@ -69,19 +70,31 @@ jobs:
           else
             echo "has-go-mod=false" >> "$GITHUB_OUTPUT"
           fi
+          if [ -f "${PLUGIN_DIR}/pyproject.toml" ]; then
+            echo "has-python-project=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-python-project=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - name: Configure private Go module access
-        if: steps.plugin.outputs.has-go-mod == 'true'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        if: steps.plugin.outputs.has-python-project == 'true'
+      - name: Install Python
+        if: steps.plugin.outputs.has-python-project == 'true'
+        run: uv python install 3.14
+      - name: Configure private Gestalt repository access
+        if: steps.plugin.outputs.has-go-mod == 'true' || steps.plugin.outputs.has-python-project == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           if [ -z "${PAT_TOKEN}" ]; then
-            echo "PAT_TOKEN secret is required to fetch private Go modules"
+            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
           fi
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -106,6 +119,11 @@ jobs:
         run: |
           cd "${{ inputs.plugin-dir }}"
           go test ./...
+      - name: Sync Python plugin environment
+        if: steps.plugin.outputs.has-python-project == 'true'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          uv sync
       - name: Package plugin
         run: |
           cd "${{ inputs.plugin-dir }}"
