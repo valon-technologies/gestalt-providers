@@ -41,12 +41,21 @@ jobs:
         run: uv python install 3.14
       - name: Configure private Gestalt repository access
         env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
           fi
+          printf '%s\n' "${PAT_TOKEN}" | gh auth login --hostname github.com --with-token
+          gh auth setup-git
+          cat > "${HOME}/.netrc" <<EOF
+          machine github.com
+            login x-access-token
+            password ${PAT_TOKEN}
+          EOF
+          chmod 0600 "${HOME}/.netrc"
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
