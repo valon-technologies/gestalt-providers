@@ -50,6 +50,10 @@ gestaltd plugin release --version 0.1.0
 Pin `rev` to a specific `valon-technologies/gestalt` commit and bump it
 intentionally when you want SDK changes.
 
+The BigQuery Python port currently has a protobuf 7 blocker in the upstream
+Google dependency chain. See
+[`bigquery/PYTHON_PROTOBUF7_BLOCKERS.md`](bigquery/PYTHON_PROTOBUF7_BLOCKERS.md).
+
 ## Releasing
 
 Push a tag in the format `<plugin>/v<version>`.
