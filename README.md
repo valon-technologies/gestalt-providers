@@ -6,13 +6,49 @@ Versioned plugin packages for Gestalt.
 
 - `<name>` contains the source for each plugin package.
 - Declarative plugins ship from their manifests and support files.
-- Compiled plugins are built and packaged with `gestaltd plugin release`.
+- Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
+- Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
 
 ## CI
 
-Pushes and pull requests validate every plugin package. Compiled plugins also run `go test ./...`.
+Pushes and pull requests validate every plugin package. Go plugins also run `go test ./...`. Python plugins run `uv sync` before packaging so the selected interpreter environment contains the SDK, PyInstaller, and plugin dependencies.
 
-The workflows fetch `gestaltd` and the private `github.com/valon-technologies/gestalt/sdk/go` module from `valon-technologies/gestalt`, so this repo needs a `PAT_TOKEN` Actions secret with read access to that repository.
+The workflows fetch `gestaltd` and private SDK sources from `valon-technologies/gestalt`, so this repo needs a `PAT_TOKEN` Actions secret with read access to that repository.
+
+## Python source plugins
+
+Until the Python SDK is published to a package index, Python plugins should
+source the SDK directly from the `gestalt` repo with `uv`.
+
+Minimal `pyproject.toml`:
+
+```toml
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-plugin"
+version = "0.1.0"
+dependencies = ["gestalt"]
+
+[tool.uv.sources]
+gestalt = { git = "ssh://git@github.com/valon-technologies/gestalt.git", rev = "<gestalt-commit-sha>", subdirectory = "sdk/python" }
+
+[tool.gestalt]
+plugin = "provider:plugin"
+```
+
+Recommended local flow:
+
+```sh
+uv sync
+uv run python -c "import gestalt"
+gestaltd plugin release --version 0.1.0
+```
+
+Pin `rev` to a specific `valon-technologies/gestalt` commit and bump it
+intentionally when you want SDK changes.
 
 ## Releasing
 
