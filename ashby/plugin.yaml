@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-plugins/ashby
 version: 0.0.1-alpha.2
 display_name: Ashby
-description: Candidates, applications, jobs, offers, interviews, departments, locations, and users.
+description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
 icon_file: assets/icon.svg
 provider:
   allowed_operations:
@@ -17,7 +17,12 @@ provider:
     job.list: {}
     job.info: {}
     offer.info: {}
+    report.synchronous: {}
+    report.generate: {}
     interviewSchedule.list: {}
+    interview.info: {}
+    interviewStage.info: {}
+    department.info: {}
     department.list: {}
     location.list: {}
     user.list: {}
