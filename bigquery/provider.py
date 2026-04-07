@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 import gestalt
+from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery
 from google.cloud.bigquery import QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
@@ -51,25 +52,31 @@ def query(input: QueryInput, req: gestalt.Request) -> QueryOutput | gestalt.Resp
 
     max_results = max(0, input.max_results)
     timeout_seconds = input.timeout_seconds if input.timeout_seconds > 0 else None
-    with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
-        job = client.query(
-            input.query,
-            job_config=QueryJobConfig(use_legacy_sql=input.use_legacy_sql),
-            timeout=timeout_seconds,
-            project=input.project_id,
-        )
-        iterator = job.result(timeout=timeout_seconds)
-        rows: list[dict[str, Any]] = []
-        for index, row in enumerate(iterator):
-            if index >= max_results:
-                break
-            rows.append(sanitize_row(dict(row.items())))
+    try:
+        with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
+            job = client.query(
+                input.query,
+                job_config=QueryJobConfig(use_legacy_sql=input.use_legacy_sql),
+                timeout=timeout_seconds,
+                project=input.project_id,
+            )
+            iterator = job.result(timeout=timeout_seconds)
+            rows: list[dict[str, Any]] = []
+            for index, row in enumerate(iterator):
+                if index >= max_results:
+                    break
+                rows.append(sanitize_row(dict(row.items())))
 
-        return QueryOutput(
-            schema=convert_schema(iterator.schema),
-            rows=rows,
-            total_rows=int(iterator.total_rows or 0),
-            job_complete=True,
+            return QueryOutput(
+                schema=convert_schema(iterator.schema),
+                rows=rows,
+                total_rows=int(iterator.total_rows or 0),
+                job_complete=True,
+            )
+    except google_exceptions.GoogleAPICallError as err:
+        return gestalt.Response(
+            status=google_api_status(err),
+            body={"error": google_api_message(err)},
         )
 
 
@@ -100,3 +107,22 @@ def sanitize_value(value: Any) -> Any:
     if isinstance(value, (dt.date, dt.time)):
         return value.isoformat()
     return value
+
+
+def google_api_status(err: google_exceptions.GoogleAPICallError) -> HTTPStatus:
+    code = getattr(err, "code", None)
+    if isinstance(code, HTTPStatus):
+        return code
+    if isinstance(code, int) and 400 <= code <= 599:
+        return HTTPStatus(code)
+    return HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+def google_api_message(err: google_exceptions.GoogleAPICallError) -> str:
+    message = getattr(err, "message", "")
+    if isinstance(message, str) and message:
+        return message
+    text = str(err).strip()
+    if text:
+        return text
+    return "BigQuery request failed"
