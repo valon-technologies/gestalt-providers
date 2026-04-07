@@ -88,13 +88,22 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
           fi
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          cat > "${HOME}/.netrc" <<EOF
+          machine github.com
+            login x-access-token
+            password ${PAT_TOKEN}
+          EOF
+          chmod 600 "${HOME}/.netrc"
+
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
