@@ -53,6 +53,10 @@ intentionally when you want SDK changes.
 
 Push a tag in the format `<plugin>/v<version>`.
 
+Python source plugin releases publish separate `linux/amd64/glibc` and
+`linux/amd64/musl` artifacts so `gestaltd` can resolve the correct binary for
+glibc and Alpine runtimes.
+
 Example:
 
 ```sh
