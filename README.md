@@ -36,7 +36,7 @@ dependencies = ["gestalt"]
 gestalt = { git = "ssh://git@github.com/valon-technologies/gestalt.git", rev = "<gestalt-commit-sha>", subdirectory = "sdk/python" }
 
 [tool.gestalt]
-plugin = "provider:plugin"
+plugin = "provider"
 ```
 
 Recommended local flow:
