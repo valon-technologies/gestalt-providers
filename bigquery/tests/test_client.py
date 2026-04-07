@@ -1,55 +1,59 @@
 import unittest
 from http import HTTPStatus
+from typing import cast
 from unittest import mock
 
 import gestalt
-from google.api_core import exceptions as google_exceptions
+from google.api_core.exceptions import BadRequest, GoogleAPICallError
 from google.cloud.bigquery import SchemaField
 
-import provider
+import internals.client as client_module
+from internals import QueryInput, query_operation
 
 
-class QueryTests(unittest.TestCase):
+class QueryOperationTests(unittest.TestCase):
     def test_query_returns_structured_bad_request(self) -> None:
         client = mock.Mock()
-        client.query.side_effect = google_exceptions.BadRequest(
+        client.query.side_effect = BadRequest(
             'Table "loans" must be qualified with a dataset (e.g. dataset.table).'
         )
 
-        with mock.patch.object(provider.bigquery, "Client") as client_cls:
+        with mock.patch.object(client_module.bigquery, "Client") as client_cls:
             client_cls.return_value.__enter__.return_value = client
 
-            result = provider.query(
-                provider.QueryInput(project_id="serviceone", query="SELECT COUNT(1) FROM loans"),
+            result = query_operation(
+                QueryInput(project_id="serviceone", query="SELECT COUNT(1) FROM loans"),
                 gestalt.Request(token="token"),
             )
 
         self.assertIsInstance(result, gestalt.Response)
-        self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(
-            result.body,
+            response.body,
             {"error": 'Table "loans" must be qualified with a dataset (e.g. dataset.table).'},
         )
 
     def test_query_returns_generic_google_api_failure_as_500(self) -> None:
         client = mock.Mock()
-        client.query.side_effect = google_exceptions.GoogleAPICallError("generic issue")
+        client.query.side_effect = GoogleAPICallError("generic issue")
 
-        with mock.patch.object(provider.bigquery, "Client") as client_cls:
+        with mock.patch.object(client_module.bigquery, "Client") as client_cls:
             client_cls.return_value.__enter__.return_value = client
 
-            result = provider.query(
-                provider.QueryInput(project_id="serviceone", query="SELECT 1"),
+            result = query_operation(
+                QueryInput(project_id="serviceone", query="SELECT 1"),
                 gestalt.Request(token="token"),
             )
 
         self.assertIsInstance(result, gestalt.Response)
-        self.assertEqual(result.status, HTTPStatus.INTERNAL_SERVER_ERROR)
-        self.assertEqual(result.body, {"error": "generic issue"})
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.body, {"error": "generic issue"})
 
     def test_query_success_preserves_existing_output_shape(self) -> None:
         iterator = FakeIterator(
-            rows=[{"count": 1, "amount": provider.decimal.Decimal("12.50")}],
+            rows=[{"count": 1, "amount": client_module.decimal.Decimal("12.50")}],
             schema=[SchemaField("count", "INT64"), SchemaField("amount", "NUMERIC")],
             total_rows=1,
         )
@@ -58,19 +62,20 @@ class QueryTests(unittest.TestCase):
         client = mock.Mock()
         client.query.return_value = job
 
-        with mock.patch.object(provider.bigquery, "Client") as client_cls:
+        with mock.patch.object(client_module.bigquery, "Client") as client_cls:
             client_cls.return_value.__enter__.return_value = client
 
-            result = provider.query(
-                provider.QueryInput(project_id="serviceone", query="SELECT 1"),
+            result = query_operation(
+                QueryInput(project_id="serviceone", query="SELECT 1"),
                 gestalt.Request(token="token"),
             )
 
-        self.assertEqual(result.total_rows, 1)
-        self.assertEqual(result.rows, [{"count": 1, "amount": "12.50"}])
-        self.assertEqual(result.schema[0].name, "count")
-        self.assertEqual(result.schema[1].name, "amount")
-        self.assertTrue(result.job_complete)
+        output = cast(client_module.QueryOutput, result)
+        self.assertEqual(output.total_rows, 1)
+        self.assertEqual(output.rows, [{"count": 1, "amount": "12.50"}])
+        self.assertEqual(output.schema[0].name, "count")
+        self.assertEqual(output.schema[1].name, "amount")
+        self.assertTrue(output.job_complete)
 
 
 class FakeIterator:
