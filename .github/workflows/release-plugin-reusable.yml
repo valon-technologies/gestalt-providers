@@ -164,15 +164,11 @@ jobs:
             -v "${workspace}:/workspace" \
             -w /workspace \
             ghcr.io/astral-sh/uv:python3.14-alpine \
-            sh -ceu '
+            bash -ceu '
               apk add --no-cache bash build-base ca-certificates curl git
               curl -fsSL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xz
 
-              cat > "${HOME}/.netrc" <<EOF
-              machine github.com
-                login x-access-token
-                password ${PAT_TOKEN}
-              EOF
+              printf "machine github.com\n  login x-access-token\n  password %s\n" "${PAT_TOKEN}" > "${HOME}/.netrc"
               chmod 600 "${HOME}/.netrc"
 
               git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
@@ -181,8 +177,7 @@ jobs:
               mkdir -p /tmp/bin
               export PATH="/usr/local/go/bin:/tmp/bin:$PATH"
               toolchain_dir="/tmp/gestalt"
-              toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
-              git clone "$toolchain_url" "$toolchain_dir"
+              git clone "https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git" "$toolchain_dir"
               git -C "$toolchain_dir" fetch --depth 1 origin "${INPUT_GESTALT_REF}"
               git -C "$toolchain_dir" checkout FETCH_HEAD
               (cd "$toolchain_dir/gestaltd" && go build -o /tmp/bin/gestaltd ./cmd/gestaltd)
