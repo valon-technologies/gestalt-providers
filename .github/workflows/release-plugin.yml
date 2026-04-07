@@ -56,4 +56,4 @@ jobs:
     with:
       plugin-dir: ${{ needs.prepare.outputs.plugin-name }}
       version: ${{ needs.prepare.outputs.plugin-version }}
-      gestalt-ref: 7f4608be3111bb26ecbd62f5f5096c7662bcd51d
+      gestalt-ref: 89cf7dceca1804a340fe14f066337c2518236f55

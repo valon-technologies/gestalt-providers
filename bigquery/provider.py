@@ -8,8 +8,6 @@ from google.cloud import bigquery
 from google.cloud.bigquery import QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
 
-plugin = gestalt.Plugin.from_manifest("plugin.yaml")
-
 
 class QueryInput(gestalt.Model):
     project_id: str = gestalt.field(description="GCP project ID")
@@ -44,11 +42,7 @@ class QueryOutput(gestalt.Model):
     job_complete: bool
 
 
-@plugin.operation(
-    id="query",
-    method="POST",
-    description="Execute a BigQuery SQL query",
-)
+@gestalt.operation(description="Execute a BigQuery SQL query")
 def query(input: QueryInput, req: gestalt.Request) -> QueryOutput | gestalt.Response[dict[str, str]]:
     if not input.project_id:
         return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "project_id is required"})
@@ -57,29 +51,26 @@ def query(input: QueryInput, req: gestalt.Request) -> QueryOutput | gestalt.Resp
 
     max_results = max(0, input.max_results)
     timeout_seconds = input.timeout_seconds if input.timeout_seconds > 0 else None
-    try:
-        with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
-            job = client.query(
-                input.query,
-                job_config=QueryJobConfig(use_legacy_sql=input.use_legacy_sql),
-                timeout=timeout_seconds,
-                project=input.project_id,
-            )
-            iterator = job.result(timeout=timeout_seconds)
-            rows: list[dict[str, Any]] = []
-            for index, row in enumerate(iterator):
-                if index >= max_results:
-                    break
-                rows.append(sanitize_row(dict(row.items())))
+    with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
+        job = client.query(
+            input.query,
+            job_config=QueryJobConfig(use_legacy_sql=input.use_legacy_sql),
+            timeout=timeout_seconds,
+            project=input.project_id,
+        )
+        iterator = job.result(timeout=timeout_seconds)
+        rows: list[dict[str, Any]] = []
+        for index, row in enumerate(iterator):
+            if index >= max_results:
+                break
+            rows.append(sanitize_row(dict(row.items())))
 
-            return QueryOutput(
-                schema=convert_schema(iterator.schema),
-                rows=rows,
-                total_rows=int(iterator.total_rows or 0),
-                job_complete=True,
-            )
-    except Exception as err:
-        return gestalt.Response(status=HTTPStatus.INTERNAL_SERVER_ERROR, body={"error": str(err)})
+        return QueryOutput(
+            schema=convert_schema(iterator.schema),
+            rows=rows,
+            total_rows=int(iterator.total_rows or 0),
+            job_complete=True,
+        )
 
 
 def convert_schema(schema: list[SchemaField]) -> list[QuerySchemaField]:

@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-gestalt = { git = "ssh://git@github.com/valon-technologies/gestalt.git", rev = "7f4608be3111bb26ecbd62f5f5096c7662bcd51d", subdirectory = "sdk/python" }
+gestalt = { git = "ssh://git@github.com/valon-technologies/gestalt.git", rev = "89cf7dceca1804a340fe14f066337c2518236f55", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 plugin = "provider:plugin"
