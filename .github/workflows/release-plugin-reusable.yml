@@ -22,7 +22,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
       GOPRIVATE: github.com/valon-technologies/*
@@ -138,7 +138,62 @@ jobs:
       - name: Package plugin
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd plugin release --version "${{ steps.version.outputs.release }}"
+          if [ "${{ steps.plugin.outputs.has-python-project }}" = "true" ]; then
+            gestaltd plugin release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/glibc
+          else
+            gestaltd plugin release --version "${{ steps.version.outputs.release }}"
+          fi
+      - name: Package Python musl artifact
+        if: steps.plugin.outputs.has-python-project == 'true'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          workspace="$PWD"
+
+          docker run --rm \
+            -e PAT_TOKEN \
+            -e GESTALT_REPOSITORY="${GESTALT_REPOSITORY}" \
+            -e GOPRIVATE="${GOPRIVATE}" \
+            -e GONOSUMDB="${GONOSUMDB}" \
+            -e INPUT_PLUGIN_DIR="${{ inputs.plugin-dir }}" \
+            -e INPUT_GESTALT_REF="${{ inputs.gestalt-ref }}" \
+            -e INPUT_VERSION="${{ steps.version.outputs.release }}" \
+            -v "${workspace}:/workspace" \
+            -w /workspace \
+            ghcr.io/astral-sh/uv:python3.14-alpine \
+            sh -ceu '
+              apk add --no-cache bash build-base ca-certificates git go
+
+              cat > "${HOME}/.netrc" <<EOF
+              machine github.com
+                login x-access-token
+                password ${PAT_TOKEN}
+              EOF
+              chmod 600 "${HOME}/.netrc"
+
+              git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+              git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+              export GOBIN="/tmp/bin"
+              mkdir -p "$GOBIN"
+              export PATH="$GOBIN:$PATH"
+              toolchain_dir="/tmp/gestalt"
+              toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
+              git clone "$toolchain_url" "$toolchain_dir"
+              git -C "$toolchain_dir" fetch --depth 1 origin "${INPUT_GESTALT_REF}"
+              git -C "$toolchain_dir" checkout FETCH_HEAD
+              (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+
+              cd "${INPUT_PLUGIN_DIR}"
+              gestaltd plugin release --version "${INPUT_VERSION}" --platform linux/amd64/musl
+              chmod -R a+rX dist
+            '
+      - name: Write release checksums
+        run: |
+          cd "${{ inputs.plugin-dir }}/dist"
+          sha256sum ./*.tar.gz > checksums.txt
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -153,5 +208,4 @@ jobs:
             args+=(--prerelease)
           fi
           args+=("${PLUGIN_DIR}"/dist/*)
-
           gh "${args[@]}"
