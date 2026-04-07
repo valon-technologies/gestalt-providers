@@ -161,7 +161,7 @@ dependencies = [
 [[package]]
 name = "gestalt-bigquery"
 version = "0.0.1a3"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "gestalt" },
     { name = "google-auth" },
