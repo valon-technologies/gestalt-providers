@@ -57,9 +57,8 @@ def query(input: QueryInput, req: gestalt.Request) -> QueryOutput | gestalt.Resp
 
     max_results = max(0, input.max_results)
     timeout_seconds = max(0, input.timeout_ms) / 1000 if input.timeout_ms else None
-    credentials = Credentials(token=req.token)
     try:
-        with bigquery.Client(project=input.project_id, credentials=credentials) as client:
+        with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
             job = client.query(
                 input.query,
                 job_config=QueryJobConfig(use_legacy_sql=input.use_legacy_sql),
