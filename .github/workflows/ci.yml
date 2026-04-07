@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 env:
-  GESTALTD_REPOSITORY: valon-technologies/gestalt
-  GESTALTD_VERSION: 0.0.1-alpha.11
+  GESTALT_REPOSITORY: valon-technologies/gestalt
+  GESTALT_REF: 7f4608be3111bb26ecbd62f5f5096c7662bcd51d
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -52,19 +52,22 @@ jobs:
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           GOBIN: ${{ runner.temp }}/bin
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${RUNNER_TEMP}/gestaltd"
-          mkdir -p "$toolchain_dir"
-          gh release download "gestaltd/v${GESTALTD_VERSION}" \
-            --repo "${GESTALTD_REPOSITORY}" \
-            --pattern "gestaltd-linux-x86_64.tar.gz" \
-            --dir "$toolchain_dir"
-          tar -xzf "${toolchain_dir}/gestaltd-linux-x86_64.tar.gz" -C "$toolchain_dir"
-          install -m 0755 "${toolchain_dir}/gestaltd" "$GOBIN/gestaltd"
+          toolchain_dir="${RUNNER_TEMP}/gestalt"
+          if [ -z "${PAT_TOKEN}" ]; then
+            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
+            exit 1
+          fi
+          toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
+          git clone "$toolchain_url" "$toolchain_dir"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
+          git -C "$toolchain_dir" checkout FETCH_HEAD
+          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Validate every plugin
         env:
           OUTPUT_ROOT: ${{ runner.temp }}/dist
@@ -82,7 +85,13 @@ jobs:
             fi
 
             if [ -f "${plugin_dir}/pyproject.toml" ]; then
-              (cd "$plugin_dir" && uv sync)
+              if [ "$plugin_name" = "bigquery" ]; then
+                (cd "$plugin_dir" && uv sync --group dev)
+                (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
+                (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete)
+              else
+                (cd "$plugin_dir" && uv sync)
+              fi
             fi
 
             rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
