@@ -1,7 +1,7 @@
 openapi: "3.2.0"
 info:
   title: Ashby
-  description: Candidates, applications, jobs, offers, interviews, departments, locations, and users
+  description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports
 servers:
   - url: https://api.ashbyhq.com
 security:
@@ -287,6 +287,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/Response"
 
+  /report.synchronous:
+    post:
+      operationId: report.synchronous
+      summary: Run a saved report synchronously
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
+  /report.generate:
+    post:
+      operationId: report.generate
+      summary: Start or poll an asynchronous report generation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
   /interviewSchedule.list:
     post:
       operationId: interviewSchedule.list
@@ -304,6 +340,60 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaginatedResponse"
+
+  /interview.info:
+    post:
+      operationId: interview.info
+      summary: Get an interview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
+  /interviewStage.info:
+    post:
+      operationId: interviewStage.info
+      summary: Get an interview stage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterviewStageInfoRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
+  /department.info:
+    post:
+      operationId: department.info
+      summary: Get a department
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepartmentInfoRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
 
   /department.list:
     post:
@@ -367,6 +457,38 @@ components:
       description: "Create a key in [Ashby API Keys](https://app.ashbyhq.com/admin/api/keys)."
 
   schemas:
+    IdRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+
+    DepartmentInfoRequest:
+      type: object
+      required: [departmentId]
+      properties:
+        departmentId:
+          type: string
+
+    InterviewStageInfoRequest:
+      type: object
+      required: [interviewStageId]
+      properties:
+        interviewStageId:
+          type: string
+
+    ReportRequest:
+      type: object
+      required: [reportId]
+      properties:
+        reportId:
+          type: string
+        includeHeadersInData:
+          type: boolean
+        requestId:
+          type: string
+
     PaginationParams:
       type: object
       properties:
