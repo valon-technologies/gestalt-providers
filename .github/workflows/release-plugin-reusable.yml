@@ -27,6 +27,7 @@ jobs:
       GESTALT_REPOSITORY: valon-technologies/gestalt
       GOPRIVATE: github.com/valon-technologies/*
       GONOSUMDB: github.com/valon-technologies/*
+      GO_VERSION: "1.26.1"
       UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
@@ -112,16 +113,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${RUNNER_TEMP}/gestalt"
-          if [ -z "${PAT_TOKEN}" ]; then
-            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
-            exit 1
-          fi
-          toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
-          git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
-          git -C "$toolchain_dir" checkout FETCH_HEAD
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          sh .github/scripts/install_gestaltd_from_ref.sh "${GESTALT_REPOSITORY}" "${{ inputs.gestalt-ref }}" "$GOBIN/gestaltd"
       - uses: actions/setup-go@v5
         if: steps.plugin.outputs.has-go-mod == 'true'
         with:
@@ -149,46 +141,20 @@ jobs:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
-
-          workspace="$PWD"
-
           docker run --rm \
             -e PAT_TOKEN \
-            -e GESTALT_REPOSITORY="${GESTALT_REPOSITORY}" \
+            -e GO_VERSION="${GO_VERSION}" \
             -e GOPRIVATE="${GOPRIVATE}" \
             -e GONOSUMDB="${GONOSUMDB}" \
             -e UV_PYTHON="${UV_PYTHON}" \
-            -e INPUT_PLUGIN_DIR="${{ inputs.plugin-dir }}" \
-            -e INPUT_GESTALT_REF="${{ inputs.gestalt-ref }}" \
-            -e INPUT_VERSION="${{ steps.version.outputs.release }}" \
-            -v "${workspace}:/workspace" \
+            -v "$PWD:/workspace" \
             -w /workspace \
             ghcr.io/astral-sh/uv:python3.14-alpine \
-            sh -ceu '
-              apk add --no-cache bash build-base ca-certificates curl git
-              curl -fsSL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xz
-
-              printf "machine github.com\n  login x-access-token\n  password %s\n" "${PAT_TOKEN}" > "${HOME}/.netrc"
-              chmod 600 "${HOME}/.netrc"
-
-              git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-              git config --global url."https://github.com/".insteadOf "git@github.com:"
-
-              mkdir -p /tmp/bin
-              export PATH="/usr/local/go/bin:/tmp/bin:$PATH"
-              toolchain_dir="/tmp/gestalt"
-              git clone "https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git" "$toolchain_dir"
-              git -C "$toolchain_dir" fetch --depth 1 origin "${INPUT_GESTALT_REF}"
-              git -C "$toolchain_dir" checkout FETCH_HEAD
-              (cd "$toolchain_dir/gestaltd" && go build -o /tmp/bin/gestaltd ./cmd/gestaltd)
-
-              cd "${INPUT_PLUGIN_DIR}"
-              rm -rf .venv
-              uv sync
-              export GESTALT_PYTHON_LINUX_AMD64="$PWD/.venv/bin/python"
-              gestaltd plugin release --version "${INPUT_VERSION}" --platform linux/amd64/musl
-              chmod -R a+rX dist
-            '
+            sh .github/scripts/package_python_plugin_musl.sh \
+              "${{ inputs.plugin-dir }}" \
+              "${GESTALT_REPOSITORY}" \
+              "${{ inputs.gestalt-ref }}" \
+              "${{ steps.version.outputs.release }}"
       - name: Write release checksums
         run: |
           cd "${{ inputs.plugin-dir }}/dist"
