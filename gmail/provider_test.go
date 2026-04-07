@@ -22,11 +22,20 @@ func executeTestOperation(t *testing.T, p *Provider, operation string, params ma
 
 func TestExecuteRequiresToken(t *testing.T) {
 	p := New()
-	_, err := executeTestOperation(t, p, "messages.send", map[string]any{
+	result, err := executeTestOperation(t, p, "messages.send", map[string]any{
 		"to": "a@b.com", "subject": "Hi", "body": "Hi",
 	}, "")
-	if err == nil {
-		t.Fatal("Execute with empty token should error")
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("result is nil")
+	}
+	if result.Status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", result.Status, http.StatusInternalServerError)
+	}
+	if got := result.Body; got != `{"error":"token is required"}` {
+		t.Fatalf("body = %q", got)
 	}
 }
 

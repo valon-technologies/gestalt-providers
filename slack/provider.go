@@ -91,7 +91,7 @@ type getThreadParticipantsOutput struct {
 	} `json:"data"`
 }
 
-var Router = gestalt.MustRouter(
+var Router = gestalt.MustNamedRouter(
 	"slack",
 	gestalt.Register(
 		gestalt.Operation[GetMessageInput, getMessageOutput]{
