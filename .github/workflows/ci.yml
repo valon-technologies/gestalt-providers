@@ -4,16 +4,14 @@ on:
   pull_request:
     paths:
       - '.github/workflows/**'
-      - '.gitignore'
-      - 'README.md'
+      - '.github/scripts/**'
       - '*/**'
   push:
     branches:
       - main
     paths:
       - '.github/workflows/**'
-      - '.gitignore'
-      - 'README.md'
+      - '.github/scripts/**'
       - '*/**'
 
 permissions:
@@ -28,28 +26,127 @@ env:
   UV_PYTHON: "3.14"
 
 jobs:
-  validate:
+  discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    outputs:
+      plugins: ${{ steps.discover.outputs.plugins }}
+      count: ${{ steps.discover.outputs.count }}
+      scope: ${{ steps.discover.outputs.scope }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          fetch-depth: 0
+      - name: Discover plugins to validate
+        id: discover
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          discovery_output="$(python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          repo = Path(".")
+          all_plugins = sorted(path.parent.name for path in repo.glob("*/plugin.yaml"))
+          shared_prefixes = (".github/workflows/", ".github/scripts/")
+
+          event_name = os.environ["EVENT_NAME"]
+          run_all = event_name != "pull_request"
+          selected = set()
+
+          if event_name == "pull_request":
+              base = os.environ["PR_BASE_SHA"]
+              head = os.environ["PR_HEAD_SHA"]
+              changed_files = subprocess.check_output(
+                  ["git", "diff", "--name-only", f"{base}..{head}"],
+                  text=True,
+              ).splitlines()
+
+              for path in changed_files:
+                  if not path:
+                      continue
+                  if path.startswith(shared_prefixes):
+                      run_all = True
+                      break
+                  root = path.split("/", 1)[0]
+                  if (repo / root / "plugin.yaml").is_file():
+                      selected.add(root)
+
+          plugin_names = all_plugins if run_all else sorted(selected)
+          plugins = []
+          for name in plugin_names:
+              plugin_dir = repo / name
+              plugins.append(
+                  {
+                      "dir": name,
+                      "name": name,
+                      "has_go": (plugin_dir / "go.mod").is_file(),
+                      "has_python": (plugin_dir / "pyproject.toml").is_file(),
+                  }
+              )
+
+          print(
+              json.dumps(
+                  {
+                      "plugins": plugins,
+                      "count": len(plugins),
+                      "scope": "all" if run_all else "changed",
+                  }
+              )
+          )
+          PY
+          )"
+
+          plugins_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["plugins"]))' <<<"$discovery_output")"
+          count="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["count"])' <<<"$discovery_output")"
+          scope="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["scope"])' <<<"$discovery_output")"
+
+          {
+            echo "plugins<<EOF"
+            echo "$plugins_json"
+            echo "EOF"
+            echo "count=$count"
+            echo "scope=$scope"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "validation scope: $scope"
+          echo "plugin count: $count"
+          echo "plugins: $plugins_json"
+
+  build-gestaltd:
+    needs: discover
+    if: needs.discover.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - name: Install Python
-        run: uv python install 3.14
       - name: Configure private Gestalt repository access
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
           fi
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          cat > "${HOME}/.netrc" <<EOF
+          machine github.com
+            login x-access-token
+            password ${PAT_TOKEN}
+          EOF
+          chmod 600 "${HOME}/.netrc"
+
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
@@ -68,45 +165,88 @@ jobs:
           git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
           git -C "$toolchain_dir" checkout FETCH_HEAD
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - name: Validate every plugin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gestaltd
+          path: ${{ runner.temp }}/bin/gestaltd
+          if-no-files-found: error
+
+  validate:
+    needs:
+      - discover
+      - build-gestaltd
+    if: needs.discover.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    name: Validate ${{ matrix.plugin.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        if: matrix.plugin.has_python
+      - uses: actions/setup-go@v5
+        if: matrix.plugin.has_go
+        with:
+          go-version: '1.26'
+      - name: Install Python
+        if: matrix.plugin.has_python
+        run: uv python install 3.14
+      - name: Configure private Gestalt repository access
+        if: matrix.plugin.has_go || matrix.plugin.has_python
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PAT_TOKEN}" ]; then
+            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
+            exit 1
+          fi
+
+          cat > "${HOME}/.netrc" <<EOF
+          machine github.com
+            login x-access-token
+            password ${PAT_TOKEN}
+          EOF
+          chmod 600 "${HOME}/.netrc"
+
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+      - uses: actions/download-artifact@v4
+        with:
+          name: gestaltd
+          path: ${{ runner.temp }}/bin
+      - name: Add gestaltd to PATH
+        run: |
+          chmod +x "${RUNNER_TEMP}/bin/gestaltd"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+      - name: Validate plugin
         env:
           OUTPUT_ROOT: ${{ runner.temp }}/dist
         run: |
           set -euo pipefail
+          plugin_dir="${{ matrix.plugin.dir }}"
+          plugin_name="${{ matrix.plugin.name }}"
+
           mkdir -p "$OUTPUT_ROOT"
 
-          while IFS= read -r plugin_manifest; do
-            plugin_dir="$(dirname "$plugin_manifest")"
-            plugin_name="$(basename "$plugin_dir")"
-            echo "::group::${plugin_name}"
+          if [ -f "${plugin_dir}/go.mod" ]; then
+            (cd "$plugin_dir" && go test ./...)
+          fi
 
-            if [ -f "${plugin_dir}/go.mod" ]; then
-              (cd "$plugin_dir" && go test ./...)
-            fi
+          if [ -f "${plugin_dir}/pyproject.toml" ]; then
+            python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
+          fi
 
-            if [ -f "${plugin_dir}/pyproject.toml" ]; then
-              if [ "$plugin_name" = "bigquery" ]; then
-                (cd "$plugin_dir" && uv sync --group dev)
-                (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
-                (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete)
-              elif [ "$plugin_name" = "ashby" ]; then
-                (cd "$plugin_dir" && uv sync --group dev)
-                (cd "$plugin_dir" && uv run --no-sync --group dev ruff check .)
-                (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
-                (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py internals --ignore-names application_list,offer_list)
-              else
-                (cd "$plugin_dir" && uv sync)
-              fi
-            fi
+          rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
+          mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
+          (cd "$plugin_dir" && gestaltd plugin release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
 
-            rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
-            mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
-            (cd "$plugin_dir" && gestaltd plugin release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
-
-            if ! find "${OUTPUT_ROOT}/${plugin_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
-              echo "ERROR: ${plugin_name} produced no packaged artifacts"
-              exit 1
-            fi
-
-            echo "::endgroup::"
-          done < <(find . -mindepth 2 -maxdepth 2 -name plugin.yaml | sort)
+          if ! find "${OUTPUT_ROOT}/${plugin_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
+            echo "ERROR: ${plugin_name} produced no packaged artifacts"
+            exit 1
+          fi

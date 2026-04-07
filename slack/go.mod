@@ -2,7 +2,7 @@ module github.com/valon-technologies/gestalt-plugins/slack
 
 go 1.26
 
-require github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.6
+require github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.6.0.20260407013435-89cf7dceca18
 
 require (
 	golang.org/x/net v0.52.0 // indirect

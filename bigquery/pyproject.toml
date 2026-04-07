@@ -22,3 +22,6 @@ gestalt = { git = "https://github.com/valon-technologies/gestalt.git", rev = "89
 
 [tool.gestalt]
 plugin = "provider"
+
+[tool.gestalt.ci]
+vulture-ignore-names = ["type", "job_complete"]

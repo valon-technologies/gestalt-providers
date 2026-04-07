@@ -326,17 +326,23 @@ func TestExecutePropagatesSlackAPIHTTPError(t *testing.T) {
 		return jsonHTTPResponse(http.StatusTooManyRequests, `{"ok": false, "error": "rate_limited"}`), nil
 	})
 
-	_, err := executeTestOperation(t, p, "conversations.getMessage", map[string]any{
+	result, err := executeTestOperation(t, p, "conversations.getMessage", map[string]any{
 		"channel": "C123",
 		"ts":      "1234567890.123456",
 	}, "test-token")
-	if err == nil {
-		t.Fatal("expected error")
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
 	if callCount != 1 {
 		t.Fatalf("callCount = %d, want 1", callCount)
 	}
-	if got := err.Error(); got != `slack API error (status 429): {"ok": false, "error": "rate_limited"}` {
-		t.Fatalf("error = %q", got)
+	if result == nil {
+		t.Fatal("result is nil")
+	}
+	if result.Status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", result.Status, http.StatusInternalServerError)
+	}
+	if got := result.Body; got != `{"error":"slack API error (status 429): {\"ok\": false, \"error\": \"rate_limited\"}"}` {
+		t.Fatalf("body = %q", got)
 	}
 }

@@ -65,7 +65,7 @@ type draftOutput struct {
 	} `json:"data"`
 }
 
-var Router = gestalt.MustRouter(
+var Router = gestalt.MustNamedRouter(
 	"gmail",
 	gestalt.Register(
 		gestalt.Operation[SendMessageInput, messageOutput]{
