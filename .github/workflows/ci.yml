@@ -43,13 +43,22 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
           fi
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          cat > "${HOME}/.netrc" <<EOF
+          machine github.com
+            login x-access-token
+            password ${PAT_TOKEN}
+          EOF
+          chmod 600 "${HOME}/.netrc"
+
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
@@ -85,18 +94,7 @@ jobs:
             fi
 
             if [ -f "${plugin_dir}/pyproject.toml" ]; then
-              if [ "$plugin_name" = "bigquery" ]; then
-                (cd "$plugin_dir" && uv sync --group dev)
-                (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
-                (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete)
-              elif [ "$plugin_name" = "ashby" ]; then
-                (cd "$plugin_dir" && uv sync --group dev)
-                (cd "$plugin_dir" && uv run --no-sync --group dev ruff check .)
-                (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
-                (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py internals --ignore-names application_list,offer_list)
-              else
-                (cd "$plugin_dir" && uv sync)
-              fi
+              python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
             fi
 
             rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"

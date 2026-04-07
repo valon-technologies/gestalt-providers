@@ -88,13 +88,22 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
           fi
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          cat > "${HOME}/.netrc" <<EOF
+          machine github.com
+            login x-access-token
+            password ${PAT_TOKEN}
+          EOF
+          chmod 600 "${HOME}/.netrc"
+
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
@@ -125,19 +134,7 @@ jobs:
       - name: Sync and validate Python plugin
         if: steps.plugin.outputs.has-python-project == 'true'
         run: |
-          cd "${{ inputs.plugin-dir }}"
-          if [ "${{ steps.plugin.outputs.name }}" = "bigquery" ]; then
-            uv sync --group dev
-            uv run --no-sync --group dev ty check .
-            uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete
-          elif [ "${{ steps.plugin.outputs.name }}" = "ashby" ]; then
-            uv sync --group dev
-            uv run --no-sync --group dev ruff check .
-            uv run --no-sync --group dev ty check .
-            uv run --no-sync --group dev vulture provider.py internals --ignore-names application_list,offer_list
-          else
-            uv sync
-          fi
+          python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
       - name: Package plugin
         run: |
           cd "${{ inputs.plugin-dir }}"
