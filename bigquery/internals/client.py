@@ -1,64 +1,52 @@
 import datetime as dt
 import decimal
+from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any, TypeAlias
+from typing import Any
 
-import gestalt
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import bigquery
 from google.cloud.bigquery import QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
 
-from .models import QueryInput, QueryOutput, QuerySchemaField
 
-QueryResult: TypeAlias = QueryOutput | gestalt.Response[dict[str, str]]
+@dataclass
+class QueryExecutionResult:
+    schema: list[SchemaField]
+    rows: list[dict[str, Any]]
+    total_rows: int
 
 
-def query_operation(input: QueryInput, req: gestalt.Request) -> QueryResult:
-    if not input.project_id:
-        return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "project_id is required"})
-    if not input.query:
-        return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "query is required"})
-
-    max_results = max(0, input.max_results)
-    timeout_seconds = input.timeout_seconds if input.timeout_seconds > 0 else None
-    try:
-        with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
-            job = client.query(
-                input.query,
-                job_config=QueryJobConfig(use_legacy_sql=input.use_legacy_sql),
-                timeout=timeout_seconds,
-                project=input.project_id,
-            )
-            iterator = job.result(timeout=timeout_seconds)
-            rows: list[dict[str, Any]] = []
-            for index, row in enumerate(iterator):
-                if index >= max_results:
-                    break
-                rows.append(sanitize_row(dict(row.items())))
-
-            return QueryOutput(
-                schema=convert_schema(iterator.schema),
-                rows=rows,
-                total_rows=int(iterator.total_rows or 0),
-                job_complete=True,
-            )
-    except GoogleAPICallError as err:
-        return gestalt.Response(
-            status=google_api_status(err),
-            body={"error": google_api_message(err)},
+def query_operation(
+    *,
+    access_token: str,
+    project_id: str,
+    dataset: str | None,
+    query: str,
+    max_results: int,
+    timeout_seconds: int,
+    use_legacy_sql: bool,
+) -> QueryExecutionResult:
+    max_results = max(0, max_results)
+    query_timeout = timeout_seconds if timeout_seconds > 0 else None
+    with bigquery.Client(project=project_id, credentials=Credentials(token=access_token)) as client:
+        job = client.query(
+            query,
+            job_config=QueryJobConfig(
+                use_legacy_sql=use_legacy_sql,
+                default_dataset=default_dataset(project_id, dataset),
+            ),
+            timeout=query_timeout,
+            project=project_id,
         )
+        iterator = job.result(timeout=query_timeout)
+        rows: list[dict[str, Any]] = []
+        for index, row in enumerate(iterator):
+            if index >= max_results:
+                break
+            rows.append(sanitize_row(dict(row.items())))
 
-
-def convert_schema(schema: list[SchemaField]) -> list[QuerySchemaField]:
-    return [
-        QuerySchemaField(
-            name=field.name,
-            type=field.field_type,
-            mode=field.mode or "NULLABLE",
-        )
-        for field in schema
-    ]
+        return QueryExecutionResult(schema=list(iterator.schema), rows=rows, total_rows=int(iterator.total_rows or 0))
 
 
 def sanitize_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -77,6 +65,14 @@ def sanitize_value(value: Any) -> Any:
     if isinstance(value, (dt.date, dt.time)):
         return value.isoformat()
     return value
+
+
+def default_dataset(project_id: str, dataset: str | None) -> str | None:
+    if not dataset:
+        return None
+    if "." in dataset:
+        return dataset
+    return f"{project_id}.{dataset}"
 
 
 def google_api_status(err: GoogleAPICallError) -> HTTPStatus:

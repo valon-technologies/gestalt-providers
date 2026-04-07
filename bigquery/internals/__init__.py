@@ -1,10 +1,8 @@
-from .client import QueryResult, query_operation
-from .models import QueryInput, QueryOutput, QuerySchemaField
+from .client import QueryExecutionResult, google_api_message, google_api_status, query_operation
 
 __all__ = [
-    "QueryInput",
-    "QueryOutput",
-    "QueryResult",
-    "QuerySchemaField",
+    "QueryExecutionResult",
+    "google_api_message",
+    "google_api_status",
     "query_operation",
 ]
