@@ -164,7 +164,7 @@ jobs:
             -v "${workspace}:/workspace" \
             -w /workspace \
             ghcr.io/astral-sh/uv:python3.14-alpine \
-            bash -ceu '
+            sh -ceu '
               apk add --no-cache bash build-base ca-certificates curl git
               curl -fsSL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xz
 
