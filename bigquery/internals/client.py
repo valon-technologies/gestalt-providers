@@ -6,7 +6,7 @@ from typing import Any
 
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import bigquery
-from google.cloud.bigquery import QueryJobConfig, SchemaField
+from google.cloud.bigquery import DatasetReference, QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
 
 
@@ -67,12 +67,10 @@ def sanitize_value(value: Any) -> Any:
     return value
 
 
-def default_dataset(project_id: str, dataset: str | None) -> str | None:
+def default_dataset(project_id: str, dataset: str | None) -> DatasetReference | None:
     if not dataset:
         return None
-    if "." in dataset:
-        return dataset
-    return f"{project_id}.{dataset}"
+    return DatasetReference.from_string(dataset, default_project=project_id)
 
 
 def google_api_status(err: GoogleAPICallError) -> HTTPStatus:
