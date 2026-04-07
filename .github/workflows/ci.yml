@@ -89,6 +89,11 @@ jobs:
                 (cd "$plugin_dir" && uv sync --group dev)
                 (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
                 (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete)
+              elif [ "$plugin_name" = "ashby" ]; then
+                (cd "$plugin_dir" && uv sync --group dev)
+                (cd "$plugin_dir" && uv run --no-sync --group dev ruff check .)
+                (cd "$plugin_dir" && uv run --no-sync --group dev ty check .)
+                (cd "$plugin_dir" && uv run --no-sync --group dev vulture provider.py internals --ignore-names application_list,offer_list)
               else
                 (cd "$plugin_dir" && uv sync)
               fi

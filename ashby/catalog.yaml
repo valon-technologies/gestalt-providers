@@ -1,0 +1,30 @@
+name: ashby
+operations:
+  - id: application.list
+    method: POST
+    description: 'List applications with working Ashby cursor pagination metadata.
+      References: https://developers.ashbyhq.com/reference/applicationlist and https://developers.ashbyhq.com/docs/pagination'
+    parameters:
+      - name: limit
+        type: integer
+        description: Maximum number of records to return per page. Ashby caps this
+          at 100.
+        default: null
+      - name: cursor
+        type: string
+        description: Opaque pagination cursor returned by the previous page.
+        default: ''
+  - id: offer.list
+    method: POST
+    description: 'List offers with working Ashby cursor pagination metadata. References:
+      https://developers.ashbyhq.com/reference/offerlist and https://developers.ashbyhq.com/docs/pagination'
+    parameters:
+      - name: limit
+        type: integer
+        description: Maximum number of records to return per page. Ashby caps this
+          at 100.
+        default: null
+      - name: cursor
+        type: string
+        description: Opaque pagination cursor returned by the previous page.
+        default: ''
