@@ -130,6 +130,11 @@ jobs:
             uv sync --group dev
             uv run --no-sync --group dev ty check .
             uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete
+          elif [ "${{ steps.plugin.outputs.name }}" = "ashby" ]; then
+            uv sync --group dev
+            uv run --no-sync --group dev ruff check .
+            uv run --no-sync --group dev ty check .
+            uv run --no-sync --group dev vulture provider.py internals --ignore-names application_list,offer_list
           else
             uv sync
           fi

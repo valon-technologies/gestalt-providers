@@ -4,6 +4,23 @@ display_name: Ashby
 description: Candidates, applications, jobs, offers, interviews, departments, locations, and users.
 icon_file: assets/icon.svg
 provider:
+  allowed_operations:
+    candidate.list: {}
+    candidate.info: {}
+    candidate.search: {}
+    candidate.create: {}
+    candidate.update: {}
+    candidate.createNote: {}
+    application.info: {}
+    application.create: {}
+    application.changeStage: {}
+    job.list: {}
+    job.info: {}
+    offer.info: {}
+    interviewSchedule.list: {}
+    department.list: {}
+    location.list: {}
+    user.list: {}
   response_mapping:
     data_path: results
     pagination:
