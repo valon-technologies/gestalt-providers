@@ -11,8 +11,8 @@ on:
         description: Semantic version for the release
         type: string
         required: true
-      gestaltd-version:
-        description: Pinned Gestaltd release version used to package plugins
+      gestalt-ref:
+        description: Pinned Gestalt git ref used to build gestaltd for packaging
         type: string
         required: true
 
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      GESTALTD_REPOSITORY: valon-technologies/gestalt
+      GESTALT_REPOSITORY: valon-technologies/gestalt
       GOPRIVATE: github.com/valon-technologies/*
       GONOSUMDB: github.com/valon-technologies/*
       UV_PYTHON: "3.14"
@@ -97,19 +97,22 @@ jobs:
           git config --global url."https://x-access-token:${PAT_TOKEN}@github.com/".insteadOf "git@github.com:"
       - name: Install gestaltd
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
           GOBIN: ${{ runner.temp }}/bin
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${RUNNER_TEMP}/gestaltd"
-          mkdir -p "$toolchain_dir"
-          gh release download "gestaltd/v${{ inputs.gestaltd-version }}" \
-            --repo "${GESTALTD_REPOSITORY}" \
-            --pattern "gestaltd-linux-x86_64.tar.gz" \
-            --dir "$toolchain_dir"
-          tar -xzf "${toolchain_dir}/gestaltd-linux-x86_64.tar.gz" -C "$toolchain_dir"
-          install -m 0755 "${toolchain_dir}/gestaltd" "$GOBIN/gestaltd"
+          toolchain_dir="${RUNNER_TEMP}/gestalt"
+          if [ -z "${PAT_TOKEN}" ]; then
+            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
+            exit 1
+          fi
+          toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
+          git clone "$toolchain_url" "$toolchain_dir"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
+          git -C "$toolchain_dir" checkout FETCH_HEAD
+          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - uses: actions/setup-go@v5
         if: steps.plugin.outputs.has-go-mod == 'true'
         with:
@@ -119,11 +122,17 @@ jobs:
         run: |
           cd "${{ inputs.plugin-dir }}"
           go test ./...
-      - name: Sync Python plugin environment
+      - name: Sync and validate Python plugin
         if: steps.plugin.outputs.has-python-project == 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
-          uv sync
+          if [ "${{ steps.plugin.outputs.name }}" = "bigquery" ]; then
+            uv sync --group dev
+            uv run --no-sync --group dev ty check .
+            uv run --no-sync --group dev vulture provider.py --ignore-names type,job_complete
+          else
+            uv sync
+          fi
       - name: Package plugin
         run: |
           cd "${{ inputs.plugin-dir }}"

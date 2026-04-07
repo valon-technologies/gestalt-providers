@@ -16,10 +16,10 @@ operations:
         type: integer
         description: Maximum number of rows to return
         default: 500
-      - name: timeout_ms
+      - name: timeout_seconds
         type: integer
-        description: Query timeout in milliseconds
-        default: 60000
+        description: Query timeout in seconds
+        default: 60
       - name: use_legacy_sql
         type: boolean
         description: Use legacy SQL syntax
