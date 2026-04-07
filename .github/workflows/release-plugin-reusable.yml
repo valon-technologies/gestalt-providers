@@ -157,6 +157,7 @@ jobs:
             -e GESTALT_REPOSITORY="${GESTALT_REPOSITORY}" \
             -e GOPRIVATE="${GOPRIVATE}" \
             -e GONOSUMDB="${GONOSUMDB}" \
+            -e UV_PYTHON="${UV_PYTHON}" \
             -e INPUT_PLUGIN_DIR="${{ inputs.plugin-dir }}" \
             -e INPUT_GESTALT_REF="${{ inputs.gestalt-ref }}" \
             -e INPUT_VERSION="${{ steps.version.outputs.release }}" \
@@ -164,7 +165,8 @@ jobs:
             -w /workspace \
             ghcr.io/astral-sh/uv:python3.14-alpine \
             sh -ceu '
-              apk add --no-cache bash build-base ca-certificates git go
+              apk add --no-cache bash build-base ca-certificates curl git
+              curl -fsSL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xz
 
               cat > "${HOME}/.netrc" <<EOF
               machine github.com
@@ -176,17 +178,19 @@ jobs:
               git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
               git config --global url."https://github.com/".insteadOf "git@github.com:"
 
-              export GOBIN="/tmp/bin"
-              mkdir -p "$GOBIN"
-              export PATH="$GOBIN:$PATH"
+              mkdir -p /tmp/bin
+              export PATH="/usr/local/go/bin:/tmp/bin:$PATH"
               toolchain_dir="/tmp/gestalt"
               toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
               git clone "$toolchain_url" "$toolchain_dir"
               git -C "$toolchain_dir" fetch --depth 1 origin "${INPUT_GESTALT_REF}"
               git -C "$toolchain_dir" checkout FETCH_HEAD
-              (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+              (cd "$toolchain_dir/gestaltd" && go build -o /tmp/bin/gestaltd ./cmd/gestaltd)
 
               cd "${INPUT_PLUGIN_DIR}"
+              rm -rf .venv
+              uv sync
+              export GESTALT_PYTHON_LINUX_AMD64="$PWD/.venv/bin/python"
               gestaltd plugin release --version "${INPUT_VERSION}" --platform linux/amd64/musl
               chmod -R a+rX dist
             '
