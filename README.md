@@ -23,20 +23,19 @@ source the SDK directly from the `gestalt` repo with `uv`.
 Minimal `pyproject.toml`:
 
 ```toml
-[build-system]
-requires = ["setuptools==82.0.1"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "my-plugin"
 version = "0.1.0"
 dependencies = ["gestalt"]
 
+[tool.uv]
+package = false
+
 [tool.uv.sources]
-gestalt = { git = "ssh://git@github.com/valon-technologies/gestalt.git", rev = "<gestalt-commit-sha>", subdirectory = "sdk/python" }
+gestalt = { git = "https://github.com/valon-technologies/gestalt.git", rev = "<gestalt-commit-sha>", subdirectory = "sdk/python" }
 
 [tool.gestalt]
-plugin = "provider:plugin"
+plugin = "provider"
 ```
 
 Recommended local flow:
