@@ -19,9 +19,9 @@ class QueryInput(gestalt.Model):
         default=500,
         required=False,
     )
-    timeout_ms: int = gestalt.field(
-        description="Query timeout in milliseconds",
-        default=60000,
+    timeout_seconds: int = gestalt.field(
+        description="Query timeout in seconds",
+        default=60,
         required=False,
     )
     use_legacy_sql: bool = gestalt.field(
@@ -56,7 +56,7 @@ def query(input: QueryInput, req: gestalt.Request) -> QueryOutput | gestalt.Resp
         return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "query is required"})
 
     max_results = max(0, input.max_results)
-    timeout_seconds = max(0, input.timeout_ms) / 1000 if input.timeout_ms else None
+    timeout_seconds = input.timeout_seconds if input.timeout_seconds > 0 else None
     try:
         with bigquery.Client(project=input.project_id, credentials=Credentials(token=req.token)) as client:
             job = client.query(
