@@ -5,6 +5,7 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote, urlencode
 
 GMAIL_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
 
@@ -53,3 +54,24 @@ def _request_json(request: urllib.request.Request) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("parsing gmail API response: expected object")
     return payload
+
+
+def metadata_message_url(message_id: str) -> str:
+    query = urlencode(
+        [
+            ("format", "metadata"),
+            ("metadataHeaders", "From"),
+            ("metadataHeaders", "To"),
+            ("metadataHeaders", "Cc"),
+            ("metadataHeaders", "Subject"),
+            ("metadataHeaders", "Message-ID"),
+            ("metadataHeaders", "References"),
+            ("metadataHeaders", "Delivered-To"),
+        ],
+        doseq=True,
+    )
+    return f"{gmail_base_url()}/messages/{quote(message_id, safe='')}?{query}"
+
+
+def full_message_url(message_id: str) -> str:
+    return f"{gmail_base_url()}/messages/{quote(message_id, safe='')}?format=full"

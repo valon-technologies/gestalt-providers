@@ -10,7 +10,7 @@ from google.cloud.bigquery import DatasetReference, QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
 
 
-@dataclass
+@dataclass(frozen=True)
 class QueryExecutionResult:
     schema: list[SchemaField]
     rows: list[dict[str, Any]]

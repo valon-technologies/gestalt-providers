@@ -5,12 +5,20 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlencode
 
 SLACK_BASE_URL = "https://slack.com/api"
 
 
 def slack_base_url() -> str:
     return os.environ.get("SLACK_BASE_URL", SLACK_BASE_URL).rstrip("/")
+
+
+def slack_get(endpoint: str, query: dict[str, str], token: str) -> dict[str, Any]:
+    url = f"{slack_base_url()}/{endpoint.lstrip('/')}"
+    if query:
+        url = f"{url}?{urlencode(query)}"
+    return get_json(url, token)
 
 
 def get_json(url: str, token: str) -> dict[str, Any]:
