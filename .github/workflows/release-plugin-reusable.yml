@@ -65,6 +65,7 @@ jobs:
             echo "name=${PLUGIN_NAME}"
             echo "tag=${PLUGIN_DIR}/v${VERSION}"
             echo "prerelease=${PRERELEASE}"
+            echo "root=${PLUGIN_DIR%%/*}"
           } >> "$GITHUB_OUTPUT"
           if find "${PLUGIN_DIR}" -maxdepth 1 -type f -name '*.go' | grep -q .; then
             echo "has-go-sources=true" >> "$GITHUB_OUTPUT"
@@ -84,6 +85,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+      - uses: actions/setup-node@v4
+        if: steps.plugin.outputs.root == 'web'
+        with:
+          node-version: '25'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: steps.plugin.outputs.has-python-project == 'true'
       - uses: dtolnay/rust-toolchain@1.88.0
@@ -131,6 +136,9 @@ jobs:
           git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
           git -C "$toolchain_dir" checkout FETCH_HEAD
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - name: Prepare web bundle assets
+        if: steps.plugin.outputs.root == 'web'
+        run: .github/scripts/prepare_web_bundle.sh "${{ inputs.plugin-dir }}" "${GITHUB_WORKSPACE}/../gestalt"
       - name: Test compiled plugin
         if: steps.plugin.outputs.has-go-sources == 'true'
         run: |

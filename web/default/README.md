@@ -2,5 +2,6 @@
 
 This package publishes the default Gestalt web UI as a `webui` bundle.
 
-The `out/` directory contains the built static assets that `gestaltd` serves at
-`/` when this package is selected.
+The static assets are built from `gestalt/gestaltd/ui` during CI and release.
+`out/` is materialized in the workflow workspace before packaging and is not
+committed to this repository.

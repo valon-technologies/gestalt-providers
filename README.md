@@ -19,6 +19,11 @@ Pushes and pull requests validate every plugin package. Go plugins also run `go 
 
 The workflows fetch `gestaltd` and private SDK sources from `valon-technologies/gestalt`, so this repo needs a `PAT_TOKEN` Actions secret with read access to that repository.
 
+Web bundles are recipe-only packages. CI and release workflows build the static
+assets from `gestalt/gestaltd/ui` and materialize `web/<name>/out/` in the
+workspace before running `gestaltd plugin release`, so generated frontend
+output does not need to be committed here.
+
 ## Python source plugins
 
 Until the Python SDK is published to a package index, Python plugins should
