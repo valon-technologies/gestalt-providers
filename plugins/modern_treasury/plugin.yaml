@@ -4,20 +4,30 @@ display_name: Modern Treasury
 description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
 icon_file: assets/icon.svg
 provider:
+  pagination:
+    style: cursor
+    cursor_param: after_cursor
+    cursor:
+      source: header
+      path: X-After-Cursor
+    limit_param: per_page
+    results_path: ""
+    default_limit: 100
   connections:
     default:
       auth:
         type: manual
         credentials:
-          - name: token
-            label: Organization ID and API Key
-            description: "Enter `<organization_id>:<api_key>`. Modern Treasury uses HTTP Basic auth with your Organization ID as the username and API key as the password. See [Authentication](https://docs.moderntreasury.com/platform/reference-link/authentication)."
+          - name: api_key
+            label: API Key
+            description: "Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys). Deployments should map a static Organization ID into Basic auth and use this field as the password."
   surfaces:
     openapi:
       document: https://raw.githubusercontent.com/Modern-Treasury/modern-treasury-openapi/main/openapi/mt_openapi_spec_v1.yaml
   allowed_operations:
     counterparties.list:
       alias: listCounterparties
+      paginate: true
     counterparties.get:
       alias: getCounterparty
     counterparties.create:
@@ -26,6 +36,7 @@ provider:
       alias: updateCounterparty
     externalAccounts.list:
       alias: listExternalAccounts
+      paginate: true
     externalAccounts.get:
       alias: getExternalAccount
     externalAccounts.create:
@@ -34,10 +45,12 @@ provider:
       alias: updateExternalAccount
     internalAccounts.list:
       alias: listInternalAccounts
+      paginate: true
     internalAccounts.get:
       alias: getInternalAccount
     paymentOrders.list:
       alias: listPaymentOrders
+      paginate: true
     paymentOrders.get:
       alias: getPaymentOrder
     paymentOrders.create:
@@ -47,20 +60,24 @@ provider:
       description: Update a payment order. To cancel a payment order, set `status` to `cancelled`.
     transactions.list:
       alias: listTransactions
+      paginate: true
     transactions.get:
       alias: getTransaction
     returns.list:
       alias: listReturns
+      paginate: true
     returns.get:
       alias: getReturn
     incomingPaymentDetails.list:
       alias: listIncomingPaymentDetails
+      paginate: true
     incomingPaymentDetails.get:
       alias: getIncomingPaymentDetail
     incomingPaymentDetails.update:
       alias: updateIncomingPaymentDetail
     balanceReports.list:
       alias: listBalanceReports
+      paginate: true
     balanceReports.get:
       alias: getBalanceReport
     routingNumbers.validate:
