@@ -1,0 +1,37 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/enact_mi
+version: 0.0.1-alpha.1
+display_name: Enact MI
+description: Exchange servicing-transfer, billing, and remittance files with Enact Mortgage Insurance over SFTP.
+icon_file: assets/icon.svg
+provider:
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+          - name: host
+            label: SFTP Host
+            description: Remote SFTP hostname.
+          - name: username
+            label: Username
+            description: Username for the remote SFTP endpoint.
+          - name: password
+            label: Password
+            description: Password for the remote SFTP endpoint.
+      params:
+        port:
+          description: Optional SSH port. Defaults to 22.
+        host_key:
+          description: Optional expected remote host key in the format "ssh-rsa AAAA...".
+        path_prefix:
+          description: Optional remote path prefix prepended to relative paths.
+        servicing_transfer_dir:
+          description: Directory used for outbound servicing transfer or MISMO files.
+        billing_dir:
+          description: Directory where carrier billing files are published.
+        post_transfer_report_dir:
+          description: Directory where post-transfer reports are published.
+        remittance_dir:
+          description: Directory used for remittance or response uploads.
+        archive_dir:
+          description: Optional archive directory for processed files.

@@ -1,0 +1,35 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/ngls
+version: 0.0.1-alpha.1
+display_name: NGLS
+description: Exchange property-insurance and notice-response files with National General Lender Services over SFTP.
+icon_file: assets/icon.svg
+provider:
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+          - name: host
+            label: SFTP Host
+            description: Remote SFTP hostname.
+          - name: username
+            label: Username
+            description: Username for the remote SFTP endpoint.
+          - name: password
+            label: Password
+            description: Password for the remote SFTP endpoint.
+      params:
+        port:
+          description: Optional SSH port. Defaults to 22.
+        host_key:
+          description: Optional expected remote host key in the format "ssh-rsa AAAA...".
+        path_prefix:
+          description: Optional remote path prefix prepended to relative paths.
+        inbound_dir:
+          description: Directory used for uploads sent to NGLS.
+        received_dir:
+          description: Directory where NGLS publishes return files.
+        insurance_documents_dir:
+          description: Directory used for insurance document uploads.
+        notice_response_dir:
+          description: Directory used for notice-report response uploads.

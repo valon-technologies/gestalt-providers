@@ -1,0 +1,281 @@
+name: essent_mi
+operations:
+  - id: connection.test
+    method: POST
+    description: Open an SFTP session to the configured Essent MI endpoint.
+  - id: remote.listFiles
+    method: POST
+    description: List files in any remote Essent MI directory.
+    parameters:
+      - name: remote_dir
+        type: string
+        description: Remote directory to list
+        default: ''
+      - name: pattern
+        type: string
+        description: Optional filename glob pattern
+        default: ''
+      - name: recursive
+        type: boolean
+        description: List files recursively
+        default: false
+      - name: include_dirs
+        type: boolean
+        description: Include directories in the result set
+        default: false
+      - name: max_items
+        type: integer
+        description: Maximum number of entries to return
+        default: 500
+    read_only: true
+  - id: remote.downloadFile
+    method: POST
+    description: Download a file from any remote Essent MI path.
+    parameters:
+      - name: remote_path
+        type: string
+        description: Remote file path
+        required: true
+      - name: decode_text
+        type: boolean
+        description: Decode the file as text instead of returning base64
+        default: false
+      - name: encoding
+        type: string
+        description: Text encoding used when decode_text is true
+        default: utf-8
+    read_only: true
+  - id: remote.uploadFile
+    method: POST
+    description: Upload a file to any remote Essent MI path.
+    parameters:
+      - name: remote_path
+        type: string
+        description: Remote destination path
+        required: true
+      - name: content_text
+        type: string
+        description: Plain-text content to upload
+        default: ''
+      - name: content_base64
+        type: string
+        description: Base64-encoded file content to upload
+        default: ''
+      - name: ensure_parent_dirs
+        type: boolean
+        description: Create missing parent directories before upload
+        default: false
+      - name: overwrite
+        type: boolean
+        description: Allow replacing an existing remote file
+        default: true
+  - id: remote.moveFile
+    method: POST
+    description: Move or rename a file on the remote Essent MI endpoint.
+    parameters:
+      - name: source_path
+        type: string
+        description: Existing remote path
+        required: true
+      - name: destination_path
+        type: string
+        description: New remote path
+        required: true
+      - name: ensure_parent_dirs
+        type: boolean
+        description: Create missing parent directories before moving the file
+        default: false
+      - name: overwrite
+        type: boolean
+        description: Allow replacing an existing remote file
+        default: false
+  - id: remote.deleteFile
+    method: POST
+    description: Delete a file from the remote Essent MI endpoint.
+    parameters:
+      - name: remote_path
+        type: string
+        description: Remote file path to delete
+        required: true
+  - id: servicingTransfers.listFiles
+    method: POST
+    description: List servicing transfer files in the configured servicing_transfer_dir.
+    parameters:
+      - name: pattern
+        type: string
+        description: Optional filename glob pattern
+        default: ''
+      - name: recursive
+        type: boolean
+        description: List files recursively
+        default: false
+      - name: include_dirs
+        type: boolean
+        description: Include directories in the result set
+        default: false
+      - name: max_items
+        type: integer
+        description: Maximum number of entries to return
+        default: 500
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+    read_only: true
+  - id: billing.listFiles
+    method: POST
+    description: List billing files in the configured billing_dir.
+    parameters:
+      - name: pattern
+        type: string
+        description: Optional filename glob pattern
+        default: ''
+      - name: recursive
+        type: boolean
+        description: List files recursively
+        default: false
+      - name: include_dirs
+        type: boolean
+        description: Include directories in the result set
+        default: false
+      - name: max_items
+        type: integer
+        description: Maximum number of entries to return
+        default: 500
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+    read_only: true
+  - id: postTransferReports.listFiles
+    method: POST
+    description: List post-transfer reports in the configured post_transfer_report_dir.
+    parameters:
+      - name: pattern
+        type: string
+        description: Optional filename glob pattern
+        default: ''
+      - name: recursive
+        type: boolean
+        description: List files recursively
+        default: false
+      - name: include_dirs
+        type: boolean
+        description: Include directories in the result set
+        default: false
+      - name: max_items
+        type: integer
+        description: Maximum number of entries to return
+        default: 500
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+    read_only: true
+  - id: billing.downloadFile
+    method: POST
+    description: Download a billing file from the configured billing_dir.
+    parameters:
+      - name: file_name
+        type: string
+        description: File name or relative path inside the configured directory
+        required: true
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+      - name: decode_text
+        type: boolean
+        description: Decode the file as text instead of returning base64
+        default: false
+      - name: encoding
+        type: string
+        description: Text encoding used when decode_text is true
+        default: utf-8
+    read_only: true
+  - id: postTransferReports.downloadFile
+    method: POST
+    description: Download a post-transfer report from the configured post_transfer_report_dir.
+    parameters:
+      - name: file_name
+        type: string
+        description: File name or relative path inside the configured directory
+        required: true
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+      - name: decode_text
+        type: boolean
+        description: Decode the file as text instead of returning base64
+        default: false
+      - name: encoding
+        type: string
+        description: Text encoding used when decode_text is true
+        default: utf-8
+    read_only: true
+  - id: servicingTransfers.uploadFile
+    method: POST
+    description: Upload a servicing transfer or MISMO file to the configured servicing_transfer_dir.
+    parameters:
+      - name: file_name
+        type: string
+        description: Destination file name or relative path inside the configured
+          directory
+        required: true
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+      - name: content_text
+        type: string
+        description: Plain-text content to upload
+        default: ''
+      - name: content_base64
+        type: string
+        description: Base64-encoded file content to upload
+        default: ''
+      - name: ensure_parent_dirs
+        type: boolean
+        description: Create missing parent directories before upload
+        default: false
+      - name: overwrite
+        type: boolean
+        description: Allow replacing an existing remote file
+        default: true
+  - id: remittance.uploadFile
+    method: POST
+    description: Upload a remittance or response file to the configured remittance_dir.
+    parameters:
+      - name: file_name
+        type: string
+        description: Destination file name or relative path inside the configured
+          directory
+        required: true
+      - name: directory_override
+        type: string
+        description: Optional explicit remote directory to use instead of the configured
+          connection parameter
+        default: ''
+      - name: content_text
+        type: string
+        description: Plain-text content to upload
+        default: ''
+      - name: content_base64
+        type: string
+        description: Base64-encoded file content to upload
+        default: ''
+      - name: ensure_parent_dirs
+        type: boolean
+        description: Create missing parent directories before upload
+        default: false
+      - name: overwrite
+        type: boolean
+        description: Allow replacing an existing remote file
+        default: true
