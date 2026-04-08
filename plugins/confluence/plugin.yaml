@@ -1,4 +1,4 @@
-source: github.com/valon-technologies/gestalt-providers/plugins/confluence
+source: github.com/valon-technologies/gestalt-providers/confluence
 version: 0.0.1-alpha.3
 display_name: Confluence Cloud
 description: Atlassian Confluence Cloud pages, spaces, and content search.

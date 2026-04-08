@@ -1,4 +1,4 @@
-source: github.com/valon-technologies/gestalt-providers/plugins/launchdarkly
+source: github.com/valon-technologies/gestalt-providers/launchdarkly
 version: 0.0.1-alpha.2
 display_name: LaunchDarkly
 description: Manage feature flags and targeting rules.
