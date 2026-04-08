@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-labelledby="title">
   <title>Modern Treasury</title>
-  <rect width="64" height="64" rx="14" fill="#0f172a"/>
-  <path d="M14 44V20h8l10 13 10-13h8v24h-8V31.7l-10 12.7-10-12.7V44z" fill="#f8fafc"/>
+  <path d="M4 4a1.5 1.5 0 0 1 1.5-1.5h13A1.5 1.5 0 0 1 20 4v2.24a.75.75 0 0 1-.49.7L12 9.7 4.49 6.94A.75.75 0 0 1 4 6.24z"/>
+  <rect x="4" y="10.25" width="4.25" height="11.25" rx="1.1"/>
+  <rect x="10.1" y="11.85" width="3.8" height="9.65" rx="1.1"/>
+  <rect x="15.75" y="10.25" width="4.25" height="11.25" rx="1.1"/>
 </svg>
