@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Modern Treasury</title>
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <path d="M14 44V20h8l10 13 10-13h8v24h-8V31.7l-10 12.7-10-12.7V44z" fill="#f8fafc"/>
+</svg>

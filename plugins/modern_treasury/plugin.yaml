@@ -1,0 +1,67 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/modern_treasury
+version: 0.0.1-alpha.1
+display_name: Modern Treasury
+description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
+icon_file: assets/icon.svg
+provider:
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+          - name: token
+            label: Organization ID and API Key
+            description: "Enter `<organization_id>:<api_key>`. Modern Treasury uses HTTP Basic auth with your Organization ID as the username and API key as the password. See [Authentication](https://docs.moderntreasury.com/platform/reference-link/authentication)."
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/Modern-Treasury/modern-treasury-openapi/main/openapi/mt_openapi_spec_v1.yaml
+  allowed_operations:
+    counterparties.list:
+      alias: listCounterparties
+    counterparties.get:
+      alias: getCounterparty
+    counterparties.create:
+      alias: createCounterparty
+    counterparties.update:
+      alias: updateCounterparty
+    externalAccounts.list:
+      alias: listExternalAccounts
+    externalAccounts.get:
+      alias: getExternalAccount
+    externalAccounts.create:
+      alias: createExternalAccount
+    externalAccounts.update:
+      alias: updateExternalAccount
+    internalAccounts.list:
+      alias: listInternalAccounts
+    internalAccounts.get:
+      alias: getInternalAccount
+    paymentOrders.list:
+      alias: listPaymentOrders
+    paymentOrders.get:
+      alias: getPaymentOrder
+    paymentOrders.create:
+      alias: createPaymentOrder
+    paymentOrders.update:
+      alias: updatePaymentOrder
+      description: Update a payment order. To cancel a payment order, set `status` to `cancelled`.
+    transactions.list:
+      alias: listTransactions
+    transactions.get:
+      alias: getTransaction
+    returns.list:
+      alias: listReturns
+    returns.get:
+      alias: getReturn
+    incomingPaymentDetails.list:
+      alias: listIncomingPaymentDetails
+    incomingPaymentDetails.get:
+      alias: getIncomingPaymentDetail
+    incomingPaymentDetails.update:
+      alias: updateIncomingPaymentDetail
+    balanceReports.list:
+      alias: listBalanceReports
+    balanceReports.get:
+      alias: getBalanceReport
+    routingNumbers.validate:
+      alias: validateRoutingNumber
