@@ -294,7 +294,7 @@ jobs:
 
           mkdir -p "$OUTPUT_ROOT"
 
-          if [ -f "${plugin_dir}/go.mod" ]; then
+          if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
             (cd "$plugin_dir" && go test ./...)
           fi
 
