@@ -6,6 +6,7 @@ from unittest import mock
 import gestalt
 
 from internals import MIMEParams, build_mime, decode_base64url, ensure_reply_prefix
+from internals import operations as operations_module
 import provider as provider_module
 
 
@@ -18,11 +19,11 @@ class GmailProviderTests(unittest.TestCase):
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(response.body, {"error": "token is required"})
 
     def test_send_message_wraps_gmail_response(self) -> None:
-        with mock.patch.object(provider_module, "post_json", return_value={"id": "msg-new", "threadId": "t-1"}) as post_json:
+        with mock.patch.object(operations_module, "post_json", return_value={"id": "msg-new", "threadId": "t-1"}) as post_json:
             result = provider_module.messages_send(
                 provider_module.SendMessageInput(
                     to="bob@example.com",
@@ -44,7 +45,7 @@ class GmailProviderTests(unittest.TestCase):
         self.assertIn("MIME-Version: 1.0", decoded)
 
     def test_send_message_with_html_builds_multipart_body(self) -> None:
-        with mock.patch.object(provider_module, "post_json", return_value={"id": "msg-new"}) as post_json:
+        with mock.patch.object(operations_module, "post_json", return_value={"id": "msg-new"}) as post_json:
             provider_module.messages_send(
                 provider_module.SendMessageInput(
                     to="bob@example.com",
@@ -60,7 +61,7 @@ class GmailProviderTests(unittest.TestCase):
         self.assertIn("text/html", decoded)
 
     def test_create_draft_wraps_gmail_response(self) -> None:
-        with mock.patch.object(provider_module, "post_json", return_value={"id": "draft-1", "message": {"id": "msg-1"}}) as post_json:
+        with mock.patch.object(operations_module, "post_json", return_value={"id": "draft-1", "message": {"id": "msg-1"}}) as post_json:
             result = provider_module.messages_create_draft(
                 provider_module.CreateDraftInput(
                     to="bob@example.com",
@@ -89,8 +90,8 @@ class GmailProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch.object(provider_module, "get_json", return_value=original) as get_json,
-            mock.patch.object(provider_module, "post_json", return_value={"id": "reply-1", "threadId": "t-1"}) as post_json,
+            mock.patch.object(operations_module, "get_json", return_value=original) as get_json,
+            mock.patch.object(operations_module, "post_json", return_value={"id": "reply-1", "threadId": "t-1"}) as post_json,
         ):
             provider_module.messages_reply(
                 provider_module.ReplyMessageInput(
@@ -124,8 +125,8 @@ class GmailProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch.object(provider_module, "get_json", return_value=original),
-            mock.patch.object(provider_module, "post_json", return_value={"id": "reply-1"}) as post_json,
+            mock.patch.object(operations_module, "get_json", return_value=original),
+            mock.patch.object(operations_module, "post_json", return_value={"id": "reply-1"}) as post_json,
         ):
             provider_module.messages_reply(
                 provider_module.ReplyMessageInput(
@@ -160,8 +161,8 @@ class GmailProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch.object(provider_module, "get_json", return_value=original) as get_json,
-            mock.patch.object(provider_module, "post_json", return_value={"id": "forward-1"}) as post_json,
+            mock.patch.object(operations_module, "get_json", return_value=original) as get_json,
+            mock.patch.object(operations_module, "post_json", return_value={"id": "forward-1"}) as post_json,
         ):
             provider_module.messages_forward(
                 provider_module.ForwardMessageInput(

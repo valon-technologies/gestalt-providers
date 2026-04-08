@@ -18,7 +18,7 @@ ListResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, str]]
 def list_operation(operation_id: str, input: ListInput, req: gestalt.Request) -> ListResult:
     token = req.token.strip()
     if not token:
-        return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "token is required"})
+        return gestalt.Response(status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"})
 
     payload: dict[str, object] = {}
     if input.limit is not None:
