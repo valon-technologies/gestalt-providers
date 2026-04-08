@@ -4,7 +4,9 @@ Versioned provider packages for Gestalt.
 
 ## Layout
 
-- `plugins/<name>` contains the source for each provider package.
+- `plugins/<name>` contains the source for each integration plugin package.
+- `auth/<name>` contains platform auth provider packages.
+- `datastore/<name>` contains datastore provider packages.
 - Declarative plugins ship from their manifests and support files.
 - Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
 - Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
@@ -25,7 +27,7 @@ Minimal `pyproject.toml`:
 ```toml
 [project]
 name = "my-plugin"
-version = "0.1.0"
+version = "0.0.1-alpha.1"
 dependencies = ["gestalt"]
 
 [tool.uv]
@@ -43,7 +45,7 @@ Recommended local flow:
 ```sh
 uv sync
 uv run python -c "import gestalt"
-gestaltd plugin release --version 0.1.0
+gestaltd plugin release --version 0.0.1-alpha.1
 ```
 
 Pin `rev` to a specific `valon-technologies/gestalt` commit and bump it
@@ -51,7 +53,7 @@ intentionally when you want SDK changes.
 
 ## Releasing
 
-Push a tag in the format `plugins/<plugin>/v<version>`.
+Push a tag in the format `<kind>/<name>/v<version>`.
 
 Python source plugin releases publish separate `linux/amd64/glibc` and
 `linux/amd64/musl` artifacts so `gestaltd` can resolve the correct binary for
@@ -60,8 +62,8 @@ glibc and Alpine runtimes.
 Example:
 
 ```sh
-git tag plugins/slack/v0.1.0
-git push origin plugins/slack/v0.1.0
+git tag plugins/slack/v0.0.1-alpha.1
+git push origin plugins/slack/v0.0.1-alpha.1
 ```
 
 That triggers the release workflow, packages the plugin, and publishes a GitHub release with the same tag.
@@ -69,10 +71,30 @@ That triggers the release workflow, packages the plugin, and publishes a GitHub 
 In Gestalt config, use:
 
 ```yaml
-providers:
+plugins:
   <plugin>:
-    from:
+    provider:
       source:
         ref: github.com/valon-technologies/gestalt-providers/plugins/<plugin>
-        version: 0.1.0
+        version: 0.0.1-alpha.1
 ```
+
+For top-level auth/datastore providers, use:
+
+```yaml
+auth:
+  provider:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/auth/<provider>
+      version: 0.0.1-alpha.1
+
+datastore:
+  provider:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/datastore/<provider>
+      version: 0.0.1-alpha.1
+```
+
+Anonymous mode is a host-side special case, not a published auth provider
+package. Omit `auth` entirely or set `auth.provider: none` when you want
+platform auth disabled.
