@@ -23,7 +23,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_REF: 9a2d6ef795295d83f87f1068d26ebe00e8f0c354
+  GESTALT_REF: 5e51b85c74948eaedca698d89ae1e2ac7f49aa7e
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
