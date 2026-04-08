@@ -23,7 +23,8 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_REF: 5e51b85c74948eaedca698d89ae1e2ac7f49aa7e
+  LEGACY_GESTALT_REF: 9a2d6ef795295d83f87f1068d26ebe00e8f0c354
+  PROVIDER_GESTALT_REF: 5e51b85c74948eaedca698d89ae1e2ac7f49aa7e
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -57,6 +58,16 @@ jobs:
 
           repo = Path(".")
           package_roots = ("plugins", "auth", "datastore")
+          gestalt_ref_by_root = {
+              "plugins": os.environ["LEGACY_GESTALT_REF"],
+              "auth": os.environ["PROVIDER_GESTALT_REF"],
+              "datastore": os.environ["PROVIDER_GESTALT_REF"],
+          }
+          toolchain_by_root = {
+              "plugins": "legacy",
+              "auth": "provider",
+              "datastore": "provider",
+          }
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -75,8 +86,11 @@ jobs:
                       {
                           "dir": str(package_dir.as_posix()),
                           "name": f"{root_name}/{package_dir.name}",
+                          "root": root_name,
                           "has_go": has_go,
                           "has_python": (package_dir / "pyproject.toml").is_file(),
+                          "gestalt_ref": gestalt_ref_by_root[root_name],
+                          "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
                   )
           shared_prefixes = (".github/workflows/", ".github/scripts/")
@@ -143,6 +157,14 @@ jobs:
     if: needs.discover.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - name: legacy
+            gestalt_ref: 9a2d6ef795295d83f87f1068d26ebe00e8f0c354
+          - name: provider
+            gestalt_ref: 5e51b85c74948eaedca698d89ae1e2ac7f49aa7e
     steps:
       - uses: actions/setup-go@v5
         with:
@@ -183,13 +205,13 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${{ matrix.toolchain.gestalt_ref }}"
           git -C "$toolchain_dir" checkout FETCH_HEAD
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd-${{ matrix.toolchain.name }}" ./cmd/gestaltd)
       - uses: actions/upload-artifact@v4
         with:
-          name: gestaltd
-          path: ${{ runner.temp }}/bin/gestaltd
+          name: gestaltd-${{ matrix.toolchain.name }}
+          path: ${{ runner.temp }}/bin/gestaltd-${{ matrix.toolchain.name }}
           if-no-files-found: error
 
   validate:
@@ -251,14 +273,15 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${{ matrix.plugin.gestalt_ref }}"
           git -C "$toolchain_dir" checkout FETCH_HEAD
       - uses: actions/download-artifact@v4
         with:
-          name: gestaltd
+          name: ${{ matrix.plugin.gestaltd_artifact }}
           path: ${{ runner.temp }}/bin
       - name: Add gestaltd to PATH
         run: |
+          mv "${RUNNER_TEMP}/bin/${{ matrix.plugin.gestaltd_artifact }}" "${RUNNER_TEMP}/bin/gestaltd"
           chmod +x "${RUNNER_TEMP}/bin/gestaltd"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
       - name: Validate plugin
