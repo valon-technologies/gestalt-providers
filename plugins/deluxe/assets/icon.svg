@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Deluxe</title>
+  <rect width="64" height="64" rx="14" fill="#14532d"/>
+  <path d="M16 20h24c4.4 0 8 3.6 8 8v8c0 4.4-3.6 8-8 8H16z" fill="#ecfdf5"/>
+  <path d="M20 28h20v8H20zm0 12h12v4H20z" fill="#14532d"/>
+</svg>

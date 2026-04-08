@@ -1,0 +1,15 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/deluxe
+version: 0.0.1-alpha.1
+display_name: Deluxe
+description: Work with Deluxe lockbox files over SFTP, including filename generation, upload, download, and inbound file discovery.
+icon_file: assets/icon.svg
+provider:
+  config_schema_path: schemas/config.schema.yaml
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+          - name: token
+            label: RSA Private Key
+            description: Paste the RSA private key used to authenticate to the Deluxe SFTP server.

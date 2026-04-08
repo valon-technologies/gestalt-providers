@@ -1,0 +1,68 @@
+name: deluxe
+operations:
+  - id: files.formatFilename
+    method: POST
+    description: Format a Deluxe lockbox filename using the configured lockbox metadata.
+    parameters:
+      - name: file_type
+        type: string
+        description: Deluxe file type such as STOP, LOOKUP, AR, CHECK_IMAGES_ZIP,
+          or RETURNS.
+        required: true
+      - name: timestamp
+        type: string
+        description: Optional ISO-8601 timestamp. Defaults to the current UTC time.
+        default: ''
+    read_only: true
+  - id: files.parseFilename
+    method: POST
+    description: Parse a Deluxe lockbox filename into its structured components.
+    parameters:
+      - name: filename
+        type: string
+        description: Filename to parse.
+        required: true
+    read_only: true
+  - id: files.listInboundArAndImageFiles
+    method: GET
+    description: List inbound Deluxe AR files and their paired image ZIP files.
+    read_only: true
+  - id: files.listInboundReturnFiles
+    method: GET
+    description: List inbound Deluxe return files.
+    read_only: true
+  - id: files.upload
+    method: POST
+    description: Upload a Deluxe file to the configured SFTP server after validating
+      its filename.
+    parameters:
+      - name: file_type
+        type: string
+        description: Deluxe file type such as STOP or LOOKUP.
+        required: true
+      - name: filename
+        type: string
+        description: Filename to upload.
+        required: true
+      - name: content_base64
+        type: string
+        description: Base64-encoded file contents.
+        default: ''
+      - name: text_content
+        type: string
+        description: UTF-8 text file contents. Use instead of content_base64 for plain
+          text or CSV payloads.
+        default: ''
+      - name: remote_directory
+        type: string
+        description: Optional remote upload directory override.
+        default: ''
+  - id: files.download
+    method: GET
+    description: Download a file from the Deluxe SFTP server.
+    parameters:
+      - name: remote_path
+        type: string
+        description: Exact remote path to download.
+        required: true
+    read_only: true
