@@ -73,6 +73,6 @@ providers:
   <plugin>:
     from:
       source:
-        ref: github.com/valon-technologies/gestalt-providers/<plugin>
+        ref: github.com/valon-technologies/gestalt-providers/plugins/<plugin>
         version: 0.1.0
 ```

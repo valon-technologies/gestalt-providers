@@ -1,4 +1,4 @@
-source: github.com/valon-technologies/gestalt-providers/incident_io
+source: github.com/valon-technologies/gestalt-providers/plugins/incident_io
 version: 0.0.1-alpha.2
 display_name: incident.io
 description: Manage incidents, schedules, users, severities, and statuses.

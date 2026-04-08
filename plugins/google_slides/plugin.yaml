@@ -1,4 +1,4 @@
-source: github.com/valon-technologies/gestalt-providers/google_slides
+source: github.com/valon-technologies/gestalt-providers/plugins/google_slides
 version: 0.0.1-alpha.2
 display_name: Google Slides
 description: Create and update Google Slides presentations.
