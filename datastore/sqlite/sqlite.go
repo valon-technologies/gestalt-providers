@@ -99,5 +99,8 @@ func (s *Store) Migrate(ctx context.Context) error {
 			updated_at DATETIME NOT NULL
 		);
 		`)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.Store.MigrateOAuthRegistrations(ctx)
 }

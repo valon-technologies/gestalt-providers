@@ -10,18 +10,20 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt-providers/auth/internal/configutil"
+	"github.com/valon-technologies/gestalt-providers/auth/internal/userinfo"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"golang.org/x/oauth2"
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.1"
-	defaultSessionTTL    = 24 * time.Hour
-	defaultDisplayName   = "SSO"
-	defaultHTTPTimeout   = 10 * time.Second
+	providerVersion    = "0.0.1-alpha.1"
+	defaultSessionTTL  = 24 * time.Hour
+	defaultDisplayName = "SSO"
+	defaultHTTPTimeout = 10 * time.Second
 )
 
 type discoveryDocument struct {
@@ -43,13 +45,18 @@ type config struct {
 }
 
 type Provider struct {
-	cfg        config
-	doc        discoveryDocument
-	httpClient *http.Client
+	cfg           config
+	doc           discoveryDocument
+	httpClient    *http.Client
+	pkceMu        sync.Mutex
+	pkceVerifiers map[string]string
 }
 
 func New() *Provider {
-	return &Provider{httpClient: &http.Client{Timeout: defaultHTTPTimeout}}
+	return &Provider{
+		httpClient:    &http.Client{Timeout: defaultHTTPTimeout},
+		pkceVerifiers: make(map[string]string),
+	}
 }
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {
@@ -105,6 +112,10 @@ func (p *Provider) BeginLogin(_ context.Context, req gestalt.BeginLoginRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("oidc auth: generate verifier: %w", err)
 	}
+	if req.HostState == "" {
+		return nil, fmt.Errorf("oidc auth: host state is required when pkce is enabled")
+	}
+	p.storePKCEVerifier(req.HostState, verifier)
 	challenge := computeS256Challenge(verifier)
 	authURL := oauthCfg.AuthCodeURL(
 		req.HostState,
@@ -114,7 +125,6 @@ func (p *Provider) BeginLogin(_ context.Context, req gestalt.BeginLoginRequest) 
 	)
 	return &gestalt.BeginLoginResponse{
 		AuthorizationURL: authURL,
-		ProviderState:    []byte(verifier),
 	}, nil
 }
 
@@ -122,15 +132,24 @@ func (p *Provider) CompleteLogin(ctx context.Context, req gestalt.CompleteLoginR
 	oauthCfg := p.oauthConfig(req.CallbackURL)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
 	opts := []oauth2.AuthCodeOption{}
+	pkceState := ""
 	if p.cfg.PKCE {
-		if len(req.ProviderState) == 0 {
-			return nil, fmt.Errorf("oidc auth: provider state is required when pkce is enabled")
+		pkceState = req.Query["state"]
+		if pkceState == "" {
+			return nil, fmt.Errorf("oidc auth: state is required when pkce is enabled")
 		}
-		opts = append(opts, oauth2.SetAuthURLParam("code_verifier", string(req.ProviderState)))
+		verifier, ok := p.pkceVerifier(pkceState)
+		if !ok {
+			return nil, fmt.Errorf("oidc auth: pkce verifier not found for state")
+		}
+		opts = append(opts, oauth2.SetAuthURLParam("code_verifier", verifier))
 	}
 	tok, err := oauthCfg.Exchange(ctx, req.Query["code"], opts...)
 	if err != nil {
 		return nil, fmt.Errorf("oidc auth: exchange code: %w", err)
+	}
+	if pkceState != "" {
+		p.deletePKCEVerifier(pkceState)
 	}
 	return p.fetchUserInfo(ctx, tok.AccessToken)
 }
@@ -188,10 +207,10 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("oidc auth: decode userinfo: %w", err)
 	}
-	if !emailVerified(info.EmailVerified) {
+	if !userinfo.EmailVerified(info.EmailVerified) {
 		return nil, fmt.Errorf("oidc auth: email %s is not verified", info.Email)
 	}
-	if err := checkAllowedDomains(p.cfg.AllowedDomains, info.Email); err != nil {
+	if err := userinfo.CheckAllowedDomains("oidc", p.cfg.AllowedDomains, info.Email); err != nil {
 		return nil, err
 	}
 	return &gestalt.AuthenticatedUser{
@@ -241,30 +260,21 @@ func computeS256Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-func emailVerified(value any) bool {
-	switch v := value.(type) {
-	case bool:
-		return v
-	case string:
-		return !strings.EqualFold(v, "false")
-	default:
-		return false
-	}
+func (p *Provider) storePKCEVerifier(hostState, verifier string) {
+	p.pkceMu.Lock()
+	defer p.pkceMu.Unlock()
+	p.pkceVerifiers[hostState] = verifier
 }
 
-func checkAllowedDomains(allowed []string, email string) error {
-	if len(allowed) == 0 {
-		return nil
-	}
-	at := strings.LastIndex(email, "@")
-	if at < 0 || at == len(email)-1 {
-		return fmt.Errorf("oidc auth: invalid email %q", email)
-	}
-	domain := strings.ToLower(email[at+1:])
-	for _, allowedDomain := range allowed {
-		if strings.EqualFold(strings.TrimSpace(allowedDomain), domain) {
-			return nil
-		}
-	}
-	return fmt.Errorf("oidc auth: email domain %q is not allowed", domain)
+func (p *Provider) pkceVerifier(hostState string) (string, bool) {
+	p.pkceMu.Lock()
+	defer p.pkceMu.Unlock()
+	verifier, ok := p.pkceVerifiers[hostState]
+	return verifier, ok
+}
+
+func (p *Provider) deletePKCEVerifier(hostState string) {
+	p.pkceMu.Lock()
+	defer p.pkceMu.Unlock()
+	delete(p.pkceVerifiers, hostState)
 }

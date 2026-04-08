@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt-providers/auth/internal/configutil"
+	"github.com/valon-technologies/gestalt-providers/auth/internal/userinfo"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"golang.org/x/oauth2"
 	googleoauth "golang.org/x/oauth2/google"
 )
@@ -133,10 +134,10 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("google auth: decode userinfo: %w", err)
 	}
-	if !emailVerified(info.EmailVerified) {
+	if !userinfo.EmailVerified(info.EmailVerified) {
 		return nil, fmt.Errorf("google auth: email %s is not verified", info.Email)
 	}
-	if err := checkAllowedDomains(p.cfg.AllowedDomains, info.Email); err != nil {
+	if err := userinfo.CheckAllowedDomains("google", p.cfg.AllowedDomains, info.Email); err != nil {
 		return nil, err
 	}
 	return &gestalt.AuthenticatedUser{
@@ -146,32 +147,4 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		DisplayName:   info.Name,
 		AvatarURL:     info.Picture,
 	}, nil
-}
-
-func emailVerified(value any) bool {
-	switch v := value.(type) {
-	case bool:
-		return v
-	case string:
-		return strings.EqualFold(v, "true")
-	default:
-		return false
-	}
-}
-
-func checkAllowedDomains(allowed []string, email string) error {
-	if len(allowed) == 0 {
-		return nil
-	}
-	at := strings.LastIndex(email, "@")
-	if at < 0 || at == len(email)-1 {
-		return fmt.Errorf("google auth: invalid email %q", email)
-	}
-	domain := strings.ToLower(email[at+1:])
-	for _, allowedDomain := range allowed {
-		if strings.EqualFold(strings.TrimSpace(allowedDomain), domain) {
-			return nil
-		}
-	}
-	return fmt.Errorf("google auth: email domain %q is not allowed", domain)
 }

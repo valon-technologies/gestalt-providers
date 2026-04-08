@@ -16,7 +16,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
+	"github.com/valon-technologies/gestalt-providers/datastore/internal/sealcodec"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -29,6 +32,8 @@ const (
 	uniqueEmailSK    = "UNIQUE"
 	tokenSKPrefix    = "TOKEN#"
 	apiTokenSKPrefix = "APITOKEN#"
+	apiTokenHashPK   = "APITOKENHASH#"
+	hashLookupSK     = "LOOKUP"
 
 	attrID                = "id"
 	attrEmail             = "email"
@@ -337,9 +342,33 @@ func (s *Store) DeleteIntegrationToken(ctx context.Context, id string) error {
 }
 
 func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) error {
-	_, err := s.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: &s.tableName,
-		Item:      marshalAPIToken(token),
+	cond := expression.AttributeNotExists(expression.Name(attrPK))
+	condExpr, err := expression.NewBuilder().WithCondition(cond).Build()
+	if err != nil {
+		return fmt.Errorf("dynamodb: building api token condition: %w", err)
+	}
+
+	_, err = s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: []ddbtypes.TransactWriteItem{
+			{
+				Put: &ddbtypes.Put{
+					TableName:                 &s.tableName,
+					Item:                      marshalAPIToken(token),
+					ConditionExpression:       condExpr.Condition(),
+					ExpressionAttributeNames:  condExpr.Names(),
+					ExpressionAttributeValues: condExpr.Values(),
+				},
+			},
+			{
+				Put: &ddbtypes.Put{
+					TableName:                 &s.tableName,
+					Item:                      marshalAPITokenHashLookup(token),
+					ConditionExpression:       condExpr.Condition(),
+					ExpressionAttributeNames:  condExpr.Names(),
+					ExpressionAttributeValues: condExpr.Values(),
+				},
+			},
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("dynamodb: storing api token: %w", err)
@@ -348,32 +377,34 @@ func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) 
 }
 
 func (s *Store) GetAPITokenByHash(ctx context.Context, hashedToken string) (*gestalt.StoredAPIToken, error) {
-	keyCond := expression.Key(attrHashedToken).Equal(expression.Value(hashedToken))
-	expr, err := expression.NewBuilder().WithKeyCondition(keyCond).Build()
-	if err != nil {
-		return nil, fmt.Errorf("dynamodb: building api token expression: %w", err)
-	}
-	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 &s.tableName,
-		IndexName:                 aws.String(gsiHashedToken),
-		KeyConditionExpression:    expr.KeyCondition(),
-		ExpressionAttributeNames:  expr.Names(),
-		ExpressionAttributeValues: expr.Values(),
+	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName:      &s.tableName,
+		ConsistentRead: aws.Bool(true),
+		Key:            apiTokenHashKey(hashedToken),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("dynamodb: getting api token by hash: %w", err)
+		return nil, fmt.Errorf("dynamodb: getting api token hash lookup: %w", err)
 	}
-	if len(out.Items) == 0 {
-		return nil, nil
+	if out.Item != nil {
+		var tokenID, userID string
+		if err := unmarshalString(out.Item, attrID, &tokenID); err != nil {
+			return nil, err
+		}
+		if err := unmarshalString(out.Item, attrUserID, &userID); err != nil {
+			return nil, err
+		}
+		token, err := s.getAPITokenByKey(ctx, userID, tokenID)
+		if err != nil {
+			return nil, err
+		}
+		if token != nil && token.HashedToken == hashedToken {
+			if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
+				return nil, nil
+			}
+			return token, nil
+		}
 	}
-	token, err := unmarshalAPIToken(out.Items[0])
-	if err != nil {
-		return nil, err
-	}
-	if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
-		return nil, nil
-	}
-	return token, nil
+	return s.getLegacyAPITokenByHash(ctx, hashedToken)
 }
 
 func (s *Store) ListAPITokens(ctx context.Context, userID string) ([]*gestalt.StoredAPIToken, error) {
@@ -420,27 +451,31 @@ func (s *Store) ListAPITokens(ctx context.Context, userID string) ([]*gestalt.St
 }
 
 func (s *Store) RevokeAPIToken(ctx context.Context, userID, id string) error {
-	cond := expression.Name(attrPK).AttributeExists()
-	condExpr, err := expression.NewBuilder().WithCondition(cond).Build()
+	token, err := s.getAPITokenByKey(ctx, userID, id)
 	if err != nil {
-		return fmt.Errorf("dynamodb: building revoke condition: %w", err)
+		return err
+	}
+	if token == nil {
+		return status.Errorf(codes.NotFound, "api token %s for user %s not found", id, userID)
 	}
 
-	_, err = s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
-		TableName: &s.tableName,
-		Key: map[string]ddbtypes.AttributeValue{
-			attrPK: &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + userID},
-			attrSK: &ddbtypes.AttributeValueMemberS{Value: apiTokenSKPrefix + id},
+	_, err = s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: []ddbtypes.TransactWriteItem{
+			{
+				Delete: &ddbtypes.Delete{
+					TableName: &s.tableName,
+					Key:       apiTokenKey(userID, id),
+				},
+			},
+			{
+				Delete: &ddbtypes.Delete{
+					TableName: &s.tableName,
+					Key:       apiTokenHashKey(token.HashedToken),
+				},
+			},
 		},
-		ConditionExpression:       condExpr.Condition(),
-		ExpressionAttributeNames:  condExpr.Names(),
-		ExpressionAttributeValues: condExpr.Values(),
 	})
 	if err != nil {
-		var condErr *ddbtypes.ConditionalCheckFailedException
-		if errors.As(err, &condErr) {
-			return fmt.Errorf("dynamodb: api token %s for user %s not found", id, userID)
-		}
 		return fmt.Errorf("dynamodb: revoking api token: %w", err)
 	}
 	return nil
@@ -451,7 +486,7 @@ func (s *Store) RevokeAllAPITokens(ctx context.Context, userID string) (int64, e
 		expression.Key(attrPK).Equal(expression.Value(userPKPrefix+userID)),
 		expression.KeyBeginsWith(expression.Key(attrSK), apiTokenSKPrefix),
 	)
-	projection := expression.NamesList(expression.Name(attrPK), expression.Name(attrSK))
+	projection := expression.NamesList(expression.Name(attrPK), expression.Name(attrSK), expression.Name(attrHashedToken))
 	expr, err := expression.NewBuilder().WithKeyCondition(keyCond).WithProjection(projection).Build()
 	if err != nil {
 		return 0, fmt.Errorf("dynamodb: building revoke-all expression: %w", err)
@@ -483,7 +518,7 @@ func (s *Store) RevokeAllAPITokens(ctx context.Context, userID string) (int64, e
 		return 0, nil
 	}
 
-	const batchSize = 25
+	const batchSize = 12
 	const maxRetries = 3
 	var revoked int64
 	for i := 0; i < len(items); i += batchSize {
@@ -492,7 +527,7 @@ func (s *Store) RevokeAllAPITokens(ctx context.Context, userID string) (int64, e
 			end = len(items)
 		}
 
-		pending := make([]ddbtypes.WriteRequest, 0, end-i)
+		pending := make([]ddbtypes.WriteRequest, 0, (end-i)*2)
 		for _, item := range items[i:end] {
 			pending = append(pending, ddbtypes.WriteRequest{
 				DeleteRequest: &ddbtypes.DeleteRequest{
@@ -502,6 +537,17 @@ func (s *Store) RevokeAllAPITokens(ctx context.Context, userID string) (int64, e
 					},
 				},
 			})
+			var hashedToken string
+			if err := unmarshalString(item, attrHashedToken, &hashedToken); err != nil {
+				return revoked, err
+			}
+			if hashedToken != "" {
+				pending = append(pending, ddbtypes.WriteRequest{
+					DeleteRequest: &ddbtypes.DeleteRequest{
+						Key: apiTokenHashKey(hashedToken),
+					},
+				})
+			}
 		}
 
 		for attempt := 0; attempt <= maxRetries && len(pending) > 0; attempt++ {
@@ -512,12 +558,12 @@ func (s *Store) RevokeAllAPITokens(ctx context.Context, userID string) (int64, e
 				return revoked, fmt.Errorf("dynamodb: batch deleting api tokens: %w", err)
 			}
 			unprocessed := out.UnprocessedItems[s.tableName]
-			revoked += int64(len(pending) - len(unprocessed))
 			pending = unprocessed
 		}
 		if len(pending) > 0 {
 			return revoked, fmt.Errorf("dynamodb: %d api token deletions failed after retries", len(pending))
 		}
+		revoked += int64(end - i)
 	}
 
 	return revoked, nil
@@ -654,6 +700,20 @@ func tokenKey(userID, integration, connection, instance string) map[string]ddbty
 	}
 }
 
+func apiTokenKey(userID, id string) map[string]ddbtypes.AttributeValue {
+	return map[string]ddbtypes.AttributeValue{
+		attrPK: &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + userID},
+		attrSK: &ddbtypes.AttributeValueMemberS{Value: apiTokenSKPrefix + id},
+	}
+}
+
+func apiTokenHashKey(hashedToken string) map[string]ddbtypes.AttributeValue {
+	return map[string]ddbtypes.AttributeValue{
+		attrPK: &ddbtypes.AttributeValueMemberS{Value: apiTokenHashPK + hashedToken},
+		attrSK: &ddbtypes.AttributeValueMemberS{Value: hashLookupSK},
+	}
+}
+
 func marshalUser(user *gestalt.StoredUser) map[string]ddbtypes.AttributeValue {
 	return map[string]ddbtypes.AttributeValue{
 		attrPK:          &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + user.ID},
@@ -709,8 +769,8 @@ func marshalIntegrationToken(token *gestalt.StoredIntegrationToken, paramsJSON s
 		attrIntegration:       &ddbtypes.AttributeValueMemberS{Value: token.Integration},
 		attrConnection:        &ddbtypes.AttributeValueMemberS{Value: token.Connection},
 		attrInstance:          &ddbtypes.AttributeValueMemberS{Value: token.Instance},
-		attrAccessTokenEnc:    &ddbtypes.AttributeValueMemberS{Value: string(token.AccessTokenSealed)},
-		attrRefreshTokenEnc:   &ddbtypes.AttributeValueMemberS{Value: string(token.RefreshTokenSealed)},
+		attrAccessTokenEnc:    &ddbtypes.AttributeValueMemberS{Value: sealcodec.Encode(token.AccessTokenSealed)},
+		attrRefreshTokenEnc:   &ddbtypes.AttributeValueMemberS{Value: sealcodec.Encode(token.RefreshTokenSealed)},
 		attrScopes:            &ddbtypes.AttributeValueMemberS{Value: token.Scopes},
 		attrRefreshErrorCount: &ddbtypes.AttributeValueMemberN{Value: strconv.FormatInt(int64(token.RefreshErrorCount), 10)},
 		attrMetadataJSON:      &ddbtypes.AttributeValueMemberS{Value: paramsJSON},
@@ -791,8 +851,14 @@ func unmarshalIntegrationToken(item map[string]ddbtypes.AttributeValue) (*gestal
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: decode connection params: %w", err)
 	}
-	token.AccessTokenSealed = []byte(accessToken)
-	token.RefreshTokenSealed = []byte(refreshToken)
+	token.AccessTokenSealed, err = sealcodec.Decode(accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("dynamodb: decode access token: %w", err)
+	}
+	token.RefreshTokenSealed, err = sealcodec.Decode(refreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("dynamodb: decode refresh token: %w", err)
+	}
 	token.ConnectionParams = params
 
 	token.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
@@ -842,6 +908,15 @@ func marshalAPIToken(token *gestalt.StoredAPIToken) map[string]ddbtypes.Attribut
 		item[attrExpiresAt] = &ddbtypes.AttributeValueMemberS{Value: token.ExpiresAt.Format(time.RFC3339)}
 	}
 	return item
+}
+
+func marshalAPITokenHashLookup(token *gestalt.StoredAPIToken) map[string]ddbtypes.AttributeValue {
+	return map[string]ddbtypes.AttributeValue{
+		attrPK:     &ddbtypes.AttributeValueMemberS{Value: apiTokenHashPK + token.HashedToken},
+		attrSK:     &ddbtypes.AttributeValueMemberS{Value: hashLookupSK},
+		attrID:     &ddbtypes.AttributeValueMemberS{Value: token.ID},
+		attrUserID: &ddbtypes.AttributeValueMemberS{Value: token.UserID},
+	}
 }
 
 func unmarshalAPIToken(item map[string]ddbtypes.AttributeValue) (*gestalt.StoredAPIToken, error) {
@@ -904,6 +979,55 @@ func unmarshalString(item map[string]ddbtypes.AttributeValue, key string, dest *
 		return nil
 	}
 	return attributevalue.Unmarshal(value, dest)
+}
+
+func (s *Store) getAPITokenByKey(ctx context.Context, userID, id string) (*gestalt.StoredAPIToken, error) {
+	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName:      &s.tableName,
+		ConsistentRead: aws.Bool(true),
+		Key:            apiTokenKey(userID, id),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamodb: getting api token by key: %w", err)
+	}
+	if out.Item == nil {
+		return nil, nil
+	}
+	return unmarshalAPIToken(out.Item)
+}
+
+func (s *Store) getLegacyAPITokenByHash(ctx context.Context, hashedToken string) (*gestalt.StoredAPIToken, error) {
+	keyCond := expression.Key(attrHashedToken).Equal(expression.Value(hashedToken))
+	expr, err := expression.NewBuilder().WithKeyCondition(keyCond).Build()
+	if err != nil {
+		return nil, fmt.Errorf("dynamodb: building api token expression: %w", err)
+	}
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:                 &s.tableName,
+		IndexName:                 aws.String(gsiHashedToken),
+		KeyConditionExpression:    expr.KeyCondition(),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamodb: getting api token by hash: %w", err)
+	}
+	now := time.Now()
+	var active *gestalt.StoredAPIToken
+	for _, item := range out.Items {
+		token, err := unmarshalAPIToken(item)
+		if err != nil {
+			return nil, err
+		}
+		if token.ExpiresAt != nil && now.After(*token.ExpiresAt) {
+			continue
+		}
+		if active != nil {
+			return nil, fmt.Errorf("dynamodb: multiple api tokens found for hash %q", hashedToken)
+		}
+		active = token
+	}
+	return active, nil
 }
 
 func connectionParamsToJSON(values map[string]string) (string, error) {

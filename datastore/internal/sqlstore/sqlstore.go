@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/valon-technologies/gestalt-providers/datastore/internal/sealcodec"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Dialect interface {
@@ -162,6 +165,7 @@ func (s *Store) scanIntegrationToken(row Scanner) (*gestalt.StoredIntegrationTok
 	var accessSealed, refreshSealed sql.NullString
 	var scopes, paramsJSON sql.NullString
 	var expiresAt, lastRefreshedAt sql.NullTime
+	var err error
 
 	if err := row.Scan(
 		&token.ID,
@@ -183,8 +187,14 @@ func (s *Store) scanIntegrationToken(row Scanner) (*gestalt.StoredIntegrationTok
 	}
 
 	token.Connection = s.Dialect.DenormalizeConnection(token.Connection)
-	token.AccessTokenSealed = []byte(accessSealed.String)
-	token.RefreshTokenSealed = []byte(refreshSealed.String)
+	token.AccessTokenSealed, err = sealcodec.Decode(accessSealed.String)
+	if err != nil {
+		return nil, fmt.Errorf("decode access token: %w", err)
+	}
+	token.RefreshTokenSealed, err = sealcodec.Decode(refreshSealed.String)
+	if err != nil {
+		return nil, fmt.Errorf("decode refresh token: %w", err)
+	}
 	token.Scopes = scopes.String
 	if expiresAt.Valid {
 		token.ExpiresAt = &expiresAt.Time
@@ -215,8 +225,8 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 		token.Integration,
 		connection,
 		token.Instance,
-		string(token.AccessTokenSealed),
-		string(token.RefreshTokenSealed),
+		sealcodec.Encode(token.AccessTokenSealed),
+		sealcodec.Encode(token.RefreshTokenSealed),
 		token.Scopes,
 		nullableTime(token.ExpiresAt),
 		nullableTime(token.LastRefreshedAt),
@@ -357,9 +367,16 @@ func (s *Store) ListAPITokens(ctx context.Context, userID string) ([]*gestalt.St
 }
 
 func (s *Store) RevokeAPIToken(ctx context.Context, userID, id string) error {
-	_, err := s.DB.ExecContext(ctx, "DELETE FROM api_tokens WHERE id = "+s.ph(1)+" AND user_id = "+s.ph(2), id, userID)
+	result, err := s.DB.ExecContext(ctx, "DELETE FROM api_tokens WHERE id = "+s.ph(1)+" AND user_id = "+s.ph(2), id, userID)
 	if err != nil {
 		return fmt.Errorf("revoking api token: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("revoking api token: %w", err)
+	}
+	if affected == 0 {
+		return status.Errorf(codes.NotFound, "api token %s for user %s not found", id, userID)
 	}
 	return nil
 }
@@ -392,12 +409,16 @@ const defaultRegistrationDDL = `CREATE TABLE IF NOT EXISTS oauth_registrations (
 	UNIQUE (auth_server_url, redirect_uri)
 )`
 
-func (s *Store) MigrateOAuthRegistrations(ctx context.Context) error {
+func (s *Store) OAuthRegistrationDDL() string {
 	ddl := defaultRegistrationDDL
 	if provider, ok := s.Dialect.(RegistrationDDLProvider); ok {
 		ddl = provider.RegistrationDDL()
 	}
-	_, err := s.DB.ExecContext(ctx, ddl)
+	return ddl
+}
+
+func (s *Store) MigrateOAuthRegistrations(ctx context.Context) error {
+	_, err := s.DB.ExecContext(ctx, s.OAuthRegistrationDDL())
 	return err
 }
 
@@ -428,7 +449,10 @@ func (s *Store) GetOAuthRegistration(ctx context.Context, authServerURL, redirec
 	if err != nil {
 		return nil, fmt.Errorf("querying oauth registration: %w", err)
 	}
-	registration.ClientSecretSealed = []byte(secret.String)
+	registration.ClientSecretSealed, err = sealcodec.Decode(secret.String)
+	if err != nil {
+		return nil, fmt.Errorf("decode oauth client secret: %w", err)
+	}
 	if expiresAt.Valid {
 		registration.ExpiresAt = &expiresAt.Time
 	}
@@ -456,7 +480,7 @@ func (s *Store) PutOAuthRegistration(ctx context.Context, registration *gestalt.
 		updated_at = `+s.ph(8)+`
 		WHERE auth_server_url = `+s.ph(9)+` AND redirect_uri = `+s.ph(10),
 		registration.ClientID,
-		string(registration.ClientSecretSealed),
+		sealcodec.Encode(registration.ClientSecretSealed),
 		nullableTime(registration.ExpiresAt),
 		registration.AuthorizationEndpoint,
 		registration.TokenEndpoint,
@@ -480,7 +504,7 @@ func (s *Store) PutOAuthRegistration(ctx context.Context, registration *gestalt.
 			registration.AuthServerURL,
 			registration.RedirectURI,
 			registration.ClientID,
-			string(registration.ClientSecretSealed),
+			sealcodec.Encode(registration.ClientSecretSealed),
 			nullableTime(registration.ExpiresAt),
 			registration.AuthorizationEndpoint,
 			registration.TokenEndpoint,

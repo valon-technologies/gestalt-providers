@@ -104,7 +104,7 @@ func resolveVersion(ctx context.Context, db *sql.DB, requested string) (string, 
 			return "", raw, fmt.Errorf("%s: parsing server version %q: %w", driverName, raw, err)
 		}
 		if engineEdition == 5 || engineEdition == 8 {
-			return "azure", raw, nil
+			return "", raw, fmt.Errorf("%s: Azure SQL is not yet supported (%s)", driverName, raw)
 		}
 
 		switch major {

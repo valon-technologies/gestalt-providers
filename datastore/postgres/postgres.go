@@ -143,7 +143,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		)`); err != nil {
 		return fmt.Errorf("creating api_tokens table: %w", err)
 	}
-	if err := s.Store.MigrateOAuthRegistrations(ctx); err != nil {
+	if _, err := tx.ExecContext(ctx, s.Store.OAuthRegistrationDDL()); err != nil {
 		return fmt.Errorf("creating oauth_registrations table: %w", err)
 	}
 	return tx.Commit()

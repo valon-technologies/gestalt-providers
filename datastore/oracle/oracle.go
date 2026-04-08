@@ -18,7 +18,7 @@ const (
 	providerName          = "oracle"
 )
 
-var supportedVersions = []string{"19c", "26ai"}
+var supportedVersions = []string{"19c", "23ai"}
 
 // dialect implements sqlstore.Dialect for Oracle.
 type dialect struct{}
@@ -134,7 +134,7 @@ func resolveVersion(ctx context.Context, db *sql.DB, requested string) (string, 
 		case 19:
 			return "19c", raw, nil
 		case 23:
-			return "26ai", raw, nil
+			return "23ai", raw, nil
 		default:
 			return fmt.Sprintf("major-%d", major), raw, nil
 		}
@@ -184,9 +184,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 				hashed_token VARCHAR2(255) NOT NULL,
 				scopes CLOB,
 				expires_at TIMESTAMP WITH TIME ZONE,
-					created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-					updated_at TIMESTAMP WITH TIME ZONE NOT NULL
-				)`,
+				created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+				updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+			)`,
 		},
 	}
 

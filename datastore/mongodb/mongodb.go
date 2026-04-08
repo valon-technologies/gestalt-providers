@@ -9,11 +9,14 @@ import (
 
 	"github.com/google/uuid"
 	datastorecollections "github.com/valon-technologies/gestalt-providers/datastore/internal/collections"
+	"github.com/valon-technologies/gestalt-providers/datastore/internal/sealcodec"
 	"github.com/valon-technologies/gestalt-providers/datastore/internal/versioning"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const providerName = "mongodb"
@@ -194,8 +197,8 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 	}
 	update := bson.M{
 		"$set": bson.M{
-			"access_token_encrypted":  string(token.AccessTokenSealed),
-			"refresh_token_encrypted": string(token.RefreshTokenSealed),
+			"access_token_encrypted":  sealcodec.Encode(token.AccessTokenSealed),
+			"refresh_token_encrypted": sealcodec.Encode(token.RefreshTokenSealed),
 			"scopes":                  token.Scopes,
 			"expires_at":              token.ExpiresAt,
 			"last_refreshed_at":       token.LastRefreshedAt,
@@ -335,7 +338,7 @@ func (s *Store) RevokeAPIToken(ctx context.Context, userID, id string) error {
 		return fmt.Errorf("mongodb: revoking api token: %w", err)
 	}
 	if result.DeletedCount == 0 {
-		return fmt.Errorf("mongodb: api token %s for user %s not found", id, userID)
+		return status.Errorf(codes.NotFound, "api token %s for user %s not found", id, userID)
 	}
 	return nil
 }
@@ -363,14 +366,22 @@ func integrationTokenFromDoc(doc *integrationTokenDoc) (*gestalt.StoredIntegrati
 	if err != nil {
 		return nil, fmt.Errorf("mongodb: decode connection params: %w", err)
 	}
+	accessTokenSealed, err := sealcodec.Decode(doc.AccessTokenEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("mongodb: decode access token: %w", err)
+	}
+	refreshTokenSealed, err := sealcodec.Decode(doc.RefreshTokenEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("mongodb: decode refresh token: %w", err)
+	}
 	return &gestalt.StoredIntegrationToken{
 		ID:                 doc.ID,
 		UserID:             doc.UserID,
 		Integration:        doc.Integration,
 		Connection:         doc.Connection,
 		Instance:           doc.Instance,
-		AccessTokenSealed:  []byte(doc.AccessTokenEncrypted),
-		RefreshTokenSealed: []byte(doc.RefreshTokenEncrypted),
+		AccessTokenSealed:  accessTokenSealed,
+		RefreshTokenSealed: refreshTokenSealed,
 		Scopes:             doc.Scopes,
 		ExpiresAt:          doc.ExpiresAt,
 		LastRefreshedAt:    doc.LastRefreshedAt,

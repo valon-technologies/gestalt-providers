@@ -11,6 +11,7 @@ import (
 	gcpfirestore "cloud.google.com/go/firestore"
 	"github.com/google/uuid"
 	datastorecollections "github.com/valon-technologies/gestalt-providers/datastore/internal/collections"
+	"github.com/valon-technologies/gestalt-providers/datastore/internal/sealcodec"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -241,8 +242,8 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 		Integration:           token.Integration,
 		Connection:            token.Connection,
 		Instance:              token.Instance,
-		AccessTokenEncrypted:  string(token.AccessTokenSealed),
-		RefreshTokenEncrypted: string(token.RefreshTokenSealed),
+		AccessTokenEncrypted:  sealcodec.Encode(token.AccessTokenSealed),
+		RefreshTokenEncrypted: sealcodec.Encode(token.RefreshTokenSealed),
 		Scopes:                token.Scopes,
 		ExpiresAt:             token.ExpiresAt,
 		LastRefreshedAt:       token.LastRefreshedAt,
@@ -405,14 +406,22 @@ func snapToIntegrationToken(snap *gcpfirestore.DocumentSnapshot) (*gestalt.Store
 	if err != nil {
 		return nil, fmt.Errorf("firestore: decode connection params: %w", err)
 	}
+	accessTokenSealed, err := sealcodec.Decode(doc.AccessTokenEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("firestore: decode access token: %w", err)
+	}
+	refreshTokenSealed, err := sealcodec.Decode(doc.RefreshTokenEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("firestore: decode refresh token: %w", err)
+	}
 	return &gestalt.StoredIntegrationToken{
 		ID:                 snap.Ref.ID,
 		UserID:             doc.UserID,
 		Integration:        doc.Integration,
 		Connection:         doc.Connection,
 		Instance:           doc.Instance,
-		AccessTokenSealed:  []byte(doc.AccessTokenEncrypted),
-		RefreshTokenSealed: []byte(doc.RefreshTokenEncrypted),
+		AccessTokenSealed:  accessTokenSealed,
+		RefreshTokenSealed: refreshTokenSealed,
 		Scopes:             doc.Scopes,
 		ExpiresAt:          doc.ExpiresAt,
 		LastRefreshedAt:    doc.LastRefreshedAt,
@@ -537,7 +546,7 @@ func (s *Store) RevokeAPIToken(ctx context.Context, userID, id string) error {
 	tokenRef := s.client.Collection(datastorecollections.APITokensCollection).Doc(id)
 	snap, err := tokenRef.Get(ctx)
 	if status.Code(err) == codes.NotFound {
-		return fmt.Errorf("firestore: api token %s for user %s not found", id, userID)
+		return status.Errorf(codes.NotFound, "api token %s for user %s not found", id, userID)
 	}
 	if err != nil {
 		return fmt.Errorf("firestore: revoking api token: %w", err)
@@ -547,7 +556,7 @@ func (s *Store) RevokeAPIToken(ctx context.Context, userID, id string) error {
 		return fmt.Errorf("firestore: unmarshalling api token: %w", err)
 	}
 	if doc.UserID != userID {
-		return fmt.Errorf("firestore: api token %s for user %s not found", id, userID)
+		return status.Errorf(codes.NotFound, "api token %s for user %s not found", id, userID)
 	}
 
 	hashRef := s.client.Collection(apiTokensByHashCollection).Doc(firestoreDocKey(doc.HashedToken))
