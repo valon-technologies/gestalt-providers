@@ -1,4 +1,4 @@
-name: Release Plugin
+name: Release Provider Package
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'auth/*/v*'
       - 'datastore/*/v*'
       - 'secrets/*/v*'
+      - 'web/*/v*'
 
 permissions:
   contents: write
@@ -40,7 +41,7 @@ jobs:
           PLUGIN_DIR="${GITHUB_REF_NAME%/v*}"
           PLUGIN_ROOT="${PLUGIN_DIR%%/*}"
           if [ "$PLUGIN_DIR" = "gestaltd" ]; then
-            echo "Detected gestaltd bootstrap tag; skipping plugin release workflow."
+            echo "Detected gestaltd bootstrap tag; skipping provider package release workflow."
             echo "is-plugin=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -55,11 +56,8 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            plugins)
-              GESTALT_REF="df496400d6e12e754c0c8f6d97784f69198f52cf"
-              ;;
-            auth|datastore|secrets)
-              GESTALT_REF="39419ebbc89a0f45b734ac86d1119568e180f0e6"
+            plugins|auth|datastore|secrets|web)
+              GESTALT_REF="d618f26625e7a14b7fb001d49084b5cbd5929d87"
               ;;
             *)
               echo "ERROR: unsupported plugin root ${PLUGIN_ROOT}"

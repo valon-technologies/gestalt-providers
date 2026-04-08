@@ -7,6 +7,7 @@ Versioned provider packages for Gestalt.
 - `plugins/<name>` contains the source for each integration plugin package.
 - `auth/<name>` contains platform auth provider packages.
 - `datastore/<name>` contains datastore provider packages.
+- `web/<name>` contains packaged web UI bundles.
 - Declarative plugins ship from their manifests and support files.
 - Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
 - Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
@@ -93,6 +94,16 @@ datastore:
   provider:
     source:
       ref: github.com/valon-technologies/gestalt-providers/datastore/<provider>
+      version: 0.0.1-alpha.1
+```
+
+For top-level web UI bundles, use:
+
+```yaml
+ui:
+  provider:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/web/<bundle>
       version: 0.0.1-alpha.1
 ```
 
