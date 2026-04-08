@@ -1,6 +1,6 @@
 .DS_Store
-*/dist/
-*/.venv/
+plugins/*/dist/
+plugins/*/.venv/
 __pycache__/
 *.pyc
-*/*.egg-info/
+plugins/*/*.egg-info/

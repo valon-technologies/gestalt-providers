@@ -5,14 +5,14 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/scripts/**'
-      - '*/**'
+      - 'plugins/**'
   push:
     branches:
       - main
     paths:
       - '.github/workflows/**'
       - '.github/scripts/**'
-      - '*/**'
+      - 'plugins/**'
 
 permissions:
   contents: read
@@ -52,7 +52,8 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          all_plugins = sorted(path.parent.name for path in repo.glob("*/plugin.yaml"))
+          plugins_root = repo / "plugins"
+          all_plugins = sorted(path.parent.name for path in plugins_root.glob("*/plugin.yaml"))
           shared_prefixes = (".github/workflows/", ".github/scripts/")
 
           event_name = os.environ["EVENT_NAME"]
@@ -73,17 +74,19 @@ jobs:
                   if path.startswith(shared_prefixes):
                       run_all = True
                       break
-                  root = path.split("/", 1)[0]
-                  if (repo / root / "plugin.yaml").is_file():
-                      selected.add(root)
+                  parts = Path(path).parts
+                  if len(parts) >= 3 and parts[0] == "plugins":
+                      plugin_name = parts[1]
+                      if (plugins_root / plugin_name / "plugin.yaml").is_file():
+                          selected.add(plugin_name)
 
           plugin_names = all_plugins if run_all else sorted(selected)
           plugins = []
           for name in plugin_names:
-              plugin_dir = repo / name
+              plugin_dir = plugins_root / name
               plugins.append(
                   {
-                      "dir": name,
+                      "dir": f"plugins/{name}",
                       "name": name,
                       "has_go": (plugin_dir / "go.mod").is_file(),
                       "has_python": (plugin_dir / "pyproject.toml").is_file(),

@@ -3,7 +3,7 @@ name: Release Plugin
 on:
   push:
     tags:
-      - '*/v*'
+      - 'plugins/*/v*'
 
 permissions:
   contents: write
@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       plugin-name: ${{ steps.parse.outputs.plugin-name }}
+      plugin-dir: ${{ steps.validate.outputs.plugin-dir }}
       plugin-version: ${{ steps.parse.outputs.plugin-version }}
       is-plugin: ${{ steps.validate.outputs.is-plugin }}
     steps:
@@ -22,7 +23,8 @@ jobs:
         id: parse
         run: |
           TAG="${GITHUB_REF_NAME}"
-          PLUGIN_NAME="${TAG%%/*}"
+          PLUGIN_PATH="${TAG%/v*}"
+          PLUGIN_NAME="${PLUGIN_PATH##*/}"
           PLUGIN_VERSION="${TAG##*/v}"
           echo "plugin-name=${PLUGIN_NAME}" >> "$GITHUB_OUTPUT"
           echo "plugin-version=${PLUGIN_VERSION}" >> "$GITHUB_OUTPUT"
@@ -37,7 +39,7 @@ jobs:
             exit 0
           fi
 
-          PLUGIN_DIR="${PLUGIN_NAME}"
+          PLUGIN_DIR="plugins/${PLUGIN_NAME}"
           if [ ! -d "$PLUGIN_DIR" ]; then
             echo "ERROR: ${PLUGIN_DIR} does not exist"
             exit 1
@@ -46,6 +48,7 @@ jobs:
             echo "ERROR: ${PLUGIN_DIR}/plugin.yaml not found"
             exit 1
           fi
+          echo "plugin-dir=${PLUGIN_DIR}" >> "$GITHUB_OUTPUT"
           echo "is-plugin=true" >> "$GITHUB_OUTPUT"
 
   release:
@@ -54,6 +57,6 @@ jobs:
     uses: ./.github/workflows/release-plugin-reusable.yml
     secrets: inherit
     with:
-      plugin-dir: ${{ needs.prepare.outputs.plugin-name }}
+      plugin-dir: ${{ needs.prepare.outputs.plugin-dir }}
       version: ${{ needs.prepare.outputs.plugin-version }}
       gestalt-ref: de96183814c2fe72133115c66d1d5644ec41b298

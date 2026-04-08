@@ -1,10 +1,10 @@
-# gestalt-plugins
+# gestalt-providers
 
-Versioned plugin packages for Gestalt.
+Versioned provider packages for Gestalt.
 
 ## Layout
 
-- `<name>` contains the source for each plugin package.
+- `plugins/<name>` contains the source for each provider package.
 - Declarative plugins ship from their manifests and support files.
 - Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
 - Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
@@ -51,7 +51,7 @@ intentionally when you want SDK changes.
 
 ## Releasing
 
-Push a tag in the format `<plugin>/v<version>`.
+Push a tag in the format `plugins/<plugin>/v<version>`.
 
 Python source plugin releases publish separate `linux/amd64/glibc` and
 `linux/amd64/musl` artifacts so `gestaltd` can resolve the correct binary for
@@ -60,8 +60,8 @@ glibc and Alpine runtimes.
 Example:
 
 ```sh
-git tag slack/v0.1.0
-git push origin slack/v0.1.0
+git tag plugins/slack/v0.1.0
+git push origin plugins/slack/v0.1.0
 ```
 
 That triggers the release workflow, packages the plugin, and publishes a GitHub release with the same tag.
@@ -73,6 +73,6 @@ providers:
   <plugin>:
     from:
       source:
-        ref: github.com/valon-technologies/gestalt-plugins/<plugin>
+        ref: github.com/valon-technologies/gestalt-providers/plugins/<plugin>
         version: 0.1.0
 ```

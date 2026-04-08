@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       plugin-dir:
-        description: Path to plugin directory containing plugin.yaml
+        description: Path to plugin directory under plugins/ containing plugin.yaml
         type: string
         default: '.'
       version:
@@ -62,7 +62,7 @@ jobs:
 
           {
             echo "name=${PLUGIN_NAME}"
-            echo "tag=${PLUGIN_NAME}/v${VERSION}"
+            echo "tag=${PLUGIN_DIR}/v${VERSION}"
             echo "prerelease=${PRERELEASE}"
           } >> "$GITHUB_OUTPUT"
           if [ -f "${PLUGIN_DIR}/go.mod" ]; then
