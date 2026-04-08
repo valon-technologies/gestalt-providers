@@ -5,8 +5,8 @@ Versioned provider packages for Gestalt.
 ## Layout
 
 - `plugins/<name>` contains the source for each integration plugin package.
-- `auth/<name>` is the intended home for auth provider packages.
-- `datastore/<name>` is the intended home for datastore provider packages.
+- `auth/<name>` contains platform auth provider packages.
+- `datastore/<name>` contains datastore provider packages.
 - Declarative plugins ship from their manifests and support files.
 - Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
 - Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
@@ -94,3 +94,7 @@ datastore:
       ref: github.com/valon-technologies/gestalt-providers/datastore/<provider>
       version: 0.0.1-alpha.1
 ```
+
+Anonymous mode is a host-side special case, not a published auth provider
+package. Omit `auth` entirely or set `auth.provider: none` when you want
+platform auth disabled.

@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       plugin-dir:
-        description: Path to plugin directory under plugins/ containing plugin.yaml
+        description: Path to plugin directory containing plugin.yaml
         type: string
         default: '.'
       version:
@@ -65,7 +65,7 @@ jobs:
             echo "tag=${PLUGIN_DIR}/v${VERSION}"
             echo "prerelease=${PRERELEASE}"
           } >> "$GITHUB_OUTPUT"
-          if [ -f "${PLUGIN_DIR}/go.mod" ]; then
+          if go env GOMOD >/dev/null 2>&1 && [ "$(cd "${PLUGIN_DIR}" && go env GOMOD)" != "/dev/null" ]; then
             echo "has-go-mod=true" >> "$GITHUB_OUTPUT"
           else
             echo "has-go-mod=false" >> "$GITHUB_OUTPUT"
@@ -112,7 +112,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${RUNNER_TEMP}/gestalt"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          rm -rf "$toolchain_dir"
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
@@ -122,10 +123,6 @@ jobs:
           git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
           git -C "$toolchain_dir" checkout FETCH_HEAD
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - uses: actions/setup-go@v5
-        if: steps.plugin.outputs.has-go-mod == 'true'
-        with:
-          go-version-file: ${{ inputs.plugin-dir }}/go.mod
       - name: Test compiled plugin
         if: steps.plugin.outputs.has-go-mod == 'true'
         run: |

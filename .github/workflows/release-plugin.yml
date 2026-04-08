@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'plugins/*/v*'
+      - 'auth/*/v*'
+      - 'datastore/*/v*'
 
 permissions:
   contents: write
@@ -30,16 +32,14 @@ jobs:
           echo "plugin-version=${PLUGIN_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Validate plugin directory
         id: validate
-        env:
-          PLUGIN_NAME: ${{ steps.parse.outputs.plugin-name }}
         run: |
-          if [ "$PLUGIN_NAME" = "gestaltd" ]; then
+          PLUGIN_DIR="${GITHUB_REF_NAME%/v*}"
+          if [ "$PLUGIN_DIR" = "gestaltd" ]; then
             echo "Detected gestaltd bootstrap tag; skipping plugin release workflow."
             echo "is-plugin=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PLUGIN_DIR="plugins/${PLUGIN_NAME}"
           if [ ! -d "$PLUGIN_DIR" ]; then
             echo "ERROR: ${PLUGIN_DIR} does not exist"
             exit 1

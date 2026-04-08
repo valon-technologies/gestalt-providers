@@ -6,6 +6,8 @@ on:
       - '.github/workflows/**'
       - '.github/scripts/**'
       - 'plugins/**'
+      - 'auth/**'
+      - 'datastore/**'
   push:
     branches:
       - main
@@ -13,6 +15,8 @@ on:
       - '.github/workflows/**'
       - '.github/scripts/**'
       - 'plugins/**'
+      - 'auth/**'
+      - 'datastore/**'
 
 permissions:
   contents: read
@@ -52,8 +56,29 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          plugins_root = repo / "plugins"
-          all_plugins = sorted(path.parent.name for path in plugins_root.glob("*/plugin.yaml"))
+          package_roots = ("plugins", "auth", "datastore")
+          all_plugins = []
+          for root_name in package_roots:
+              root = repo / root_name
+              if not root.is_dir():
+                  continue
+              for path in sorted(root.glob("*/plugin.yaml")):
+                  package_dir = path.parent
+                  current = package_dir
+                  has_go = False
+                  while current != repo and current != current.parent:
+                      if (current / "go.mod").is_file():
+                          has_go = True
+                          break
+                      current = current.parent
+                  all_plugins.append(
+                      {
+                          "dir": str(package_dir.as_posix()),
+                          "name": f"{root_name}/{package_dir.name}",
+                          "has_go": has_go,
+                          "has_python": (package_dir / "pyproject.toml").is_file(),
+                      }
+                  )
           shared_prefixes = (".github/workflows/", ".github/scripts/")
 
           event_name = os.environ["EVENT_NAME"]
@@ -75,23 +100,15 @@ jobs:
                       run_all = True
                       break
                   parts = Path(path).parts
-                  if len(parts) >= 3 and parts[0] == "plugins":
-                      plugin_name = parts[1]
-                      if (plugins_root / plugin_name / "plugin.yaml").is_file():
-                          selected.add(plugin_name)
+                  if len(parts) >= 3 and parts[0] in package_roots:
+                      package_dir = Path(parts[0]) / parts[1]
+                      if (repo / package_dir / "plugin.yaml").is_file():
+                          selected.add(package_dir.as_posix())
 
-          plugin_names = all_plugins if run_all else sorted(selected)
-          plugins = []
-          for name in plugin_names:
-              plugin_dir = plugins_root / name
-              plugins.append(
-                  {
-                      "dir": f"plugins/{name}",
-                      "name": name,
-                      "has_go": (plugin_dir / "go.mod").is_file(),
-                      "has_python": (plugin_dir / "pyproject.toml").is_file(),
-                  }
-              )
+          if run_all:
+              plugins = all_plugins
+          else:
+              plugins = [plugin for plugin in all_plugins if plugin["dir"] in selected]
 
           print(
               json.dumps(
@@ -158,7 +175,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${RUNNER_TEMP}/gestalt"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          rm -rf "$toolchain_dir"
           if [ -z "${PAT_TOKEN}" ]; then
             echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
             exit 1
@@ -219,6 +237,22 @@ jobs:
 
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
+      - name: Prepare sibling Gestalt checkout for local Go replaces
+        if: matrix.plugin.has_go
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          rm -rf "$toolchain_dir"
+          if [ -z "${PAT_TOKEN}" ]; then
+            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
+            exit 1
+          fi
+          toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
+          git clone "$toolchain_url" "$toolchain_dir"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
+          git -C "$toolchain_dir" checkout FETCH_HEAD
       - uses: actions/download-artifact@v4
         with:
           name: gestaltd
