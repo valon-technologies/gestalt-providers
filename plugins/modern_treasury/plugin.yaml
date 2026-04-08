@@ -20,7 +20,7 @@ provider:
         credentials:
           - name: api_key
             label: API Key
-            description: "Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys). Deployments should map a static Organization ID into Basic auth and use this field as the password."
+            description: "Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys)."
   surfaces:
     openapi:
       document: https://raw.githubusercontent.com/Modern-Treasury/modern-treasury-openapi/main/openapi/mt_openapi_spec_v1.yaml
