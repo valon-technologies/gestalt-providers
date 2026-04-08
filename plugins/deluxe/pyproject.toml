@@ -1,0 +1,34 @@
+[project]
+name = "gestalt-deluxe"
+version = "0.0.1a1"
+requires-python = "==3.14.*"
+dependencies = [
+  "gestalt",
+  "paramiko==3.5.1",
+]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "ty==0.0.29",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+gestalt = { git = "https://github.com/valon-technologies/gestalt.git", rev = "9a2d6ef795295d83f87f1068d26ebe00e8f0c354", subdirectory = "sdk/python" }
+
+[tool.gestalt]
+plugin = "provider"
+
+[tool.gestalt.ci]
+vulture-ignore-names = [
+  "files_format_filename",
+  "files_parse_filename",
+  "files_list_inbound_ar_and_image_files",
+  "files_list_inbound_return_files",
+  "files_upload",
+  "files_download",
+]

@@ -1,0 +1,56 @@
+type: object
+properties:
+  host:
+    type: string
+    description: Deluxe SFTP hostname.
+  port:
+    type: integer
+    description: Deluxe SFTP port.
+    default: 10022
+  username:
+    type: string
+    description: Deluxe SFTP username.
+  host_key:
+    type: string
+    description: Expected host public key, for example ssh-rsa AAAA....
+  lockbox_number:
+    type: string
+    description: Four-digit Deluxe lockbox number.
+  state_code:
+    type: string
+    description: Two-letter state code used in Deluxe filenames.
+    default: TX
+  datetime_format:
+    type: string
+    description: Datetime format used in Deluxe filenames.
+    default: "%Y%m%d.%H%M%S"
+  inbound_directory:
+    type: string
+    description: Remote directory where Deluxe posts inbound AR, image, and return files.
+    default: /Inbox
+  upload_directory:
+    type: string
+    description: Remote directory where outbound STOP and LOOKUP files should be uploaded.
+    default: /
+  inbound_filename_prefix:
+    type: string
+    description: Filename prefix used for inbound files.
+    default: VAL
+  outbound_filename_prefix:
+    type: string
+    description: Filename prefix used for outbound files.
+    default: VAL
+  stop_file_extension:
+    type: string
+    description: Filename extension for STOP files.
+    default: .csv
+  lookup_file_extension:
+    type: string
+    description: Filename extension for LOOKUP files.
+    default: .txt
+required:
+  - host
+  - username
+  - host_key
+  - lockbox_number
+additionalProperties: false
