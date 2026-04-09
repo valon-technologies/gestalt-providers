@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/auth/oidc
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 display_name: OIDC
 description: Authenticate users with an OpenID Connect provider.
 auth: {}

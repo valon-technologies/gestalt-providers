@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_sheets
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 display_name: Google Sheets
 description: Read and update Google Sheets spreadsheets and values.
 icon_file: assets/icon.svg

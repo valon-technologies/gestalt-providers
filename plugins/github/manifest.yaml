@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/github
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 display_name: GitHub
 description: Repository, issue, pull request, workflow, and code search operations.
 icon_file: assets/icon.svg

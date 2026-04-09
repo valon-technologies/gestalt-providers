@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/pagerduty
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 display_name: PagerDuty
 description: Manage incidents, services, and on-call schedules.
 icon_file: assets/icon.svg

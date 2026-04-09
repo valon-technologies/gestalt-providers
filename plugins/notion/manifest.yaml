@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/notion
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.6
 display_name: Notion
 description: Current Notion REST operations plus the official Notion MCP tool surface.
 icon_file: assets/icon.svg
