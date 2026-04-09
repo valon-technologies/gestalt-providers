@@ -66,10 +66,10 @@ jobs:
             echo "tag=${PLUGIN_DIR}/v${VERSION}"
             echo "prerelease=${PRERELEASE}"
           } >> "$GITHUB_OUTPUT"
-          if go env GOMOD >/dev/null 2>&1 && [ "$(cd "${PLUGIN_DIR}" && go env GOMOD)" != "/dev/null" ]; then
-            echo "has-go-mod=true" >> "$GITHUB_OUTPUT"
+          if find "${PLUGIN_DIR}" -maxdepth 1 -type f -name '*.go' | grep -q .; then
+            echo "has-go-sources=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has-go-mod=false" >> "$GITHUB_OUTPUT"
+            echo "has-go-sources=false" >> "$GITHUB_OUTPUT"
           fi
           if [ -f "${PLUGIN_DIR}/pyproject.toml" ]; then
             echo "has-python-project=true" >> "$GITHUB_OUTPUT"
@@ -92,7 +92,7 @@ jobs:
         if: steps.plugin.outputs.has-python-project == 'true'
         run: uv python install 3.14
       - name: Configure private Gestalt repository access
-        if: steps.plugin.outputs.has-go-mod == 'true' || steps.plugin.outputs.has-python-project == 'true' || steps.plugin.outputs.has-rust-project == 'true'
+        if: steps.plugin.outputs.has-go-sources == 'true' || steps.plugin.outputs.has-python-project == 'true' || steps.plugin.outputs.has-rust-project == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -132,7 +132,7 @@ jobs:
           git -C "$toolchain_dir" checkout FETCH_HEAD
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Test compiled plugin
-        if: steps.plugin.outputs.has-go-mod == 'true'
+        if: steps.plugin.outputs.has-go-sources == 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
           go test ./...
