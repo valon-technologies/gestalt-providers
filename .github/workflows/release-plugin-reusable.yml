@@ -1,4 +1,4 @@
-name: Release Gestalt Plugin
+name: Release Gestalt Provider Package
 
 on:
   workflow_call:
@@ -65,6 +65,7 @@ jobs:
             echo "name=${PLUGIN_NAME}"
             echo "tag=${PLUGIN_DIR}/v${VERSION}"
             echo "prerelease=${PRERELEASE}"
+            echo "root=${PLUGIN_DIR%%/*}"
           } >> "$GITHUB_OUTPUT"
           if find "${PLUGIN_DIR}" -maxdepth 1 -type f -name '*.go' | grep -q .; then
             echo "has-go-sources=true" >> "$GITHUB_OUTPUT"
@@ -84,6 +85,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+      - uses: actions/setup-node@v4
+        if: steps.plugin.outputs.root == 'web'
+        with:
+          node-version: '25'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: steps.plugin.outputs.has-python-project == 'true'
       - uses: dtolnay/rust-toolchain@1.88.0
@@ -128,8 +133,7 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
-          git -C "$toolchain_dir" checkout FETCH_HEAD
+          git -C "$toolchain_dir" checkout "${{ inputs.gestalt-ref }}"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Test compiled plugin
         if: steps.plugin.outputs.has-go-sources == 'true'
@@ -147,13 +151,16 @@ jobs:
         if: steps.plugin.outputs.has-python-project == 'true'
         run: |
           python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
-      - name: Package plugin
+      - name: Package provider
         run: |
+          if [ "${{ steps.plugin.outputs.root }}" = "web" ]; then
+            export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
+          fi
           cd "${{ inputs.plugin-dir }}"
           if [ "${{ steps.plugin.outputs.has-python-project }}" = "true" ]; then
-            gestaltd plugin release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/glibc
+            gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/glibc
           else
-            gestaltd plugin release --version "${{ steps.version.outputs.release }}"
+            gestaltd provider release --version "${{ steps.version.outputs.release }}"
           fi
       - name: Package Python musl artifact
         if: steps.plugin.outputs.has-python-project == 'true'
@@ -190,15 +197,14 @@ jobs:
               export PATH="/usr/local/go/bin:/tmp/bin:$PATH"
               toolchain_dir="/tmp/gestalt"
               git clone "https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git" "$toolchain_dir"
-              git -C "$toolchain_dir" fetch --depth 1 origin "${INPUT_GESTALT_REF}"
-              git -C "$toolchain_dir" checkout FETCH_HEAD
+              git -C "$toolchain_dir" checkout "${INPUT_GESTALT_REF}"
               (cd "$toolchain_dir/gestaltd" && go build -o /tmp/bin/gestaltd ./cmd/gestaltd)
 
               cd "${INPUT_PLUGIN_DIR}"
               rm -rf .venv
               uv sync
               export GESTALT_PYTHON_LINUX_AMD64="$PWD/.venv/bin/python"
-              gestaltd plugin release --version "${INPUT_VERSION}" --platform linux/amd64/musl
+              gestaltd provider release --version "${INPUT_VERSION}" --platform linux/amd64/musl
               chmod -R a+rX dist
             '
       - name: Write release checksums

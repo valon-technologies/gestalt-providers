@@ -1,5 +1,8 @@
 .DS_Store
 plugins/*/dist/
+auth/*/dist/
+datastore/*/dist/
+web/*/dist/
 plugins/*/.venv/
 __pycache__/
 *.pyc
