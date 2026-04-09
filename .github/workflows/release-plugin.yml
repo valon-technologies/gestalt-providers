@@ -6,6 +6,7 @@ on:
       - 'plugins/*/v*'
       - 'auth/*/v*'
       - 'datastore/*/v*'
+      - 'secrets/*/v*'
 
 permissions:
   contents: write
@@ -57,7 +58,7 @@ jobs:
             plugins)
               GESTALT_REF="df496400d6e12e754c0c8f6d97784f69198f52cf"
               ;;
-            auth|datastore)
+            auth|datastore|secrets)
               GESTALT_REF="39419ebbc89a0f45b734ac86d1119568e180f0e6"
               ;;
             *)
