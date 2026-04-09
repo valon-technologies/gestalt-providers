@@ -14,7 +14,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use sqlx::{MySqlPool, PgPool, Row, SqlitePool};
 use uuid::Uuid;
 
-pub const PROVIDER_VERSION: &str = "0.0.1-alpha.1";
+pub const PROVIDER_VERSION: &str = "0.0.1-alpha.7";
 
 const SQLITE_WARNING: &str = "using SQLite for the datastore; this is not recommended for production. See https://docs.valon.tools/deploy for alternatives.";
 
