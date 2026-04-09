@@ -186,8 +186,7 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
-          git -C "$toolchain_dir" checkout FETCH_HEAD
+          git -C "$toolchain_dir" checkout "${GESTALT_REF}"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - uses: actions/upload-artifact@v4
         with:
@@ -260,8 +259,7 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${GESTALT_REF}"
-          git -C "$toolchain_dir" checkout FETCH_HEAD
+          git -C "$toolchain_dir" checkout "${GESTALT_REF}"
       - uses: actions/download-artifact@v4
         with:
           name: gestaltd
