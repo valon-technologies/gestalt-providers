@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       plugin-dir:
-        description: Path to plugin directory containing plugin.yaml
+        description: Path to plugin directory containing provider.yaml
         type: string
         default: '.'
       version:
@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
 
           PLUGIN_DIR="${{ inputs.plugin-dir }}"
-          MANIFEST_PATH="${PLUGIN_DIR}/plugin.yaml"
+          MANIFEST_PATH="${PLUGIN_DIR}/provider.yaml"
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "ERROR: ${MANIFEST_PATH} not found"
             exit 1
