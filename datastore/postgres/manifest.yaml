@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/datastore/postgres
-version: 0.0.1-alpha.9
+version: 0.0.1-alpha.10
 display_name: PostgreSQL
 description: PostgreSQL datastore provider for production deployments.
 datastore: {}

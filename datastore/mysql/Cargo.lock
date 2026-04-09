@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "gestalt_datastore_mysql"
-version = "0.0.1-alpha.9"
+version = "0.0.1-alpha.10"
 dependencies = [
  "gestalt_datastore_sqlstore",
  "gestalt_plugin_sdk",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "gestalt_datastore_sqlstore"
-version = "0.0.1-alpha.9"
+version = "0.0.1-alpha.10"
 dependencies = [
  "base64",
  "chrono",
@@ -507,7 +507,7 @@ dependencies = [
 [[package]]
 name = "gestalt_plugin_sdk"
 version = "0.0.1-alpha.1"
-source = "git+https://github.com/valon-technologies/gestalt.git?rev=2855f09f817c139a9c737efcef5d5f5338d226f4#2855f09f817c139a9c737efcef5d5f5338d226f4"
+source = "git+https://github.com/valon-technologies/gestalt.git?rev=3cb9b8e57c9f033e8f7534c4b62ff3884cb54979#3cb9b8e57c9f033e8f7534c4b62ff3884cb54979"
 dependencies = [
  "libc",
  "prost",

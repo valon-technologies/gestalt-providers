@@ -1,6 +1,6 @@
 [package]
 name = "gestalt_datastore_postgres"
-version = "0.0.1-alpha.7"
+version = "0.0.1-alpha.10"
 edition = "2024"
 
 [lib]
@@ -8,7 +8,7 @@ path = "src/lib.rs"
 
 [dependencies]
 gestalt_datastore_sqlstore = { path = "../internal/rust_sqlstore" }
-gestalt_plugin_sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "2855f09f817c139a9c737efcef5d5f5338d226f4", package = "gestalt_plugin_sdk" }
+gestalt_plugin_sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "3cb9b8e57c9f033e8f7534c4b62ff3884cb54979", package = "gestalt_plugin_sdk" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
