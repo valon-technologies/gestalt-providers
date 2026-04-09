@@ -20,9 +20,20 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    outputs:
+      plugin-tag: ${{ steps.plugin.outputs.tag }}
+      prerelease: ${{ steps.plugin.outputs.prerelease }}
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
       GOPRIVATE: github.com/valon-technologies/*
@@ -33,186 +44,173 @@ jobs:
       - uses: actions/checkout@v4
       - name: Normalize version
         id: version
-        run: |
-          VERSION="${{ inputs.version }}"
-          echo "release=${VERSION#v}" >> "$GITHUB_OUTPUT"
+        run: echo "release=$(echo '${{ inputs.version }}' | sed 's/^v//')" >> "$GITHUB_OUTPUT"
       - name: Resolve plugin metadata
         id: plugin
         run: |
           set -euo pipefail
-
           PLUGIN_DIR="${{ inputs.plugin-dir }}"
-          MANIFEST_PATH="${PLUGIN_DIR}/manifest.yaml"
-          if [ ! -f "$MANIFEST_PATH" ]; then
-            echo "ERROR: ${MANIFEST_PATH} not found"
-            exit 1
-          fi
-
-          SOURCE="$(sed -nE "s/^[[:space:]]*source:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "$MANIFEST_PATH" | head -n1)"
-          if [ -z "$SOURCE" ]; then
-            echo "ERROR: unable to parse source from ${MANIFEST_PATH}"
-            exit 1
-          fi
-
-          PLUGIN_NAME="${SOURCE##*/}"
+          if [ ! -f "${PLUGIN_DIR}/manifest.yaml" ]; then echo "ERROR: manifest.yaml not found"; exit 1; fi
+          SOURCE="$(sed -nE "s/^[[:space:]]*source:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${PLUGIN_DIR}/manifest.yaml" | head -n1)"
+          if [ -z "$SOURCE" ]; then echo "ERROR: unable to parse source"; exit 1; fi
           VERSION="${{ steps.version.outputs.release }}"
           PRERELEASE=false
-          case "$VERSION" in
-            *-alpha*|*-beta*|*-rc*) PRERELEASE=true ;;
-          esac
+          case "$VERSION" in *-alpha*|*-beta*|*-rc*) PRERELEASE=true ;; esac
+          { echo "name=${SOURCE##*/}"; echo "tag=${PLUGIN_DIR}/v${VERSION}"; echo "prerelease=${PRERELEASE}"; echo "root=${PLUGIN_DIR%%/*}"; } >> "$GITHUB_OUTPUT"
+      - name: Detect provider language
+        id: detect
+        run: |
+          d="${{ inputs.plugin-dir }}"
+          has_go=false; has_python=false; has_rust=false
+          find "$d" -maxdepth 1 -name '*.go' | grep -q . && has_go=true
+          [ -f "$d/pyproject.toml" ] && has_python=true
+          [ -f "$d/Cargo.toml" ] && has_rust=true
+          { echo "has-go=${has_go}"; echo "has-python=${has_python}"; echo "has-rust=${has_rust}"; } >> "$GITHUB_OUTPUT"
 
-          {
-            echo "name=${PLUGIN_NAME}"
-            echo "tag=${PLUGIN_DIR}/v${VERSION}"
-            echo "prerelease=${PRERELEASE}"
-            echo "root=${PLUGIN_DIR%%/*}"
-          } >> "$GITHUB_OUTPUT"
-          if find "${PLUGIN_DIR}" -maxdepth 1 -type f -name '*.go' | grep -q .; then
-            echo "has-go-sources=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-go-sources=false" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -f "${PLUGIN_DIR}/pyproject.toml" ]; then
-            echo "has-python-project=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-python-project=false" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -f "${PLUGIN_DIR}/Cargo.toml" ]; then
-            echo "has-rust-project=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-rust-project=false" >> "$GITHUB_OUTPUT"
-          fi
+      # -- Toolchain setup (shared across architectures) --
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
       - uses: actions/setup-node@v4
-        if: steps.plugin.outputs.root == 'web'
+        if: matrix.arch == 'amd64' && steps.plugin.outputs.root == 'web'
         with:
           node-version: '25'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        if: steps.plugin.outputs.has-python-project == 'true'
+        if: steps.detect.outputs.has-python == 'true'
       - uses: dtolnay/rust-toolchain@1.88.0
-        if: steps.plugin.outputs.has-rust-project == 'true'
-      - name: Install Rust musl toolchain
-        if: steps.plugin.outputs.has-rust-project == 'true'
+        if: steps.detect.outputs.has-rust == 'true'
+      - name: Install Rust musl target
+        if: steps.detect.outputs.has-rust == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
+      - name: Install ARMv7 cross-compilation toolchains
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-rust == 'true'
+        run: |
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
+          rustup target add armv7-unknown-linux-gnueabihf armv7-unknown-linux-musleabihf
       - name: Install Python
-        if: steps.plugin.outputs.has-python-project == 'true'
+        if: steps.detect.outputs.has-python == 'true'
         run: uv python install 3.14
+      - name: Set up QEMU for ARMv7 emulation
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-python == 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
       - name: Configure private Gestalt repository access
-        if: steps.plugin.outputs.has-go-sources == 'true' || steps.plugin.outputs.has-python-project == 'true' || steps.plugin.outputs.has-rust-project == 'true'
+        if: steps.detect.outputs.has-go == 'true' || steps.detect.outputs.has-python == 'true' || steps.detect.outputs.has-rust == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          set -euo pipefail
-          .github/scripts/configure_private_github.sh
+        run: .github/scripts/configure_private_github.sh
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - name: Test compiled plugin
-        if: steps.plugin.outputs.has-go-sources == 'true'
-        run: |
-          cd "${{ inputs.plugin-dir }}"
-          go test ./...
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - name: Cross-compile gestaltd for ARMv7
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-python == 'true'
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: (cd "${GITHUB_WORKSPACE}/../gestalt/gestaltd" && CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -o "$GOBIN/gestaltd-armv7" ./cmd/gestaltd)
+
+      # -- Tests (amd64 only) --
+      - name: Test Go plugin
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-go == 'true'
+        run: cd "${{ inputs.plugin-dir }}" && go test ./...
       - name: Test Rust plugin
-        if: steps.plugin.outputs.has-rust-project == 'true'
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-rust == 'true'
         run: |
-          plugin_dir="${{ inputs.plugin-dir }}"
-          . .github/scripts/setup_rust_datastore_test_env.sh "$plugin_dir"
-          cd "$plugin_dir"
-          cargo test
-      - name: Sync and validate Python plugin
-        if: steps.plugin.outputs.has-python-project == 'true'
-        run: |
-          python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
+          . .github/scripts/setup_rust_datastore_test_env.sh "${{ inputs.plugin-dir }}"
+          cd "${{ inputs.plugin-dir }}" && cargo test
+      - name: Validate Python plugin
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-python == 'true'
+        run: python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
+
+      # -- Package native architecture --
       - name: Package provider
         run: |
-          if [ "${{ steps.plugin.outputs.root }}" = "web" ]; then
+          if [ "${{ steps.plugin.outputs.root }}" = "web" ] && [ "${{ matrix.arch }}" = "amd64" ]; then
             export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
           fi
           cd "${{ inputs.plugin-dir }}"
-          if [ "${{ steps.plugin.outputs.has-python-project }}" = "true" ]; then
-            gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/glibc
-          else
+          if [ "${{ steps.detect.outputs.has-python }}" = "true" ]; then
+            gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/${{ matrix.arch }}/glibc"
+          elif [ "${{ matrix.arch }}" = "amd64" ]; then
             gestaltd provider release --version "${{ steps.version.outputs.release }}"
+          else
+            gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/${{ matrix.arch }}"
           fi
       - name: Package Rust musl artifact
-        if: steps.plugin.outputs.has-rust-project == 'true'
+        if: steps.detect.outputs.has-rust == 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/musl
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/${{ matrix.arch }}/musl"
       - name: Package Python musl artifact
-        if: steps.plugin.outputs.has-python-project == 'true'
+        if: steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          .github/scripts/package_python_docker.sh "linux/${{ matrix.arch }}" ghcr.io/astral-sh/uv:python3.14-alpine gestaltd "GESTALT_PYTHON_LINUX_$(echo '${{ matrix.arch }}' | tr '[:lower:]' '[:upper:]')" "linux/${{ matrix.arch }}/musl" "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
+
+      # -- Package ARMv7 cross-compiled artifacts (amd64 runner only) --
+      - name: Package Go ARMv7 provider
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm
+      - name: Package Rust ARMv7 artifacts
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-rust == 'true'
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm/glibc
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm/musl
+      - name: Package Python ARMv7 artifacts
+        if: matrix.arch == 'amd64' && steps.detect.outputs.has-python == 'true'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          RUNNER_TEMP: ${{ runner.temp }}
         run: |
           set -euo pipefail
+          v="${{ steps.version.outputs.release }}"
+          d="${{ inputs.plugin-dir }}"
+          .github/scripts/package_python_docker.sh linux/arm/v7 ghcr.io/astral-sh/uv:python3.14-alpine        gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm/musl  "$d" "$v"
+          .github/scripts/package_python_docker.sh linux/arm/v7 ghcr.io/astral-sh/uv:python3.14-bookworm-slim gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm/glibc "$d" "$v"
 
-          workspace="$PWD"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
+          if-no-files-found: ignore
 
-          docker run --rm \
-            -e PAT_TOKEN \
-            -e GESTALT_REPOSITORY="${GESTALT_REPOSITORY}" \
-            -e GOPRIVATE="${GOPRIVATE}" \
-            -e GONOSUMDB="${GONOSUMDB}" \
-            -e UV_PYTHON="${UV_PYTHON}" \
-            -e INPUT_PLUGIN_DIR="${{ inputs.plugin-dir }}" \
-            -e INPUT_GESTALT_REF="${{ inputs.gestalt-ref }}" \
-            -e INPUT_VERSION="${{ steps.version.outputs.release }}" \
-            -v "${workspace}:/workspace" \
-            -w /workspace \
-            ghcr.io/astral-sh/uv:python3.14-alpine \
-            sh -ceu '
-              apk add --no-cache bash build-base ca-certificates curl git
-              curl -fsSL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xz
-
-              printf "machine github.com\n  login x-access-token\n  password %s\n" "${PAT_TOKEN}" > "${HOME}/.netrc"
-              chmod 600 "${HOME}/.netrc"
-
-              git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-              git config --global url."https://github.com/".insteadOf "git@github.com:"
-
-              chmod +x .github/scripts/checkout_gestalt_ref.sh
-              mkdir -p /tmp/bin
-              export PATH="/usr/local/go/bin:/tmp/bin:$PATH"
-              toolchain_dir="/tmp/gestalt"
-              bash .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${INPUT_GESTALT_REF}"
-              (cd "$toolchain_dir/gestaltd" && go build -o /tmp/bin/gestaltd ./cmd/gestaltd)
-
-              cd "${INPUT_PLUGIN_DIR}"
-              rm -rf .venv
-              uv sync
-              export GESTALT_PYTHON_LINUX_AMD64="$PWD/.venv/bin/python"
-              gestaltd provider release --version "${INPUT_VERSION}" --platform linux/amd64/musl
-              chmod -R a+rX dist
-            '
-      - name: Write release checksums
-        run: |
-          cd "${{ inputs.plugin-dir }}/dist"
-          sha256sum ./*.tar.gz > checksums.txt
-      - name: Publish release
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+      - name: Write checksums and publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.plugin.outputs.tag }}
-          PLUGIN_DIR: ${{ inputs.plugin-dir }}
-          PRERELEASE: ${{ steps.plugin.outputs.prerelease }}
         run: |
           set -euo pipefail
+          cd dist && sha256sum ./*.tar.gz > checksums.txt && cd ..
 
-          args=(release create "$TAG" --generate-notes)
-          if [ "$PRERELEASE" = "true" ]; then
+          args=(release create "${{ needs.build.outputs.plugin-tag }}" --generate-notes)
+          if [ "${{ needs.build.outputs.prerelease }}" = "true" ]; then
             args+=(--prerelease)
           fi
-          args+=("${PLUGIN_DIR}"/dist/*)
+          args+=(dist/*)
           gh "${args[@]}"

@@ -13,6 +13,7 @@ import (
 	"github.com/valon-technologies/gestalt-providers/datastore/internal/versioning"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/grpc/codes"
@@ -189,8 +190,18 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 		return fmt.Errorf("mongodb: encode connection params: %w", err)
 	}
 
+	var expiresAt *time.Time
+	if token.ExpiresAt != nil {
+		t := token.ExpiresAt.AsTime()
+		expiresAt = &t
+	}
+	var lastRefreshedAt *time.Time
+	if token.LastRefreshedAt != nil {
+		t := token.LastRefreshedAt.AsTime()
+		lastRefreshedAt = &t
+	}
 	filter := bson.M{
-		"user_id":     token.UserID,
+		"user_id":     token.UserId,
 		"integration": token.Integration,
 		"connection":  token.Connection,
 		"instance":    token.Instance,
@@ -200,19 +211,19 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 			"access_token_encrypted":  sealcodec.Encode(token.AccessTokenSealed),
 			"refresh_token_encrypted": sealcodec.Encode(token.RefreshTokenSealed),
 			"scopes":                  token.Scopes,
-			"expires_at":              token.ExpiresAt,
-			"last_refreshed_at":       token.LastRefreshedAt,
+			"expires_at":              expiresAt,
+			"last_refreshed_at":       lastRefreshedAt,
 			"refresh_error_count":     token.RefreshErrorCount,
 			"metadata_json":           paramsJSON,
-			"updated_at":              token.UpdatedAt,
+			"updated_at":              token.UpdatedAt.AsTime(),
 		},
 		"$setOnInsert": bson.M{
-			"_id":         token.ID,
-			"user_id":     token.UserID,
+			"_id":         token.Id,
+			"user_id":     token.UserId,
 			"integration": token.Integration,
 			"connection":  token.Connection,
 			"instance":    token.Instance,
-			"created_at":  token.CreatedAt,
+			"created_at":  token.CreatedAt.AsTime(),
 		},
 	}
 	_, err = s.db.Collection(datastorecollections.IntegrationTokensCollection).UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true))
@@ -277,15 +288,20 @@ func (s *Store) DeleteIntegrationToken(ctx context.Context, id string) error {
 }
 
 func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) error {
+	var expiresAt *time.Time
+	if token.ExpiresAt != nil {
+		t := token.ExpiresAt.AsTime()
+		expiresAt = &t
+	}
 	doc := apiTokenDoc{
-		ID:          token.ID,
-		UserID:      token.UserID,
+		ID:          token.Id,
+		UserID:      token.UserId,
 		Name:        token.Name,
 		HashedToken: token.HashedToken,
 		Scopes:      token.Scopes,
-		ExpiresAt:   token.ExpiresAt,
-		CreatedAt:   token.CreatedAt,
-		UpdatedAt:   token.UpdatedAt,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   token.CreatedAt.AsTime(),
+		UpdatedAt:   token.UpdatedAt.AsTime(),
 	}
 	_, err := s.db.Collection(datastorecollections.APITokensCollection).InsertOne(ctx, doc)
 	if err != nil {
@@ -353,11 +369,11 @@ func (s *Store) RevokeAllAPITokens(ctx context.Context, userID string) (int64, e
 
 func userFromDoc(doc *userDoc) *gestalt.StoredUser {
 	return &gestalt.StoredUser{
-		ID:          doc.ID,
+		Id:          doc.ID,
 		Email:       doc.Email,
 		DisplayName: doc.DisplayName,
-		CreatedAt:   doc.CreatedAt,
-		UpdatedAt:   doc.UpdatedAt,
+		CreatedAt:   timestamppb.New(doc.CreatedAt),
+		UpdatedAt:   timestamppb.New(doc.UpdatedAt),
 	}
 }
 
@@ -374,34 +390,46 @@ func integrationTokenFromDoc(doc *integrationTokenDoc) (*gestalt.StoredIntegrati
 	if err != nil {
 		return nil, fmt.Errorf("mongodb: decode refresh token: %w", err)
 	}
+	var expiresAt *timestamppb.Timestamp
+	if doc.ExpiresAt != nil {
+		expiresAt = timestamppb.New(*doc.ExpiresAt)
+	}
+	var lastRefreshedAt *timestamppb.Timestamp
+	if doc.LastRefreshedAt != nil {
+		lastRefreshedAt = timestamppb.New(*doc.LastRefreshedAt)
+	}
 	return &gestalt.StoredIntegrationToken{
-		ID:                 doc.ID,
-		UserID:             doc.UserID,
+		Id:                 doc.ID,
+		UserId:             doc.UserID,
 		Integration:        doc.Integration,
 		Connection:         doc.Connection,
 		Instance:           doc.Instance,
 		AccessTokenSealed:  accessTokenSealed,
 		RefreshTokenSealed: refreshTokenSealed,
 		Scopes:             doc.Scopes,
-		ExpiresAt:          doc.ExpiresAt,
-		LastRefreshedAt:    doc.LastRefreshedAt,
+		ExpiresAt:          expiresAt,
+		LastRefreshedAt:    lastRefreshedAt,
 		RefreshErrorCount:  doc.RefreshErrorCount,
 		ConnectionParams:   params,
-		CreatedAt:          doc.CreatedAt,
-		UpdatedAt:          doc.UpdatedAt,
+		CreatedAt:          timestamppb.New(doc.CreatedAt),
+		UpdatedAt:          timestamppb.New(doc.UpdatedAt),
 	}, nil
 }
 
 func apiTokenFromDoc(doc *apiTokenDoc) *gestalt.StoredAPIToken {
+	var expiresAt *timestamppb.Timestamp
+	if doc.ExpiresAt != nil {
+		expiresAt = timestamppb.New(*doc.ExpiresAt)
+	}
 	return &gestalt.StoredAPIToken{
-		ID:          doc.ID,
-		UserID:      doc.UserID,
+		Id:          doc.ID,
+		UserId:      doc.UserID,
 		Name:        doc.Name,
 		HashedToken: doc.HashedToken,
 		Scopes:      doc.Scopes,
-		ExpiresAt:   doc.ExpiresAt,
-		CreatedAt:   doc.CreatedAt,
-		UpdatedAt:   doc.UpdatedAt,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   timestamppb.New(doc.CreatedAt),
+		UpdatedAt:   timestamppb.New(doc.UpdatedAt),
 	}
 }
 

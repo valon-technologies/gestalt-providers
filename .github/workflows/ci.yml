@@ -25,7 +25,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  LEGACY_GESTALT_REF: b02e2baadb95c8a638f96046b4f089517681fb6e
+  LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.35
   PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.35
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
@@ -162,9 +162,9 @@ jobs:
       matrix:
         toolchain:
           - name: legacy
-            gestalt_ref: b02e2baadb95c8a638f96046b4f089517681fb6e
+            gestalt_ref: gestaltd/v0.0.1-alpha.35
           - name: provider
-            gestalt_ref: 8dd01ea85bc539d03f42e8976d24181734197d9d
+            gestalt_ref: gestaltd/v0.0.1-alpha.35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
