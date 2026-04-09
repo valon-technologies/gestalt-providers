@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	providerVersion = "0.0.1-alpha.3"
+	providerVersion = "0.0.1-alpha.4"
 	defaultVersion  = "latest"
 	defaultTimeout  = 10 * time.Second
 )

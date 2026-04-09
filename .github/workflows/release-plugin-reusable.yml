@@ -102,21 +102,7 @@ jobs:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
-
-          if [ -z "${PAT_TOKEN}" ]; then
-            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
-            exit 1
-          fi
-
-          cat > "${HOME}/.netrc" <<EOF
-          machine github.com
-            login x-access-token
-            password ${PAT_TOKEN}
-          EOF
-          chmod 600 "${HOME}/.netrc"
-
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          .github/scripts/configure_private_github.sh
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
@@ -126,15 +112,7 @@ jobs:
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          rm -rf "$toolchain_dir"
-          if [ -z "${PAT_TOKEN}" ]; then
-            echo "PAT_TOKEN secret is required to fetch private Gestalt dependencies"
-            exit 1
-          fi
-          toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
-          git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
-          git -C "$toolchain_dir" checkout FETCH_HEAD
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Test compiled plugin
         if: steps.plugin.outputs.has-go-sources == 'true'
@@ -194,11 +172,11 @@ jobs:
               git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
               git config --global url."https://github.com/".insteadOf "git@github.com:"
 
+              chmod +x .github/scripts/checkout_gestalt_ref.sh
               mkdir -p /tmp/bin
               export PATH="/usr/local/go/bin:/tmp/bin:$PATH"
               toolchain_dir="/tmp/gestalt"
-              git clone "https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git" "$toolchain_dir"
-              git -C "$toolchain_dir" checkout "${INPUT_GESTALT_REF}"
+              bash .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${INPUT_GESTALT_REF}"
               (cd "$toolchain_dir/gestaltd" && go build -o /tmp/bin/gestaltd ./cmd/gestaltd)
 
               cd "${INPUT_PLUGIN_DIR}"
