@@ -8,7 +8,6 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'datastore/**'
-      - 'secrets/**'
       - 'web/**'
   push:
     branches:
@@ -19,7 +18,6 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'datastore/**'
-      - 'secrets/**'
       - 'web/**'
 
 permissions:
@@ -61,7 +59,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "datastore", "secrets", "web")
+          package_roots = ("plugins", "auth", "datastore", "web")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -78,8 +76,6 @@ jobs:
                           "has_go": has_go,
                           "has_python": (package_dir / "pyproject.toml").is_file(),
                           "has_rust": (package_dir / "Cargo.toml").is_file(),
-                          "gestalt_ref": os.environ["GESTALT_REF"],
-                          "gestaltd_artifact": "gestaltd",
                       }
                   )
           shared_prefixes = (".github/workflows/", ".github/scripts/")

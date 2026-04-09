@@ -2,8 +2,6 @@ source: github.com/valon-technologies/gestalt-providers/web/default
 version: 0.0.1-alpha.1
 display_name: Default Web UI
 description: Default Gestalt web UI bundle served at /.
-kinds:
-  - webui
 release:
   build:
     command:

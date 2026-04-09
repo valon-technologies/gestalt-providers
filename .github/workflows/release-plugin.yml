@@ -6,7 +6,6 @@ on:
       - 'plugins/*/v*'
       - 'auth/*/v*'
       - 'datastore/*/v*'
-      - 'secrets/*/v*'
       - 'web/*/v*'
 
 permissions:
@@ -56,7 +55,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            plugins|auth|datastore|secrets|web)
+            plugins|auth|datastore|web)
               GESTALT_REF="d618f26625e7a14b7fb001d49084b5cbd5929d87"
               ;;
             *)
