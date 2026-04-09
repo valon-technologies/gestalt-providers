@@ -19,7 +19,7 @@ Pushes and pull requests validate every plugin package. Go plugins also run `go 
 
 The workflows fetch `gestaltd` and private SDK sources from `valon-technologies/gestalt`, so this repo needs a `PAT_TOKEN` Actions secret with read access to that repository.
 
-Web bundles can define `release.build` in `provider.yaml`. The first-party
+Web bundles can define `release.build` in `manifest.yaml`. The first-party
 `web/default` package uses that hook to build assets from
 `gestalt/gestaltd/ui` before `gestaltd provider release`, so generated
 frontend output does not need to be committed here.

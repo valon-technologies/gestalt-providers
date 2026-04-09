@@ -50,8 +50,8 @@ jobs:
             echo "ERROR: ${PLUGIN_DIR} does not exist"
             exit 1
           fi
-          if [ ! -f "${PLUGIN_DIR}/provider.yaml" ]; then
-            echo "ERROR: ${PLUGIN_DIR}/provider.yaml not found"
+          if [ ! -f "${PLUGIN_DIR}/manifest.yaml" ]; then
+            echo "ERROR: ${PLUGIN_DIR}/manifest.yaml not found"
             exit 1
           fi
 
