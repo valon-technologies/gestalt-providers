@@ -16,6 +16,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -193,10 +194,10 @@ func (s *Store) FindOrCreateUser(ctx context.Context, email string) (*gestalt.St
 	}
 
 	return &gestalt.StoredUser{
-		ID:        id,
+		Id:        id,
 		Email:     email,
-		CreatedAt: now,
-		UpdatedAt: now,
+		CreatedAt: timestamppb.New(now),
+		UpdatedAt: timestamppb.New(now),
 	}, nil
 }
 
@@ -223,11 +224,11 @@ func snapToUser(snap *gcpfirestore.DocumentSnapshot) (*gestalt.StoredUser, error
 		return nil, fmt.Errorf("firestore: unmarshalling user: %w", err)
 	}
 	return &gestalt.StoredUser{
-		ID:          snap.Ref.ID,
+		Id:          snap.Ref.ID,
 		Email:       doc.Email,
 		DisplayName: doc.DisplayName,
-		CreatedAt:   doc.CreatedAt,
-		UpdatedAt:   doc.UpdatedAt,
+		CreatedAt:   timestamppb.New(doc.CreatedAt),
+		UpdatedAt:   timestamppb.New(doc.UpdatedAt),
 	}, nil
 }
 
@@ -237,26 +238,36 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 		return fmt.Errorf("firestore: encode connection params: %w", err)
 	}
 
+	var expiresAt *time.Time
+	if token.ExpiresAt != nil {
+		t := token.ExpiresAt.AsTime()
+		expiresAt = &t
+	}
+	var lastRefreshedAt *time.Time
+	if token.LastRefreshedAt != nil {
+		t := token.LastRefreshedAt.AsTime()
+		lastRefreshedAt = &t
+	}
 	doc := integrationTokenDoc{
-		UserID:                token.UserID,
+		UserID:                token.UserId,
 		Integration:           token.Integration,
 		Connection:            token.Connection,
 		Instance:              token.Instance,
 		AccessTokenEncrypted:  sealcodec.Encode(token.AccessTokenSealed),
 		RefreshTokenEncrypted: sealcodec.Encode(token.RefreshTokenSealed),
 		Scopes:                token.Scopes,
-		ExpiresAt:             token.ExpiresAt,
-		LastRefreshedAt:       token.LastRefreshedAt,
+		ExpiresAt:             expiresAt,
+		LastRefreshedAt:       lastRefreshedAt,
 		RefreshErrorCount:     token.RefreshErrorCount,
 		MetadataJSON:          paramsJSON,
-		CreatedAt:             token.CreatedAt,
-		UpdatedAt:             token.UpdatedAt,
+		CreatedAt:             token.CreatedAt.AsTime(),
+		UpdatedAt:             token.UpdatedAt.AsTime(),
 	}
 
 	lookupRef := s.client.Collection(integrationTokenKeysCollection).Doc(
-		firestoreDocKey(token.UserID, token.Integration, token.Connection, token.Instance),
+		firestoreDocKey(token.UserId, token.Integration, token.Connection, token.Instance),
 	)
-	tokenRef := s.client.Collection(datastorecollections.IntegrationTokensCollection).Doc(token.ID)
+	tokenRef := s.client.Collection(datastorecollections.IntegrationTokensCollection).Doc(token.Id)
 
 	return s.client.RunTransaction(ctx, func(_ context.Context, tx *gcpfirestore.Transaction) error {
 		existingTokenSnap, err := tx.Get(tokenRef)
@@ -283,7 +294,7 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 			if err := lookupSnap.DataTo(&lookup); err != nil {
 				return fmt.Errorf("unmarshalling token lookup: %w", err)
 			}
-			if lookup.TokenID != "" && lookup.TokenID != token.ID {
+			if lookup.TokenID != "" && lookup.TokenID != token.Id {
 				if err := tx.Delete(s.client.Collection(datastorecollections.IntegrationTokensCollection).Doc(lookup.TokenID)); err != nil {
 					return fmt.Errorf("deleting stale integration token: %w", err)
 				}
@@ -295,7 +306,7 @@ func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIn
 				return fmt.Errorf("deleting stale token lookup: %w", err)
 			}
 		}
-		if err := tx.Set(lookupRef, integrationTokenLookupDoc{TokenID: token.ID}); err != nil {
+		if err := tx.Set(lookupRef, integrationTokenLookupDoc{TokenID: token.Id}); err != nil {
 			return fmt.Errorf("storing token lookup: %w", err)
 		}
 		return tx.Set(tokenRef, doc)
@@ -414,37 +425,50 @@ func snapToIntegrationToken(snap *gcpfirestore.DocumentSnapshot) (*gestalt.Store
 	if err != nil {
 		return nil, fmt.Errorf("firestore: decode refresh token: %w", err)
 	}
+	var expiresAt *timestamppb.Timestamp
+	if doc.ExpiresAt != nil {
+		expiresAt = timestamppb.New(*doc.ExpiresAt)
+	}
+	var lastRefreshedAt *timestamppb.Timestamp
+	if doc.LastRefreshedAt != nil {
+		lastRefreshedAt = timestamppb.New(*doc.LastRefreshedAt)
+	}
 	return &gestalt.StoredIntegrationToken{
-		ID:                 snap.Ref.ID,
-		UserID:             doc.UserID,
+		Id:                 snap.Ref.ID,
+		UserId:             doc.UserID,
 		Integration:        doc.Integration,
 		Connection:         doc.Connection,
 		Instance:           doc.Instance,
 		AccessTokenSealed:  accessTokenSealed,
 		RefreshTokenSealed: refreshTokenSealed,
 		Scopes:             doc.Scopes,
-		ExpiresAt:          doc.ExpiresAt,
-		LastRefreshedAt:    doc.LastRefreshedAt,
+		ExpiresAt:          expiresAt,
+		LastRefreshedAt:    lastRefreshedAt,
 		RefreshErrorCount:  doc.RefreshErrorCount,
 		ConnectionParams:   params,
-		CreatedAt:          doc.CreatedAt,
-		UpdatedAt:          doc.UpdatedAt,
+		CreatedAt:          timestamppb.New(doc.CreatedAt),
+		UpdatedAt:          timestamppb.New(doc.UpdatedAt),
 	}, nil
 }
 
 func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) error {
+	var expiresAt *time.Time
+	if token.ExpiresAt != nil {
+		t := token.ExpiresAt.AsTime()
+		expiresAt = &t
+	}
 	doc := apiTokenDoc{
-		UserID:      token.UserID,
+		UserID:      token.UserId,
 		Name:        token.Name,
 		HashedToken: token.HashedToken,
 		Scopes:      token.Scopes,
-		ExpiresAt:   token.ExpiresAt,
-		CreatedAt:   token.CreatedAt,
-		UpdatedAt:   token.UpdatedAt,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   token.CreatedAt.AsTime(),
+		UpdatedAt:   token.UpdatedAt.AsTime(),
 	}
 
 	hashRef := s.client.Collection(apiTokensByHashCollection).Doc(firestoreDocKey(token.HashedToken))
-	tokenRef := s.client.Collection(datastorecollections.APITokensCollection).Doc(token.ID)
+	tokenRef := s.client.Collection(datastorecollections.APITokensCollection).Doc(token.Id)
 
 	return s.client.RunTransaction(ctx, func(_ context.Context, tx *gcpfirestore.Transaction) error {
 		existingTokenSnap, err := tx.Get(tokenRef)
@@ -469,7 +493,7 @@ func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) 
 			if err := hashSnap.DataTo(&lookup); err != nil {
 				return fmt.Errorf("unmarshalling api token hash lookup: %w", err)
 			}
-			if lookup.TokenID != "" && lookup.TokenID != token.ID {
+			if lookup.TokenID != "" && lookup.TokenID != token.Id {
 				return fmt.Errorf("firestore: hashed token already exists")
 			}
 		}
@@ -479,7 +503,7 @@ func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) 
 				return fmt.Errorf("deleting stale api token hash lookup: %w", err)
 			}
 		}
-		if err := tx.Set(hashRef, apiTokenHashLookupDoc{TokenID: token.ID}); err != nil {
+		if err := tx.Set(hashRef, apiTokenHashLookupDoc{TokenID: token.Id}); err != nil {
 			return fmt.Errorf("storing api token hash lookup: %w", err)
 		}
 		return tx.Set(tokenRef, doc)
@@ -512,7 +536,7 @@ func (s *Store) GetAPITokenByHash(ctx context.Context, hashedToken string) (*ges
 	if err != nil {
 		return nil, err
 	}
-	if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
+	if token.ExpiresAt != nil && time.Now().After(token.ExpiresAt.AsTime()) {
 		return nil, nil
 	}
 	return token, nil
@@ -632,15 +656,19 @@ func snapToAPIToken(snap *gcpfirestore.DocumentSnapshot) (*gestalt.StoredAPIToke
 	if err := snap.DataTo(&doc); err != nil {
 		return nil, fmt.Errorf("firestore: unmarshalling api token: %w", err)
 	}
+	var expiresAt *timestamppb.Timestamp
+	if doc.ExpiresAt != nil {
+		expiresAt = timestamppb.New(*doc.ExpiresAt)
+	}
 	return &gestalt.StoredAPIToken{
-		ID:          snap.Ref.ID,
-		UserID:      doc.UserID,
+		Id:          snap.Ref.ID,
+		UserId:      doc.UserID,
 		Name:        doc.Name,
 		HashedToken: doc.HashedToken,
 		Scopes:      doc.Scopes,
-		ExpiresAt:   doc.ExpiresAt,
-		CreatedAt:   doc.CreatedAt,
-		UpdatedAt:   doc.UpdatedAt,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   timestamppb.New(doc.CreatedAt),
+		UpdatedAt:   timestamppb.New(doc.UpdatedAt),
 	}, nil
 }
 

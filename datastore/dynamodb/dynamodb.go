@@ -20,6 +20,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -183,9 +184,9 @@ func (s *Store) FindOrCreateUser(ctx context.Context, email string) (*gestalt.St
 		return user, nil
 	}
 
-	now := time.Now().UTC().Truncate(time.Second)
+	now := timestamppb.Now()
 	user = &gestalt.StoredUser{
-		ID:        uuid.NewString(),
+		Id:        uuid.NewString(),
 		Email:     email,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -211,7 +212,7 @@ func (s *Store) FindOrCreateUser(ctx context.Context, email string) (*gestalt.St
 					Item: map[string]ddbtypes.AttributeValue{
 						attrPK: &ddbtypes.AttributeValueMemberS{Value: emailPKPrefix + email},
 						attrSK: &ddbtypes.AttributeValueMemberS{Value: uniqueEmailSK},
-						attrID: &ddbtypes.AttributeValueMemberS{Value: user.ID},
+						attrID: &ddbtypes.AttributeValueMemberS{Value: user.Id},
 					},
 					ConditionExpression:       condExpr.Condition(),
 					ExpressionAttributeNames:  condExpr.Names(),
@@ -398,7 +399,7 @@ func (s *Store) GetAPITokenByHash(ctx context.Context, hashedToken string) (*ges
 			return nil, err
 		}
 		if token != nil && token.HashedToken == hashedToken {
-			if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
+			if token.ExpiresAt != nil && time.Now().After(token.ExpiresAt.AsTime()) {
 				return nil, nil
 			}
 			return token, nil
@@ -716,13 +717,13 @@ func apiTokenHashKey(hashedToken string) map[string]ddbtypes.AttributeValue {
 
 func marshalUser(user *gestalt.StoredUser) map[string]ddbtypes.AttributeValue {
 	return map[string]ddbtypes.AttributeValue{
-		attrPK:          &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + user.ID},
+		attrPK:          &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + user.Id},
 		attrSK:          &ddbtypes.AttributeValueMemberS{Value: profileSK},
-		attrID:          &ddbtypes.AttributeValueMemberS{Value: user.ID},
+		attrID:          &ddbtypes.AttributeValueMemberS{Value: user.Id},
 		attrEmail:       &ddbtypes.AttributeValueMemberS{Value: user.Email},
 		attrDisplayName: &ddbtypes.AttributeValueMemberS{Value: user.DisplayName},
-		attrCreatedAt:   &ddbtypes.AttributeValueMemberS{Value: user.CreatedAt.Format(time.RFC3339)},
-		attrUpdatedAt:   &ddbtypes.AttributeValueMemberS{Value: user.UpdatedAt.Format(time.RFC3339)},
+		attrCreatedAt:   &ddbtypes.AttributeValueMemberS{Value: user.CreatedAt.AsTime().Format(time.RFC3339)},
+		attrUpdatedAt:   &ddbtypes.AttributeValueMemberS{Value: user.UpdatedAt.AsTime().Format(time.RFC3339)},
 	}
 }
 
@@ -732,7 +733,7 @@ func unmarshalUser(item map[string]ddbtypes.AttributeValue) (*gestalt.StoredUser
 		createdAt string
 		updatedAt string
 	)
-	if err := unmarshalString(item, attrID, &user.ID); err != nil {
+	if err := unmarshalString(item, attrID, &user.Id); err != nil {
 		return nil, err
 	}
 	if err := unmarshalString(item, attrEmail, &user.Email); err != nil {
@@ -748,24 +749,25 @@ func unmarshalUser(item map[string]ddbtypes.AttributeValue) (*gestalt.StoredUser
 		return nil, err
 	}
 
-	var err error
-	user.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	parsedCreatedAt, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: parsing created_at: %w", err)
 	}
-	user.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	user.CreatedAt = timestamppb.New(parsedCreatedAt)
+	parsedUpdatedAt, err := time.Parse(time.RFC3339, updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: parsing updated_at: %w", err)
 	}
+	user.UpdatedAt = timestamppb.New(parsedUpdatedAt)
 	return &user, nil
 }
 
 func marshalIntegrationToken(token *gestalt.StoredIntegrationToken, paramsJSON string) map[string]ddbtypes.AttributeValue {
 	item := map[string]ddbtypes.AttributeValue{
-		attrPK:                &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + token.UserID},
+		attrPK:                &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + token.UserId},
 		attrSK:                &ddbtypes.AttributeValueMemberS{Value: tokenSKPrefix + token.Integration + "#" + token.Connection + "#" + token.Instance},
-		attrID:                &ddbtypes.AttributeValueMemberS{Value: token.ID},
-		attrUserID:            &ddbtypes.AttributeValueMemberS{Value: token.UserID},
+		attrID:                &ddbtypes.AttributeValueMemberS{Value: token.Id},
+		attrUserID:            &ddbtypes.AttributeValueMemberS{Value: token.UserId},
 		attrIntegration:       &ddbtypes.AttributeValueMemberS{Value: token.Integration},
 		attrConnection:        &ddbtypes.AttributeValueMemberS{Value: token.Connection},
 		attrInstance:          &ddbtypes.AttributeValueMemberS{Value: token.Instance},
@@ -774,14 +776,14 @@ func marshalIntegrationToken(token *gestalt.StoredIntegrationToken, paramsJSON s
 		attrScopes:            &ddbtypes.AttributeValueMemberS{Value: token.Scopes},
 		attrRefreshErrorCount: &ddbtypes.AttributeValueMemberN{Value: strconv.FormatInt(int64(token.RefreshErrorCount), 10)},
 		attrMetadataJSON:      &ddbtypes.AttributeValueMemberS{Value: paramsJSON},
-		attrCreatedAt:         &ddbtypes.AttributeValueMemberS{Value: token.CreatedAt.Format(time.RFC3339)},
-		attrUpdatedAt:         &ddbtypes.AttributeValueMemberS{Value: token.UpdatedAt.Format(time.RFC3339)},
+		attrCreatedAt:         &ddbtypes.AttributeValueMemberS{Value: token.CreatedAt.AsTime().Format(time.RFC3339)},
+		attrUpdatedAt:         &ddbtypes.AttributeValueMemberS{Value: token.UpdatedAt.AsTime().Format(time.RFC3339)},
 	}
 	if token.ExpiresAt != nil {
-		item[attrExpiresAt] = &ddbtypes.AttributeValueMemberS{Value: token.ExpiresAt.Format(time.RFC3339)}
+		item[attrExpiresAt] = &ddbtypes.AttributeValueMemberS{Value: token.ExpiresAt.AsTime().Format(time.RFC3339)}
 	}
 	if token.LastRefreshedAt != nil {
-		item[attrLastRefreshedAt] = &ddbtypes.AttributeValueMemberS{Value: token.LastRefreshedAt.Format(time.RFC3339)}
+		item[attrLastRefreshedAt] = &ddbtypes.AttributeValueMemberS{Value: token.LastRefreshedAt.AsTime().Format(time.RFC3339)}
 	}
 	return item
 }
@@ -798,10 +800,10 @@ func unmarshalIntegrationToken(item map[string]ddbtypes.AttributeValue) (*gestal
 		connectionParams string
 	)
 
-	if err := unmarshalString(item, attrID, &token.ID); err != nil {
+	if err := unmarshalString(item, attrID, &token.Id); err != nil {
 		return nil, err
 	}
-	if err := unmarshalString(item, attrUserID, &token.UserID); err != nil {
+	if err := unmarshalString(item, attrUserID, &token.UserId); err != nil {
 		return nil, err
 	}
 	if err := unmarshalString(item, attrIntegration, &token.Integration); err != nil {
@@ -861,20 +863,22 @@ func unmarshalIntegrationToken(item map[string]ddbtypes.AttributeValue) (*gestal
 	}
 	token.ConnectionParams = params
 
-	token.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	parsedCreatedAt, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: parsing created_at: %w", err)
 	}
-	token.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	token.CreatedAt = timestamppb.New(parsedCreatedAt)
+	parsedUpdatedAt, err := time.Parse(time.RFC3339, updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: parsing updated_at: %w", err)
 	}
+	token.UpdatedAt = timestamppb.New(parsedUpdatedAt)
 	if lastRefreshed != "" {
 		parsed, err := time.Parse(time.RFC3339, lastRefreshed)
 		if err != nil {
 			return nil, fmt.Errorf("dynamodb: parsing last_refreshed_at: %w", err)
 		}
-		token.LastRefreshedAt = &parsed
+		token.LastRefreshedAt = timestamppb.New(parsed)
 	}
 	if value, ok := item[attrExpiresAt]; ok {
 		var expiresAt string
@@ -886,7 +890,7 @@ func unmarshalIntegrationToken(item map[string]ddbtypes.AttributeValue) (*gestal
 			if err != nil {
 				return nil, fmt.Errorf("dynamodb: parsing expires_at: %w", err)
 			}
-			token.ExpiresAt = &parsed
+			token.ExpiresAt = timestamppb.New(parsed)
 		}
 	}
 	return &token, nil
@@ -894,18 +898,18 @@ func unmarshalIntegrationToken(item map[string]ddbtypes.AttributeValue) (*gestal
 
 func marshalAPIToken(token *gestalt.StoredAPIToken) map[string]ddbtypes.AttributeValue {
 	item := map[string]ddbtypes.AttributeValue{
-		attrPK:          &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + token.UserID},
-		attrSK:          &ddbtypes.AttributeValueMemberS{Value: apiTokenSKPrefix + token.ID},
-		attrID:          &ddbtypes.AttributeValueMemberS{Value: token.ID},
-		attrUserID:      &ddbtypes.AttributeValueMemberS{Value: token.UserID},
+		attrPK:          &ddbtypes.AttributeValueMemberS{Value: userPKPrefix + token.UserId},
+		attrSK:          &ddbtypes.AttributeValueMemberS{Value: apiTokenSKPrefix + token.Id},
+		attrID:          &ddbtypes.AttributeValueMemberS{Value: token.Id},
+		attrUserID:      &ddbtypes.AttributeValueMemberS{Value: token.UserId},
 		attrName:        &ddbtypes.AttributeValueMemberS{Value: token.Name},
 		attrHashedToken: &ddbtypes.AttributeValueMemberS{Value: token.HashedToken},
 		attrScopes:      &ddbtypes.AttributeValueMemberS{Value: token.Scopes},
-		attrCreatedAt:   &ddbtypes.AttributeValueMemberS{Value: token.CreatedAt.Format(time.RFC3339)},
-		attrUpdatedAt:   &ddbtypes.AttributeValueMemberS{Value: token.UpdatedAt.Format(time.RFC3339)},
+		attrCreatedAt:   &ddbtypes.AttributeValueMemberS{Value: token.CreatedAt.AsTime().Format(time.RFC3339)},
+		attrUpdatedAt:   &ddbtypes.AttributeValueMemberS{Value: token.UpdatedAt.AsTime().Format(time.RFC3339)},
 	}
 	if token.ExpiresAt != nil {
-		item[attrExpiresAt] = &ddbtypes.AttributeValueMemberS{Value: token.ExpiresAt.Format(time.RFC3339)}
+		item[attrExpiresAt] = &ddbtypes.AttributeValueMemberS{Value: token.ExpiresAt.AsTime().Format(time.RFC3339)}
 	}
 	return item
 }
@@ -914,8 +918,8 @@ func marshalAPITokenHashLookup(token *gestalt.StoredAPIToken) map[string]ddbtype
 	return map[string]ddbtypes.AttributeValue{
 		attrPK:     &ddbtypes.AttributeValueMemberS{Value: apiTokenHashPK + token.HashedToken},
 		attrSK:     &ddbtypes.AttributeValueMemberS{Value: hashLookupSK},
-		attrID:     &ddbtypes.AttributeValueMemberS{Value: token.ID},
-		attrUserID: &ddbtypes.AttributeValueMemberS{Value: token.UserID},
+		attrID:     &ddbtypes.AttributeValueMemberS{Value: token.Id},
+		attrUserID: &ddbtypes.AttributeValueMemberS{Value: token.UserId},
 	}
 }
 
@@ -925,10 +929,10 @@ func unmarshalAPIToken(item map[string]ddbtypes.AttributeValue) (*gestalt.Stored
 		createdAt string
 		updatedAt string
 	)
-	if err := unmarshalString(item, attrID, &token.ID); err != nil {
+	if err := unmarshalString(item, attrID, &token.Id); err != nil {
 		return nil, err
 	}
-	if err := unmarshalString(item, attrUserID, &token.UserID); err != nil {
+	if err := unmarshalString(item, attrUserID, &token.UserId); err != nil {
 		return nil, err
 	}
 	if err := unmarshalString(item, attrName, &token.Name); err != nil {
@@ -947,15 +951,16 @@ func unmarshalAPIToken(item map[string]ddbtypes.AttributeValue) (*gestalt.Stored
 		return nil, err
 	}
 
-	var err error
-	token.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	parsedCreatedAt, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: parsing created_at: %w", err)
 	}
-	token.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	token.CreatedAt = timestamppb.New(parsedCreatedAt)
+	parsedUpdatedAt, err := time.Parse(time.RFC3339, updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("dynamodb: parsing updated_at: %w", err)
 	}
+	token.UpdatedAt = timestamppb.New(parsedUpdatedAt)
 	if value, ok := item[attrExpiresAt]; ok {
 		var expiresAt string
 		if err := attributevalue.Unmarshal(value, &expiresAt); err != nil {
@@ -966,7 +971,7 @@ func unmarshalAPIToken(item map[string]ddbtypes.AttributeValue) (*gestalt.Stored
 			if err != nil {
 				return nil, fmt.Errorf("dynamodb: parsing expires_at: %w", err)
 			}
-			token.ExpiresAt = &parsed
+			token.ExpiresAt = timestamppb.New(parsed)
 		}
 	}
 	return &token, nil
@@ -1019,7 +1024,7 @@ func (s *Store) getLegacyAPITokenByHash(ctx context.Context, hashedToken string)
 		if err != nil {
 			return nil, err
 		}
-		if token.ExpiresAt != nil && now.After(*token.ExpiresAt) {
+		if token.ExpiresAt != nil && now.After(token.ExpiresAt.AsTime()) {
 			continue
 		}
 		if active != nil {
