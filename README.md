@@ -2,7 +2,7 @@
 
 [![Stability: Alpha](https://img.shields.io/badge/stability-alpha-f4d03f.svg)](https://github.com/valon-technologies/gestalt-providers/issues)
 
-> **Alpha software** -- All provider packages are under active development. Package interfaces and manifest schemas may change between releases. We welcome feedback and bug reports via [GitHub Issues](https://github.com/valon-technologies/gestalt-providers/issues).
+> **Alpha.** All provider packages are under active development. Package interfaces and manifest schemas may change between releases. We welcome feedback and bug reports via [GitHub Issues](https://github.com/valon-technologies/gestalt-providers/issues).
 
 Versioned provider packages for Gestalt.
 
