@@ -18,6 +18,9 @@ provider:
       auth:
         type: manual
         credentials:
+          - name: organization_id
+            label: Organization ID
+            description: "Use the Modern Treasury organization ID associated with your API key."
           - name: api_key
             label: API Key
             description: "Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys)."
