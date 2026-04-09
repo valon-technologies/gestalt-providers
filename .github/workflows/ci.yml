@@ -166,6 +166,7 @@ jobs:
           - name: provider
             gestalt_ref: 8dd01ea85bc539d03f42e8976d24181734197d9d
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
