@@ -133,7 +133,8 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" checkout "${{ inputs.gestalt-ref }}"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
+          git -C "$toolchain_dir" checkout FETCH_HEAD
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Test compiled plugin
         if: steps.plugin.outputs.has-go-sources == 'true'
