@@ -8,7 +8,7 @@ use gestalt_plugin_sdk as gestalt;
 use prost_types::Timestamp;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use sqlx::mysql::MySqlPoolOptions;
+use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{MySqlPool, PgPool, Row, SqlitePool};
@@ -1199,11 +1199,12 @@ pub async fn connect_postgres(dsn: &str) -> gestalt::Result<PostgresStore> {
 }
 
 pub async fn connect_mysql(dsn: &str, requested_version: &str) -> gestalt::Result<MySqlStore> {
+    let options = mysql_connect_options_from_dsn(dsn)?;
     let pool = MySqlPoolOptions::new()
         .max_connections(25)
         .acquire_timeout(Duration::from_secs(30))
         .max_lifetime(Some(Duration::from_secs(300)))
-        .connect(dsn)
+        .connect_with(options)
         .await
         .map_err(|error| gestalt::Error::internal(format!("opening mysql: {error}")))?;
     let version = resolve_mysql_version(&pool, requested_version).await?;
@@ -1274,4 +1275,229 @@ async fn resolve_postgres_version(
         (version_num / 10000).to_string(),
         raw,
     )
+}
+
+fn mysql_connect_options_from_dsn(dsn: &str) -> gestalt::Result<MySqlConnectOptions> {
+    if dsn.starts_with("mysql://") {
+        return MySqlConnectOptions::from_str(dsn)
+            .map_err(|error| gestalt::Error::internal(format!("parsing dsn: {error}")));
+    }
+    mysql_connect_options_from_legacy_dsn(dsn)
+}
+
+fn mysql_connect_options_from_legacy_dsn(dsn: &str) -> gestalt::Result<MySqlConnectOptions> {
+    let (main, query) = match dsn.split_once('?') {
+        Some((main, query)) => (main, Some(query)),
+        None => (dsn, None),
+    };
+    let slash = mysql_dsn_database_separator(main)
+        .ok_or_else(|| gestalt::Error::internal("parsing dsn: missing database name"))?;
+    let (head, database) = (&main[..slash], &main[slash + 1..]);
+    if database.is_empty() {
+        return Err(gestalt::Error::internal(
+            "parsing dsn: missing database name",
+        ));
+    }
+
+    let (auth, network) = mysql_dsn_auth_split(head);
+    let mut options = MySqlConnectOptions::new().database(database);
+    if let Some(auth) = auth {
+        let (username, password) = match auth.split_once(':') {
+            Some((username, password)) => (username, Some(password)),
+            None => (auth, None),
+        };
+        if !username.is_empty() {
+            options = options.username(username);
+        }
+        if let Some(password) = password {
+            options = options.password(password);
+        }
+    }
+    options = apply_legacy_mysql_network(options, network)?;
+    options = apply_legacy_mysql_query(options, query)?;
+    Ok(options)
+}
+
+fn mysql_dsn_database_separator(dsn: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, ch) in dsn.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            '/' if depth == 0 => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn mysql_dsn_auth_split(dsn: &str) -> (Option<&str>, &str) {
+    let mut depth = 0usize;
+    let mut split = None;
+    for (index, ch) in dsn.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            '@' if depth == 0 => split = Some(index),
+            _ => {}
+        }
+    }
+    match split {
+        Some(index) => (Some(&dsn[..index]), &dsn[index + 1..]),
+        None => (None, dsn),
+    }
+}
+
+fn apply_legacy_mysql_network(
+    mut options: MySqlConnectOptions,
+    network: &str,
+) -> gestalt::Result<MySqlConnectOptions> {
+    if network.is_empty() {
+        return Ok(options);
+    }
+
+    let (kind, address) = match network.split_once('(') {
+        Some((kind, address)) => {
+            let address = address.strip_suffix(')').ok_or_else(|| {
+                gestalt::Error::internal("parsing dsn: malformed network address")
+            })?;
+            (kind, Some(address))
+        }
+        None => (network, None),
+    };
+
+    match kind {
+        "tcp" => {
+            if let Some(address) = address {
+                let (host, port) = split_mysql_tcp_address(address)?;
+                options = options.host(host);
+                if let Some(port) = port {
+                    options = options.port(port);
+                }
+            }
+            Ok(options)
+        }
+        "unix" => {
+            let address = address.ok_or_else(|| {
+                gestalt::Error::internal("parsing dsn: unix network requires a socket path")
+            })?;
+            Ok(options.socket(address))
+        }
+        other => Err(gestalt::Error::internal(format!(
+            "parsing dsn: unsupported network {other:?}"
+        ))),
+    }
+}
+
+fn split_mysql_tcp_address(address: &str) -> gestalt::Result<(&str, Option<u16>)> {
+    if let Some(rest) = address.strip_prefix('[') {
+        let (host, remainder) = rest
+            .split_once(']')
+            .ok_or_else(|| gestalt::Error::internal("parsing dsn: malformed tcp address"))?;
+        if remainder.is_empty() {
+            return Ok((host, None));
+        }
+        let port = remainder
+            .strip_prefix(':')
+            .ok_or_else(|| gestalt::Error::internal("parsing dsn: malformed tcp address"))?;
+        return Ok((host, Some(parse_mysql_port(port)?)));
+    }
+    if let Some((host, port)) = address.rsplit_once(':') {
+        if port.chars().all(|ch| ch.is_ascii_digit()) {
+            return Ok((host, Some(parse_mysql_port(port)?)));
+        }
+    }
+    Ok((address, None))
+}
+
+fn parse_mysql_port(port: &str) -> gestalt::Result<u16> {
+    port.parse().map_err(|error| {
+        gestalt::Error::internal(format!("parsing dsn: invalid port {port:?}: {error}"))
+    })
+}
+
+fn apply_legacy_mysql_query(
+    mut options: MySqlConnectOptions,
+    query: Option<&str>,
+) -> gestalt::Result<MySqlConnectOptions> {
+    let Some(query) = query else {
+        return Ok(options);
+    };
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = match pair.split_once('=') {
+            Some((key, value)) => (key, value),
+            None => (pair, ""),
+        };
+        match key {
+            "charset" => options = options.charset(value),
+            "collation" => options = options.collation(value),
+            "socket" => options = options.socket(value),
+            "tls" => {
+                options = options.ssl_mode(mysql_ssl_mode_from_legacy_value(value));
+            }
+            _ => {}
+        }
+    }
+    Ok(options)
+}
+
+fn mysql_ssl_mode_from_legacy_value(value: &str) -> MySqlSslMode {
+    match value {
+        "false" | "disabled" => MySqlSslMode::Disabled,
+        "true" | "required" | "skip-verify" => MySqlSslMode::Required,
+        "verify-ca" => MySqlSslMode::VerifyCa,
+        "verify-identity" => MySqlSslMode::VerifyIdentity,
+        _ => MySqlSslMode::Preferred,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mysql_connect_options_from_dsn;
+    use sqlx::mysql::MySqlSslMode;
+
+    #[test]
+    fn parses_mysql_url_dsn() {
+        let options =
+            mysql_connect_options_from_dsn("mysql://alice:secret@db.internal:3307/gestalt")
+                .expect("parse mysql url dsn");
+
+        assert_eq!(options.get_host(), "db.internal");
+        assert_eq!(options.get_port(), 3307);
+        assert_eq!(options.get_username(), "alice");
+        assert_eq!(options.get_database(), Some("gestalt"));
+        assert!(options.get_socket().is_none());
+    }
+
+    #[test]
+    fn parses_legacy_mysql_unix_socket_dsn() {
+        let options = mysql_connect_options_from_dsn(
+            "alice:secret@unix(/cloudsql/project:region:instance)/gestalt",
+        )
+        .expect("parse legacy unix mysql dsn");
+
+        assert_eq!(options.get_username(), "alice");
+        assert_eq!(options.get_database(), Some("gestalt"));
+        assert_eq!(
+            options.get_socket().and_then(|path| path.to_str()),
+            Some("/cloudsql/project:region:instance")
+        );
+    }
+
+    #[test]
+    fn parses_legacy_mysql_tcp_dsn_with_query_options() {
+        let options = mysql_connect_options_from_dsn(
+            "alice:secret@tcp(db.internal:3307)/gestalt?charset=utf8mb4&tls=required",
+        )
+        .expect("parse legacy tcp mysql dsn");
+
+        assert_eq!(options.get_host(), "db.internal");
+        assert_eq!(options.get_port(), 3307);
+        assert_eq!(options.get_database(), Some("gestalt"));
+        assert_eq!(options.get_charset(), "utf8mb4");
+        assert!(matches!(options.get_ssl_mode(), MySqlSslMode::Required));
+    }
 }
