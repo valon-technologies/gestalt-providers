@@ -9,9 +9,9 @@ Versioned provider packages for Gestalt.
 - `datastore/<name>` contains datastore provider packages.
 - `web/<name>` contains packaged web UI bundles.
 - Declarative plugins ship from their manifests and support files.
-- Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
-- Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
-- Rust source plugins use `Cargo.toml` and are built and packaged with `gestaltd plugin release`.
+- Go source plugins use `go.mod` and are built and packaged with `gestaltd provider release`.
+- Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd provider release`.
+- Rust source plugins use `Cargo.toml` and are built and packaged with `gestaltd provider release`.
 
 ## CI
 
@@ -19,10 +19,10 @@ Pushes and pull requests validate every plugin package. Go plugins also run `go 
 
 The workflows fetch `gestaltd` and private SDK sources from `valon-technologies/gestalt`, so this repo needs a `PAT_TOKEN` Actions secret with read access to that repository.
 
-Web bundles are recipe-only packages. CI and release workflows build the static
-assets from `gestalt/gestaltd/ui` and materialize `web/<name>/out/` in the
-workspace before running `gestaltd plugin release`, so generated frontend
-output does not need to be committed here.
+Web bundles can define `release.build` in `plugin.yaml`. The first-party
+`web/default` package uses that hook to build assets from
+`gestalt/gestaltd/ui` before `gestaltd provider release`, so generated
+frontend output does not need to be committed here.
 
 ## Python source plugins
 
@@ -52,7 +52,7 @@ Recommended local flow:
 ```sh
 uv sync
 uv run python -c "import gestalt"
-gestaltd plugin release --version 0.0.1-alpha.1
+gestaltd provider release --version 0.0.1-alpha.1
 ```
 
 Pin `rev` to a specific `valon-technologies/gestalt` commit and bump it

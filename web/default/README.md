@@ -2,6 +2,10 @@
 
 This package publishes the default Gestalt web UI as a `webui` bundle.
 
-The static assets are built from `gestalt/gestaltd/ui` during CI and release.
-`out/` is materialized in the workflow workspace before packaging and is not
-committed to this repository.
+`gestaltd provider release` runs the package's `release.build` recipe, which
+builds the assets from `gestalt/gestaltd/ui` and materializes `out/` before
+packaging.
+
+By default the build looks for a sibling checkout at `../../../gestalt` from
+this package directory. Set `GESTALT_CHECKOUT=/path/to/gestalt` if your local
+layout is different.

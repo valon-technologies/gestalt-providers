@@ -1,4 +1,4 @@
-name: Release Gestalt Plugin
+name: Release Gestalt Provider Package
 
 on:
   workflow_call:
@@ -136,9 +136,6 @@ jobs:
           git -C "$toolchain_dir" fetch --depth 1 origin "${{ inputs.gestalt-ref }}"
           git -C "$toolchain_dir" checkout FETCH_HEAD
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - name: Prepare web bundle assets
-        if: steps.plugin.outputs.root == 'web'
-        run: .github/scripts/prepare_web_bundle.sh "${{ inputs.plugin-dir }}" "${GITHUB_WORKSPACE}/../gestalt"
       - name: Test compiled plugin
         if: steps.plugin.outputs.has-go-sources == 'true'
         run: |
@@ -155,13 +152,16 @@ jobs:
         if: steps.plugin.outputs.has-python-project == 'true'
         run: |
           python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
-      - name: Package plugin
+      - name: Package provider
         run: |
+          if [ "${{ steps.plugin.outputs.root }}" = "web" ]; then
+            export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
+          fi
           cd "${{ inputs.plugin-dir }}"
           if [ "${{ steps.plugin.outputs.has-python-project }}" = "true" ]; then
-            gestaltd plugin release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/glibc
+            gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/amd64/glibc
           else
-            gestaltd plugin release --version "${{ steps.version.outputs.release }}"
+            gestaltd provider release --version "${{ steps.version.outputs.release }}"
           fi
       - name: Package Python musl artifact
         if: steps.plugin.outputs.has-python-project == 'true'
@@ -206,7 +206,7 @@ jobs:
               rm -rf .venv
               uv sync
               export GESTALT_PYTHON_LINUX_AMD64="$PWD/.venv/bin/python"
-              gestaltd plugin release --version "${INPUT_VERSION}" --platform linux/amd64/musl
+              gestaltd provider release --version "${INPUT_VERSION}" --platform linux/amd64/musl
               chmod -R a+rX dist
             '
       - name: Write release checksums

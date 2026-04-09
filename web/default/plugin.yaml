@@ -4,5 +4,10 @@ display_name: Default Web UI
 description: Default Gestalt web UI bundle served at /.
 kinds:
   - webui
+release:
+  build:
+    command:
+      - sh
+      - ./build.sh
 webui:
   asset_root: out
