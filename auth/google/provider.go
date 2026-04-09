@@ -71,17 +71,17 @@ func (p *Provider) SessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
-func (p *Provider) BeginLogin(_ context.Context, req gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
-	oauthCfg := p.oauthConfig(req.CallbackURL)
+func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
+	oauthCfg := p.oauthConfig(req.GetCallbackUrl())
 	return &gestalt.BeginLoginResponse{
-		AuthorizationURL: oauthCfg.AuthCodeURL(req.HostState, oauth2.AccessTypeOffline),
+		AuthorizationUrl: oauthCfg.AuthCodeURL(req.GetHostState(), oauth2.AccessTypeOffline),
 	}, nil
 }
 
-func (p *Provider) CompleteLogin(ctx context.Context, req gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
-	oauthCfg := p.oauthConfig(req.CallbackURL)
+func (p *Provider) CompleteLogin(ctx context.Context, req *gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
+	oauthCfg := p.oauthConfig(req.GetCallbackUrl())
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
-	tok, err := oauthCfg.Exchange(ctx, req.Query["code"])
+	tok, err := oauthCfg.Exchange(ctx, req.GetQuery()["code"])
 	if err != nil {
 		return nil, fmt.Errorf("google auth: exchange code: %w", err)
 	}
@@ -145,6 +145,6 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		Email:         info.Email,
 		EmailVerified: true,
 		DisplayName:   info.Name,
-		AvatarURL:     info.Picture,
+		AvatarUrl:     info.Picture,
 	}, nil
 }

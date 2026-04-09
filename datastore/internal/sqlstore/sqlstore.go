@@ -13,6 +13,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Dialect interface {
@@ -53,21 +54,35 @@ type Scanner interface {
 	Scan(dest ...any) error
 }
 
-func defaultTimestamps(createdAt, updatedAt *time.Time) {
-	now := time.Now().UTC().Truncate(time.Second)
-	if createdAt.IsZero() {
+func defaultTimestamps(createdAt, updatedAt **timestamppb.Timestamp) {
+	now := timestamppb.New(time.Now().UTC().Truncate(time.Second))
+	if *createdAt == nil {
 		*createdAt = now
 	}
-	if updatedAt.IsZero() {
+	if *updatedAt == nil {
 		*updatedAt = now
 	}
 }
 
-func nullableTime(t *time.Time) any {
+func nullableTimestamp(t *timestamppb.Timestamp) any {
 	if t == nil {
 		return nil
 	}
-	return *t
+	return t.AsTime()
+}
+
+func tsFromTime(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
+}
+
+func tsFromTimePtr(t *time.Time) *timestamppb.Timestamp {
+	if t == nil {
+		return nil
+	}
+	return timestamppb.New(*t)
 }
 
 func connectionParamsToJSON(values map[string]string) (string, error) {
@@ -93,13 +108,19 @@ func connectionParamsFromJSON(value string) (map[string]string, error) {
 }
 
 func scanUser(row Scanner) (gestalt.StoredUser, error) {
-	var user gestalt.StoredUser
+	var id, email string
 	var displayName sql.NullString
-	if err := row.Scan(&user.ID, &user.Email, &displayName, &user.CreatedAt, &user.UpdatedAt); err != nil {
-		return user, err
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&id, &email, &displayName, &createdAt, &updatedAt); err != nil {
+		return gestalt.StoredUser{}, err
 	}
-	user.DisplayName = displayName.String
-	return user, nil
+	return gestalt.StoredUser{
+		Id:          id,
+		Email:       email,
+		DisplayName: displayName.String,
+		CreatedAt:   tsFromTime(createdAt),
+		UpdatedAt:   tsFromTime(updatedAt),
+	}, nil
 }
 
 func (s *Store) GetUser(ctx context.Context, id string) (*gestalt.StoredUser, error) {
@@ -132,16 +153,16 @@ func (s *Store) FindOrCreateUser(ctx context.Context, email string) (*gestalt.St
 
 	now := time.Now().UTC().Truncate(time.Second)
 	user = gestalt.StoredUser{
-		ID:        uuid.NewString(),
+		Id:        uuid.NewString(),
 		Email:     email,
-		CreatedAt: now,
-		UpdatedAt: now,
+		CreatedAt: timestamppb.New(now),
+		UpdatedAt: timestamppb.New(now),
 	}
 
 	_, err = s.DB.ExecContext(ctx,
 		"INSERT INTO users (id, email, display_name, created_at, updated_at) VALUES ("+
 			s.ph(1)+", "+s.ph(2)+", "+s.ph(3)+", "+s.ph(4)+", "+s.ph(5)+")",
-		user.ID, user.Email, user.DisplayName, user.CreatedAt, user.UpdatedAt,
+		user.Id, user.Email, user.DisplayName, now, now,
 	)
 	if err != nil {
 		if s.Dialect.IsDuplicateKeyError(err) {
@@ -161,79 +182,93 @@ func (s *Store) FindOrCreateUser(ctx context.Context, email string) (*gestalt.St
 }
 
 func (s *Store) scanIntegrationToken(row Scanner) (*gestalt.StoredIntegrationToken, error) {
-	var token gestalt.StoredIntegrationToken
+	var id, userID, integration, connection, instance string
 	var accessSealed, refreshSealed sql.NullString
 	var scopes, paramsJSON sql.NullString
 	var expiresAt, lastRefreshedAt sql.NullTime
-	var err error
+	var refreshErrorCount int32
+	var createdAt, updatedAt time.Time
 
 	if err := row.Scan(
-		&token.ID,
-		&token.UserID,
-		&token.Integration,
-		&token.Connection,
-		&token.Instance,
+		&id,
+		&userID,
+		&integration,
+		&connection,
+		&instance,
 		&accessSealed,
 		&refreshSealed,
 		&scopes,
 		&expiresAt,
 		&lastRefreshedAt,
-		&token.RefreshErrorCount,
+		&refreshErrorCount,
 		&paramsJSON,
-		&token.CreatedAt,
-		&token.UpdatedAt,
+		&createdAt,
+		&updatedAt,
 	); err != nil {
 		return nil, err
 	}
 
-	token.Connection = s.Dialect.DenormalizeConnection(token.Connection)
-	token.AccessTokenSealed, err = sealcodec.Decode(accessSealed.String)
+	connection = s.Dialect.DenormalizeConnection(connection)
+	accessBytes, err := sealcodec.Decode(accessSealed.String)
 	if err != nil {
 		return nil, fmt.Errorf("decode access token: %w", err)
 	}
-	token.RefreshTokenSealed, err = sealcodec.Decode(refreshSealed.String)
+	refreshBytes, err := sealcodec.Decode(refreshSealed.String)
 	if err != nil {
 		return nil, fmt.Errorf("decode refresh token: %w", err)
-	}
-	token.Scopes = scopes.String
-	if expiresAt.Valid {
-		token.ExpiresAt = &expiresAt.Time
-	}
-	if lastRefreshedAt.Valid {
-		token.LastRefreshedAt = &lastRefreshedAt.Time
 	}
 	params, err := connectionParamsFromJSON(paramsJSON.String)
 	if err != nil {
 		return nil, fmt.Errorf("decode connection params: %w", err)
 	}
-	token.ConnectionParams = params
-	return &token, nil
+
+	token := &gestalt.StoredIntegrationToken{
+		Id:                 id,
+		UserId:             userID,
+		Integration:        integration,
+		Connection:         connection,
+		Instance:           instance,
+		AccessTokenSealed:  accessBytes,
+		RefreshTokenSealed: refreshBytes,
+		Scopes:             scopes.String,
+		RefreshErrorCount:  refreshErrorCount,
+		ConnectionParams:   params,
+		CreatedAt:          tsFromTime(createdAt),
+		UpdatedAt:          tsFromTime(updatedAt),
+	}
+	if expiresAt.Valid {
+		token.ExpiresAt = timestamppb.New(expiresAt.Time)
+	}
+	if lastRefreshedAt.Valid {
+		token.LastRefreshedAt = timestamppb.New(lastRefreshedAt.Time)
+	}
+	return token, nil
 }
 
 func (s *Store) PutIntegrationToken(ctx context.Context, token *gestalt.StoredIntegrationToken) error {
 	defaultTimestamps(&token.CreatedAt, &token.UpdatedAt)
 
-	paramsJSON, err := connectionParamsToJSON(token.ConnectionParams)
+	paramsJSON, err := connectionParamsToJSON(token.GetConnectionParams())
 	if err != nil {
 		return fmt.Errorf("encode connection params: %w", err)
 	}
 
-	connection := s.Dialect.NormalizeConnection(token.Connection)
+	connection := s.Dialect.NormalizeConnection(token.GetConnection())
 	_, err = s.DB.ExecContext(ctx, s.Dialect.UpsertTokenSQL(),
-		token.ID,
-		token.UserID,
-		token.Integration,
+		token.GetId(),
+		token.GetUserId(),
+		token.GetIntegration(),
 		connection,
-		token.Instance,
-		sealcodec.Encode(token.AccessTokenSealed),
-		sealcodec.Encode(token.RefreshTokenSealed),
-		token.Scopes,
-		nullableTime(token.ExpiresAt),
-		nullableTime(token.LastRefreshedAt),
-		token.RefreshErrorCount,
+		token.GetInstance(),
+		sealcodec.Encode(token.GetAccessTokenSealed()),
+		sealcodec.Encode(token.GetRefreshTokenSealed()),
+		token.GetScopes(),
+		nullableTimestamp(token.ExpiresAt),
+		nullableTimestamp(token.LastRefreshedAt),
+		token.GetRefreshErrorCount(),
 		paramsJSON,
-		token.CreatedAt,
-		token.UpdatedAt,
+		token.GetCreatedAt().AsTime(),
+		token.GetUpdatedAt().AsTime(),
 	)
 	if err != nil {
 		return fmt.Errorf("upserting integration token: %w", err)
@@ -303,17 +338,26 @@ func (s *Store) DeleteIntegrationToken(ctx context.Context, id string) error {
 }
 
 func scanAPIToken(row Scanner) (*gestalt.StoredAPIToken, error) {
-	var token gestalt.StoredAPIToken
+	var id, userID, name, hashedToken string
 	var scopes sql.NullString
 	var expiresAt sql.NullTime
-	if err := row.Scan(&token.ID, &token.UserID, &token.Name, &token.HashedToken, &scopes, &expiresAt, &token.CreatedAt, &token.UpdatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&id, &userID, &name, &hashedToken, &scopes, &expiresAt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
-	token.Scopes = scopes.String
-	if expiresAt.Valid {
-		token.ExpiresAt = &expiresAt.Time
+	token := &gestalt.StoredAPIToken{
+		Id:          id,
+		UserId:      userID,
+		Name:        name,
+		HashedToken: hashedToken,
+		Scopes:      scopes.String,
+		CreatedAt:   tsFromTime(createdAt),
+		UpdatedAt:   tsFromTime(updatedAt),
 	}
-	return &token, nil
+	if expiresAt.Valid {
+		token.ExpiresAt = timestamppb.New(expiresAt.Time)
+	}
+	return token, nil
 }
 
 func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) error {
@@ -321,7 +365,8 @@ func (s *Store) PutAPIToken(ctx context.Context, token *gestalt.StoredAPIToken) 
 	_, err := s.DB.ExecContext(ctx, `
 		INSERT INTO api_tokens (id, user_id, name, hashed_token, scopes, expires_at, created_at, updated_at)
 		VALUES (`+s.ph(1)+`, `+s.ph(2)+`, `+s.ph(3)+`, `+s.ph(4)+`, `+s.ph(5)+`, `+s.ph(6)+`, `+s.ph(7)+`, `+s.ph(8)+`)`,
-		token.ID, token.UserID, token.Name, token.HashedToken, token.Scopes, nullableTime(token.ExpiresAt), token.CreatedAt, token.UpdatedAt,
+		token.GetId(), token.GetUserId(), token.GetName(), token.GetHashedToken(), token.GetScopes(),
+		nullableTimestamp(token.ExpiresAt), token.GetCreatedAt().AsTime(), token.GetUpdatedAt().AsTime(),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting api token: %w", err)
@@ -428,20 +473,22 @@ func (s *Store) GetOAuthRegistration(ctx context.Context, authServerURL, redirec
 		FROM oauth_registrations
 		WHERE auth_server_url = `+s.ph(1)+` AND redirect_uri = `+s.ph(2), authServerURL, redirectURI)
 
-	var registration gestalt.OAuthRegistration
+	var authServer, regRedirectURI, clientID string
 	var secret sql.NullString
 	var expiresAt sql.NullTime
+	var authEndpoint, tokenEndpoint string
 	var scopes sql.NullString
+	var discoveredAt time.Time
 	err := row.Scan(
-		&registration.AuthServerURL,
-		&registration.RedirectURI,
-		&registration.ClientID,
+		&authServer,
+		&regRedirectURI,
+		&clientID,
 		&secret,
 		&expiresAt,
-		&registration.AuthorizationEndpoint,
-		&registration.TokenEndpoint,
+		&authEndpoint,
+		&tokenEndpoint,
 		&scopes,
-		&registration.DiscoveredAt,
+		&discoveredAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -449,15 +496,24 @@ func (s *Store) GetOAuthRegistration(ctx context.Context, authServerURL, redirec
 	if err != nil {
 		return nil, fmt.Errorf("querying oauth registration: %w", err)
 	}
-	registration.ClientSecretSealed, err = sealcodec.Decode(secret.String)
+	sealedBytes, err := sealcodec.Decode(secret.String)
 	if err != nil {
 		return nil, fmt.Errorf("decode oauth client secret: %w", err)
 	}
-	if expiresAt.Valid {
-		registration.ExpiresAt = &expiresAt.Time
+	registration := &gestalt.OAuthRegistration{
+		AuthServerUrl:         authServer,
+		RedirectUri:           regRedirectURI,
+		ClientId:              clientID,
+		ClientSecretSealed:    sealedBytes,
+		AuthorizationEndpoint: authEndpoint,
+		TokenEndpoint:         tokenEndpoint,
+		ScopesSupported:       scopes.String,
+		DiscoveredAt:          tsFromTime(discoveredAt),
 	}
-	registration.ScopesSupported = scopes.String
-	return &registration, nil
+	if expiresAt.Valid {
+		registration.ExpiresAt = timestamppb.New(expiresAt.Time)
+	}
+	return registration, nil
 }
 
 func (s *Store) PutOAuthRegistration(ctx context.Context, registration *gestalt.OAuthRegistration) error {
@@ -479,16 +535,16 @@ func (s *Store) PutOAuthRegistration(ctx context.Context, registration *gestalt.
 		discovered_at = `+s.ph(7)+`,
 		updated_at = `+s.ph(8)+`
 		WHERE auth_server_url = `+s.ph(9)+` AND redirect_uri = `+s.ph(10),
-		registration.ClientID,
-		sealcodec.Encode(registration.ClientSecretSealed),
-		nullableTime(registration.ExpiresAt),
-		registration.AuthorizationEndpoint,
-		registration.TokenEndpoint,
-		registration.ScopesSupported,
-		registration.DiscoveredAt,
+		registration.GetClientId(),
+		sealcodec.Encode(registration.GetClientSecretSealed()),
+		nullableTimestamp(registration.ExpiresAt),
+		registration.GetAuthorizationEndpoint(),
+		registration.GetTokenEndpoint(),
+		registration.GetScopesSupported(),
+		registration.GetDiscoveredAt().AsTime(),
 		now,
-		registration.AuthServerURL,
-		registration.RedirectURI,
+		registration.GetAuthServerUrl(),
+		registration.GetRedirectUri(),
 	)
 	if err != nil {
 		return fmt.Errorf("updating oauth registration: %w", err)
@@ -501,15 +557,15 @@ func (s *Store) PutOAuthRegistration(ctx context.Context, registration *gestalt.
 			 expires_at, authorization_endpoint, token_endpoint, scopes_supported, discovered_at, created_at, updated_at)
 			VALUES (`+s.ph(1)+`, `+s.ph(2)+`, `+s.ph(3)+`, `+s.ph(4)+`, `+s.ph(5)+`, `+s.ph(6)+`, `+s.ph(7)+`, `+s.ph(8)+`, `+s.ph(9)+`, `+s.ph(10)+`, `+s.ph(11)+`, `+s.ph(12)+`)`,
 			uuid.NewString(),
-			registration.AuthServerURL,
-			registration.RedirectURI,
-			registration.ClientID,
-			sealcodec.Encode(registration.ClientSecretSealed),
-			nullableTime(registration.ExpiresAt),
-			registration.AuthorizationEndpoint,
-			registration.TokenEndpoint,
-			registration.ScopesSupported,
-			registration.DiscoveredAt,
+			registration.GetAuthServerUrl(),
+			registration.GetRedirectUri(),
+			registration.GetClientId(),
+			sealcodec.Encode(registration.GetClientSecretSealed()),
+			nullableTimestamp(registration.ExpiresAt),
+			registration.GetAuthorizationEndpoint(),
+			registration.GetTokenEndpoint(),
+			registration.GetScopesSupported(),
+			registration.GetDiscoveredAt().AsTime(),
 			now,
 			now,
 		)

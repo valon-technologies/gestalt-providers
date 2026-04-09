@@ -23,18 +23,18 @@ func TestBeginLoginPKCEDoesNotExposeVerifier(t *testing.T) {
 		UserinfoEndpoint:      "https://issuer.example/userinfo",
 	}
 
-	resp, err := p.BeginLogin(context.Background(), gestalt.BeginLoginRequest{
-		CallbackURL: "https://gestalt.example/callback",
+	resp, err := p.BeginLogin(context.Background(), &gestalt.BeginLoginRequest{
+		CallbackUrl: "https://gestalt.example/callback",
 		HostState:   "host-state",
 	})
 	if err != nil {
 		t.Fatalf("BeginLogin() error = %v", err)
 	}
-	if len(resp.ProviderState) != 0 {
-		t.Fatalf("BeginLogin() exposed ProviderState = %q", string(resp.ProviderState))
+	if len(resp.GetProviderState()) != 0 {
+		t.Fatalf("BeginLogin() exposed ProviderState = %q", string(resp.GetProviderState()))
 	}
-	if !strings.Contains(resp.AuthorizationURL, "code_challenge=") {
-		t.Fatalf("BeginLogin() authorization URL missing code_challenge: %s", resp.AuthorizationURL)
+	if !strings.Contains(resp.GetAuthorizationUrl(), "code_challenge=") {
+		t.Fatalf("BeginLogin() authorization URL missing code_challenge: %s", resp.GetAuthorizationUrl())
 	}
 	if _, ok := p.pkceVerifier("host-state"); !ok {
 		t.Fatal("BeginLogin() did not retain verifier server-side")
@@ -84,27 +84,27 @@ func TestCompleteLoginPKCEUsesStoredVerifier(t *testing.T) {
 		UserinfoEndpoint:      server.URL + "/userinfo",
 	}
 
-	resp, err := p.BeginLogin(context.Background(), gestalt.BeginLoginRequest{
-		CallbackURL: "https://gestalt.example/callback",
+	resp, err := p.BeginLogin(context.Background(), &gestalt.BeginLoginRequest{
+		CallbackUrl: "https://gestalt.example/callback",
 		HostState:   hostState,
 	})
 	if err != nil {
 		t.Fatalf("BeginLogin() error = %v", err)
 	}
-	if len(resp.ProviderState) != 0 {
-		t.Fatalf("BeginLogin() exposed ProviderState = %q", string(resp.ProviderState))
+	if len(resp.GetProviderState()) != 0 {
+		t.Fatalf("BeginLogin() exposed ProviderState = %q", string(resp.GetProviderState()))
 	}
 	wantCodeVerifier, ok := p.pkceVerifier(hostState)
 	if !ok {
 		t.Fatal("BeginLogin() did not retain verifier")
 	}
 
-	user, err := p.CompleteLogin(context.Background(), gestalt.CompleteLoginRequest{
+	user, err := p.CompleteLogin(context.Background(), &gestalt.CompleteLoginRequest{
 		Query: map[string]string{
 			"code":  "auth-code",
 			"state": hostState,
 		},
-		CallbackURL: "https://gestalt.example/callback",
+		CallbackUrl: "https://gestalt.example/callback",
 	})
 	if err != nil {
 		t.Fatalf("CompleteLogin() error = %v", err)
