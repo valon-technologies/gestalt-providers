@@ -26,7 +26,7 @@ permissions:
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
   LEGACY_GESTALT_REF: b02e2baadb95c8a638f96046b4f089517681fb6e
-  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.27
+  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.34
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
