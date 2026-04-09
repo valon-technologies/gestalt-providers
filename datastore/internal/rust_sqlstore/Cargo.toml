@@ -1,6 +1,6 @@
 [package]
 name = "gestalt_datastore_sqlstore"
-version = "0.0.1-alpha.7"
+version = "0.0.1-alpha.9"
 edition = "2024"
 
 [lib]

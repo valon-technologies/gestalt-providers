@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	providerVersion   = "0.0.1-alpha.2"
+	providerVersion   = "0.0.1-alpha.4"
 	defaultSessionTTL = 24 * time.Hour
 	userinfoURL       = "https://www.googleapis.com/oauth2/v3/userinfo"
 )
@@ -71,15 +71,15 @@ func (p *Provider) SessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
-func (p *Provider) BeginLogin(_ context.Context, req gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
-	oauthCfg := p.oauthConfig(req.CallbackURL)
+func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
+	oauthCfg := p.oauthConfig(req.CallbackUrl)
 	return &gestalt.BeginLoginResponse{
-		AuthorizationURL: oauthCfg.AuthCodeURL(req.HostState, oauth2.AccessTypeOffline),
+		AuthorizationUrl: oauthCfg.AuthCodeURL(req.HostState, oauth2.AccessTypeOffline),
 	}, nil
 }
 
-func (p *Provider) CompleteLogin(ctx context.Context, req gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
-	oauthCfg := p.oauthConfig(req.CallbackURL)
+func (p *Provider) CompleteLogin(ctx context.Context, req *gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
+	oauthCfg := p.oauthConfig(req.CallbackUrl)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
 	tok, err := oauthCfg.Exchange(ctx, req.Query["code"])
 	if err != nil {
@@ -145,6 +145,6 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		Email:         info.Email,
 		EmailVerified: true,
 		DisplayName:   info.Name,
-		AvatarURL:     info.Picture,
+		AvatarUrl:     info.Picture,
 	}, nil
 }
