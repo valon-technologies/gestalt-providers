@@ -8,7 +8,6 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'datastore/**'
-      - 'web/**'
   push:
     branches:
       - main
@@ -18,14 +17,14 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'datastore/**'
-      - 'web/**'
 
 permissions:
   contents: read
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_REF: 3e7363564cf9e3be88ba3bc91073a5b777725b97
+  LEGACY_GESTALT_REF: b02e2baadb95c8a638f96046b4f089517681fb6e
+  PROVIDER_GESTALT_REF: b02e2baadb95c8a638f96046b4f089517681fb6e
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -59,7 +58,17 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "datastore", "web")
+          package_roots = ("plugins", "auth", "datastore")
+          gestalt_ref_by_root = {
+              "plugins": os.environ["LEGACY_GESTALT_REF"],
+              "auth": os.environ["PROVIDER_GESTALT_REF"],
+              "datastore": os.environ["PROVIDER_GESTALT_REF"],
+          }
+          toolchain_by_root = {
+              "plugins": "legacy",
+              "auth": "provider",
+              "datastore": "provider",
+          }
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -76,6 +85,8 @@ jobs:
                           "has_go": has_go,
                           "has_python": (package_dir / "pyproject.toml").is_file(),
                           "has_rust": (package_dir / "Cargo.toml").is_file(),
+                          "gestalt_ref": gestalt_ref_by_root[root_name],
+                          "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
                   )
           shared_prefixes = (".github/workflows/", ".github/scripts/")
@@ -142,6 +153,14 @@ jobs:
     if: needs.discover.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - name: legacy
+            gestalt_ref: b02e2baadb95c8a638f96046b4f089517681fb6e
+          - name: provider
+            gestalt_ref: b02e2baadb95c8a638f96046b4f089517681fb6e
     steps:
       - uses: actions/setup-go@v5
         with:
@@ -182,12 +201,13 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" checkout "${GESTALT_REF}"
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          git -C "$toolchain_dir" fetch --depth 1 origin "${{ matrix.toolchain.gestalt_ref }}"
+          git -C "$toolchain_dir" checkout FETCH_HEAD
+          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd-${{ matrix.toolchain.name }}" ./cmd/gestaltd)
       - uses: actions/upload-artifact@v4
         with:
-          name: gestaltd
-          path: ${{ runner.temp }}/bin/gestaltd
+          name: gestaltd-${{ matrix.toolchain.name }}
+          path: ${{ runner.temp }}/bin/gestaltd-${{ matrix.toolchain.name }}
           if-no-files-found: error
 
   validate:
@@ -209,10 +229,6 @@ jobs:
         if: matrix.plugin.has_python
       - uses: dtolnay/rust-toolchain@1.88.0
         if: matrix.plugin.has_rust
-      - uses: actions/setup-node@v4
-        if: matrix.plugin.root == 'web'
-        with:
-          node-version: '25'
       - uses: actions/setup-go@v5
         if: matrix.plugin.has_go
         with:
@@ -221,7 +237,7 @@ jobs:
         if: matrix.plugin.has_python
         run: uv python install 3.14
       - name: Configure private Gestalt repository access
-        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.has_rust || matrix.plugin.root == 'web'
+        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.has_rust
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -241,8 +257,8 @@ jobs:
 
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-      - name: Prepare sibling Gestalt checkout for local source packaging
-        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.root == 'web'
+      - name: Prepare sibling Gestalt checkout for local Go replaces
+        if: matrix.plugin.has_go
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -255,13 +271,15 @@ jobs:
           fi
           toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
           git clone "$toolchain_url" "$toolchain_dir"
-          git -C "$toolchain_dir" checkout "${GESTALT_REF}"
+          git -C "$toolchain_dir" fetch --depth 1 origin "${{ matrix.plugin.gestalt_ref }}"
+          git -C "$toolchain_dir" checkout FETCH_HEAD
       - uses: actions/download-artifact@v4
         with:
-          name: gestaltd
+          name: ${{ matrix.plugin.gestaltd_artifact }}
           path: ${{ runner.temp }}/bin
       - name: Add gestaltd to PATH
         run: |
+          mv "${RUNNER_TEMP}/bin/${{ matrix.plugin.gestaltd_artifact }}" "${RUNNER_TEMP}/bin/gestaltd"
           chmod +x "${RUNNER_TEMP}/bin/gestaltd"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
       - name: Validate plugin
@@ -285,10 +303,6 @@ jobs:
 
           if [ -f "${plugin_dir}/pyproject.toml" ]; then
             python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
-          fi
-
-          if [ "${{ matrix.plugin.root }}" = "web" ]; then
-            export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
           fi
 
           rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
