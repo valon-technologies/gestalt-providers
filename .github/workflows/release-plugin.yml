@@ -29,8 +29,10 @@ jobs:
           PLUGIN_PATH="${TAG%/v*}"
           PLUGIN_NAME="${PLUGIN_PATH##*/}"
           PLUGIN_VERSION="${TAG##*/v}"
-          echo "plugin-name=${PLUGIN_NAME}" >> "$GITHUB_OUTPUT"
-          echo "plugin-version=${PLUGIN_VERSION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "plugin-name=${PLUGIN_NAME}"
+            echo "plugin-version=${PLUGIN_VERSION}"
+          } >> "$GITHUB_OUTPUT"
       - name: Validate plugin directory
         id: validate
         run: |
@@ -56,7 +58,7 @@ jobs:
               GESTALT_REF="df496400d6e12e754c0c8f6d97784f69198f52cf"
               ;;
             auth|datastore)
-              GESTALT_REF="5e51b85c74948eaedca698d89ae1e2ac7f49aa7e"
+              GESTALT_REF="39419ebbc89a0f45b734ac86d1119568e180f0e6"
               ;;
             *)
               echo "ERROR: unsupported plugin root ${PLUGIN_ROOT}"
@@ -64,9 +66,11 @@ jobs:
               ;;
           esac
 
-          echo "plugin-dir=${PLUGIN_DIR}" >> "$GITHUB_OUTPUT"
-          echo "is-plugin=true" >> "$GITHUB_OUTPUT"
-          echo "gestalt-ref=${GESTALT_REF}" >> "$GITHUB_OUTPUT"
+          {
+            echo "plugin-dir=${PLUGIN_DIR}"
+            echo "is-plugin=true"
+            echo "gestalt-ref=${GESTALT_REF}"
+          } >> "$GITHUB_OUTPUT"
 
   release:
     needs: prepare

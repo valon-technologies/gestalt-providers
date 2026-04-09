@@ -24,10 +24,11 @@ permissions:
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
   LEGACY_GESTALT_REF: df496400d6e12e754c0c8f6d97784f69198f52cf
-  PROVIDER_GESTALT_REF: 5e51b85c74948eaedca698d89ae1e2ac7f49aa7e
+  PROVIDER_GESTALT_REF: 39419ebbc89a0f45b734ac86d1119568e180f0e6
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   UV_PYTHON: "3.14"
 
 jobs:
@@ -75,13 +76,7 @@ jobs:
                   continue
               for path in sorted(root.glob("*/plugin.yaml")):
                   package_dir = path.parent
-                  current = package_dir
-                  has_go = False
-                  while current != repo and current != current.parent:
-                      if (current / "go.mod").is_file():
-                          has_go = True
-                          break
-                      current = current.parent
+                  has_go = any(candidate.suffix == ".go" for candidate in package_dir.glob("*.go"))
                   all_plugins.append(
                       {
                           "dir": str(package_dir.as_posix()),
@@ -89,6 +84,7 @@ jobs:
                           "root": root_name,
                           "has_go": has_go,
                           "has_python": (package_dir / "pyproject.toml").is_file(),
+                          "has_rust": (package_dir / "Cargo.toml").is_file(),
                           "gestalt_ref": gestalt_ref_by_root[root_name],
                           "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
@@ -164,7 +160,7 @@ jobs:
           - name: legacy
             gestalt_ref: df496400d6e12e754c0c8f6d97784f69198f52cf
           - name: provider
-            gestalt_ref: 5e51b85c74948eaedca698d89ae1e2ac7f49aa7e
+            gestalt_ref: 39419ebbc89a0f45b734ac86d1119568e180f0e6
     steps:
       - uses: actions/setup-go@v5
         with:
@@ -231,6 +227,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: matrix.plugin.has_python
+      - uses: dtolnay/rust-toolchain@1.88.0
+        if: matrix.plugin.has_rust
       - uses: actions/setup-go@v5
         if: matrix.plugin.has_go
         with:
@@ -239,7 +237,7 @@ jobs:
         if: matrix.plugin.has_python
         run: uv python install 3.14
       - name: Configure private Gestalt repository access
-        if: matrix.plugin.has_go || matrix.plugin.has_python
+        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.has_rust
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
@@ -296,6 +294,11 @@ jobs:
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
             (cd "$plugin_dir" && go test ./...)
+          fi
+
+          if [ "${{ matrix.plugin.has_rust }}" = "true" ]; then
+            . .github/scripts/setup_rust_datastore_test_env.sh "$plugin_dir"
+            (cd "$plugin_dir" && cargo test)
           fi
 
           if [ -f "${plugin_dir}/pyproject.toml" ]; then

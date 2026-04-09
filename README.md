@@ -10,6 +10,7 @@ Versioned provider packages for Gestalt.
 - Declarative plugins ship from their manifests and support files.
 - Go source plugins use `go.mod` and are built and packaged with `gestaltd plugin release`.
 - Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd plugin release`.
+- Rust source plugins use `Cargo.toml` and are built and packaged with `gestaltd plugin release`.
 
 ## CI
 
