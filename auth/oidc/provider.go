@@ -100,11 +100,11 @@ func (p *Provider) SessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
-func (p *Provider) BeginLogin(_ context.Context, req gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
-	oauthCfg := p.oauthConfig(req.CallbackURL)
+func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
+	oauthCfg := p.oauthConfig(req.GetCallbackUrl())
 	if !p.cfg.PKCE {
 		return &gestalt.BeginLoginResponse{
-			AuthorizationURL: oauthCfg.AuthCodeURL(req.HostState, oauth2.AccessTypeOffline),
+			AuthorizationUrl: oauthCfg.AuthCodeURL(req.GetHostState(), oauth2.AccessTypeOffline),
 		}, nil
 	}
 
@@ -112,29 +112,29 @@ func (p *Provider) BeginLogin(_ context.Context, req gestalt.BeginLoginRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("oidc auth: generate verifier: %w", err)
 	}
-	if req.HostState == "" {
+	if req.GetHostState() == "" {
 		return nil, fmt.Errorf("oidc auth: host state is required when pkce is enabled")
 	}
-	p.storePKCEVerifier(req.HostState, verifier)
+	p.storePKCEVerifier(req.GetHostState(), verifier)
 	challenge := computeS256Challenge(verifier)
 	authURL := oauthCfg.AuthCodeURL(
-		req.HostState,
+		req.GetHostState(),
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 	return &gestalt.BeginLoginResponse{
-		AuthorizationURL: authURL,
+		AuthorizationUrl: authURL,
 	}, nil
 }
 
-func (p *Provider) CompleteLogin(ctx context.Context, req gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
-	oauthCfg := p.oauthConfig(req.CallbackURL)
+func (p *Provider) CompleteLogin(ctx context.Context, req *gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
+	oauthCfg := p.oauthConfig(req.GetCallbackUrl())
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
 	opts := []oauth2.AuthCodeOption{}
 	pkceState := ""
 	if p.cfg.PKCE {
-		pkceState = req.Query["state"]
+		pkceState = req.GetQuery()["state"]
 		if pkceState == "" {
 			return nil, fmt.Errorf("oidc auth: state is required when pkce is enabled")
 		}
@@ -144,7 +144,7 @@ func (p *Provider) CompleteLogin(ctx context.Context, req gestalt.CompleteLoginR
 		}
 		opts = append(opts, oauth2.SetAuthURLParam("code_verifier", verifier))
 	}
-	tok, err := oauthCfg.Exchange(ctx, req.Query["code"], opts...)
+	tok, err := oauthCfg.Exchange(ctx, req.GetQuery()["code"], opts...)
 	if err != nil {
 		return nil, fmt.Errorf("oidc auth: exchange code: %w", err)
 	}
@@ -161,10 +161,10 @@ func (p *Provider) ValidateExternalToken(ctx context.Context, token string) (*ge
 	return p.fetchUserInfo(ctx, token)
 }
 
-func (p *Provider) oauthConfig(callbackURL string) *oauth2.Config {
+func (p *Provider) oauthConfig(callbackUrl string) *oauth2.Config {
 	redirectURL := p.cfg.RedirectURL
 	if redirectURL == "" {
-		redirectURL = callbackURL
+		redirectURL = callbackUrl
 	}
 	scopes := p.cfg.Scopes
 	if len(scopes) == 0 {
@@ -218,7 +218,7 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		Email:         info.Email,
 		EmailVerified: true,
 		DisplayName:   info.Name,
-		AvatarURL:     info.Picture,
+		AvatarUrl:     info.Picture,
 	}, nil
 }
 
