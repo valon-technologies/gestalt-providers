@@ -97,5 +97,8 @@ func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
 }
 
 func (p *Provider) Close() error {
+	if p.client == nil {
+		return nil
+	}
 	return p.client.Close()
 }
