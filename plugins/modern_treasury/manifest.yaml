@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/modern_treasury
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.6
 display_name: Modern Treasury
 description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
 icon_file: assets/icon.svg
@@ -36,7 +36,7 @@ provider:
                   name: api_key
   surfaces:
     openapi:
-      document: https://raw.githubusercontent.com/Modern-Treasury/modern-treasury-openapi/main/openapi/mt_openapi_spec_v1.yaml
+      document: openapi.yaml
   allowed_operations:
     counterparties.list:
       alias: listCounterparties
