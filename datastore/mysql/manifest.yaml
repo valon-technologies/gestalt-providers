@@ -1,5 +1,0 @@
-source: github.com/valon-technologies/gestalt-providers/datastore/mysql
-version: 0.0.1-alpha.11
-display_name: MySQL
-description: MySQL datastore provider for production deployments.
-datastore: {}

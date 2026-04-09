@@ -1,5 +1,0 @@
-source: github.com/valon-technologies/gestalt-providers/datastore/sqlite
-version: 0.0.1-alpha.11
-display_name: SQLite
-description: SQLite datastore provider for local development and single-node installs.
-datastore: {}
