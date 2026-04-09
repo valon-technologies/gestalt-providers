@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.1
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.1
 	github.com/microsoft/go-mssqldb v1.9.8
 	github.com/sijms/go-ora/v2 v2.9.0
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
