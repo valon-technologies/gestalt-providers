@@ -1,0 +1,50 @@
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directories:
+      - "/auth"
+      - "/datastore"
+      - "/secrets"
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        group-by: "dependency-name"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+
+  - package-ecosystem: "cargo"
+    directories:
+      - "/datastore/internal/rust_sqlstore"
+      - "/datastore/mysql"
+      - "/datastore/postgres"
+      - "/datastore/sqlite"
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+        group-by: "dependency-name"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+
+  - package-ecosystem: "uv"
+    directories:
+      - "/plugins/bigquery"
+      - "/plugins/gmail"
+      - "/plugins/slack"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+        group-by: "dependency-name"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
