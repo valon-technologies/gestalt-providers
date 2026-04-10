@@ -33,6 +33,4 @@ plugin:
       alias: events.delete
     calendar.events.quickAdd:
       alias: events.quickAdd
-  surfaces:
-    openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/calendar/v3/openapi.json
+  openapi: https://api.apis.guru/v2/specs/googleapis.com/calendar/v3/openapi.json

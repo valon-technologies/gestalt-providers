@@ -4,6 +4,4 @@ displayName: Datadog
 description: Manage dashboards, monitors, incidents, logs, and RUM.
 iconFile: assets/icon.svg
 plugin:
-  surfaces:
-    openapi:
-      document: openapi.yaml
+  openapi: openapi.yaml

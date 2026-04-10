@@ -29,89 +29,87 @@ plugin:
         namePath: name
         metadata:
           cloud_id: id
-  surfaces:
-    rest:
-      baseUrl: "https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3"
-      operations:
-        - name: list_projects
-          description: List all accessible projects
-          method: GET
-          path: /project
-          parameters:
-            - name: maxResults
-              type: int
-              in: query
-        - name: get_issue
-          description: Get a Jira issue by key
-          method: GET
-          path: "/issue/{issueIdOrKey}"
-          parameters:
-            - name: issueIdOrKey
-              type: string
-              in: path
-              required: true
-            - name: fields
-              type: string
-              in: query
-        - name: search_issues
-          description: Search issues using JQL
-          method: POST
-          path: /search
-          parameters:
-            - name: jql
-              type: string
-              in: body
-              required: true
-            - name: maxResults
-              type: int
-              in: body
-            - name: startAt
-              type: int
-              in: body
-            - name: fields
-              type: array
-              in: body
-        - name: create_issue
-          description: Create a new issue
-          method: POST
-          path: /issue
-          parameters:
-            - name: fields
-              type: object
-              in: body
-              required: true
-        - name: add_comment
-          description: Add a comment to an issue
-          method: POST
-          path: "/issue/{issueIdOrKey}/comment"
-          parameters:
-            - name: issueIdOrKey
-              type: string
-              in: path
-              required: true
-            - name: body
-              type: object
-              in: body
-              required: true
-        - name: get_transitions
-          description: Get available transitions for an issue
-          method: GET
-          path: "/issue/{issueIdOrKey}/transitions"
-          parameters:
-            - name: issueIdOrKey
-              type: string
-              in: path
-              required: true
-        - name: transition_issue
-          description: Transition an issue to a new status
-          method: POST
-          path: "/issue/{issueIdOrKey}/transitions"
-          parameters:
-            - name: issueIdOrKey
-              type: string
-              in: path
-              required: true
-            - name: transition
-              type: object
-              in: body
-              required: true
+  baseUrl: "https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3"
+  operations:
+    - name: list_projects
+      description: List all accessible projects
+      method: GET
+      path: /project
+      parameters:
+        - name: maxResults
+          type: int
+          in: query
+    - name: get_issue
+      description: Get a Jira issue by key
+      method: GET
+      path: "/issue/{issueIdOrKey}"
+      parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+        - name: fields
+          type: string
+          in: query
+    - name: search_issues
+      description: Search issues using JQL
+      method: POST
+      path: /search
+      parameters:
+        - name: jql
+          type: string
+          in: body
+          required: true
+        - name: maxResults
+          type: int
+          in: body
+        - name: startAt
+          type: int
+          in: body
+        - name: fields
+          type: array
+          in: body
+    - name: create_issue
+      description: Create a new issue
+      method: POST
+      path: /issue
+      parameters:
+        - name: fields
+          type: object
+          in: body
+          required: true
+    - name: add_comment
+      description: Add a comment to an issue
+      method: POST
+      path: "/issue/{issueIdOrKey}/comment"
+      parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+        - name: body
+          type: object
+          in: body
+          required: true
+    - name: get_transitions
+      description: Get available transitions for an issue
+      method: GET
+      path: "/issue/{issueIdOrKey}/transitions"
+      parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+    - name: transition_issue
+      description: Transition an issue to a new status
+      method: POST
+      path: "/issue/{issueIdOrKey}/transitions"
+      parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+        - name: transition
+          type: object
+          in: body
+          required: true

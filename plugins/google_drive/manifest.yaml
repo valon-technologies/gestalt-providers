@@ -41,6 +41,4 @@ plugin:
       alias: permissions.delete
     drive.about.get:
       alias: about.get
-  surfaces:
-    openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/drive/v3/openapi.json
+  openapi: https://api.apis.guru/v2/specs/googleapis.com/drive/v3/openapi.json

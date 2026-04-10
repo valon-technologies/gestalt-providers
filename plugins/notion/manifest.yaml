@@ -11,9 +11,6 @@ plugin:
       mode: user
       auth:
         type: mcp_oauth
-  surfaces:
-    openapi:
-      document: openapi.yaml
-    mcp:
-      url: https://mcp.notion.com/mcp
-      connection: mcp
+  openapi: openapi.yaml
+  mcpUrl: https://mcp.notion.com/mcp
+  mcpConnection: mcp

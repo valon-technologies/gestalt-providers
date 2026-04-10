@@ -4,6 +4,4 @@ displayName: GitLab
 description: Repository, issue, merge request, and pipeline operations.
 iconFile: assets/icon.svg
 plugin:
-  surfaces:
-    openapi:
-      document: openapi.yaml
+  openapi: openapi.yaml

@@ -27,6 +27,4 @@ plugin:
       alias: pages.get
     slides.presentations.pages.getThumbnail:
       alias: pages.getThumbnail
-  surfaces:
-    openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/slides/v1/openapi.json
+  openapi: https://api.apis.guru/v2/specs/googleapis.com/slides/v1/openapi.json

@@ -4,8 +4,5 @@ displayName: Linear
 description: Manage issues, projects, and teams.
 iconFile: assets/icon.svg
 plugin:
-  surfaces:
-    graphql:
-      url: https://api.linear.app/graphql
-    mcp:
-      url: https://mcp.linear.app/mcp
+  graphqlUrl: https://api.linear.app/graphql
+  mcpUrl: https://mcp.linear.app/mcp

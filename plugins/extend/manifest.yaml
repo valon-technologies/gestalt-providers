@@ -6,6 +6,4 @@ iconFile: assets/icon.svg
 plugin:
   headers:
     x-extend-api-version: "2026-02-09"
-  surfaces:
-    openapi:
-      document: openapi.yaml
+  openapi: openapi.yaml

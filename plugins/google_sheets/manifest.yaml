@@ -35,6 +35,4 @@ plugin:
       alias: values.clear
     sheets.spreadsheets.batchUpdate:
       alias: batchUpdate
-  surfaces:
-    openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/sheets/v4/openapi.json
+  openapi: https://api.apis.guru/v2/specs/googleapis.com/sheets/v4/openapi.json

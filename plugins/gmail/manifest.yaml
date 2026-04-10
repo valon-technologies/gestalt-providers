@@ -38,6 +38,4 @@ plugin:
       alias: threads.get
     gmail.users.getProfile:
       alias: getProfile
-  surfaces:
-    openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
+  openapi: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json

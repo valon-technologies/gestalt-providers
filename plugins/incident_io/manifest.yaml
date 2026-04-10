@@ -12,9 +12,7 @@ plugin:
           - name: token
             label: API Key
             description: "Create one in [Settings → API Keys](https://app.incident.io/settings/api-keys)"
-  surfaces:
-    openapi:
-      document: https://api.incident.io/v1/openapiV3.json
+  openapi: https://api.incident.io/v1/openapiV3.json
   allowedOperations:
     "Incidents V2#List":
       alias: Incidents.List

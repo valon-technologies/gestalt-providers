@@ -12,6 +12,4 @@ plugin:
         authorizationUrl: https://identity.pagerduty.com/oauth/authorize
         tokenUrl: https://identity.pagerduty.com/oauth/token
         pkce: true
-  surfaces:
-    openapi:
-      document: https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json
+  openapi: https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json

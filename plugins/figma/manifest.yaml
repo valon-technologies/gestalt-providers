@@ -28,6 +28,4 @@ plugin:
           - team_library_content:read
           - webhooks:read
           - webhooks:write
-  surfaces:
-    openapi:
-      document: https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml
+  openapi: https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml

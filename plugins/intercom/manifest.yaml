@@ -19,9 +19,7 @@ plugin:
     - in: header
       name: Accept
       value: application/json
-  surfaces:
-    openapi:
-      document: https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.15/api.intercom.io.yaml
+  openapi: https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.15/api.intercom.io.yaml
   allowedOperations:
     ArchiveContact: {}
     BlockContact: {}

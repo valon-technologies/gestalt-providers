@@ -23,6 +23,4 @@ plugin:
       alias: create
     docs.documents.batchUpdate:
       alias: batchUpdate
-  surfaces:
-    openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/docs/v1/openapi.json
+  openapi: https://api.apis.guru/v2/specs/googleapis.com/docs/v1/openapi.json

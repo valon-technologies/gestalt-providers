@@ -46,6 +46,4 @@ plugin:
       cursor:
         source: body
         path: nextCursor
-  surfaces:
-    openapi:
-      document: openapi.yaml
+  openapi: openapi.yaml

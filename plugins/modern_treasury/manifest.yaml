@@ -34,9 +34,7 @@ plugin:
               valueFrom:
                 credentialFieldRef:
                   name: api_key
-  surfaces:
-    openapi:
-      document: openapi.yaml
+  openapi: openapi.yaml
   allowedOperations:
     counterparties.list:
       alias: listCounterparties

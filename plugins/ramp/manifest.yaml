@@ -24,6 +24,4 @@ plugin:
           - limits:read
           - spend_programs:read
           - spend_programs:write
-  surfaces:
-    openapi:
-      document: https://docs.ramp.com/openapi/developer-api.json
+  openapi: https://docs.ramp.com/openapi/developer-api.json
