@@ -1,41 +1,19 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/slack
-version: 0.0.1-alpha.10
+version: 0.0.1-alpha.11
 displayName: Slack
 description: Send messages, search conversations, and manage channels.
 iconFile: assets/icon.svg
 plugin:
-  connections:
-    default:
-      auth:
-        type: oauth2
-        authorizationUrl: https://slack.com/oauth/v2/authorize
-        tokenUrl: https://slack.com/api/oauth.v2.access
-        accessTokenPath: authed_user.access_token
-        scopeParam: user_scope
-        scopeSeparator: ","
-        scopes:
-          - channels:read
-          - channels:history
-          - groups:read
-          - groups:history
-          - im:read
-          - im:history
-          - mpim:read
-          - mpim:history
-          - search:read
-          - users:read
-          - chat:write
-          - reactions:write
-          - channels:write
-          - groups:write
-          - canvases:write
-  baseUrl: https://slack.com
-  operations:
-    - name: conversations.list
-      description: List conversations/channels
-      method: GET
-      path: /api/conversations.list
-      parameters:
+  mcp: true
+  surfaces:
+    rest:
+      baseUrl: https://slack.com
+      operations:
+      - name: conversations.list
+        description: List conversations/channels
+        method: GET
+        path: /api/conversations.list
+        parameters:
         - name: limit
           type: int
           in: query
@@ -45,11 +23,11 @@ plugin:
         - name: types
           type: string
           in: query
-    - name: chat.postMessage
-      description: Send a message to a channel
-      method: POST
-      path: /api/chat.postMessage
-      parameters:
+      - name: chat.postMessage
+        description: Send a message to a channel
+        method: POST
+        path: /api/chat.postMessage
+        parameters:
         - name: channel
           type: string
           in: body
@@ -67,22 +45,22 @@ plugin:
         - name: unfurl_media
           type: bool
           in: body
-    - name: users.list
-      description: List workspace users
-      method: GET
-      path: /api/users.list
-      parameters:
+      - name: users.list
+        description: List workspace users
+        method: GET
+        path: /api/users.list
+        parameters:
         - name: limit
           type: int
           in: query
         - name: cursor
           type: string
           in: query
-    - name: conversations.history
-      description: Read message history for a channel
-      method: GET
-      path: /api/conversations.history
-      parameters:
+      - name: conversations.history
+        description: Read message history for a channel
+        method: GET
+        path: /api/conversations.history
+        parameters:
         - name: channel
           type: string
           in: query
@@ -102,11 +80,11 @@ plugin:
         - name: inclusive
           type: bool
           in: query
-    - name: search.messages
-      description: Search messages across the workspace
-      method: GET
-      path: /api/search.messages
-      parameters:
+      - name: search.messages
+        description: Search messages across the workspace
+        method: GET
+        path: /api/search.messages
+        parameters:
         - name: query
           type: string
           in: query
@@ -117,20 +95,20 @@ plugin:
         - name: page
           type: int
           in: query
-    - name: users.info
-      description: Get profile information for a Slack user
-      method: GET
-      path: /api/users.info
-      parameters:
+      - name: users.info
+        description: Get profile information for a Slack user
+        method: GET
+        path: /api/users.info
+        parameters:
         - name: user
           type: string
           in: query
           required: true
-    - name: conversations.replies
-      description: Read replies for a thread
-      method: GET
-      path: /api/conversations.replies
-      parameters:
+      - name: conversations.replies
+        description: Read replies for a thread
+        method: GET
+        path: /api/conversations.replies
+        parameters:
         - name: channel
           type: string
           in: query
@@ -154,11 +132,11 @@ plugin:
         - name: inclusive
           type: bool
           in: query
-    - name: chat.scheduleMessage
-      description: Schedule a message to be sent later
-      method: POST
-      path: /api/chat.scheduleMessage
-      parameters:
+      - name: chat.scheduleMessage
+        description: Schedule a message to be sent later
+        method: POST
+        path: /api/chat.scheduleMessage
+        parameters:
         - name: channel
           type: string
           in: body
@@ -174,11 +152,11 @@ plugin:
         - name: thread_ts
           type: string
           in: body
-    - name: reactions.add
-      description: Add an emoji reaction to a message
-      method: POST
-      path: /api/reactions.add
-      parameters:
+      - name: reactions.add
+        description: Add an emoji reaction to a message
+        method: POST
+        path: /api/reactions.add
+        parameters:
         - name: channel
           type: string
           in: body
@@ -191,11 +169,11 @@ plugin:
           type: string
           in: body
           required: true
-    - name: conversations.setTopic
-      description: Set a channel topic
-      method: POST
-      path: /api/conversations.setTopic
-      parameters:
+      - name: conversations.setTopic
+        description: Set a channel topic
+        method: POST
+        path: /api/conversations.setTopic
+        parameters:
         - name: channel
           type: string
           in: body
@@ -204,11 +182,11 @@ plugin:
           type: string
           in: body
           required: true
-    - name: conversations.create
-      description: Create a new Slack channel
-      method: POST
-      path: /api/conversations.create
-      parameters:
+      - name: conversations.create
+        description: Create a new Slack channel
+        method: POST
+        path: /api/conversations.create
+        parameters:
         - name: name
           type: string
           in: body
@@ -216,11 +194,11 @@ plugin:
         - name: is_private
           type: bool
           in: body
-    - name: conversations.invite
-      description: Invite users to a channel
-      method: POST
-      path: /api/conversations.invite
-      parameters:
+      - name: conversations.invite
+        description: Invite users to a channel
+        method: POST
+        path: /api/conversations.invite
+        parameters:
         - name: channel
           type: string
           in: body
@@ -229,11 +207,11 @@ plugin:
           type: string
           in: body
           required: true
-    - name: chat.postEphemeral
-      description: Send an ephemeral message visible only to a specific user
-      method: POST
-      path: /api/chat.postEphemeral
-      parameters:
+      - name: chat.postEphemeral
+        description: Send an ephemeral message visible only to a specific user
+        method: POST
+        path: /api/chat.postEphemeral
+        parameters:
         - name: channel
           type: string
           in: body
@@ -249,11 +227,11 @@ plugin:
         - name: thread_ts
           type: string
           in: body
-    - name: canvases.create
-      description: Create a Slack canvas
-      method: POST
-      path: /api/canvases.create
-      parameters:
+      - name: canvases.create
+        description: Create a Slack canvas
+        method: POST
+        path: /api/canvases.create
+        parameters:
         - name: title
           type: string
           in: body
@@ -261,4 +239,28 @@ plugin:
         - name: document_content
           type: object
           in: body
-  mcp: true
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://slack.com/oauth/v2/authorize
+        tokenUrl: https://slack.com/api/oauth.v2.access
+        accessTokenPath: authed_user.access_token
+        scopeParam: user_scope
+        scopeSeparator: ','
+        scopes:
+        - channels:read
+        - channels:history
+        - groups:read
+        - groups:history
+        - im:read
+        - im:history
+        - mpim:read
+        - mpim:history
+        - search:read
+        - users:read
+        - chat:write
+        - reactions:write
+        - channels:write
+        - groups:write
+        - canvases:write

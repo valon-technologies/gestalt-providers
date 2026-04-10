@@ -1,9 +1,11 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/extend
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: Extend
 description: Document processing and extraction with Extend.
 iconFile: assets/icon.svg
 plugin:
   headers:
-    x-extend-api-version: "2026-02-09"
-  openapi: openapi.yaml
+    x-extend-api-version: '2026-02-09'
+  surfaces:
+    openapi:
+      document: openapi.yaml

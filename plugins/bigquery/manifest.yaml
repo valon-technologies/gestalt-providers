@@ -1,27 +1,18 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/bigquery
-version: 0.0.1-alpha.8
+version: 0.0.1-alpha.9
 displayName: BigQuery
 description: Google BigQuery data warehouse
 iconFile: assets/icon.svg
 plugin:
-  connections:
-    default:
-      auth:
-        type: oauth2
-        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
-        tokenUrl: https://oauth2.googleapis.com/token
-        scopes:
-          - https://www.googleapis.com/auth/bigquery
-        authorizationParams:
-          access_type: offline
-          prompt: consent
-  baseUrl: "https://bigquery.googleapis.com/bigquery/v2"
-  operations:
-    - name: list_datasets
-      description: List datasets in a project
-      method: GET
-      path: "/projects/{project_id}/datasets"
-      parameters:
+  surfaces:
+    rest:
+      baseUrl: https://bigquery.googleapis.com/bigquery/v2
+      operations:
+      - name: list_datasets
+        description: List datasets in a project
+        method: GET
+        path: /projects/{project_id}/datasets
+        parameters:
         - name: project_id
           type: string
           in: path
@@ -29,11 +20,11 @@ plugin:
         - name: maxResults
           type: int
           in: query
-    - name: get_dataset
-      description: Get dataset metadata
-      method: GET
-      path: "/projects/{project_id}/datasets/{dataset_id}"
-      parameters:
+      - name: get_dataset
+        description: Get dataset metadata
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}
+        parameters:
         - name: project_id
           type: string
           in: path
@@ -42,11 +33,11 @@ plugin:
           type: string
           in: path
           required: true
-    - name: list_tables
-      description: List tables in a dataset
-      method: GET
-      path: "/projects/{project_id}/datasets/{dataset_id}/tables"
-      parameters:
+      - name: list_tables
+        description: List tables in a dataset
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}/tables
+        parameters:
         - name: project_id
           type: string
           in: path
@@ -58,11 +49,11 @@ plugin:
         - name: maxResults
           type: int
           in: query
-    - name: get_table
-      description: Get table metadata
-      method: GET
-      path: "/projects/{project_id}/datasets/{dataset_id}/tables/{table_id}"
-      parameters:
+      - name: get_table
+        description: Get table metadata
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}/tables/{table_id}
+        parameters:
         - name: project_id
           type: string
           in: path
@@ -75,11 +66,11 @@ plugin:
           type: string
           in: path
           required: true
-    - name: list_routines
-      description: List routines in a dataset
-      method: GET
-      path: "/projects/{project_id}/datasets/{dataset_id}/routines"
-      parameters:
+      - name: list_routines
+        description: List routines in a dataset
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}/routines
+        parameters:
         - name: project_id
           type: string
           in: path
@@ -91,3 +82,14 @@ plugin:
         - name: maxResults
           type: int
           in: query
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+        - https://www.googleapis.com/auth/bigquery
+        authorizationParams:
+          access_type: offline
+          prompt: consent

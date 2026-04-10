@@ -1,5 +1,0 @@
-source: github.com/valon-technologies/gestalt-providers/datastore/mongodb
-version: 0.0.1-alpha.6
-displayName: MongoDB
-description: MongoDB datastore provider.
-datastore: {}

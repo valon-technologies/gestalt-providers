@@ -1,10 +1,13 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/pagerduty
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: PagerDuty
 description: Manage incidents, services, and on-call schedules.
 iconFile: assets/icon.svg
 plugin:
   configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json
   connections:
     default:
       auth:
@@ -12,4 +15,3 @@ plugin:
         authorizationUrl: https://identity.pagerduty.com/oauth/authorize
         tokenUrl: https://identity.pagerduty.com/oauth/token
         pkce: true
-  openapi: https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json

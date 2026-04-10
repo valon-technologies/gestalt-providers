@@ -1,10 +1,13 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/github
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: GitHub
 description: Repository, issue, pull request, workflow, and code search operations.
 iconFile: assets/icon.svg
 plugin:
   configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml
   connections:
     default:
       auth:
@@ -13,5 +16,4 @@ plugin:
         tokenUrl: https://github.com/login/oauth/access_token
         acceptHeader: application/json
         scopes:
-          - repo
-  openapi: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml
+        - repo

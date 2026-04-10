@@ -1,25 +1,19 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/intercom
-version: 0.0.1-alpha.8
+version: 0.0.1-alpha.9
 displayName: Intercom
 description: Read and update contacts, companies, conversations, and notes.
 iconFile: assets/icon.svg
 plugin:
-  connections:
-    default:
-      auth:
-        type: manual
-        credentials:
-          - name: token
-            label: API Access Token
-            description: "Copy the \"Valon Technologies\" token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)"
   managedParameters:
-    - in: header
-      name: Intercom-Version
-      value: "2.11"
-    - in: header
-      name: Accept
-      value: application/json
-  openapi: https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.15/api.intercom.io.yaml
+  - in: header
+    name: Intercom-Version
+    value: '2.11'
+  - in: header
+    name: Accept
+    value: application/json
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.15/api.intercom.io.yaml
   allowedOperations:
     ArchiveContact: {}
     BlockContact: {}
@@ -155,3 +149,11 @@ plugin:
     updateTicketType: {}
     updateTicketTypeAttribute: {}
     updateVisitor: {}
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Access Token
+          description: Copy the "Valon Technologies" token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)

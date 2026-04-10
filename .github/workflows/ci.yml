@@ -9,6 +9,7 @@ on:
       - 'auth/**'
       - 'datastore/**'
       - 'secrets/**'
+      - 'web/**'
   push:
     branches:
       - main
@@ -19,6 +20,7 @@ on:
       - 'auth/**'
       - 'datastore/**'
       - 'secrets/**'
+      - 'web/**'
 
 permissions:
   contents: read
@@ -60,18 +62,20 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "datastore", "secrets")
+          package_roots = ("plugins", "auth", "datastore", "secrets", "web")
           gestalt_ref_by_root = {
               "plugins": os.environ["LEGACY_GESTALT_REF"],
               "auth": os.environ["PROVIDER_GESTALT_REF"],
               "datastore": os.environ["PROVIDER_GESTALT_REF"],
               "secrets": os.environ["PROVIDER_GESTALT_REF"],
+              "web": os.environ["PROVIDER_GESTALT_REF"],
           }
           toolchain_by_root = {
               "plugins": "legacy",
               "auth": "provider",
               "datastore": "provider",
               "secrets": "provider",
+              "web": "provider",
           }
           all_plugins = []
           for root_name in package_roots:

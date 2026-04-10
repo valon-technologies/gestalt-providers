@@ -1,10 +1,13 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/figma
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: Figma
 description: Access files, components, comments, and team projects.
 iconFile: assets/icon.svg
 plugin:
   configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml
   connections:
     default:
       auth:
@@ -14,18 +17,17 @@ plugin:
         clientAuth: header
         pkce: true
         scopes:
-          - current_user:read
-          - file_content:read
-          - file_metadata:read
-          - file_versions:read
-          - file_comments:read
-          - file_comments:write
-          - file_dev_resources:read
-          - file_dev_resources:write
-          - projects:read
-          - library_assets:read
-          - library_content:read
-          - team_library_content:read
-          - webhooks:read
-          - webhooks:write
-  openapi: https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml
+        - current_user:read
+        - file_content:read
+        - file_metadata:read
+        - file_versions:read
+        - file_comments:read
+        - file_comments:write
+        - file_dev_resources:read
+        - file_dev_resources:write
+        - projects:read
+        - library_assets:read
+        - library_content:read
+        - team_library_content:read
+        - webhooks:read
+        - webhooks:write

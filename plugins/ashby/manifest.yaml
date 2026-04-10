@@ -1,42 +1,44 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/ashby
-version: 0.0.1-alpha.8
+version: 0.0.1-alpha.9
 displayName: Ashby
 description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
 iconFile: assets/icon.svg
 plugin:
-  pagination:
-    style: cursor
-    cursorParam: cursor
-    cursor:
-      source: body
-      path: nextCursor
-    limitParam: limit
-    defaultLimit: 100
-    resultsPath: results
+  surfaces:
+    openapi:
+      document: openapi.yaml
   allowedOperations:
-    candidate.list: { paginate: true }
+    candidate.list:
+      paginate: true
     candidate.info: {}
     candidate.search: {}
     candidate.create: {}
     candidate.update: {}
     candidate.createNote: {}
-    application.list: { paginate: true }
+    application.list:
+      paginate: true
     application.info: {}
     application.create: {}
     application.changeStage: {}
-    job.list: { paginate: true }
+    job.list:
+      paginate: true
     job.info: {}
-    offer.list: { paginate: true }
+    offer.list:
+      paginate: true
     offer.info: {}
     report.synchronous: {}
     report.generate: {}
-    interviewSchedule.list: { paginate: true }
+    interviewSchedule.list:
+      paginate: true
     interview.info: {}
     interviewStage.info: {}
     department.info: {}
-    department.list: { paginate: true }
-    location.list: { paginate: true }
-    user.list: { paginate: true }
+    department.list:
+      paginate: true
+    location.list:
+      paginate: true
+    user.list:
+      paginate: true
   responseMapping:
     dataPath: results
     pagination:
@@ -46,4 +48,12 @@ plugin:
       cursor:
         source: body
         path: nextCursor
-  openapi: openapi.yaml
+  pagination:
+    style: cursor
+    cursorParam: cursor
+    cursor:
+      source: body
+      path: nextCursor
+    limitParam: limit
+    defaultLimit: 100
+    resultsPath: results

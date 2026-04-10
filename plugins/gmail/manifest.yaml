@@ -1,26 +1,17 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/gmail
-version: 0.0.1-alpha.9
+version: 0.0.1-alpha.10
 displayName: Gmail
 description: Read, send, and manage Gmail messages, threads, drafts, and labels.
 iconFile: assets/icon.svg
 plugin:
   configSchemaPath: schemas/config.schema.yaml
-  connections:
-    default:
-      auth:
-        type: oauth2
-        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
-        tokenUrl: https://oauth2.googleapis.com/token
-        scopes:
-          - https://www.googleapis.com/auth/gmail.modify
-          - https://www.googleapis.com/auth/gmail.compose
-        authorizationParams:
-          access_type: offline
-          prompt: consent
   managedParameters:
-    - in: path
-      name: userId
-      value: me
+  - in: path
+    name: userId
+    value: me
+  surfaces:
+    openapi:
+      document: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
   allowedOperations:
     gmail.users.messages.list:
       alias: messages.list
@@ -38,4 +29,15 @@ plugin:
       alias: threads.get
     gmail.users.getProfile:
       alias: getProfile
-  openapi: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+        - https://www.googleapis.com/auth/gmail.modify
+        - https://www.googleapis.com/auth/gmail.compose
+        authorizationParams:
+          access_type: offline
+          prompt: consent

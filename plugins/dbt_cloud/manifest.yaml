@@ -1,15 +1,17 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/dbt_cloud
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: dbt Cloud
 description: Manage accounts, projects, jobs, and runs.
 iconFile: assets/icon.svg
 plugin:
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/dbt-labs/dbt-cloud-openapi-spec/master/openapi-v2.yaml
   connections:
     default:
       auth:
         type: manual
         credentials:
-          - name: token
-            label: API Token
-            description: "See [Profile settings](https://cloud.getdbt.com/settings/profile#api-tokens) to retrieve your token"
-  openapi: https://raw.githubusercontent.com/dbt-labs/dbt-cloud-openapi-spec/master/openapi-v2.yaml
+        - name: token
+          label: API Token
+          description: See [Profile settings](https://cloud.getdbt.com/settings/profile#api-tokens) to retrieve your token

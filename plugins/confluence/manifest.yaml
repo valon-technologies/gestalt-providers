@@ -1,43 +1,18 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/confluence
-version: 0.0.1-alpha.8
+version: 0.0.1-alpha.9
 displayName: Confluence Cloud
 description: Atlassian Confluence Cloud pages, spaces, and content search.
 iconFile: assets/icon.svg
 plugin:
-  connections:
-    default:
-      auth:
-        type: oauth2
-        authorizationUrl: https://auth.atlassian.com/authorize
-        tokenUrl: https://auth.atlassian.com/oauth/token
-        scopes:
-          - read:me
-          - read:space:confluence
-          - read:page:confluence
-          - search:confluence
-          - write:page:confluence
-          - offline_access
-        authorizationParams:
-          audience: api.atlassian.com
-          prompt: consent
-      params:
-        cloud_id:
-          required: true
-          description: Confluence Cloud site identifier (discovered automatically)
-          from: discovery
-      discovery:
-        url: https://api.atlassian.com/oauth/token/accessible-resources
-        idPath: id
-        namePath: name
-        metadata:
-          cloud_id: id
-  baseUrl: "https://api.atlassian.com/ex/confluence/{cloud_id}/wiki"
-  operations:
-    - name: list_spaces
-      description: List accessible Confluence spaces
-      method: GET
-      path: /api/v2/spaces
-      parameters:
+  surfaces:
+    rest:
+      baseUrl: https://api.atlassian.com/ex/confluence/{cloud_id}/wiki
+      operations:
+      - name: list_spaces
+        description: List accessible Confluence spaces
+        method: GET
+        path: /api/v2/spaces
+        parameters:
         - name: keys
           type: array
           in: query
@@ -53,20 +28,20 @@ plugin:
         - name: limit
           type: int
           in: query
-    - name: get_space
-      description: Get a Confluence space by id
-      method: GET
-      path: "/api/v2/spaces/{space_id}"
-      parameters:
+      - name: get_space
+        description: Get a Confluence space by id
+        method: GET
+        path: /api/v2/spaces/{space_id}
+        parameters:
         - name: space_id
           type: int
           in: path
           required: true
-    - name: list_pages
-      description: List accessible Confluence pages
-      method: GET
-      path: /api/v2/pages
-      parameters:
+      - name: list_pages
+        description: List accessible Confluence pages
+        method: GET
+        path: /api/v2/pages
+        parameters:
         - name: body-format
           type: string
           in: query
@@ -85,11 +60,11 @@ plugin:
         - name: limit
           type: int
           in: query
-    - name: list_space_pages
-      description: List pages in a specific Confluence space
-      method: GET
-      path: "/api/v2/spaces/{space_id}/pages"
-      parameters:
+      - name: list_space_pages
+        description: List pages in a specific Confluence space
+        method: GET
+        path: /api/v2/spaces/{space_id}/pages
+        parameters:
         - name: space_id
           type: int
           in: path
@@ -112,11 +87,11 @@ plugin:
         - name: limit
           type: int
           in: query
-    - name: get_page
-      description: Get a Confluence page by id, including body content when body-format is provided
-      method: GET
-      path: "/api/v2/pages/{page_id}"
-      parameters:
+      - name: get_page
+        description: Get a Confluence page by id, including body content when body-format is provided
+        method: GET
+        path: /api/v2/pages/{page_id}
+        parameters:
         - name: page_id
           type: int
           in: path
@@ -124,11 +99,11 @@ plugin:
         - name: body-format
           type: string
           in: query
-    - name: search_content
-      description: Search Confluence content with CQL
-      method: GET
-      path: /rest/api/search
-      parameters:
+      - name: search_content
+        description: Search Confluence content with CQL
+        method: GET
+        path: /rest/api/search
+        parameters:
         - name: cql
           type: string
           in: query
@@ -145,11 +120,11 @@ plugin:
         - name: includeArchivedSpaces
           type: bool
           in: query
-    - name: create_page
-      description: Create a Confluence page
-      method: POST
-      path: /api/v2/pages
-      parameters:
+      - name: create_page
+        description: Create a Confluence page
+        method: POST
+        path: /api/v2/pages
+        parameters:
         - name: spaceId
           type: string
           in: body
@@ -171,11 +146,11 @@ plugin:
         - name: subtype
           type: string
           in: body
-    - name: update_page
-      description: Update a Confluence page by id
-      method: PUT
-      path: "/api/v2/pages/{page_id}"
-      parameters:
+      - name: update_page
+        description: Update a Confluence page by id
+        method: PUT
+        path: /api/v2/pages/{page_id}
+        parameters:
         - name: page_id
           type: int
           in: path
@@ -206,3 +181,30 @@ plugin:
         - name: parentId
           type: string
           in: body
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://auth.atlassian.com/authorize
+        tokenUrl: https://auth.atlassian.com/oauth/token
+        scopes:
+        - read:me
+        - read:space:confluence
+        - read:page:confluence
+        - search:confluence
+        - write:page:confluence
+        - offline_access
+        authorizationParams:
+          audience: api.atlassian.com
+          prompt: consent
+      params:
+        cloud_id:
+          required: true
+          description: Confluence Cloud site identifier (discovered automatically)
+          from: discovery
+      discovery:
+        url: https://api.atlassian.com/oauth/token/accessible-resources
+        idPath: id
+        namePath: name
+        metadata:
+          cloud_id: id

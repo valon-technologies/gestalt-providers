@@ -1,24 +1,18 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/rippling
-version: 0.0.1-alpha.9
+version: 0.0.1-alpha.10
 displayName: Rippling
 description: Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
 iconFile: assets/icon.svg
 plugin:
-  connections:
-    default:
-      auth:
-        type: bearer
-        credentials:
-          - name: token
-            label: API Token
-            description: "Create one in [Rippling API Tokens](https://app.rippling.com/developer/api-tokens)"
-  baseUrl: https://rest.ripplingapis.com
-  operations:
-    - name: Companies.List
-      description: List companies available to the authorized Rippling token
-      method: GET
-      path: /companies/
-      parameters:
+  surfaces:
+    rest:
+      baseUrl: https://rest.ripplingapis.com
+      operations:
+      - name: Companies.List
+        description: List companies available to the authorized Rippling token
+        method: GET
+        path: /companies/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -31,11 +25,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous companies response
-    - name: Companies.Get
-      description: Get the current company context available to the authorized Rippling token
-      method: GET
-      path: /companies/
-      parameters:
+      - name: Companies.Get
+        description: Get the current company context available to the authorized Rippling token
+        method: GET
+        path: /companies/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -48,11 +42,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous companies response
-    - name: Compensations.List
-      description: List compensations for the authorized company
-      method: GET
-      path: /compensations/
-      parameters:
+      - name: Compensations.List
+        description: List compensations for the authorized company
+        method: GET
+        path: /compensations/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -65,11 +59,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous compensations response
-    - name: Compensations.Get
-      description: Get a single compensation by ID
-      method: GET
-      path: /compensations/{compensation_id}/
-      parameters:
+      - name: Compensations.Get
+        description: Get a single compensation by ID
+        method: GET
+        path: /compensations/{compensation_id}/
+        parameters:
         - name: compensation_id
           type: string
           in: path
@@ -79,20 +73,20 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: CurrentUser.Get
-      description: Get SSO identity data for the Rippling user tied to the token
-      method: GET
-      path: /sso-me/
-      parameters:
+      - name: CurrentUser.Get
+        description: Get SSO identity data for the Rippling user tied to the token
+        method: GET
+        path: /sso-me/
+        parameters:
         - name: expand
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: CustomFields.List
-      description: List custom fields for the authorized company
-      method: GET
-      path: /custom-fields/
-      parameters:
+      - name: CustomFields.List
+        description: List custom fields for the authorized company
+        method: GET
+        path: /custom-fields/
+        parameters:
         - name: order_by
           type: string
           in: query
@@ -101,11 +95,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous custom fields response
-    - name: Departments.List
-      description: List departments for the authorized company
-      method: GET
-      path: /departments/
-      parameters:
+      - name: Departments.List
+        description: List departments for the authorized company
+        method: GET
+        path: /departments/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -118,11 +112,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous departments response
-    - name: Departments.Get
-      description: Get a single department by ID
-      method: GET
-      path: /departments/{department_id}/
-      parameters:
+      - name: Departments.Get
+        description: Get a single department by ID
+        method: GET
+        path: /departments/{department_id}/
+        parameters:
         - name: department_id
           type: string
           in: path
@@ -132,11 +126,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: Employees.List
-      description: List employees for the authorized company
-      method: GET
-      path: /workers/
-      parameters:
+      - name: Employees.List
+        description: List employees for the authorized company
+        method: GET
+        path: /workers/
+        parameters:
         - name: filter
           type: string
           in: query
@@ -153,11 +147,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous workers response
-    - name: Employees.ListIncludingTerminated
-      description: List employees, including terminated workers when requested via the filter query
-      method: GET
-      path: /workers/
-      parameters:
+      - name: Employees.ListIncludingTerminated
+        description: List employees, including terminated workers when requested via the filter query
+        method: GET
+        path: /workers/
+        parameters:
         - name: filter
           type: string
           in: query
@@ -174,11 +168,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous workers response
-    - name: Employees.Get
-      description: Get a single employee by ID
-      method: GET
-      path: /workers/{employee_id}/
-      parameters:
+      - name: Employees.Get
+        description: Get a single employee by ID
+        method: GET
+        path: /workers/{employee_id}/
+        parameters:
         - name: employee_id
           type: string
           in: path
@@ -188,11 +182,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: EmploymentTypes.List
-      description: List employment types for the authorized company
-      method: GET
-      path: /employment-types/
-      parameters:
+      - name: EmploymentTypes.List
+        description: List employment types for the authorized company
+        method: GET
+        path: /employment-types/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -205,11 +199,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous employment types response
-    - name: EmploymentTypes.Get
-      description: Get a single employment type by ID
-      method: GET
-      path: /employment-types/{employment_type_id}/
-      parameters:
+      - name: EmploymentTypes.Get
+        description: Get a single employment type by ID
+        method: GET
+        path: /employment-types/{employment_type_id}/
+        parameters:
         - name: employment_type_id
           type: string
           in: path
@@ -219,11 +213,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: JobFunctions.List
-      description: List job functions for the authorized company
-      method: GET
-      path: /job-functions/
-      parameters:
+      - name: JobFunctions.List
+        description: List job functions for the authorized company
+        method: GET
+        path: /job-functions/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -236,11 +230,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous job functions response
-    - name: JobFunctions.Get
-      description: Get a single job function by ID
-      method: GET
-      path: /job-functions/{job_function_id}/
-      parameters:
+      - name: JobFunctions.Get
+        description: Get a single job function by ID
+        method: GET
+        path: /job-functions/{job_function_id}/
+        parameters:
         - name: job_function_id
           type: string
           in: path
@@ -250,11 +244,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: LegalEntities.List
-      description: List legal entities for the authorized company
-      method: GET
-      path: /legal-entities/
-      parameters:
+      - name: LegalEntities.List
+        description: List legal entities for the authorized company
+        method: GET
+        path: /legal-entities/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -267,11 +261,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous legal entities response
-    - name: LegalEntities.Get
-      description: Get a single legal entity by ID
-      method: GET
-      path: /legal-entities/{legal_entity_id}/
-      parameters:
+      - name: LegalEntities.Get
+        description: Get a single legal entity by ID
+        method: GET
+        path: /legal-entities/{legal_entity_id}/
+        parameters:
         - name: legal_entity_id
           type: string
           in: path
@@ -281,11 +275,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: LeaveBalances.List
-      description: List leave balances for employees
-      method: GET
-      path: /leave-balances/
-      parameters:
+      - name: LeaveBalances.List
+        description: List leave balances for employees
+        method: GET
+        path: /leave-balances/
+        parameters:
         - name: filter
           type: string
           in: query
@@ -302,11 +296,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous leave balances response
-    - name: LeaveBalances.Get
-      description: Get a single leave balance by ID
-      method: GET
-      path: /leave-balances/{leave_balance_id}/
-      parameters:
+      - name: LeaveBalances.Get
+        description: Get a single leave balance by ID
+        method: GET
+        path: /leave-balances/{leave_balance_id}/
+        parameters:
         - name: leave_balance_id
           type: string
           in: path
@@ -316,11 +310,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: LeaveRequests.List
-      description: List leave requests with optional filtering
-      method: GET
-      path: /leave-requests/
-      parameters:
+      - name: LeaveRequests.List
+        description: List leave requests with optional filtering
+        method: GET
+        path: /leave-requests/
+        parameters:
         - name: filter
           type: string
           in: query
@@ -337,11 +331,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous leave requests response
-    - name: LeaveRequests.Get
-      description: Get a single leave request by ID
-      method: GET
-      path: /leave-requests/{leave_request_id}/
-      parameters:
+      - name: LeaveRequests.Get
+        description: Get a single leave request by ID
+        method: GET
+        path: /leave-requests/{leave_request_id}/
+        parameters:
         - name: leave_request_id
           type: string
           in: path
@@ -351,11 +345,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: LeaveTypes.List
-      description: List leave types configured for the authorized company
-      method: GET
-      path: /leave-types/
-      parameters:
+      - name: LeaveTypes.List
+        description: List leave types configured for the authorized company
+        method: GET
+        path: /leave-types/
+        parameters:
         - name: filter
           type: string
           in: query
@@ -368,11 +362,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous leave types response
-    - name: LeaveTypes.Get
-      description: Get a single leave type by ID
-      method: GET
-      path: /leave-types/{leave_type_id}/
-      parameters:
+      - name: LeaveTypes.Get
+        description: Get a single leave type by ID
+        method: GET
+        path: /leave-types/{leave_type_id}/
+        parameters:
         - name: leave_type_id
           type: string
           in: path
@@ -382,11 +376,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: Levels.List
-      description: List levels for the authorized company
-      method: GET
-      path: /levels/
-      parameters:
+      - name: Levels.List
+        description: List levels for the authorized company
+        method: GET
+        path: /levels/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -399,11 +393,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous levels response
-    - name: Levels.Get
-      description: Get a single level by ID
-      method: GET
-      path: /levels/{level_id}/
-      parameters:
+      - name: Levels.Get
+        description: Get a single level by ID
+        method: GET
+        path: /levels/{level_id}/
+        parameters:
         - name: level_id
           type: string
           in: path
@@ -413,11 +407,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: Teams.List
-      description: List teams for the authorized company
-      method: GET
-      path: /teams/
-      parameters:
+      - name: Teams.List
+        description: List teams for the authorized company
+        method: GET
+        path: /teams/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -430,11 +424,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous teams response
-    - name: Teams.Get
-      description: Get a single team by ID
-      method: GET
-      path: /teams/{team_id}/
-      parameters:
+      - name: Teams.Get
+        description: Get a single team by ID
+        method: GET
+        path: /teams/{team_id}/
+        parameters:
         - name: team_id
           type: string
           in: path
@@ -444,11 +438,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: TimeEntries.List
-      description: List time entries for the authorized company
-      method: GET
-      path: /time-entries/
-      parameters:
+      - name: TimeEntries.List
+        description: List time entries for the authorized company
+        method: GET
+        path: /time-entries/
+        parameters:
         - name: filter
           type: string
           in: query
@@ -465,11 +459,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous time entries response
-    - name: TimeEntries.Get
-      description: Get a single time entry by ID
-      method: GET
-      path: /time-entries/{time_entry_id}/
-      parameters:
+      - name: TimeEntries.Get
+        description: Get a single time entry by ID
+        method: GET
+        path: /time-entries/{time_entry_id}/
+        parameters:
         - name: time_entry_id
           type: string
           in: path
@@ -479,11 +473,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: Titles.List
-      description: List titles for the authorized company
-      method: GET
-      path: /titles/
-      parameters:
+      - name: Titles.List
+        description: List titles for the authorized company
+        method: GET
+        path: /titles/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -496,11 +490,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous titles response
-    - name: Titles.Get
-      description: Get a single title by ID
-      method: GET
-      path: /titles/{title_id}/
-      parameters:
+      - name: Titles.Get
+        description: Get a single title by ID
+        method: GET
+        path: /titles/{title_id}/
+        parameters:
         - name: title_id
           type: string
           in: path
@@ -510,11 +504,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: Tracks.List
-      description: List tracks for the authorized company
-      method: GET
-      path: /tracks/
-      parameters:
+      - name: Tracks.List
+        description: List tracks for the authorized company
+        method: GET
+        path: /tracks/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -527,11 +521,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous tracks response
-    - name: Tracks.Get
-      description: Get a single track by ID
-      method: GET
-      path: /tracks/{track_id}/
-      parameters:
+      - name: Tracks.Get
+        description: Get a single track by ID
+        method: GET
+        path: /tracks/{track_id}/
+        parameters:
         - name: track_id
           type: string
           in: path
@@ -541,11 +535,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: Users.List
-      description: List users for the authorized company
-      method: GET
-      path: /users/
-      parameters:
+      - name: Users.List
+        description: List users for the authorized company
+        method: GET
+        path: /users/
+        parameters:
         - name: expand
           type: string
           in: query
@@ -558,11 +552,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous users response
-    - name: Users.Get
-      description: Get a single user by ID
-      method: GET
-      path: /users/{user_id}/
-      parameters:
+      - name: Users.Get
+        description: Get a single user by ID
+        method: GET
+        path: /users/{user_id}/
+        parameters:
         - name: user_id
           type: string
           in: path
@@ -572,11 +566,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
-    - name: WorkLocations.List
-      description: List work locations for the authorized company
-      method: GET
-      path: /work-locations/
-      parameters:
+      - name: WorkLocations.List
+        description: List work locations for the authorized company
+        method: GET
+        path: /work-locations/
+        parameters:
         - name: order_by
           type: string
           in: query
@@ -585,11 +579,11 @@ plugin:
           type: string
           in: query
           description: Cursor returned by a previous work locations response
-    - name: WorkLocations.Get
-      description: Get a single work location by ID
-      method: GET
-      path: /work-locations/{work_location_id}/
-      parameters:
+      - name: WorkLocations.Get
+        description: Get a single work location by ID
+        method: GET
+        path: /work-locations/{work_location_id}/
+        parameters:
         - name: work_location_id
           type: string
           in: path
@@ -599,3 +593,11 @@ plugin:
           type: string
           in: query
           description: Comma-separated related resources to expand in the response
+  connections:
+    default:
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: API Token
+          description: Create one in [Rippling API Tokens](https://app.rippling.com/developer/api-tokens)
