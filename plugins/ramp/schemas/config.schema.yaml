@@ -1,12 +1,12 @@
 type: object
 properties:
-  client_id:
+  clientId:
     type: string
     description: Ramp OAuth client ID.
-  client_secret:
+  clientSecret:
     type: string
     description: Ramp OAuth client secret.
 required:
-  - client_id
-  - client_secret
+  - clientId
+  - clientSecret
 additionalProperties: false

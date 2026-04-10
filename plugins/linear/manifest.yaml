@@ -1,9 +1,9 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/linear
 version: 0.0.1-alpha.5
-display_name: Linear
+displayName: Linear
 description: Manage issues, projects, and teams.
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   surfaces:
     graphql:
       url: https://api.linear.app/graphql

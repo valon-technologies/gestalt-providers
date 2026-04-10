@@ -11,7 +11,7 @@ import (
 const providerVersion = "0.0.1-alpha.1"
 
 type config struct {
-	ProjectID string `yaml:"project_id"`
+	ProjectID string `yaml:"projectId"`
 	Database  string `yaml:"database"`
 }
 

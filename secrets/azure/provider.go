@@ -21,7 +21,7 @@ const (
 )
 
 type config struct {
-	VaultURL string `yaml:"vault_url"`
+	VaultURL string `yaml:"vaultUrl"`
 	Version  string `yaml:"version"`
 }
 

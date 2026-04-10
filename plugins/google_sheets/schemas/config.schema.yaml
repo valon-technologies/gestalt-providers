@@ -1,12 +1,12 @@
 type: object
 properties:
-  client_id:
+  clientId:
     type: string
     description: Google OAuth client ID for Google Sheets.
-  client_secret:
+  clientSecret:
     type: string
     description: Google OAuth client secret for Google Sheets.
 required:
-  - client_id
-  - client_secret
+  - clientId
+  - clientSecret
 additionalProperties: false

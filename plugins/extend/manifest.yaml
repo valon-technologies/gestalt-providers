@@ -1,9 +1,9 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/extend
 version: 0.0.1-alpha.5
-display_name: Extend
+displayName: Extend
 description: Document processing and extraction with Extend.
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   headers:
     x-extend-api-version: "2026-02-09"
   surfaces:

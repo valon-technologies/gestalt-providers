@@ -23,11 +23,11 @@ const (
 )
 
 type config struct {
-	ClientID       string        `yaml:"client_id"`
-	ClientSecret   string        `yaml:"client_secret"`
-	RedirectURL    string        `yaml:"redirect_url"`
-	AllowedDomains []string      `yaml:"allowed_domains"`
-	SessionTTL     time.Duration `yaml:"session_ttl"`
+	ClientID       string        `yaml:"clientId"`
+	ClientSecret   string        `yaml:"clientSecret"`
+	RedirectURL    string        `yaml:"redirectUrl"`
+	AllowedDomains []string      `yaml:"allowedDomains"`
+	SessionTTL     time.Duration `yaml:"sessionTtl"`
 }
 
 type Provider struct {

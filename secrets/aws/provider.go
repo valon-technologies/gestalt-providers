@@ -23,7 +23,7 @@ const (
 
 type config struct {
 	Region       string `yaml:"region"`
-	VersionStage string `yaml:"version_stage"`
+	VersionStage string `yaml:"versionStage"`
 	Endpoint     string `yaml:"endpoint"`
 }
 

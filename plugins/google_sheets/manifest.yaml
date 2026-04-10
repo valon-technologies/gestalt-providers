@@ -1,22 +1,22 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_sheets
 version: 0.0.1-alpha.5
-display_name: Google Sheets
+displayName: Google Sheets
 description: Read and update Google Sheets spreadsheets and values.
-icon_file: assets/icon.svg
-provider:
-  config_schema_path: schemas/config.schema.yaml
+iconFile: assets/icon.svg
+plugin:
+  configSchemaPath: schemas/config.schema.yaml
   connections:
     default:
       auth:
         type: oauth2
-        authorization_url: https://accounts.google.com/o/oauth2/v2/auth
-        token_url: https://oauth2.googleapis.com/token
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
         scopes:
           - https://www.googleapis.com/auth/spreadsheets
-        authorization_params:
+        authorizationParams:
           access_type: offline
           prompt: consent
-  allowed_operations:
+  allowedOperations:
     sheets.spreadsheets.create:
       alias: create
     sheets.spreadsheets.get:

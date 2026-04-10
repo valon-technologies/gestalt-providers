@@ -1,9 +1,9 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/intercom
 version: 0.0.1-alpha.6
-display_name: Intercom
+displayName: Intercom
 description: Read and update contacts, companies, conversations, and notes.
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   connections:
     default:
       auth:
@@ -12,7 +12,7 @@ provider:
           - name: token
             label: API Access Token
             description: "Copy the \"Valon Technologies\" token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)"
-  managed_parameters:
+  managedParameters:
     - in: header
       name: Intercom-Version
       value: "2.11"
@@ -22,7 +22,7 @@ provider:
   surfaces:
     openapi:
       document: https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.15/api.intercom.io.yaml
-  allowed_operations:
+  allowedOperations:
     ArchiveContact: {}
     BlockContact: {}
     CreateContact: {}

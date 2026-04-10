@@ -1,23 +1,23 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/bigquery
 version: 0.0.1-alpha.6
-display_name: BigQuery
+displayName: BigQuery
 description: Google BigQuery data warehouse
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   connections:
     default:
       auth:
         type: oauth2
-        authorization_url: https://accounts.google.com/o/oauth2/v2/auth
-        token_url: https://oauth2.googleapis.com/token
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
         scopes:
           - https://www.googleapis.com/auth/bigquery
-        authorization_params:
+        authorizationParams:
           access_type: offline
           prompt: consent
   surfaces:
     rest:
-      base_url: "https://bigquery.googleapis.com/bigquery/v2"
+      baseUrl: "https://bigquery.googleapis.com/bigquery/v2"
       operations:
         - name: list_datasets
           description: List datasets in a project

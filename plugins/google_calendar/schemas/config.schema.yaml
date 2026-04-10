@@ -1,12 +1,12 @@
 type: object
 properties:
-  client_id:
+  clientId:
     type: string
     description: Google OAuth client ID for Google Calendar.
-  client_secret:
+  clientSecret:
     type: string
     description: Google OAuth client secret for Google Calendar.
 required:
-  - client_id
-  - client_secret
+  - clientId
+  - clientSecret
 additionalProperties: false
