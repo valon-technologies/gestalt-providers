@@ -65,10 +65,10 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		return fmt.Errorf("oidc auth: %w", err)
 	}
 	if cfg.IssuerURL == "" {
-		return fmt.Errorf("oidc auth: issuer_url is required")
+		return fmt.Errorf("oidc auth: issuerUrl is required")
 	}
 	if cfg.ClientID == "" {
-		return fmt.Errorf("oidc auth: client_id is required")
+		return fmt.Errorf("oidc auth: clientId is required")
 	}
 	doc, err := discover(ctx, p.httpClient, cfg.IssuerURL)
 	if err != nil {
