@@ -261,5 +261,4 @@ plugin:
         - name: document_content
           type: object
           in: body
-  mcp:
-    enabled: true
+  mcp: true

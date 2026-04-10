@@ -12,7 +12,7 @@ plugin:
       path: X-After-Cursor
     limitParam: per_page
     resultsPath: ""
-    default_limit: 100
+    defaultLimit: 100
   connections:
     default:
       auth:
@@ -24,7 +24,7 @@ plugin:
           - name: api_key
             label: API Key
             description: "Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys)."
-        auth_mapping:
+        authMapping:
           basic:
             username:
               valueFrom:

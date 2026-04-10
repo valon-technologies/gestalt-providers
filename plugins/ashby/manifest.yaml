@@ -11,7 +11,7 @@ plugin:
       source: body
       path: nextCursor
     limitParam: limit
-    default_limit: 100
+    defaultLimit: 100
     resultsPath: results
   allowedOperations:
     candidate.list: { paginate: true }
@@ -40,7 +40,7 @@ plugin:
   responseMapping:
     dataPath: results
     pagination:
-      has_more:
+      hasMore:
         source: body
         path: moreDataAvailable
       cursor:
