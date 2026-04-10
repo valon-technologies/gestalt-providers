@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -12,6 +13,7 @@ type config struct {
 }
 
 type Provider struct {
+	proto.UnimplementedIndexedDBServer
 	*Store
 }
 
