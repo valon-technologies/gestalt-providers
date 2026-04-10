@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/figma
-version: 0.0.1-alpha.6
+version: 0.0.1-alpha.7
 displayName: Figma
 description: Access files, components, comments, and team projects.
 iconFile: assets/icon.svg

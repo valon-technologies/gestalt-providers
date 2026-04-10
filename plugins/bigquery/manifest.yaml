@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/bigquery
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: BigQuery
 description: Google BigQuery data warehouse
 iconFile: assets/icon.svg
