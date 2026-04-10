@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,11 +12,10 @@ type config struct {
 }
 
 type Provider struct {
-	proto.UnimplementedIndexedDBServer
 	*Store
 }
 
-func New() *Provider { return &Provider{} }
+func New() *Provider { return &Provider{Store: &Store{}} }
 
 func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) error {
 	var cfg config
