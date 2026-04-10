@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/ramp
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.6
 displayName: Ramp
 description: Manage corporate cards, transactions, and reimbursements.
 iconFile: assets/icon.svg

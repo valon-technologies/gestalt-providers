@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/launchdarkly
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.6
 displayName: LaunchDarkly
 description: Manage feature flags and targeting rules.
 iconFile: assets/icon.svg

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_drive
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.6
 displayName: Google Drive
 description: Read, create, update, and share files in Google Drive.
 iconFile: assets/icon.svg

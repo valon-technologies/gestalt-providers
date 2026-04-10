@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/datastore/firestore
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 displayName: Firestore
 description: Google Cloud Firestore datastore provider.
 datastore: {}

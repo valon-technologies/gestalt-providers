@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/auth/google
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.6
 displayName: Google
 description: Authenticate users with Google OAuth and validate Google bearer tokens.
 auth: {}

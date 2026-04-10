@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_calendar
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: Google Calendar
 description: Read and manage Google calendars and events.
 iconFile: assets/icon.svg
