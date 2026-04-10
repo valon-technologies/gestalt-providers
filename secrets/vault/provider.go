@@ -22,7 +22,7 @@ const (
 type config struct {
 	Address   string `yaml:"address"`
 	Token     string `yaml:"token"`
-	MountPath string `yaml:"mount_path"`
+	MountPath string `yaml:"mountPath"`
 	Namespace string `yaml:"namespace"`
 }
 

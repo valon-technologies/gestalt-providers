@@ -1,17 +1,17 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/ramp
 version: 0.0.1-alpha.5
-display_name: Ramp
+displayName: Ramp
 description: Manage corporate cards, transactions, and reimbursements.
-icon_file: assets/icon.svg
-provider:
-  config_schema_path: schemas/config.schema.yaml
+iconFile: assets/icon.svg
+plugin:
+  configSchemaPath: schemas/config.schema.yaml
   connections:
     default:
       auth:
         type: oauth2
-        authorization_url: https://app.ramp.com/v1/authorize
-        token_url: https://api.ramp.com/developer/v1/token
-        client_auth: header
+        authorizationUrl: https://app.ramp.com/v1/authorize
+        tokenUrl: https://api.ramp.com/developer/v1/token
+        clientAuth: header
         scopes:
           - transactions:read
           - cards:read

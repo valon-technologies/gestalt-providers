@@ -1,9 +1,9 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/dbt_cloud
 version: 0.0.1-alpha.5
-display_name: dbt Cloud
+displayName: dbt Cloud
 description: Manage accounts, projects, jobs, and runs.
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   connections:
     default:
       auth:

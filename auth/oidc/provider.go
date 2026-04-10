@@ -33,15 +33,15 @@ type discoveryDocument struct {
 }
 
 type config struct {
-	IssuerURL      string        `yaml:"issuer_url"`
-	ClientID       string        `yaml:"client_id"`
-	ClientSecret   string        `yaml:"client_secret"`
-	RedirectURL    string        `yaml:"redirect_url"`
-	AllowedDomains []string      `yaml:"allowed_domains"`
+	IssuerURL      string        `yaml:"issuerUrl"`
+	ClientID       string        `yaml:"clientId"`
+	ClientSecret   string        `yaml:"clientSecret"`
+	RedirectURL    string        `yaml:"redirectUrl"`
+	AllowedDomains []string      `yaml:"allowedDomains"`
 	Scopes         []string      `yaml:"scopes"`
-	SessionTTL     time.Duration `yaml:"session_ttl"`
+	SessionTTL     time.Duration `yaml:"sessionTtl"`
 	PKCE           bool          `yaml:"pkce"`
-	DisplayName    string        `yaml:"display_name"`
+	DisplayName    string        `yaml:"displayName"`
 }
 
 type Provider struct {

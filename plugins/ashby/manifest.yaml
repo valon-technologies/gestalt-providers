@@ -1,19 +1,19 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/ashby
 version: 0.0.1-alpha.6
-display_name: Ashby
+displayName: Ashby
 description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   pagination:
     style: cursor
-    cursor_param: cursor
+    cursorParam: cursor
     cursor:
       source: body
       path: nextCursor
-    limit_param: limit
+    limitParam: limit
     default_limit: 100
-    results_path: results
-  allowed_operations:
+    resultsPath: results
+  allowedOperations:
     candidate.list: { paginate: true }
     candidate.info: {}
     candidate.search: {}
@@ -37,8 +37,8 @@ provider:
     department.list: { paginate: true }
     location.list: { paginate: true }
     user.list: { paginate: true }
-  response_mapping:
-    data_path: results
+  responseMapping:
+    dataPath: results
     pagination:
       has_more:
         source: body

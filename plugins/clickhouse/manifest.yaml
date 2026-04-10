@@ -1,9 +1,9 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/clickhouse
 version: 0.0.1-alpha.5
-display_name: ClickHouse
+displayName: ClickHouse
 description: Query and manage analytical databases.
-icon_file: assets/icon.svg
-provider:
+iconFile: assets/icon.svg
+plugin:
   surfaces:
     mcp:
       url: https://mcp.clickhouse.cloud/mcp
