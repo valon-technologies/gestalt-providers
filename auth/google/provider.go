@@ -45,10 +45,10 @@ func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) er
 		return fmt.Errorf("google auth: %w", err)
 	}
 	if cfg.ClientID == "" {
-		return fmt.Errorf("google auth: client_id is required")
+		return fmt.Errorf("google auth: clientId is required")
 	}
 	if cfg.ClientSecret == "" {
-		return fmt.Errorf("google auth: client_secret is required")
+		return fmt.Errorf("google auth: clientSecret is required")
 	}
 	p.cfg = cfg
 	return nil
