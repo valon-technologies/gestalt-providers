@@ -65,7 +65,7 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
 	return gestalt.ProviderMetadata{
-		Kind:        gestalt.ProviderKindDatastore,
+		Kind:        gestalt.ProviderKindIndexedDB,
 		Name:        "dynamodb",
 		DisplayName: "DynamoDB",
 		Description: "Amazon DynamoDB datastore provider.",
