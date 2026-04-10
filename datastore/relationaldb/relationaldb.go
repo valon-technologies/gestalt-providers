@@ -732,6 +732,8 @@ func parseDSN(dsn string) (driver, connStr string, style bindStyle) {
 		return "pgx", dsn, bindDollar
 	case strings.HasPrefix(dsn, "mysql://"):
 		return "mysql", strings.TrimPrefix(dsn, "mysql://"), bindQuestion
+	case strings.Contains(dsn, "@tcp("), strings.Contains(dsn, "@unix("):
+		return "mysql", dsn, bindQuestion
 	case strings.HasPrefix(dsn, "sqlserver://"):
 		return "sqlserver", dsn, bindAtP
 	case strings.HasPrefix(dsn, "sqlite://"):
