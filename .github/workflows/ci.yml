@@ -9,7 +9,6 @@ on:
       - 'auth/**'
       - 'datastore/**'
       - 'secrets/**'
-      - 'web/**'
   push:
     branches:
       - main
@@ -20,15 +19,14 @@ on:
       - 'auth/**'
       - 'datastore/**'
       - 'secrets/**'
-      - 'web/**'
 
 permissions:
   contents: read
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.47
-  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.47
+  LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.46
+  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.46
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -62,20 +60,18 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "datastore", "secrets", "web")
+          package_roots = ("plugins", "auth", "datastore", "secrets")
           gestalt_ref_by_root = {
               "plugins": os.environ["LEGACY_GESTALT_REF"],
               "auth": os.environ["PROVIDER_GESTALT_REF"],
               "datastore": os.environ["PROVIDER_GESTALT_REF"],
               "secrets": os.environ["PROVIDER_GESTALT_REF"],
-              "web": os.environ["PROVIDER_GESTALT_REF"],
           }
           toolchain_by_root = {
               "plugins": "legacy",
               "auth": "provider",
               "datastore": "provider",
               "secrets": "provider",
-              "web": "provider",
           }
           all_plugins = []
           for root_name in package_roots:
@@ -97,6 +93,8 @@ jobs:
                           "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
                   )
+          shared_prefixes = (".github/workflows/", ".github/scripts/")
+
           event_name = os.environ["EVENT_NAME"]
           run_all = event_name != "pull_request"
           selected = set()
@@ -112,6 +110,9 @@ jobs:
               for path in changed_files:
                   if not path:
                       continue
+                  if path.startswith(shared_prefixes):
+                      run_all = True
+                      break
                   parts = Path(path).parts
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
@@ -161,9 +162,9 @@ jobs:
       matrix:
         toolchain:
           - name: legacy
-            gestalt_ref: gestaltd/v0.0.1-alpha.47
+            gestalt_ref: gestaltd/v0.0.1-alpha.46
           - name: provider
-            gestalt_ref: gestaltd/v0.0.1-alpha.47
+            gestalt_ref: gestaltd/v0.0.1-alpha.46
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
