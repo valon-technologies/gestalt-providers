@@ -57,7 +57,7 @@ jobs:
 
           case "$PLUGIN_ROOT" in
             plugins|auth|datastore|secrets|web)
-              GESTALT_REF="gestaltd/v0.0.1-alpha.44"
+              GESTALT_REF="gestaltd/v0.0.1-alpha.46"
               ;;
             *)
               echo "ERROR: unsupported plugin root ${PLUGIN_ROOT}"
