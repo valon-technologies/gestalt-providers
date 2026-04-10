@@ -93,8 +93,6 @@ jobs:
                           "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
                   )
-          shared_prefixes = (".github/workflows/", ".github/scripts/")
-
           event_name = os.environ["EVENT_NAME"]
           run_all = event_name != "pull_request"
           selected = set()
@@ -110,9 +108,6 @@ jobs:
               for path in changed_files:
                   if not path:
                       continue
-                  if path.startswith(shared_prefixes):
-                      run_all = True
-                      break
                   parts = Path(path).parts
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
