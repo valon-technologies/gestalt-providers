@@ -22,7 +22,7 @@ version="$7"
 
 case "$base_image" in
   *alpine*) install_cmd="apk add --no-cache bash build-base ca-certificates git curl zlib-dev" ;;
-  *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git curl" ;;
+  *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git curl zlib1g-dev" ;;
 esac
 
 echo "=== Packaging ${release_platform} (${base_image}) ==="
