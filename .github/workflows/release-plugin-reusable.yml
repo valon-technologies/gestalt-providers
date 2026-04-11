@@ -170,6 +170,18 @@ jobs:
         run: |
           .github/scripts/package_python_docker.sh linux/arm64 ghcr.io/astral-sh/uv:python3.14-alpine gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64/musl "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
+      # -- Package Darwin cross-compiled artifacts (Go only) --
+      - name: Package Go darwin/arm64 provider
+        if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform darwin/arm64
+      - name: Package Go darwin/amd64 provider
+        if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform darwin/amd64
+
       # -- Package ARMv7 cross-compiled artifacts (amd64 runner only) --
       - name: Package Go ARMv7 provider
         if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
