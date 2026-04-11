@@ -80,8 +80,7 @@ jobs:
         if: steps.detect.outputs.has-rust == 'true'
         run: |
           sudo apt-get install -y gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
-          rustup target add armv7-unknown-linux-gnueabihf armv7-unknown-linux-musleabihf
-          rustup target add aarch64-unknown-linux-gnu aarch64-unknown-linux-musl
+          rustup target add armv7-unknown-linux-musleabihf aarch64-unknown-linux-musl
       - name: Install Python
         if: steps.detect.outputs.has-python == 'true'
         run: uv python install 3.14
@@ -136,11 +135,7 @@ jobs:
             export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
           fi
           cd "${{ inputs.plugin-dir }}"
-          if [ "${{ steps.detect.outputs.has-python }}" = "true" ]; then
-            gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/amd64/glibc"
-          else
-            gestaltd provider release --version "${{ steps.version.outputs.release }}"
-          fi
+          gestaltd provider release --version "${{ steps.version.outputs.release }}"
       - name: Package Rust musl artifact
         if: steps.detect.outputs.has-rust == 'true'
         run: |
@@ -160,26 +155,20 @@ jobs:
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm64
-      - name: Package Rust ARM64 artifacts
+      - name: Package Rust ARM64 artifact
         if: steps.detect.outputs.has-rust == 'true'
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm64/glibc
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm64/musl
-      - name: Package Python ARM64 artifacts
+      - name: Package Python ARM64 artifact
         if: steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          set -euo pipefail
-          v="${{ steps.version.outputs.release }}"
-          d="${{ inputs.plugin-dir }}"
-          .github/scripts/package_python_docker.sh linux/arm64 ghcr.io/astral-sh/uv:python3.14-alpine        gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64/musl  "$d" "$v"
-          .github/scripts/package_python_docker.sh linux/arm64 ghcr.io/astral-sh/uv:python3.14-bookworm-slim gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64/glibc "$d" "$v"
+          .github/scripts/package_python_docker.sh linux/arm64 ghcr.io/astral-sh/uv:python3.14-alpine gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64/musl "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
       # -- Package ARMv7 cross-compiled artifacts (amd64 runner only) --
       - name: Package Go ARMv7 provider
@@ -187,26 +176,20 @@ jobs:
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm
-      - name: Package Rust ARMv7 artifacts
+      - name: Package Rust ARMv7 artifact
         if: steps.detect.outputs.has-rust == 'true'
         env:
-          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm/glibc
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm/musl
-      - name: Package Python ARMv7 artifacts
+      - name: Package Python ARMv7 artifact
         if: steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          set -euo pipefail
-          v="${{ steps.version.outputs.release }}"
-          d="${{ inputs.plugin-dir }}"
-          .github/scripts/package_python_docker.sh linux/arm/v7 ghcr.io/astral-sh/uv:python3.14-alpine        gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm/musl  "$d" "$v"
-          .github/scripts/package_python_docker.sh linux/arm/v7 ghcr.io/astral-sh/uv:python3.14-bookworm-slim gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm/glibc "$d" "$v"
+          .github/scripts/package_python_docker.sh linux/arm/v7 ghcr.io/astral-sh/uv:python3.14-alpine gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm/musl "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
       - uses: actions/upload-artifact@v4
         with:
