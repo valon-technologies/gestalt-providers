@@ -1,121 +1,66 @@
-# gestalt-providers
+# Gestalt Providers
 
 [![Stability: Alpha](https://img.shields.io/badge/stability-alpha-f4d03f.svg)](https://github.com/valon-technologies/gestalt-providers/issues)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-> **Alpha.** All provider packages are under active development. Package interfaces and manifest schemas may change between releases. We welcome feedback and bug reports via [GitHub Issues](https://github.com/valon-technologies/gestalt-providers/issues).
+> **Alpha.** All provider packages are under active development. Interfaces and
+> manifest schemas may change between releases. Feedback and bug reports welcome
+> via [GitHub Issues](https://github.com/valon-technologies/gestalt-providers/issues).
 
-Versioned provider packages for Gestalt.
+Official provider packages for [Gestalt](https://github.com/valon-technologies/gestalt).
+Each provider is independently versioned, tested, and released as a
+cross-platform artifact that `gestaltd` resolves at runtime.
 
-## Layout
+## Documentation
 
-- `plugins/<name>` contains the source for each integration plugin package.
-- `auth/<name>` contains platform auth provider packages.
-- `datastore/<name>` contains datastore provider packages.
-- `web/<name>` contains packaged web UI bundles.
-- Declarative plugins ship from their manifests and support files.
-- Go source plugins use `go.mod` and are built and packaged with `gestaltd provider release`.
-- Python source plugins use `pyproject.toml` and are built and packaged with `gestaltd provider release`.
-- Rust source plugins use `Cargo.toml` and are built and packaged with `gestaltd provider release`.
+- [Getting Started](https://gestaltd.ai/getting-started): run Gestalt in five minutes
+- [Configuration](https://gestaltd.ai/configuration): config model, plugin setup, and auth
+- [Provider Development](https://gestaltd.ai/providers): writing plugins, auth backends, datastores, and secrets engines
+- [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests): manifest format and schema
+- [Releasing](https://gestaltd.ai/providers/releasing): publishing provider packages
 
-## CI
+## Usage
 
-Pushes and pull requests validate every plugin package. Go plugins also run `go test ./...`. Python plugins run `uv sync` before packaging so the selected interpreter environment contains the SDK, PyInstaller, and plugin dependencies.
+Reference providers in your Gestalt configuration by source and version. See the
+[Getting Started](https://gestaltd.ai/getting-started) guide and
+[Configuration](https://gestaltd.ai/configuration) docs for examples.
 
-The workflows fetch `gestaltd` and private SDK sources from `valon-technologies/gestalt`, so this repo needs a `PAT_TOKEN` Actions secret with read access to that repository.
+## Developing Providers
 
-Web bundles can define `release.build` in `manifest.yaml`. The first-party
-`web/default` package uses that hook to build assets from
-`gestalt/gestaltd/ui` before `gestaltd provider release`, so generated
-frontend output does not need to be committed here.
+### Repository Layout
 
-## Python source plugins
-
-Until the Python SDK is published to a package index, Python plugins should
-source the SDK directly from the `gestalt` repo with `uv`.
-
-Minimal `pyproject.toml`:
-
-```toml
-[project]
-name = "my-plugin"
-version = "0.0.1-alpha.1"
-dependencies = ["gestalt"]
-
-[tool.uv]
-package = false
-
-[tool.uv.sources]
-gestalt = { git = "https://github.com/valon-technologies/gestalt.git", rev = "<gestalt-commit-sha>", subdirectory = "sdk/python" }
-
-[tool.gestalt]
-plugin = "provider"
+```
+plugins/<name>/       Integration plugin packages (Go, Python)
+auth/<name>/          Authentication providers (Go)
+indexeddb/<name>/     Datastore providers (Go, Rust)
+secrets/<name>/       Secrets providers (Go)
+web/<name>/           Web UI bundles
 ```
 
-Recommended local flow:
+Every provider requires a
+[`manifest.yaml`](https://gestaltd.ai/reference/plugin-manifests) that declares
+its source, version, display name, and capabilities. Declarative plugins need
+only the manifest and optional assets. Source plugins add an implementation in
+Go, Python, or Rust. See the
+[provider development guide](https://gestaltd.ai/providers) for SDK setup and
+writing custom operations.
 
-```sh
-uv sync
-uv run python -c "import gestalt"
-gestaltd provider release --version 0.0.1-alpha.1
-```
-
-Pin `rev` to a specific `valon-technologies/gestalt` commit and bump it
-intentionally when you want SDK changes.
+All providers are built and packaged with `gestaltd provider release`.
 
 ## Releasing
 
-Push a tag in the format `<kind>/<name>/v<version>`.
-
-Python source plugin releases publish separate `linux/amd64/glibc` and
-`linux/amd64/musl` artifacts so `gestaltd` can resolve the correct binary for
-glibc and Alpine runtimes.
-
-Example:
+Push a tag in the format `<kind>/<name>/v<version>`:
 
 ```sh
-git tag plugins/slack/v0.0.1-alpha.1
-git push origin plugins/slack/v0.0.1-alpha.1
+git tag plugins/slack/v0.0.1-alpha.13
+git push origin plugins/slack/v0.0.1-alpha.13
 ```
 
-That triggers the release workflow, packages the plugin, and publishes a GitHub release with the same tag.
+The release workflow packages the provider for all supported platforms and
+publishes a GitHub Release with the same tag. See
+[Releasing](https://gestaltd.ai/providers/releasing) for details on
+cross-platform artifacts and the CI pipeline.
 
-In Gestalt config, use:
+## License
 
-```yaml
-plugins:
-  <plugin>:
-    provider:
-      source:
-        ref: github.com/valon-technologies/gestalt-providers/plugins/<plugin>
-        version: 0.0.1-alpha.1
-```
-
-For top-level auth/datastore providers, use:
-
-```yaml
-auth:
-  provider:
-    source:
-      ref: github.com/valon-technologies/gestalt-providers/auth/<provider>
-      version: 0.0.1-alpha.1
-
-datastore:
-  provider:
-    source:
-      ref: github.com/valon-technologies/gestalt-providers/datastore/<provider>
-      version: 0.0.1-alpha.1
-```
-
-For top-level web UI bundles, use:
-
-```yaml
-ui:
-  provider:
-    source:
-      ref: github.com/valon-technologies/gestalt-providers/web/<bundle>
-      version: 0.0.1-alpha.1
-```
-
-Anonymous mode is a host-side special case, not a published auth provider
-package. Omit `auth` entirely or set `auth.provider: none` when you want
-platform auth disabled.
+[Apache License 2.0](LICENSE)
