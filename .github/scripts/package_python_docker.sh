@@ -21,8 +21,8 @@ version="$7"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 
 case "$base_image" in
-  *alpine*) install_cmd="apk add --no-cache bash build-base ca-certificates git" ;;
-  *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git" ;;
+  *alpine*) install_cmd="apk add --no-cache bash build-base ca-certificates git curl" ;;
+  *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git curl" ;;
 esac
 
 echo "=== Packaging ${release_platform} (${base_image}) ==="
@@ -40,6 +40,11 @@ docker run --rm --platform "${docker_platform}" \
   "${base_image}" \
   sh -ceu '
     eval "${INSTALL_CMD}"
+
+    if ! command -v uv >/dev/null 2>&1; then
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+      export PATH="${HOME}/.local/bin:${PATH}"
+    fi
 
     printf "machine github.com\n  login x-access-token\n  password %s\n" "${PAT_TOKEN}" > "${HOME}/.netrc"
     chmod 600 "${HOME}/.netrc"
