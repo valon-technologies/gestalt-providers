@@ -203,7 +203,7 @@ jobs:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh linux/arm/v7 python:3.14-alpine gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
+          .github/scripts/package_python_docker.sh linux/arm/v7 python:3.14-slim gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
       - uses: actions/upload-artifact@v4
         with:
