@@ -199,6 +199,7 @@ jobs:
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm/musl
       - name: Package Python ARMv7 artifact
         if: steps.detect.outputs.has-python == 'true'
+        continue-on-error: true
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
