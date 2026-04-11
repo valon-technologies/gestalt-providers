@@ -2,6 +2,7 @@ package relationaldb
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -168,8 +169,8 @@ func TestGetAllWithRange(t *testing.T) {
 	resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{
 		Store: "users",
 		Range: &proto.KeyRange{
-			Lower: structpb.NewStringValue("a"),
-			Upper: structpb.NewStringValue("c"),
+			Lower:     structpb.NewStringValue("a"),
+			Upper:     structpb.NewStringValue("c"),
 			UpperOpen: true,
 		},
 	})
@@ -196,5 +197,46 @@ func TestRebind(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("rebind(%d, %q) = %q, want %q", tt.style, tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestCreateTableSQLMySQLUsesMySQLSafeTypes(t *testing.T) {
+	got := createTableSQL(dialectMySQL, "users", usersSchema())
+	if strings.Contains(got, `"`) {
+		t.Fatalf("createTableSQL(mysql) used double quotes: %s", got)
+	}
+	if !strings.Contains(got, "`id` VARCHAR(255) NOT NULL PRIMARY KEY") {
+		t.Fatalf("createTableSQL(mysql) missing varchar primary key: %s", got)
+	}
+	if !strings.Contains(got, "`email` VARCHAR(255) NOT NULL UNIQUE") {
+		t.Fatalf("createTableSQL(mysql) missing varchar unique column: %s", got)
+	}
+	if !strings.Contains(got, "`display_name` LONGTEXT") {
+		t.Fatalf("createTableSQL(mysql) should keep non-indexed strings as LONGTEXT: %s", got)
+	}
+}
+
+func TestCreateIndexSQLMySQLOmitsIfNotExists(t *testing.T) {
+	got := createIndexSQL(dialectMySQL, "users", &proto.IndexSchema{
+		Name: "by_email", KeyPath: []string{"email"}, Unique: true,
+	})
+	if strings.Contains(got, "IF NOT EXISTS") {
+		t.Fatalf("createIndexSQL(mysql) should omit IF NOT EXISTS: %s", got)
+	}
+	if !strings.Contains(got, "CREATE UNIQUE INDEX `idx_users_by_email` ON `users` (`email`)") {
+		t.Fatalf("createIndexSQL(mysql) unexpected SQL: %s", got)
+	}
+}
+
+func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
+	got := metadataTableSQL(dialectMySQL)
+	if strings.Contains(got, `"`) {
+		t.Fatalf("metadataTableSQL(mysql) used double quotes: %s", got)
+	}
+	if !strings.Contains(got, "`name` VARCHAR(255) NOT NULL PRIMARY KEY") {
+		t.Fatalf("metadataTableSQL(mysql) missing varchar primary key: %s", got)
+	}
+	if !strings.Contains(got, "`schema_json` LONGTEXT NOT NULL") {
+		t.Fatalf("metadataTableSQL(mysql) missing longtext schema column: %s", got)
 	}
 }
