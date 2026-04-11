@@ -1,0 +1,31 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/httpbin
+version: 0.0.1-alpha.1
+displayName: HTTPBin
+description: HTTP request and response testing service.
+plugin:
+  connectionMode: none
+  mcp: true
+  surfaces:
+    rest:
+      baseUrl: https://httpbin.org
+      operations:
+      - name: get_headers
+        description: Return the request headers
+        method: GET
+        path: /headers
+      - name: get_ip
+        description: Return the origin IP address
+        method: GET
+        path: /ip
+      - name: get_user_agent
+        description: Return the user agent string
+        method: GET
+        path: /user-agent
+      - name: get_anything
+        description: Return anything passed in the request data
+        method: GET
+        path: /anything
+      - name: post_anything
+        description: Return anything passed in the request body
+        method: POST
+        path: /anything
