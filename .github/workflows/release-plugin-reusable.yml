@@ -138,18 +138,18 @@ jobs:
           fi
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}"
-      - name: Package Rust musl artifact
+      - name: Package Rust artifact
         if: steps.detect.outputs.has-rust == 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/amd64/musl"
-      - name: Package Python musl artifact
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/amd64"
+      - name: Package Python artifact
         if: steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh "linux/amd64" ghcr.io/astral-sh/uv:python3.14-alpine gestaltd "GESTALT_PYTHON_LINUX_$(echo 'amd64' | tr '[:lower:]' '[:upper:]')" "linux/amd64/musl" "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
+          .github/scripts/package_python_docker.sh "linux/amd64" ghcr.io/astral-sh/uv:python3.14-alpine gestaltd "GESTALT_PYTHON_LINUX_$(echo 'amd64' | tr '[:lower:]' '[:upper:]')" "linux/amd64" "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
       # -- Package ARM64 cross-compiled artifacts (amd64 runner only) --
       - name: Package Go ARM64 provider
