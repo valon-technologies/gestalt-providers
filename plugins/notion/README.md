@@ -2,12 +2,6 @@
 
 Current Notion REST operations plus the official Notion MCP tool surface.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/notion` |
-| **Version** | `0.0.1-alpha.9` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   notion:
     source: github.com/valon-technologies/gestalt-providers/plugins/notion
-    version: 0.0.1-alpha.9
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

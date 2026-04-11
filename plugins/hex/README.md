@@ -2,12 +2,6 @@
 
 Manage Hex projects, runs, and cells.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/hex` |
-| **Version** | `0.0.1-alpha.8` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   hex:
     source: github.com/valon-technologies/gestalt-providers/plugins/hex
-    version: 0.0.1-alpha.8
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

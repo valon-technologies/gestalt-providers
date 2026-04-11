@@ -2,12 +2,6 @@
 
 HTTP request and response testing service.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/httpbin` |
-| **Version** | `0.0.1-alpha.1` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   httpbin:
     source: github.com/valon-technologies/gestalt-providers/plugins/httpbin
-    version: 0.0.1-alpha.1
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

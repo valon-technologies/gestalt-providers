@@ -2,12 +2,6 @@
 
 Manage feature flags and targeting rules.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/launchdarkly` |
-| **Version** | `0.0.1-alpha.8` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   launchdarkly:
     source: github.com/valon-technologies/gestalt-providers/plugins/launchdarkly
-    version: 0.0.1-alpha.8
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

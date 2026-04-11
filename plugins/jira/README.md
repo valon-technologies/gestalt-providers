@@ -2,12 +2,6 @@
 
 Atlassian Jira Cloud project and issue management.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/jira` |
-| **Version** | `0.0.1-alpha.8` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   jira:
     source: github.com/valon-technologies/gestalt-providers/plugins/jira
-    version: 0.0.1-alpha.8
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

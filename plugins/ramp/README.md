@@ -2,12 +2,6 @@
 
 Manage corporate cards, transactions, and reimbursements.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/ramp` |
-| **Version** | `0.0.1-alpha.8` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   ramp:
     source: github.com/valon-technologies/gestalt-providers/plugins/ramp
-    version: 0.0.1-alpha.8
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

@@ -2,12 +2,6 @@
 
 Manage incidents, schedules, users, severities, and statuses.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/incident_io` |
-| **Version** | `0.0.1-alpha.8` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   incident_io:
     source: github.com/valon-technologies/gestalt-providers/plugins/incident_io
-    version: 0.0.1-alpha.8
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

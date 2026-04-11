@@ -2,12 +2,6 @@
 
 Default Gestalt web UI bundle served at /.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/web/default` |
-| **Version** | `0.0.1-alpha.9` |
-| **Category** | Web UI |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 web:
   default:
     source: github.com/valon-technologies/gestalt-providers/web/default
-    version: 0.0.1-alpha.9
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

@@ -2,12 +2,6 @@
 
 Read, create, and edit Google Docs documents.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/google_docs` |
-| **Version** | `0.0.1-alpha.9` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   google_docs:
     source: github.com/valon-technologies/gestalt-providers/plugins/google_docs
-    version: 0.0.1-alpha.9
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

@@ -2,12 +2,6 @@
 
 MongoDB datastore provider.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/indexeddb/mongodb` |
-| **Version** | `0.0.1-alpha.2` |
-| **Category** | Datastore |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 indexeddb:
   mongodb:
     source: github.com/valon-technologies/gestalt-providers/indexeddb/mongodb
-    version: 0.0.1-alpha.2
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and
@@ -29,8 +23,6 @@ MongoDB. Use it when you want a document-oriented datastore with flexible
 schemas, rich querying, and aggregation pipelines.
 
 Requires a reachable MongoDB instance and valid connection credentials.
-
-Implemented in Go.
 
 ## Documentation
 

@@ -2,12 +2,6 @@
 
 Read, send, and manage Gmail messages, threads, drafts, and labels.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/gmail` |
-| **Version** | `0.0.1-alpha.12` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   gmail:
     source: github.com/valon-technologies/gestalt-providers/plugins/gmail
-    version: 0.0.1-alpha.12
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

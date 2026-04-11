@@ -2,12 +2,6 @@
 
 Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/rippling` |
-| **Version** | `0.0.1-alpha.10` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   rippling:
     source: github.com/valon-technologies/gestalt-providers/plugins/rippling
-    version: 0.0.1-alpha.10
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

@@ -2,12 +2,6 @@
 
 Atlassian Confluence Cloud pages, spaces, and content search.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/confluence` |
-| **Version** | `0.0.1-alpha.9` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   confluence:
     source: github.com/valon-technologies/gestalt-providers/plugins/confluence
-    version: 0.0.1-alpha.9
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

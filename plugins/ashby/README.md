@@ -2,12 +2,6 @@
 
 Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/ashby` |
-| **Version** | `0.0.1-alpha.9` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   ashby:
     source: github.com/valon-technologies/gestalt-providers/plugins/ashby
-    version: 0.0.1-alpha.9
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

@@ -2,12 +2,6 @@
 
 Read and update contacts, companies, conversations, and notes.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/intercom` |
-| **Version** | `0.0.1-alpha.9` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   intercom:
     source: github.com/valon-technologies/gestalt-providers/plugins/intercom
-    version: 0.0.1-alpha.9
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

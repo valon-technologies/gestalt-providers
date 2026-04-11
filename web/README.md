@@ -8,8 +8,3 @@ web UI providers and the
 [provider development guide](https://gestaltd.ai/providers) for writing custom
 web bundles.
 
-## Available Providers
-
-| Provider | Version | Description |
-|----------|---------|-------------|
-| [Default Web UI](default/) | `0.0.1-alpha.9` | Default Gestalt web UI bundle served at / |

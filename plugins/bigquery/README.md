@@ -2,12 +2,6 @@
 
 Google BigQuery data warehouse.
 
-| | |
-|---|---|
-| **Source** | `github.com/valon-technologies/gestalt-providers/plugins/bigquery` |
-| **Version** | `0.0.1-alpha.11` |
-| **Category** | Plugin |
-
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
@@ -16,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 plugins:
   bigquery:
     source: github.com/valon-technologies/gestalt-providers/plugins/bigquery
-    version: 0.0.1-alpha.11
+    version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and
