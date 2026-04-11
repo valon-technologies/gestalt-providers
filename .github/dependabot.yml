@@ -3,7 +3,9 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/auth"
-      - "/datastore"
+      - "/indexeddb/dynamodb"
+      - "/indexeddb/mongodb"
+      - "/indexeddb/relationaldb"
       - "/secrets"
     groups:
       go-dependencies:
@@ -18,10 +20,10 @@ updates:
 
   - package-ecosystem: "cargo"
     directories:
-      - "/datastore/internal/rust_sqlstore"
-      - "/datastore/mysql"
-      - "/datastore/postgres"
-      - "/datastore/sqlite"
+      - "/indexeddb/internal/rust_sqlstore"
+      - "/indexeddb/mysql"
+      - "/indexeddb/postgres"
+      - "/indexeddb/sqlite"
     groups:
       rust-dependencies:
         patterns:

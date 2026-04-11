@@ -5,7 +5,7 @@ on:
     tags:
       - 'plugins/*/v*'
       - 'auth/*/v*'
-      - 'datastore/*/v*'
+      - 'indexeddb/*/v*'
       - 'secrets/*/v*'
       - 'web/*/v*'
 
@@ -56,7 +56,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            plugins|auth|datastore|secrets|web)
+            plugins|auth|indexeddb|secrets|web)
               GESTALT_REF="gestaltd/v0.0.1-alpha.50"
               ;;
             *)
