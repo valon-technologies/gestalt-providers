@@ -16,7 +16,6 @@ spec:
       url: https://mcp.notion.com/mcp
   connections:
     oauth:
-      displayName: OAuth
       mode: user
       auth:
         type: oauth2
@@ -28,7 +27,6 @@ spec:
         authorizationParams:
           owner: user
     mcp:
-      displayName: MCP
       mode: user
       auth:
         type: mcp_oauth
