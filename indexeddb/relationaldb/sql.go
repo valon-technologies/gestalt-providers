@@ -84,7 +84,7 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 	default: // TypeString, TypeTime, TypeBytes, TypeJSON
 		if d == dialectMySQL {
 			if indexed {
-				return "VARCHAR(255)"
+				return "VARCHAR(191)"
 			}
 			return "LONGTEXT"
 		}
