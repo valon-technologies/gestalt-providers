@@ -9,13 +9,13 @@ spec:
     Notion-Version: '2026-03-11'
   surfaces:
     openapi:
-      connection: oauth
+      connection: OAuth
       document: openapi.yaml
     mcp:
-      connection: mcp
+      connection: MCP
       url: https://mcp.notion.com/mcp
   connections:
-    oauth:
+    OAuth:
       mode: user
       auth:
         type: oauth2
@@ -26,7 +26,7 @@ spec:
         acceptHeader: application/json
         authorizationParams:
           owner: user
-    mcp:
+    MCP:
       mode: user
       auth:
         type: mcp_oauth
