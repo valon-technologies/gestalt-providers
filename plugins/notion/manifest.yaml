@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/notion
-version: 0.0.1-alpha.10
+version: 0.0.1-alpha.11
 displayName: Notion
 description: Current Notion REST operations plus the official Notion MCP tool surface.
 iconFile: assets/icon.svg
@@ -9,12 +9,26 @@ spec:
     Notion-Version: '2026-03-11'
   surfaces:
     openapi:
+      connection: oauth
       document: openapi.yaml
     mcp:
       connection: mcp
       url: https://mcp.notion.com/mcp
   connections:
+    oauth:
+      displayName: OAuth
+      mode: user
+      auth:
+        type: oauth2
+        authorizationUrl: https://api.notion.com/v1/oauth/authorize
+        tokenUrl: https://api.notion.com/v1/oauth/token
+        clientAuth: header
+        tokenExchange: json
+        acceptHeader: application/json
+        authorizationParams:
+          owner: user
     mcp:
+      displayName: MCP
       mode: user
       auth:
         type: mcp_oauth
