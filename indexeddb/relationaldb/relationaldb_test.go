@@ -38,65 +38,65 @@ func openSQLiteDB(t *testing.T, dsn string) *sql.DB {
 	return db
 }
 
-func usersSchema() *proto.ObjectStoreSchema {
+func widgetsSchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
 		Indexes: []*proto.IndexSchema{
-			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
+			{Name: "by_code", KeyPath: []string{"code"}, Unique: true},
 		},
 		Columns: []*proto.ColumnDef{
 			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
-			{Name: "email", Type: 0, NotNull: true, Unique: true},
-			{Name: "display_name", Type: 0},
+			{Name: "code", Type: 0, NotNull: true, Unique: true},
+			{Name: "title", Type: 0},
 			{Name: "created_at", Type: 4},
 			{Name: "updated_at", Type: 4},
 		},
 	}
 }
 
-func integrationTokensSchema() *proto.ObjectStoreSchema {
+func sampleRecordsSchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
 		Indexes: []*proto.IndexSchema{
-			{Name: "by_user", KeyPath: []string{"user_id"}},
-			{Name: "by_lookup", KeyPath: []string{"user_id", "integration", "connection", "instance"}},
+			{Name: "by_owner", KeyPath: []string{"owner_id"}},
+			{Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"}},
 		},
 		Columns: []*proto.ColumnDef{
 			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
-			{Name: "user_id", Type: 0, NotNull: true},
-			{Name: "integration", Type: 0, NotNull: true},
-			{Name: "connection", Type: 0, NotNull: true},
-			{Name: "instance", Type: 0},
-			{Name: "access_token_sealed", Type: 0},
-			{Name: "refresh_token_sealed", Type: 0},
-			{Name: "last_refreshed_at", Type: 4},
+			{Name: "owner_id", Type: 0, NotNull: true},
+			{Name: "category", Type: 0, NotNull: true},
+			{Name: "region", Type: 0, NotNull: true},
+			{Name: "variant", Type: 0},
+			{Name: "payload", Type: 0},
+			{Name: "backup_payload", Type: 0},
+			{Name: "last_seen_at", Type: 4},
 			{Name: "created_at", Type: 4},
 			{Name: "updated_at", Type: 4},
 		},
 	}
 }
 
-func makeUser(id, email, name string) *proto.Record {
+func makeWidget(id, code, title string) *proto.Record {
 	record, _ := gestalt.RecordToProto(map[string]any{
-		"id":           id,
-		"email":        email,
-		"display_name": name,
-		"created_at":   time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
-		"updated_at":   time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+		"id":         id,
+		"code":       code,
+		"title":      title,
+		"created_at": time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+		"updated_at": time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
 	})
 	return record
 }
 
-func makeIntegrationToken(id string) *proto.Record {
+func makeSampleRecord(id string) *proto.Record {
 	record, _ := gestalt.RecordToProto(map[string]any{
-		"id":                   id,
-		"user_id":              "user-1",
-		"integration":          "slack",
-		"connection":           "default",
-		"instance":             "default",
-		"access_token_sealed":  "sealed-access",
-		"refresh_token_sealed": "sealed-refresh",
-		"last_refreshed_at":    time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
-		"created_at":           time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
-		"updated_at":           time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"id":             id,
+		"owner_id":       "owner-1",
+		"category":       "alpha",
+		"region":         "east",
+		"variant":        "v1",
+		"payload":        "payload-a",
+		"backup_payload": "payload-b",
+		"last_seen_at":   time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"created_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"updated_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 	})
 	return record
 }
@@ -107,7 +107,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// Create object store.
 	_, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	})
 	if err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
@@ -115,27 +115,27 @@ func TestFullLifecycle(t *testing.T) {
 
 	// Idempotent create.
 	_, err = s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	})
 	if err != nil {
 		t.Fatalf("CreateObjectStore idempotent: %v", err)
 	}
 
-	// Add a user.
+	// Add a row.
 	_, err = s.Add(ctx, &proto.RecordRequest{
-		Store: "users", Record: makeUser("u1", "alice@example.com", "Alice"),
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
 	// Get by primary key.
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got := resp.Record.Fields["email"].GetStringValue(); got != "alice@example.com" {
-		t.Fatalf("Get email: got %q, want alice@example.com", got)
+	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+		t.Fatalf("Get code: got %q, want W-001", got)
 	}
 	createdAt, err := gestalt.AnyFromTypedValue(resp.Record.Fields["created_at"])
 	if err != nil {
@@ -146,7 +146,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// Count.
-	countResp, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "users"})
+	countResp, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -154,73 +154,73 @@ func TestFullLifecycle(t *testing.T) {
 		t.Fatalf("Count: got %d, want 1", countResp.Count)
 	}
 
-	// Put (upsert) — update the display name.
+	// Put (upsert) — update the title.
 	_, err = s.Put(ctx, &proto.RecordRequest{
-		Store: "users", Record: makeUser("u1", "alice@example.com", "Alice Updated"),
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Updated Widget"),
 	})
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	resp, _ = s.Get(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
-	if got := resp.Record.Fields["display_name"].GetStringValue(); got != "Alice Updated" {
-		t.Fatalf("Put display_name: got %q, want 'Alice Updated'", got)
+	resp, _ = s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	if got := resp.Record.Fields["title"].GetStringValue(); got != "Updated Widget" {
+		t.Fatalf("Put title: got %q, want 'Updated Widget'", got)
 	}
 
 	// Index query.
-	vals, _ := gestalt.TypedValuesFromAny([]any{"alice@example.com"})
+	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
 	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
-		Store: "users", Index: "by_email", Values: vals,
+		Store: "widgets", Index: "by_code", Values: vals,
 	})
 	if err != nil {
 		t.Fatalf("IndexGet: %v", err)
 	}
-	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "u1" {
-		t.Fatalf("IndexGet id: got %q, want u1", got)
+	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "w1" {
+		t.Fatalf("IndexGet id: got %q, want w1", got)
 	}
 
 	// Delete.
-	_, err = s.Delete(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
+	_, err = s.Delete(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	countResp, _ = s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "users"})
+	countResp, _ = s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
 	if countResp.Count != 0 {
 		t.Fatalf("Count after delete: got %d, want 0", countResp.Count)
 	}
 
 	// Delete object store.
-	_, err = s.DeleteObjectStore(ctx, &proto.DeleteObjectStoreRequest{Name: "users"})
+	_, err = s.DeleteObjectStore(ctx, &proto.DeleteObjectStoreRequest{Name: "widgets"})
 	if err != nil {
 		t.Fatalf("DeleteObjectStore: %v", err)
 	}
-	_, err = s.getMeta("users")
+	_, err = s.getMeta("widgets")
 	if err == nil {
 		t.Fatal("expected error after DeleteObjectStore, got nil")
 	}
 }
 
-func TestCreateObjectStoreUsesNamespacedTables(t *testing.T) {
+func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	}); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
-	meta, err := s.getMeta("users")
+	meta, err := s.getMeta("widgets")
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
-	if meta.table != defaultTablePrefix+"users" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"users")
+	if meta.table != defaultTablePrefix+"widgets" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
 	}
 	if _, err := s.tableColumns(ctx, meta.table); err != nil {
-		t.Fatalf("tableColumns(prefixed): %v", err)
+		t.Fatalf("tableColumns(requested): %v", err)
 	}
-	if _, err := s.tableColumns(ctx, "users"); err == nil {
-		t.Fatal("expected bare users table to be absent")
+	if meta.table != "widgets" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, "widgets")
 	}
 }
 
@@ -232,44 +232,44 @@ func TestCreateObjectStoreMigratesLegacyBareStoreTable(t *testing.T) {
 	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
 		t.Fatalf("create metadata table: %v", err)
 	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "users", usersSchema())); err != nil {
-		t.Fatalf("create legacy users table: %v", err)
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "widgets", widgetsSchema())); err != nil {
+		t.Fatalf("create legacy widgets table: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO "users" ("id", "email", "display_name", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"u1", "alice@example.com", "Alice", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	if _, err := db.Exec(`INSERT INTO "widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
 	); err != nil {
-		t.Fatalf("insert legacy user: %v", err)
+		t.Fatalf("insert legacy widget: %v", err)
 	}
 
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("", usersSchema()))
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("", widgetsSchema()))
 	if err != nil {
 		t.Fatalf("marshal legacy schema: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "users", string(legacySchemaJSON)); err != nil {
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "widgets", string(legacySchemaJSON)); err != nil {
 		t.Fatalf("insert legacy metadata: %v", err)
 	}
 
 	s := testStoreWithDSN(t, dsn)
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	}); err != nil {
 		t.Fatalf("CreateObjectStore migrate: %v", err)
 	}
 
-	meta, err := s.getMeta("users")
+	meta, err := s.getMeta("widgets")
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
-	if meta.table != defaultTablePrefix+"users" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"users")
+	if meta.table != defaultTablePrefix+"widgets" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
 	}
 
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
 	if err != nil {
-		t.Fatalf("Get migrated user: %v", err)
+		t.Fatalf("Get migrated widget: %v", err)
 	}
-	if got := resp.Record.Fields["email"].GetStringValue(); got != "alice@example.com" {
-		t.Fatalf("Get migrated email = %q, want alice@example.com", got)
+	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+		t.Fatalf("Get migrated code = %q, want W-001", got)
 	}
 }
 
@@ -281,101 +281,84 @@ func TestCreateObjectStoreMigratesLegacyPrefixedStoreTable(t *testing.T) {
 	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
 		t.Fatalf("create metadata table: %v", err)
 	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "_gestalt_store_users", usersSchema())); err != nil {
-		t.Fatalf("create legacy prefixed users table: %v", err)
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "_gestalt_store_widgets", widgetsSchema())); err != nil {
+		t.Fatalf("create legacy prefixed widgets table: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_store_users" ("id", "email", "display_name", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"u1", "alice@example.com", "Alice", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	if _, err := db.Exec(`INSERT INTO "_gestalt_store_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
 	); err != nil {
-		t.Fatalf("insert legacy prefixed user: %v", err)
+		t.Fatalf("insert legacy prefixed widget: %v", err)
 	}
 
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("_gestalt_store_users", usersSchema()))
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("_gestalt_store_widgets", widgetsSchema()))
 	if err != nil {
 		t.Fatalf("marshal legacy prefixed schema: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "users", string(legacySchemaJSON)); err != nil {
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "widgets", string(legacySchemaJSON)); err != nil {
 		t.Fatalf("insert legacy prefixed metadata: %v", err)
 	}
 
 	s := testStoreWithDSN(t, dsn)
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	}); err != nil {
 		t.Fatalf("CreateObjectStore migrate legacy prefixed: %v", err)
 	}
 
-	meta, err := s.getMeta("users")
+	meta, err := s.getMeta("widgets")
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
-	if meta.table != defaultTablePrefix+"users" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"users")
+	if meta.table != defaultTablePrefix+"widgets" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
 	}
 
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
 	if err != nil {
-		t.Fatalf("Get migrated prefixed user: %v", err)
+		t.Fatalf("Get migrated prefixed widget: %v", err)
 	}
-	if got := resp.Record.Fields["email"].GetStringValue(); got != "alice@example.com" {
-		t.Fatalf("Get migrated prefixed email = %q, want alice@example.com", got)
+	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+		t.Fatalf("Get migrated prefixed code = %q, want W-001", got)
 	}
 }
 
-func TestCreateObjectStoreAvoidsLegacyApplicationTableCollision(t *testing.T) {
+func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
 	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-app.sqlite")
-	db := openSQLiteDB(t, dsn)
-
-	if _, err := db.Exec(`CREATE TABLE "integration_tokens" (
-		"id" TEXT NOT NULL PRIMARY KEY,
-		"user_id" TEXT NOT NULL,
-		"integration" TEXT NOT NULL,
-		"connection" TEXT NOT NULL,
-		"instance" TEXT,
-		"access_token_encrypted" TEXT NOT NULL,
-		"refresh_token_encrypted" TEXT,
-		"created_at" TEXT,
-		"updated_at" TEXT
-	)`); err != nil {
-		t.Fatalf("create legacy integration_tokens table: %v", err)
-	}
-
-	s := testStoreWithDSN(t, dsn)
+	s := testStore(t)
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "integration_tokens", Schema: integrationTokensSchema(),
+		Name: "sample_records", Schema: sampleRecordsSchema(),
 	}); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 	if _, err := s.Add(ctx, &proto.RecordRequest{
-		Store: "integration_tokens", Record: makeIntegrationToken("tok-1"),
+		Store: "sample_records", Record: makeSampleRecord("row-1"),
 	}); err != nil {
-		t.Fatalf("Add token: %v", err)
+		t.Fatalf("Add record: %v", err)
 	}
 
-	meta, err := s.getMeta("integration_tokens")
+	meta, err := s.getMeta("sample_records")
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
-	if meta.table != defaultTablePrefix+"integration_tokens" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"integration_tokens")
+	if meta.table != "sample_records" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, "sample_records")
 	}
 
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "integration_tokens", Id: "tok-1"})
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "sample_records", Id: "row-1"})
 	if err != nil {
-		t.Fatalf("Get token: %v", err)
+		t.Fatalf("Get record: %v", err)
 	}
-	if got := resp.Record.Fields["access_token_sealed"].GetStringValue(); got != "sealed-access" {
-		t.Fatalf("access_token_sealed = %q, want sealed-access", got)
+	if got := resp.Record.Fields["payload"].GetStringValue(); got != "payload-a" {
+		t.Fatalf("payload = %q, want payload-a", got)
 	}
 }
 
-func TestCreateObjectStoreRebuildsOrphanedPrefixedTable(t *testing.T) {
+func TestCreateObjectStoreIgnoresOrphanedLegacyPrefixedTable(t *testing.T) {
 	ctx := context.Background()
 	dsn := "file:" + filepath.Join(t.TempDir(), "orphaned-prefixed.sqlite")
 	db := openSQLiteDB(t, dsn)
 
-	if _, err := db.Exec(`CREATE TABLE "_gestalt_integration_tokens" (
+	if _, err := db.Exec(`CREATE TABLE "_gestalt_sample_records" (
 		"id" TEXT NOT NULL PRIMARY KEY
 	)`); err != nil {
 		t.Fatalf("create orphaned prefixed table: %v", err)
@@ -383,14 +366,22 @@ func TestCreateObjectStoreRebuildsOrphanedPrefixedTable(t *testing.T) {
 
 	s := testStoreWithDSN(t, dsn)
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "integration_tokens", Schema: integrationTokensSchema(),
+		Name: "sample_records", Schema: sampleRecordsSchema(),
 	}); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 	if _, err := s.Add(ctx, &proto.RecordRequest{
-		Store: "integration_tokens", Record: makeIntegrationToken("tok-2"),
+		Store: "sample_records", Record: makeSampleRecord("row-2"),
 	}); err != nil {
-		t.Fatalf("Add token: %v", err)
+		t.Fatalf("Add record: %v", err)
+	}
+
+	meta, err := s.getMeta("sample_records")
+	if err != nil {
+		t.Fatalf("getMeta: %v", err)
+	}
+	if meta.table != "sample_records" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, "sample_records")
 	}
 }
 
@@ -399,14 +390,14 @@ func TestAddDuplicateReturnsAlreadyExists(t *testing.T) {
 	ctx := context.Background()
 
 	s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	})
 	s.Add(ctx, &proto.RecordRequest{
-		Store: "users", Record: makeUser("u1", "alice@example.com", "Alice"),
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	})
 
 	_, err := s.Add(ctx, &proto.RecordRequest{
-		Store: "users", Record: makeUser("u1", "bob@example.com", "Bob"),
+		Store: "widgets", Record: makeWidget("w1", "W-002", "Beta Widget"),
 	})
 	if err == nil {
 		t.Fatal("expected AlreadyExists error, got nil")
@@ -418,14 +409,14 @@ func TestGetAllWithRange(t *testing.T) {
 	ctx := context.Background()
 
 	s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "users", Schema: usersSchema(),
+		Name: "widgets", Schema: widgetsSchema(),
 	})
-	s.Add(ctx, &proto.RecordRequest{Store: "users", Record: makeUser("a", "a@x.com", "A")})
-	s.Add(ctx, &proto.RecordRequest{Store: "users", Record: makeUser("b", "b@x.com", "B")})
-	s.Add(ctx, &proto.RecordRequest{Store: "users", Record: makeUser("c", "c@x.com", "C")})
+	s.Add(ctx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("a", "W-001", "Widget A")})
+	s.Add(ctx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("b", "W-002", "Widget B")})
+	s.Add(ctx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("c", "W-003", "Widget C")})
 
 	resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{
-		Store: "users",
+		Store: "widgets",
 		Range: &proto.KeyRange{
 			Lower:     mustTypedValue(t, "a"),
 			Upper:     mustTypedValue(t, "c"),
@@ -459,29 +450,29 @@ func TestRebind(t *testing.T) {
 }
 
 func TestCreateTableSQLMySQLUsesMySQLSafeTypes(t *testing.T) {
-	got := createTableSQL(dialectMySQL, "users", usersSchema())
+	got := createTableSQL(dialectMySQL, "widgets", widgetsSchema())
 	if strings.Contains(got, `"`) {
 		t.Fatalf("createTableSQL(mysql) used double quotes: %s", got)
 	}
 	if !strings.Contains(got, "`id` VARCHAR(255) NOT NULL PRIMARY KEY") {
 		t.Fatalf("createTableSQL(mysql) missing varchar primary key: %s", got)
 	}
-	if !strings.Contains(got, "`email` VARCHAR(255) NOT NULL UNIQUE") {
+	if !strings.Contains(got, "`code` VARCHAR(255) NOT NULL UNIQUE") {
 		t.Fatalf("createTableSQL(mysql) missing varchar unique column: %s", got)
 	}
-	if !strings.Contains(got, "`display_name` LONGTEXT") {
+	if !strings.Contains(got, "`title` LONGTEXT") {
 		t.Fatalf("createTableSQL(mysql) should keep non-indexed strings as LONGTEXT: %s", got)
 	}
 }
 
 func TestCreateIndexSQLMySQLOmitsIfNotExists(t *testing.T) {
-	got := createIndexSQL(dialectMySQL, "users", &proto.IndexSchema{
-		Name: "by_email", KeyPath: []string{"email"}, Unique: true,
-	}, usersSchema())
+	got := createIndexSQL(dialectMySQL, "widgets", &proto.IndexSchema{
+		Name: "by_code", KeyPath: []string{"code"}, Unique: true,
+	}, widgetsSchema())
 	if strings.Contains(got, "IF NOT EXISTS") {
 		t.Fatalf("createIndexSQL(mysql) should omit IF NOT EXISTS: %s", got)
 	}
-	if !strings.Contains(got, "CREATE UNIQUE INDEX `idx_users_by_email` ON `users` (`email`)") {
+	if !strings.Contains(got, "CREATE UNIQUE INDEX `idx_widgets_by_code` ON `widgets` (`code`)") {
 		t.Fatalf("createIndexSQL(mysql) unexpected SQL: %s", got)
 	}
 }
@@ -500,7 +491,7 @@ func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
 }
 
 func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
-	got := createTableSQL(dialectMySQL, "users", usersSchema())
+	got := createTableSQL(dialectMySQL, "widgets", widgetsSchema())
 	if !strings.Contains(got, "`created_at` DATETIME(6)") {
 		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
 	}
@@ -510,10 +501,10 @@ func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
 }
 
 func TestCreateIndexSQLMySQLUsesPrefixLengthsForCompositeStringIndexes(t *testing.T) {
-	got := createIndexSQL(dialectMySQL, "integration_tokens", &proto.IndexSchema{
-		Name: "by_lookup", KeyPath: []string{"user_id", "integration", "connection", "instance"},
-	}, integrationTokensSchema())
-	for _, col := range []string{"user_id", "integration", "connection", "instance"} {
+	got := createIndexSQL(dialectMySQL, "sample_records", &proto.IndexSchema{
+		Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"},
+	}, sampleRecordsSchema())
+	for _, col := range []string{"owner_id", "category", "region", "variant"} {
 		if !strings.Contains(got, "`"+col+"`(128)") {
 			t.Fatalf("createIndexSQL(mysql) missing prefix length for %s: %s", col, got)
 		}
