@@ -82,6 +82,13 @@ func TestFullLifecycle(t *testing.T) {
 	if got := resp.Record.Fields["email"].GetStringValue(); got != "alice@example.com" {
 		t.Fatalf("Get email: got %q, want alice@example.com", got)
 	}
+	createdAt, err := gestalt.AnyFromTypedValue(resp.Record.Fields["created_at"])
+	if err != nil {
+		t.Fatalf("AnyFromTypedValue(created_at): %v", err)
+	}
+	if _, ok := createdAt.(time.Time); !ok {
+		t.Fatalf("created_at type = %T, want time.Time", createdAt)
+	}
 
 	// Count.
 	countResp, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "users"})
@@ -239,6 +246,49 @@ func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
 	}
 	if !strings.Contains(got, "`schema_json` LONGTEXT NOT NULL") {
 		t.Fatalf("metadataTableSQL(mysql) missing longtext schema column: %s", got)
+	}
+}
+
+func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
+	got := createTableSQL(dialectMySQL, "users", usersSchema())
+	if !strings.Contains(got, "`created_at` DATETIME(6)") {
+		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
+	}
+	if !strings.Contains(got, "`updated_at` DATETIME(6)") {
+		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
+	}
+}
+
+func TestAnyToSQLArgTypeTimeUsesNativeTime(t *testing.T) {
+	timestamp := time.Date(2026, time.April, 12, 1, 27, 45, 123456000, time.FixedZone("test", -5*60*60))
+	arg, err := anyToSQLArg(timestamp, 4)
+	if err != nil {
+		t.Fatalf("anyToSQLArg(time.Time): %v", err)
+	}
+	got, ok := arg.(time.Time)
+	if !ok {
+		t.Fatalf("anyToSQLArg(time.Time) type = %T, want time.Time", arg)
+	}
+	if !got.Equal(timestamp.UTC()) {
+		t.Fatalf("anyToSQLArg(time.Time) = %s, want %s", got.Format(time.RFC3339Nano), timestamp.UTC().Format(time.RFC3339Nano))
+	}
+
+	arg, err = anyToSQLArg("2026-04-12T01:27:45Z", 4)
+	if err != nil {
+		t.Fatalf("anyToSQLArg(string): %v", err)
+	}
+	got, ok = arg.(time.Time)
+	if !ok {
+		t.Fatalf("anyToSQLArg(string) type = %T, want time.Time", arg)
+	}
+	if got.Format(time.RFC3339Nano) != "2026-04-12T01:27:45Z" {
+		t.Fatalf("anyToSQLArg(string) = %s, want 2026-04-12T01:27:45Z", got.Format(time.RFC3339Nano))
+	}
+}
+
+func TestAnyToSQLArgTypeTimeRejectsInvalidString(t *testing.T) {
+	if _, err := anyToSQLArg("definitely-not-a-time", 4); err == nil {
+		t.Fatal("expected invalid time error, got nil")
 	}
 }
 
