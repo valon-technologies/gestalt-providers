@@ -39,7 +39,7 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("cell", { name: "http://localhost:8080/mcp" }).first(),
     ).toBeVisible();
-    await expect(page.getByText("Claude Code")).toBeVisible();
+    await expect(page.getByText("Claude Code").first()).toBeVisible();
   });
 
   test("authenticated user can access docs without redirect", async ({
