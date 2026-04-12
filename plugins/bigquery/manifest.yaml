@@ -3,7 +3,8 @@ version: 0.0.1-alpha.11
 displayName: BigQuery
 description: Google BigQuery data warehouse
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     rest:
       baseUrl: https://bigquery.googleapis.com/bigquery/v2

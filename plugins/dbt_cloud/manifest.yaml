@@ -3,7 +3,8 @@ version: 0.0.1-alpha.8
 displayName: dbt Cloud
 description: Manage accounts, projects, jobs, and runs.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     openapi:
       document: https://raw.githubusercontent.com/dbt-labs/dbt-cloud-openapi-spec/master/openapi-v2.yaml
