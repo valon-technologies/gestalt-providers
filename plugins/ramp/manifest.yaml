@@ -3,7 +3,8 @@ version: 0.0.1-alpha.8
 displayName: Ramp
 description: Manage corporate cards, transactions, and reimbursements.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:

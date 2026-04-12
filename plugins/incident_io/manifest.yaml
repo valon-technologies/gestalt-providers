@@ -3,7 +3,8 @@ version: 0.0.1-alpha.8
 displayName: incident.io
 description: Manage incidents, schedules, users, severities, and statuses.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     openapi:
       document: https://api.incident.io/v1/openapiV3.json

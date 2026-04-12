@@ -3,7 +3,8 @@ version: 0.0.1-alpha.9
 displayName: Ashby
 description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     openapi:
       document: openapi.yaml

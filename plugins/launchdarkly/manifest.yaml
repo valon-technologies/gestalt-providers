@@ -3,7 +3,8 @@ version: 0.0.1-alpha.8
 displayName: LaunchDarkly
 description: Manage feature flags and targeting rules.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     openapi:
       document: https://app.launchdarkly.com/api/v2/openapi.json

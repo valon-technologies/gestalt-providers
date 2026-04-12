@@ -3,7 +3,8 @@ version: 0.0.1-alpha.9
 displayName: Modern Treasury
 description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     openapi:
       document: openapi.yaml

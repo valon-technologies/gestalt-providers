@@ -3,7 +3,8 @@ version: 0.0.1-alpha.8
 displayName: Extend
 description: Document processing and extraction with Extend.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   headers:
     x-extend-api-version: '2026-02-09'
   surfaces:

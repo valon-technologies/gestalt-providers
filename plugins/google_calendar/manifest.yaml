@@ -3,7 +3,8 @@ version: 0.0.1-alpha.10
 displayName: Google Calendar
 description: Read and manage Google calendars and events.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:

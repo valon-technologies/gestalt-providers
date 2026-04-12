@@ -3,7 +3,8 @@ version: 0.0.1-alpha.9
 displayName: Notion
 description: Current Notion REST operations plus the official Notion MCP tool surface.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   headers:
     Notion-Version: '2026-03-11'
   surfaces:

@@ -3,7 +3,8 @@ version: 0.0.1-alpha.10
 displayName: Rippling
 description: Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   surfaces:
     rest:
       baseUrl: https://rest.ripplingapis.com
