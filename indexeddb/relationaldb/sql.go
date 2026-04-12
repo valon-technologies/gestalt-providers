@@ -84,7 +84,7 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 	default: // TypeString, TypeTime, TypeBytes, TypeJSON
 		if d == dialectMySQL {
 			if indexed {
-				return "VARCHAR(191)"
+				return "VARCHAR(255)"
 			}
 			return "LONGTEXT"
 		}
@@ -139,14 +139,22 @@ func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) st
 		quoteIdent(d, table), strings.Join(defs, ", "))
 }
 
-func createIndexSQL(d dialect, table string, idx *proto.IndexSchema) string {
+func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *proto.ObjectStoreSchema) string {
 	unique := ""
 	if idx.Unique {
 		unique = "UNIQUE "
 	}
+	columnTypes := make(map[string]int32, len(schema.GetColumns()))
+	for _, col := range schema.GetColumns() {
+		columnTypes[col.Name] = col.Type
+	}
 	cols := make([]string, len(idx.KeyPath))
 	for i, c := range idx.KeyPath {
-		cols[i] = quoteIdent(d, c)
+		colSQL := quoteIdent(d, c)
+		if d == dialectMySQL && !idx.Unique && len(idx.KeyPath) > 1 && columnTypes[c] == 0 {
+			colSQL += "(128)"
+		}
+		cols[i] = colSQL
 	}
 	indexName := fmt.Sprintf("idx_%s_%s", table, idx.Name)
 	if d == dialectMySQL || d == dialectSQLServer {
