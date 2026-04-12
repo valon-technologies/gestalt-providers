@@ -2,6 +2,9 @@ package relationaldb
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,12 +15,27 @@ import (
 
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	store, err := NewStore("file::memory:?cache=shared")
+	return testStoreWithDSN(t, "file:"+filepath.Join(t.TempDir(), "relationaldb.sqlite"))
+}
+
+func testStoreWithDSN(t *testing.T, dsn string) *Store {
+	t.Helper()
+	store, err := NewStore(dsn)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
 	return store
+}
+
+func openSQLiteDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", strings.TrimPrefix(dsn, "sqlite://"))
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
 }
 
 func usersSchema() *proto.ObjectStoreSchema {
@@ -35,6 +53,23 @@ func usersSchema() *proto.ObjectStoreSchema {
 	}
 }
 
+func integrationTokensSchema() *proto.ObjectStoreSchema {
+	return &proto.ObjectStoreSchema{
+		Columns: []*proto.ColumnDef{
+			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
+			{Name: "user_id", Type: 0, NotNull: true},
+			{Name: "integration", Type: 0, NotNull: true},
+			{Name: "connection", Type: 0, NotNull: true},
+			{Name: "instance", Type: 0},
+			{Name: "access_token_sealed", Type: 0},
+			{Name: "refresh_token_sealed", Type: 0},
+			{Name: "last_refreshed_at", Type: 4},
+			{Name: "created_at", Type: 4},
+			{Name: "updated_at", Type: 4},
+		},
+	}
+}
+
 func makeUser(id, email, name string) *proto.Record {
 	record, _ := gestalt.RecordToProto(map[string]any{
 		"id":           id,
@@ -42,6 +77,22 @@ func makeUser(id, email, name string) *proto.Record {
 		"display_name": name,
 		"created_at":   time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
 		"updated_at":   time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+	})
+	return record
+}
+
+func makeIntegrationToken(id string) *proto.Record {
+	record, _ := gestalt.RecordToProto(map[string]any{
+		"id":                   id,
+		"user_id":              "user-1",
+		"integration":          "slack",
+		"connection":           "default",
+		"instance":             "default",
+		"access_token_sealed":  "sealed-access",
+		"refresh_token_sealed": "sealed-refresh",
+		"last_refreshed_at":    time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"created_at":           time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"updated_at":           time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 	})
 	return record
 }
@@ -141,6 +192,128 @@ func TestFullLifecycle(t *testing.T) {
 	_, err = s.getMeta("users")
 	if err == nil {
 		t.Fatal("expected error after DeleteObjectStore, got nil")
+	}
+}
+
+func TestCreateObjectStoreUsesNamespacedTables(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "users", Schema: usersSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+
+	meta, err := s.getMeta("users")
+	if err != nil {
+		t.Fatalf("getMeta: %v", err)
+	}
+	if meta.table != defaultTablePrefix+"users" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"users")
+	}
+	if _, err := s.tableColumns(ctx, meta.table); err != nil {
+		t.Fatalf("tableColumns(prefixed): %v", err)
+	}
+	if _, err := s.tableColumns(ctx, "users"); err == nil {
+		t.Fatal("expected bare users table to be absent")
+	}
+}
+
+func TestCreateObjectStoreMigratesLegacyBareStoreTable(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-provider.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
+		t.Fatalf("create metadata table: %v", err)
+	}
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "users", usersSchema())); err != nil {
+		t.Fatalf("create legacy users table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "users" ("id", "email", "display_name", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"u1", "alice@example.com", "Alice", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("insert legacy user: %v", err)
+	}
+
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("", usersSchema()))
+	if err != nil {
+		t.Fatalf("marshal legacy schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "users", string(legacySchemaJSON)); err != nil {
+		t.Fatalf("insert legacy metadata: %v", err)
+	}
+
+	s := testStoreWithDSN(t, dsn)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "users", Schema: usersSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore migrate: %v", err)
+	}
+
+	meta, err := s.getMeta("users")
+	if err != nil {
+		t.Fatalf("getMeta: %v", err)
+	}
+	if meta.table != defaultTablePrefix+"users" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"users")
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
+	if err != nil {
+		t.Fatalf("Get migrated user: %v", err)
+	}
+	if got := resp.Record.Fields["email"].GetStringValue(); got != "alice@example.com" {
+		t.Fatalf("Get migrated email = %q, want alice@example.com", got)
+	}
+}
+
+func TestCreateObjectStoreAvoidsLegacyApplicationTableCollision(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-app.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	if _, err := db.Exec(`CREATE TABLE "integration_tokens" (
+		"id" TEXT NOT NULL PRIMARY KEY,
+		"user_id" TEXT NOT NULL,
+		"integration" TEXT NOT NULL,
+		"connection" TEXT NOT NULL,
+		"instance" TEXT,
+		"access_token_encrypted" TEXT NOT NULL,
+		"refresh_token_encrypted" TEXT,
+		"created_at" TEXT,
+		"updated_at" TEXT
+	)`); err != nil {
+		t.Fatalf("create legacy integration_tokens table: %v", err)
+	}
+
+	s := testStoreWithDSN(t, dsn)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "integration_tokens", Schema: integrationTokensSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "integration_tokens", Record: makeIntegrationToken("tok-1"),
+	}); err != nil {
+		t.Fatalf("Add token: %v", err)
+	}
+
+	meta, err := s.getMeta("integration_tokens")
+	if err != nil {
+		t.Fatalf("getMeta: %v", err)
+	}
+	if meta.table != defaultTablePrefix+"integration_tokens" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"integration_tokens")
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "integration_tokens", Id: "tok-1"})
+	if err != nil {
+		t.Fatalf("Get token: %v", err)
+	}
+	if got := resp.Record.Fields["access_token_sealed"].GetStringValue(); got != "sealed-access" {
+		t.Fatalf("access_token_sealed = %q, want sealed-access", got)
 	}
 }
 
