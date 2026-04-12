@@ -169,6 +169,16 @@ func dropTableSQL(d dialect, table string) string {
 	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteIdent(d, table))
 }
 
+func renameColumnSQL(d dialect, table, from, to string) string {
+	switch d {
+	case dialectSQLServer:
+		return fmt.Sprintf("EXEC sp_rename '%s.%s', '%s', 'COLUMN'", table, from, to)
+	default:
+		return fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s",
+			quoteIdent(d, table), quoteIdent(d, from), quoteIdent(d, to))
+	}
+}
+
 func colList(d dialect, cols []*proto.ColumnDef) string {
 	if len(cols) == 0 {
 		return quoteIdent(d, "id")

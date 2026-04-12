@@ -222,6 +222,44 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 	return nil
 }
 
+func schemaHasColumn(schema *proto.ObjectStoreSchema, name string) bool {
+	for _, col := range schema.GetColumns() {
+		if col.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) migrateLegacyIntegrationTokenColumns(ctx context.Context, table string, schema *proto.ObjectStoreSchema) error {
+	if table == "" || !schemaHasColumn(schema, "access_token_encrypted") || !schemaHasColumn(schema, "refresh_token_encrypted") {
+		return nil
+	}
+
+	existingCols, err := s.tableColumns(ctx, table)
+	if err != nil {
+		return nil
+	}
+
+	for _, rename := range [][2]string{
+		{"access_token_sealed", "access_token_encrypted"},
+		{"refresh_token_sealed", "refresh_token_encrypted"},
+	} {
+		from, to := rename[0], rename[1]
+		_, hasFrom := existingCols[from]
+		_, hasTo := existingCols[to]
+		if !hasFrom || hasTo {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, s.q(renameColumnSQL(s.dialect, table, from, to))); err != nil {
+			return status.Errorf(codes.Internal, "rename legacy token column %s to %s: %v", from, to, err)
+		}
+		delete(existingCols, from)
+		existingCols[to] = struct{}{}
+	}
+	return nil
+}
+
 func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName string, schema *proto.ObjectStoreSchema) error {
 	schemaJSON, err := json.Marshal(newStoredSchema(tableName, schema))
 	if err != nil {
@@ -267,6 +305,14 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 		if err := s.ensureTable(ctx, tableName, schema); err != nil {
 			return nil, err
 		}
+		if err := s.migrateLegacyIntegrationTokenColumns(ctx, existing.table, schema); err != nil {
+			return nil, err
+		}
+		if existing.table != tableName {
+			if err := s.migrateLegacyIntegrationTokenColumns(ctx, tableName, schema); err != nil {
+				return nil, err
+			}
+		}
 		if existing.table != tableName {
 			if err := s.copyStoreRows(ctx, existing.table, tableName, schema); err != nil {
 				return nil, err
@@ -282,6 +328,9 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 		return nil, err
 	}
 	if err := s.ensureTable(ctx, tableName, schema); err != nil {
+		return nil, err
+	}
+	if err := s.migrateLegacyIntegrationTokenColumns(ctx, tableName, schema); err != nil {
 		return nil, err
 	}
 	if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema); err != nil {

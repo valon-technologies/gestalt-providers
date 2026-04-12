@@ -65,6 +65,27 @@ func integrationTokensSchema() *proto.ObjectStoreSchema {
 			{Name: "integration", Type: 0, NotNull: true},
 			{Name: "connection", Type: 0, NotNull: true},
 			{Name: "instance", Type: 0},
+			{Name: "access_token_encrypted", Type: 0},
+			{Name: "refresh_token_encrypted", Type: 0},
+			{Name: "last_refreshed_at", Type: 4},
+			{Name: "created_at", Type: 4},
+			{Name: "updated_at", Type: 4},
+		},
+	}
+}
+
+func legacySealedIntegrationTokensSchema() *proto.ObjectStoreSchema {
+	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_user", KeyPath: []string{"user_id"}},
+			{Name: "by_lookup", KeyPath: []string{"user_id", "integration", "connection", "instance"}},
+		},
+		Columns: []*proto.ColumnDef{
+			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
+			{Name: "user_id", Type: 0, NotNull: true},
+			{Name: "integration", Type: 0, NotNull: true},
+			{Name: "connection", Type: 0, NotNull: true},
+			{Name: "instance", Type: 0},
 			{Name: "access_token_sealed", Type: 0},
 			{Name: "refresh_token_sealed", Type: 0},
 			{Name: "last_refreshed_at", Type: 4},
@@ -87,16 +108,16 @@ func makeUser(id, email, name string) *proto.Record {
 
 func makeIntegrationToken(id string) *proto.Record {
 	record, _ := gestalt.RecordToProto(map[string]any{
-		"id":                   id,
-		"user_id":              "user-1",
-		"integration":          "slack",
-		"connection":           "default",
-		"instance":             "default",
-		"access_token_sealed":  "sealed-access",
-		"refresh_token_sealed": "sealed-refresh",
-		"last_refreshed_at":    time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
-		"created_at":           time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
-		"updated_at":           time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"id":                      id,
+		"user_id":                 "user-1",
+		"integration":             "slack",
+		"connection":              "default",
+		"instance":                "default",
+		"access_token_encrypted":  "encrypted-access",
+		"refresh_token_encrypted": "encrypted-refresh",
+		"last_refreshed_at":       time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"created_at":              time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
+		"updated_at":              time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 	})
 	return record
 }
@@ -316,8 +337,8 @@ func TestCreateObjectStoreAvoidsLegacyApplicationTableCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get token: %v", err)
 	}
-	if got := resp.Record.Fields["access_token_sealed"].GetStringValue(); got != "sealed-access" {
-		t.Fatalf("access_token_sealed = %q, want sealed-access", got)
+	if got := resp.Record.Fields["access_token_encrypted"].GetStringValue(); got != "encrypted-access" {
+		t.Fatalf("access_token_encrypted = %q, want encrypted-access", got)
 	}
 }
 
@@ -342,6 +363,76 @@ func TestCreateObjectStoreRebuildsOrphanedPrefixedTable(t *testing.T) {
 		Store: "integration_tokens", Record: makeIntegrationToken("tok-2"),
 	}); err != nil {
 		t.Fatalf("Add token: %v", err)
+	}
+}
+
+func TestCreateObjectStoreMigratesLegacySealedTokenColumns(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-sealed-tokens.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	legacySchema := legacySealedIntegrationTokensSchema()
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
+		t.Fatalf("create metadata table: %v", err)
+	}
+	if _, err := db.Exec(createTableSQL(dialectSQLite, defaultTablePrefix+"integration_tokens", legacySchema)); err != nil {
+		t.Fatalf("create legacy prefixed table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_store_integration_tokens" (
+		"id", "user_id", "integration", "connection", "instance",
+		"access_token_sealed", "refresh_token_sealed",
+		"last_refreshed_at", "created_at", "updated_at"
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"tok-legacy", "user-1", "slack", "default", "default",
+		"sealed-access", "sealed-refresh",
+		"2026-04-12T02:29:44Z", "2026-04-12T02:29:44Z", "2026-04-12T02:29:44Z",
+	); err != nil {
+		t.Fatalf("insert legacy token: %v", err)
+	}
+
+	legacySchemaJSON, err := json.Marshal(newStoredSchema(defaultTablePrefix+"integration_tokens", legacySchema))
+	if err != nil {
+		t.Fatalf("marshal legacy schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`,
+		"integration_tokens", string(legacySchemaJSON),
+	); err != nil {
+		t.Fatalf("insert legacy metadata: %v", err)
+	}
+
+	s := testStoreWithDSN(t, dsn)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "integration_tokens", Schema: integrationTokensSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore migrate legacy columns: %v", err)
+	}
+
+	cols, err := s.tableColumns(ctx, defaultTablePrefix+"integration_tokens")
+	if err != nil {
+		t.Fatalf("tableColumns: %v", err)
+	}
+	if _, ok := cols["access_token_sealed"]; ok {
+		t.Fatal("access_token_sealed column should have been renamed away")
+	}
+	if _, ok := cols["refresh_token_sealed"]; ok {
+		t.Fatal("refresh_token_sealed column should have been renamed away")
+	}
+	if _, ok := cols["access_token_encrypted"]; !ok {
+		t.Fatal("access_token_encrypted column missing after migration")
+	}
+	if _, ok := cols["refresh_token_encrypted"]; !ok {
+		t.Fatal("refresh_token_encrypted column missing after migration")
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "integration_tokens", Id: "tok-legacy"})
+	if err != nil {
+		t.Fatalf("Get migrated token: %v", err)
+	}
+	if got := resp.Record.Fields["access_token_encrypted"].GetStringValue(); got != "sealed-access" {
+		t.Fatalf("access_token_encrypted = %q, want sealed-access", got)
+	}
+	if got := resp.Record.Fields["refresh_token_encrypted"].GetStringValue(); got != "sealed-refresh" {
+		t.Fatalf("refresh_token_encrypted = %q, want sealed-refresh", got)
 	}
 }
 
