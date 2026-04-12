@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/hex
-version: 0.0.1-alpha.8
+version: 0.0.1-alpha.9
 displayName: Hex
 description: Manage Hex projects, runs, and cells.
 iconFile: assets/icon.svg
