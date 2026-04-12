@@ -414,10 +414,10 @@ func TestCreateTableSQLMySQLUsesMySQLSafeTypes(t *testing.T) {
 	if strings.Contains(got, `"`) {
 		t.Fatalf("createTableSQL(mysql) used double quotes: %s", got)
 	}
-	if !strings.Contains(got, "`id` VARCHAR(191) NOT NULL PRIMARY KEY") {
+	if !strings.Contains(got, "`id` VARCHAR(255) NOT NULL PRIMARY KEY") {
 		t.Fatalf("createTableSQL(mysql) missing varchar primary key: %s", got)
 	}
-	if !strings.Contains(got, "`email` VARCHAR(191) NOT NULL UNIQUE") {
+	if !strings.Contains(got, "`email` VARCHAR(255) NOT NULL UNIQUE") {
 		t.Fatalf("createTableSQL(mysql) missing varchar unique column: %s", got)
 	}
 	if !strings.Contains(got, "`display_name` LONGTEXT") {
@@ -428,7 +428,7 @@ func TestCreateTableSQLMySQLUsesMySQLSafeTypes(t *testing.T) {
 func TestCreateIndexSQLMySQLOmitsIfNotExists(t *testing.T) {
 	got := createIndexSQL(dialectMySQL, "users", &proto.IndexSchema{
 		Name: "by_email", KeyPath: []string{"email"}, Unique: true,
-	})
+	}, usersSchema())
 	if strings.Contains(got, "IF NOT EXISTS") {
 		t.Fatalf("createIndexSQL(mysql) should omit IF NOT EXISTS: %s", got)
 	}
@@ -460,11 +460,13 @@ func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
 	}
 }
 
-func TestCreateTableSQLMySQLUsesSafeIndexedStringWidth(t *testing.T) {
-	got := createTableSQL(dialectMySQL, "integration_tokens", integrationTokensSchema())
-	for _, col := range []string{"id", "user_id", "integration", "connection", "instance"} {
-		if !strings.Contains(got, "`"+col+"` VARCHAR(191)") {
-			t.Fatalf("createTableSQL(mysql) missing safe indexed width for %s: %s", col, got)
+func TestCreateIndexSQLMySQLUsesPrefixLengthsForCompositeStringIndexes(t *testing.T) {
+	got := createIndexSQL(dialectMySQL, "integration_tokens", &proto.IndexSchema{
+		Name: "by_lookup", KeyPath: []string{"user_id", "integration", "connection", "instance"},
+	}, integrationTokensSchema())
+	for _, col := range []string{"user_id", "integration", "connection", "instance"} {
+		if !strings.Contains(got, "`"+col+"`(128)") {
+			t.Fatalf("createIndexSQL(mysql) missing prefix length for %s: %s", col, got)
 		}
 	}
 }

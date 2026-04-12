@@ -134,7 +134,7 @@ func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.Obj
 		return status.Errorf(codes.Internal, "create table: %v", err)
 	}
 	for _, idx := range schema.GetIndexes() {
-		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, table, idx))); err != nil && !isDuplicateErr(err) {
+		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, table, idx, schema))); err != nil && !isDuplicateErr(err) {
 			return status.Errorf(codes.Internal, "create index: %v", err)
 		}
 	}
