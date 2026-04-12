@@ -321,6 +321,30 @@ func TestCreateObjectStoreAvoidsLegacyApplicationTableCollision(t *testing.T) {
 	}
 }
 
+func TestCreateObjectStoreRebuildsOrphanedPrefixedTable(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "orphaned-prefixed.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	if _, err := db.Exec(`CREATE TABLE "_gestalt_store_integration_tokens" (
+		"id" TEXT NOT NULL PRIMARY KEY
+	)`); err != nil {
+		t.Fatalf("create orphaned prefixed table: %v", err)
+	}
+
+	s := testStoreWithDSN(t, dsn)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "integration_tokens", Schema: integrationTokensSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "integration_tokens", Record: makeIntegrationToken("tok-2"),
+	}); err != nil {
+		t.Fatalf("Add token: %v", err)
+	}
+}
+
 func TestAddDuplicateReturnsAlreadyExists(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
