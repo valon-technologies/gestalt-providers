@@ -9,6 +9,7 @@ on:
       - 'auth/**'
       - 'indexeddb/**'
       - 'secrets/**'
+      - 'web/**'
   push:
     branches:
       - main
@@ -19,6 +20,7 @@ on:
       - 'auth/**'
       - 'indexeddb/**'
       - 'secrets/**'
+      - 'web/**'
 
 permissions:
   contents: read
@@ -274,3 +276,91 @@ jobs:
             echo "ERROR: ${plugin_name} produced no packaged artifacts"
             exit 1
           fi
+
+  web-e2e:
+    name: Web E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure private Gestalt repository access
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          .github/scripts/configure_private_github.sh
+
+      - name: Checkout gestalt and build gestaltd
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "main"
+
+          # Build the UI from the gestalt checkout
+          (cd "$gestalt_dir/gestaltd/ui" && npm ci && npm run build)
+
+          # Place UI assets into the web/default provider fixture
+          provider_dir="${GITHUB_WORKSPACE}/web/default"
+          rm -rf "$provider_dir/out"
+          cp -r "$gestalt_dir/gestaltd/ui/out" "$provider_dir/out"
+
+          # Fix IndexedDB provider SDK replace path for this workspace layout
+          sed -i "s|../../../gestalt/sdk/go|$gestalt_dir/sdk/go|" "${GITHUB_WORKSPACE}/indexeddb/relationaldb/go.mod"
+
+          # Build gestaltd
+          mkdir -p "${GITHUB_WORKSPACE}/../bin"
+          (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
+
+      - name: Start gestaltd
+        env:
+          GESTALT_PROVIDERS_DIR: ${{ github.workspace }}
+        run: |
+          ${GITHUB_WORKSPACE}/../bin/gestaltd >/tmp/gestaltd.log 2>&1 &
+          server_pid=$!
+          for i in $(seq 1 120); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "::error::gestaltd exited before becoming ready"
+              cat /tmp/gestaltd.log
+              exit 1
+            fi
+            if curl -sf http://localhost:8080/health; then
+              break
+            fi
+            sleep 0.5
+          done
+          if ! curl -sf http://localhost:8080/health; then
+            echo "::error::gestaltd did not become ready within 60 seconds"
+            cat /tmp/gestaltd.log
+            exit 1
+          fi
+
+      - name: Install Playwright
+        working-directory: web/default
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        working-directory: web/default
+        env:
+          GESTALT_BASE_URL: http://localhost:8080
+        run: npx playwright test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: web-e2e-playwright-report
+          path: web/default/playwright-report/
+          retention-days: 7
