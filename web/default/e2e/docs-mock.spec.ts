@@ -1,6 +1,7 @@
 import { test, expect, mockAuthInfo } from "./fixtures";
 
-const hasBackend = !!process.env.PLAYWRIGHT_BASE_URL;
+const hasBackend =
+  !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
 
 test.describe("Docs page", () => {
   test.skip(

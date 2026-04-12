@@ -6,7 +6,8 @@ import {
   mockTokens,
 } from "./fixtures";
 
-const hasBackend = !!process.env.PLAYWRIGHT_BASE_URL;
+const hasBackend =
+  !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
 
 function encodeWrappedState(hostState: string): string {
   return Buffer.from(
