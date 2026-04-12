@@ -55,6 +55,10 @@ func usersSchema() *proto.ObjectStoreSchema {
 
 func integrationTokensSchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_user", KeyPath: []string{"user_id"}},
+			{Name: "by_lookup", KeyPath: []string{"user_id", "integration", "connection", "instance"}},
+		},
 		Columns: []*proto.ColumnDef{
 			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
 			{Name: "user_id", Type: 0, NotNull: true},
@@ -386,10 +390,10 @@ func TestCreateTableSQLMySQLUsesMySQLSafeTypes(t *testing.T) {
 	if strings.Contains(got, `"`) {
 		t.Fatalf("createTableSQL(mysql) used double quotes: %s", got)
 	}
-	if !strings.Contains(got, "`id` VARCHAR(255) NOT NULL PRIMARY KEY") {
+	if !strings.Contains(got, "`id` VARCHAR(191) NOT NULL PRIMARY KEY") {
 		t.Fatalf("createTableSQL(mysql) missing varchar primary key: %s", got)
 	}
-	if !strings.Contains(got, "`email` VARCHAR(255) NOT NULL UNIQUE") {
+	if !strings.Contains(got, "`email` VARCHAR(191) NOT NULL UNIQUE") {
 		t.Fatalf("createTableSQL(mysql) missing varchar unique column: %s", got)
 	}
 	if !strings.Contains(got, "`display_name` LONGTEXT") {
@@ -429,6 +433,15 @@ func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
 	}
 	if !strings.Contains(got, "`updated_at` DATETIME(6)") {
 		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
+	}
+}
+
+func TestCreateTableSQLMySQLUsesSafeIndexedStringWidth(t *testing.T) {
+	got := createTableSQL(dialectMySQL, "integration_tokens", integrationTokensSchema())
+	for _, col := range []string{"id", "user_id", "integration", "connection", "instance"} {
+		if !strings.Contains(got, "`"+col+"` VARCHAR(191)") {
+			t.Fatalf("createTableSQL(mysql) missing safe indexed width for %s: %s", col, got)
+		}
 	}
 }
 
