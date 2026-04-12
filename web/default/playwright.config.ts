@@ -6,10 +6,10 @@ const apiPort = Number(process.env.API_PORT) || 8080;
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.spec.ts",
-  fullyParallel: true,
+  fullyParallel: !backendURL,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: 2,
+  workers: backendURL ? 1 : 2,
   timeout: 60000,
 
   reporter: [

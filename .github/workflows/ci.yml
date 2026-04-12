@@ -344,7 +344,7 @@ jobs:
         run: |
           set -euo pipefail
           gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "main"
+          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "$PROVIDER_GESTALT_REF"
 
           # Build UI from this repo
           (cd web/default && npm ci && npm run build)

@@ -1,9 +1,14 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Authentication", () => {
-  test("unauthenticated user is redirected to login", async ({ page }) => {
+  test("unauthenticated user is redirected through login", async ({ page }) => {
     await page.goto("/integrations");
-    await expect(page).toHaveURL(/login/);
+    await page.waitForURL((url) => url.pathname !== "/integrations", {
+      timeout: 10000,
+    });
+    await expect(
+      page.getByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
   });
 
   test("login page auto-authenticates when auth provider is disabled", async ({
