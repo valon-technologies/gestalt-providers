@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const backendURL = process.env.GESTALT_BASE_URL;
+const backendURL = process.env.GESTALT_BASE_URL || process.env.PLAYWRIGHT_BASE_URL;
 const apiPort = Number(process.env.API_PORT) || 8080;
 
 export default defineConfig({
