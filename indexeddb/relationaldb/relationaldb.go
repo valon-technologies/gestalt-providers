@@ -174,6 +174,23 @@ func (s *Store) tableCount(ctx context.Context, table string) (int64, error) {
 	return count, err
 }
 
+func (s *Store) resetOrphanedProviderTable(ctx context.Context, table string) error {
+	if s.tablePrefix == "" || !strings.HasPrefix(table, s.tablePrefix) {
+		return nil
+	}
+	count, err := s.tableCount(ctx, table)
+	if err != nil {
+		return nil
+	}
+	if count != 0 {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, s.q(dropTableSQL(s.dialect, table))); err != nil {
+		return status.Errorf(codes.Internal, "drop orphaned table: %v", err)
+	}
+	return nil
+}
+
 func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string, schema *proto.ObjectStoreSchema) error {
 	if sourceTable == "" || sourceTable == destTable {
 		return nil
@@ -261,6 +278,9 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 		return &emptypb.Empty{}, nil
 	}
 
+	if err := s.resetOrphanedProviderTable(ctx, tableName); err != nil {
+		return nil, err
+	}
 	if err := s.ensureTable(ctx, tableName, schema); err != nil {
 		return nil, err
 	}
