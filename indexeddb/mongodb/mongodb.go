@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -12,7 +13,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type indexMeta struct {
@@ -141,7 +141,10 @@ func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	doc := protoToDoc(req.GetRecord())
+	doc, err := protoToDoc(req.GetRecord())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode record: %v", err)
+	}
 	_, err = s.db.Collection(req.GetStore()).InsertOne(ctx, doc)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -157,7 +160,10 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	doc := protoToDoc(req.GetRecord())
+	doc, err := protoToDoc(req.GetRecord())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode record: %v", err)
+	}
 	id, ok := doc["_id"]
 	if !ok {
 		return nil, status.Error(codes.InvalidArgument, "record must have an id field")
@@ -199,7 +205,10 @@ func (p *Provider) GetAll(ctx context.Context, req *proto.ObjectStoreRangeReques
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.GetRange())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+	}
 	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get all: %v", err)
@@ -217,7 +226,10 @@ func (p *Provider) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRe
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.GetRange())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+	}
 	opts := options.Find().SetProjection(bson.M{"_id": 1})
 	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter, opts)
 	if err != nil {
@@ -240,7 +252,10 @@ func (p *Provider) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.GetRange())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+	}
 	count, err := s.db.Collection(req.GetStore()).CountDocuments(ctx, filter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "count: %v", err)
@@ -253,7 +268,10 @@ func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeR
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.GetRange())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+	}
 	result, err := s.db.Collection(req.GetStore()).DeleteMany(ctx, filter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "delete range: %v", err)
@@ -389,7 +407,7 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 // Helpers
 // ---------------------------------------------------------------------------
 
-func (s *Store) indexFilter(store, index string, values []*structpb.Value) (bson.M, error) {
+func (s *Store) indexFilter(store, index string, values []*proto.TypedValue) (bson.M, error) {
 	s.mu.RLock()
 	storeSchemas, ok := s.schemas[store]
 	s.mu.RUnlock()
@@ -402,68 +420,84 @@ func (s *Store) indexFilter(store, index string, values []*structpb.Value) (bson
 	}
 
 	filter := bson.M{}
+	goValues, err := gestalt.AnyFromTypedValues(values)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid index values: %v", err)
+	}
 	for i, field := range meta.keyPath {
-		if i < len(values) {
-			filter[field] = values[i].AsInterface()
+		if i < len(goValues) {
+			filter[field] = goValues[i]
 		}
 	}
 	return filter, nil
 }
 
-func keyRangeFilter(r *proto.KeyRange) bson.M {
+func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
 	if r == nil {
-		return bson.M{}
+		return bson.M{}, nil
 	}
 	idFilter := bson.M{}
 	if r.GetLower() != nil {
+		lower, err := gestalt.AnyFromTypedValue(r.GetLower())
+		if err != nil {
+			return nil, err
+		}
 		if r.GetLowerOpen() {
-			idFilter["$gt"] = r.GetLower().AsInterface()
+			idFilter["$gt"] = lower
 		} else {
-			idFilter["$gte"] = r.GetLower().AsInterface()
+			idFilter["$gte"] = lower
 		}
 	}
 	if r.GetUpper() != nil {
+		upper, err := gestalt.AnyFromTypedValue(r.GetUpper())
+		if err != nil {
+			return nil, err
+		}
 		if r.GetUpperOpen() {
-			idFilter["$lt"] = r.GetUpper().AsInterface()
+			idFilter["$lt"] = upper
 		} else {
-			idFilter["$lte"] = r.GetUpper().AsInterface()
+			idFilter["$lte"] = upper
 		}
 	}
 	if len(idFilter) == 0 {
-		return bson.M{}
+		return bson.M{}, nil
 	}
-	return bson.M{"_id": idFilter}
+	return bson.M{"_id": idFilter}, nil
 }
 
-func protoToDoc(s *structpb.Struct) bson.M {
-	if s == nil {
-		return bson.M{}
+func protoToDoc(record *proto.Record) (bson.M, error) {
+	if record == nil {
+		return bson.M{}, nil
+	}
+	m, err := gestalt.RecordFromProto(record)
+	if err != nil {
+		return nil, err
 	}
 	doc := bson.M{}
-	for k, v := range s.AsMap() {
+	for k, v := range m {
 		if k == "id" {
 			doc["_id"] = v
 		} else {
 			doc[k] = v
 		}
 	}
-	return doc
+	return doc, nil
 }
 
-func docToProto(doc bson.M) (*structpb.Struct, error) {
+func docToProto(doc bson.M) (*proto.Record, error) {
 	m := make(map[string]any, len(doc))
 	for k, v := range doc {
 		if k == "_id" {
 			m["id"] = fmt.Sprint(v)
 		} else {
-			m[k] = toStructpbCompatible(v)
+			m[k] = toGestaltCompatible(v)
 		}
 	}
-	return structpb.NewStruct(m)
+	return gestalt.RecordToProto(m)
 }
 
-func cursorToProtos(ctx context.Context, cursor *mongo.Cursor) ([]*structpb.Struct, error) {
-	var records []*structpb.Struct
+func cursorToProtos(ctx context.Context, cursor *mongo.Cursor) ([]*proto.Record, error) {
+	var records []*proto.Record
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
@@ -478,27 +512,38 @@ func cursorToProtos(ctx context.Context, cursor *mongo.Cursor) ([]*structpb.Stru
 	return records, nil
 }
 
-// toStructpbCompatible converts BSON-specific types (like bson.A, int32, etc.)
-// into types that structpb.NewStruct can handle (string, float64, bool, nil,
-// []any, map[string]any).
-func toStructpbCompatible(v any) any {
+func toGestaltCompatible(v any) any {
 	switch val := v.(type) {
 	case bson.M:
 		m := make(map[string]any, len(val))
 		for k, v2 := range val {
-			m[k] = toStructpbCompatible(v2)
+			m[k] = toGestaltCompatible(v2)
+		}
+		return m
+	case bson.D:
+		m := make(map[string]any, len(val))
+		for _, elem := range val {
+			m[elem.Key] = toGestaltCompatible(elem.Value)
 		}
 		return m
 	case bson.A:
 		a := make([]any, len(val))
 		for i, v2 := range val {
-			a[i] = toStructpbCompatible(v2)
+			a[i] = toGestaltCompatible(v2)
 		}
 		return a
 	case int32:
-		return float64(val)
+		return int64(val)
 	case int64:
+		return val
+	case float32:
 		return float64(val)
+	case bson.DateTime:
+		return val.Time()
+	case bson.Binary:
+		return val.Data
+	case bson.ObjectID:
+		return val.Hex()
 	default:
 		return val
 	}

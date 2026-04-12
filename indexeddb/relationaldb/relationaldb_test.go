@@ -4,9 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func testStore(t *testing.T) *Store {
@@ -34,15 +35,15 @@ func usersSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func makeUser(id, email, name string) *structpb.Struct {
-	s, _ := structpb.NewStruct(map[string]any{
+func makeUser(id, email, name string) *proto.Record {
+	record, _ := gestalt.RecordToProto(map[string]any{
 		"id":           id,
 		"email":        email,
 		"display_name": name,
-		"created_at":   "2024-01-01T00:00:00Z",
-		"updated_at":   "2024-01-01T00:00:00Z",
+		"created_at":   time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+		"updated_at":   time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
 	})
-	return s
+	return record
 }
 
 func TestFullLifecycle(t *testing.T) {
@@ -104,7 +105,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// Index query.
-	vals := []*structpb.Value{structpb.NewStringValue("alice@example.com")}
+	vals, _ := gestalt.TypedValuesFromAny([]any{"alice@example.com"})
 	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
 		Store: "users", Index: "by_email", Values: vals,
 	})
@@ -169,8 +170,8 @@ func TestGetAllWithRange(t *testing.T) {
 	resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{
 		Store: "users",
 		Range: &proto.KeyRange{
-			Lower:     structpb.NewStringValue("a"),
-			Upper:     structpb.NewStringValue("c"),
+			Lower:     mustTypedValue(t, "a"),
+			Upper:     mustTypedValue(t, "c"),
 			UpperOpen: true,
 		},
 	})
@@ -239,4 +240,13 @@ func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
 	if !strings.Contains(got, "`schema_json` LONGTEXT NOT NULL") {
 		t.Fatalf("metadataTableSQL(mysql) missing longtext schema column: %s", got)
 	}
+}
+
+func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
+	t.Helper()
+	pbValue, err := gestalt.TypedValueFromAny(value)
+	if err != nil {
+		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
+	}
+	return pbValue
 }

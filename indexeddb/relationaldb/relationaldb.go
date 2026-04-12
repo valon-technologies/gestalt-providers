@@ -3,21 +3,24 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
 	_ "modernc.org/sqlite"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type storeMeta struct {
@@ -182,7 +185,10 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	if err != nil {
 		return nil, err
 	}
-	args := structToArgs(req.GetRecord(), m.columns)
+	args, err := recordToArgs(req.GetRecord(), m.columns)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
+	}
 	if _, err := s.db.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, m.columns)), args...); err != nil {
 		return nil, mapSQLErr("add", err)
 	}
@@ -195,7 +201,10 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 		return nil, err
 	}
 	record := req.GetRecord()
-	id := extractID(record, m.pkCol)
+	id, err := extractID(record, m.pkCol)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "record id: %v", err)
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -206,7 +215,10 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	if _, err := tx.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), id); err != nil {
 		return nil, status.Errorf(codes.Internal, "put delete: %v", err)
 	}
-	args := structToArgs(record, m.columns)
+	args, err := recordToArgs(record, m.columns)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
+	}
 	if _, err := tx.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, m.columns)), args...); err != nil {
 		return nil, mapSQLErr("put insert", err)
 	}
@@ -245,7 +257,10 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 	if err != nil {
 		return nil, err
 	}
-	query, args := selectAllWithRange(s.dialect, m, req.Range)
+	query, args, err := selectAllWithRange(s.dialect, m, req.Range)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get_all: %v", err)
@@ -263,7 +278,10 @@ func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeReque
 	if err != nil {
 		return nil, err
 	}
-	query, args := selectKeysWithRange(s.dialect, m, req.Range)
+	query, args, err := selectKeysWithRange(s.dialect, m, req.Range)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get_all_keys: %v", err)
@@ -285,7 +303,10 @@ func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (
 	if err != nil {
 		return nil, err
 	}
-	query, args := countWithRange(s.dialect, m, req.Range)
+	query, args, err := countWithRange(s.dialect, m, req.Range)
+	if err != nil {
+		return nil, err
+	}
 	var count int64
 	if err := s.db.QueryRowContext(ctx, s.q(query), args...).Scan(&count); err != nil {
 		return nil, status.Errorf(codes.Internal, "count: %v", err)
@@ -298,7 +319,10 @@ func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequ
 	if err != nil {
 		return nil, err
 	}
-	query, args := deleteWithRange(s.dialect, m, req.Range)
+	query, args, err := deleteWithRange(s.dialect, m, req.Range)
+	if err != nil {
+		return nil, err
+	}
 	result, err := s.db.ExecContext(ctx, s.q(query), args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "delete_range: %v", err)
@@ -423,37 +447,49 @@ func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (
 
 // ---- Query builders for range and index operations ----
 
-func selectAllWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any) {
-	where, args := keyRangeWhere(d, m.pkCol, kr)
-	if where == "" {
-		return fmt.Sprintf("SELECT %s FROM %s", colList(d, m.columns), quoteIdent(d, m.table)), args
+func selectAllWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
+	where, args, err := keyRangeWhere(d, m, kr)
+	if err != nil {
+		return "", nil, err
 	}
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", colList(d, m.columns), quoteIdent(d, m.table), where), args
+	if where == "" {
+		return fmt.Sprintf("SELECT %s FROM %s", colList(d, m.columns), quoteIdent(d, m.table)), args, nil
+	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", colList(d, m.columns), quoteIdent(d, m.table), where), args, nil
 }
 
-func selectKeysWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any) {
+func selectKeysWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
 	pk := quoteIdent(d, m.pkCol)
-	where, args := keyRangeWhere(d, m.pkCol, kr)
-	if where == "" {
-		return fmt.Sprintf("SELECT %s FROM %s", pk, quoteIdent(d, m.table)), args
+	where, args, err := keyRangeWhere(d, m, kr)
+	if err != nil {
+		return "", nil, err
 	}
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", pk, quoteIdent(d, m.table), where), args
+	if where == "" {
+		return fmt.Sprintf("SELECT %s FROM %s", pk, quoteIdent(d, m.table)), args, nil
+	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", pk, quoteIdent(d, m.table), where), args, nil
 }
 
-func countWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any) {
-	where, args := keyRangeWhere(d, m.pkCol, kr)
-	if where == "" {
-		return fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(d, m.table)), args
+func countWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
+	where, args, err := keyRangeWhere(d, m, kr)
+	if err != nil {
+		return "", nil, err
 	}
-	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", quoteIdent(d, m.table), where), args
+	if where == "" {
+		return fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(d, m.table)), args, nil
+	}
+	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", quoteIdent(d, m.table), where), args, nil
 }
 
-func deleteWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any) {
-	where, args := keyRangeWhere(d, m.pkCol, kr)
-	if where == "" {
-		return fmt.Sprintf("DELETE FROM %s", quoteIdent(d, m.table)), args
+func deleteWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
+	where, args, err := keyRangeWhere(d, m, kr)
+	if err != nil {
+		return "", nil, err
 	}
-	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteIdent(d, m.table), where), args
+	if where == "" {
+		return fmt.Sprintf("DELETE FROM %s", quoteIdent(d, m.table)), args, nil
+	}
+	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteIdent(d, m.table), where), args, nil
 }
 
 func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, limitOne bool, selectExpr string) (string, []any, error) {
@@ -469,10 +505,17 @@ func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, lim
 			break
 		}
 		clauses = append(clauses, quoteIdent(d, col)+" = ?")
-		args = append(args, protoValueToArg(req.Values[i]))
+		arg, err := protoValueToArg(req.Values[i], columnType(m, col))
+		if err != nil {
+			return "", nil, status.Errorf(codes.InvalidArgument, "index value %d: %v", i, err)
+		}
+		args = append(args, arg)
 	}
 
-	rangeWhere, rangeArgs := keyRangeWhere(d, m.pkCol, req.Range)
+	rangeWhere, rangeArgs, err := keyRangeWhere(d, m, req.Range)
+	if err != nil {
+		return "", nil, err
+	}
 	if rangeWhere != "" {
 		clauses = append(clauses, rangeWhere)
 		args = append(args, rangeArgs...)
@@ -502,10 +545,17 @@ func indexCountQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (str
 			break
 		}
 		clauses = append(clauses, quoteIdent(d, col)+" = ?")
-		args = append(args, protoValueToArg(req.Values[i]))
+		arg, err := protoValueToArg(req.Values[i], columnType(m, col))
+		if err != nil {
+			return "", nil, status.Errorf(codes.InvalidArgument, "index value %d: %v", i, err)
+		}
+		args = append(args, arg)
 	}
 
-	rangeWhere, rangeArgs := keyRangeWhere(d, m.pkCol, req.Range)
+	rangeWhere, rangeArgs, err := keyRangeWhere(d, m, req.Range)
+	if err != nil {
+		return "", nil, err
+	}
 	if rangeWhere != "" {
 		clauses = append(clauses, rangeWhere)
 		args = append(args, rangeArgs...)
@@ -531,7 +581,11 @@ func indexDeleteQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (st
 			break
 		}
 		clauses = append(clauses, quoteIdent(d, col)+" = ?")
-		args = append(args, protoValueToArg(req.Values[i]))
+		arg, err := protoValueToArg(req.Values[i], columnType(m, col))
+		if err != nil {
+			return "", nil, status.Errorf(codes.InvalidArgument, "index value %d: %v", i, err)
+		}
+		args = append(args, arg)
 	}
 	if len(clauses) == 0 {
 		return "", nil, status.Errorf(codes.InvalidArgument, "no index values provided")
@@ -548,126 +602,154 @@ func findIndex(m *storeMeta, name string) *proto.IndexSchema {
 	return nil
 }
 
-func keyRangeWhere(d dialect, pkCol string, kr *proto.KeyRange) (string, []any) {
+func keyRangeWhere(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
 	if kr == nil {
-		return "", nil
+		return "", nil, nil
 	}
 	var clauses []string
 	var args []any
-	pk := quoteIdent(d, pkCol)
+	pk := quoteIdent(d, m.pkCol)
+	pkType := columnType(m, m.pkCol)
 
 	if kr.Lower != nil && kr.Lower.GetKind() != nil {
-		if _, ok := kr.Lower.GetKind().(*structpb.Value_NullValue); !ok {
+		if _, ok := kr.Lower.GetKind().(*proto.TypedValue_NullValue); !ok {
 			op := ">="
 			if kr.LowerOpen {
 				op = ">"
 			}
 			clauses = append(clauses, fmt.Sprintf("%s %s ?", pk, op))
-			args = append(args, protoValueToArg(kr.Lower))
+			arg, err := protoValueToArg(kr.Lower, pkType)
+			if err != nil {
+				return "", nil, status.Errorf(codes.InvalidArgument, "key range lower: %v", err)
+			}
+			args = append(args, arg)
 		}
 	}
 	if kr.Upper != nil && kr.Upper.GetKind() != nil {
-		if _, ok := kr.Upper.GetKind().(*structpb.Value_NullValue); !ok {
+		if _, ok := kr.Upper.GetKind().(*proto.TypedValue_NullValue); !ok {
 			op := "<="
 			if kr.UpperOpen {
 				op = "<"
 			}
 			clauses = append(clauses, fmt.Sprintf("%s %s ?", pk, op))
-			args = append(args, protoValueToArg(kr.Upper))
+			arg, err := protoValueToArg(kr.Upper, pkType)
+			if err != nil {
+				return "", nil, status.Errorf(codes.InvalidArgument, "key range upper: %v", err)
+			}
+			args = append(args, arg)
 		}
 	}
-	return strings.Join(clauses, " AND "), args
+	return strings.Join(clauses, " AND "), args, nil
 }
 
 // ---- Value conversion ----
 
-func structToArgs(s *structpb.Struct, cols []*proto.ColumnDef) []any {
-	if s == nil {
-		return make([]any, len(cols))
+func recordToArgs(record *proto.Record, cols []*proto.ColumnDef) ([]any, error) {
+	if record == nil {
+		return make([]any, len(cols)), nil
 	}
 	args := make([]any, len(cols))
 	for i, col := range cols {
-		v, ok := s.Fields[col.Name]
+		v, ok := record.Fields[col.Name]
 		if !ok || v == nil {
 			args[i] = nil
 			continue
 		}
-		args[i] = protoValueToSQLArg(v, col.Type)
+		arg, err := protoValueToSQLArg(v, col.Type)
+		if err != nil {
+			return nil, fmt.Errorf("field %q: %w", col.Name, err)
+		}
+		args[i] = arg
 	}
-	return args
+	return args, nil
 }
 
-func protoValueToSQLArg(v *structpb.Value, colType int32) any {
-	switch k := v.GetKind().(type) {
-	case *structpb.Value_NullValue:
-		return nil
-	case *structpb.Value_NumberValue:
-		switch colType {
-		case 1: // TypeInt
-			return int64(k.NumberValue)
-		case 2: // TypeFloat
-			return k.NumberValue
-		case 3: // TypeBool
-			if k.NumberValue != 0 {
-				return int16(1)
-			}
-			return int16(0)
-		default:
-			return fmt.Sprintf("%v", k.NumberValue)
-		}
-	case *structpb.Value_StringValue:
-		return k.StringValue
-	case *structpb.Value_BoolValue:
-		if k.BoolValue {
-			return int16(1)
-		}
-		return int16(0)
-	case *structpb.Value_StructValue:
-		b, _ := json.Marshal(k.StructValue.AsMap())
-		return string(b)
-	case *structpb.Value_ListValue:
-		b, _ := json.Marshal(k.ListValue.AsSlice())
-		return string(b)
-	default:
-		return nil
-	}
-}
-
-func protoValueToArg(v *structpb.Value) any {
+func protoValueToSQLArg(v *proto.TypedValue, colType int32) (any, error) {
 	if v == nil {
-		return nil
+		return nil, nil
 	}
-	switch k := v.GetKind().(type) {
-	case *structpb.Value_StringValue:
-		return k.StringValue
-	case *structpb.Value_NumberValue:
-		return fmt.Sprintf("%v", k.NumberValue)
-	case *structpb.Value_BoolValue:
-		return fmt.Sprintf("%v", k.BoolValue)
+	goValue, err := gestalt.AnyFromTypedValue(v)
+	if err != nil {
+		return nil, err
+	}
+	return anyToSQLArg(goValue, colType)
+}
+
+func anyToSQLArg(value any, colType int32) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	switch colType {
+	case 1: // TypeInt
+		n, err := toInt64(value)
+		if err != nil {
+			return nil, err
+		}
+		return n, nil
+	case 2: // TypeFloat
+		f, err := toFloat64(value)
+		if err != nil {
+			return nil, err
+		}
+		return f, nil
+	case 3: // TypeBool
+		b, err := toBool(value)
+		if err != nil {
+			return nil, err
+		}
+		if b {
+			return int16(1), nil
+		}
+		return int16(0), nil
+	case 4: // TypeTime
+		t, ok := value.(time.Time)
+		if ok {
+			return t.UTC().Format(time.RFC3339Nano), nil
+		}
+		if s, ok := value.(string); ok {
+			return s, nil
+		}
+		return nil, fmt.Errorf("expected time.Time or string, got %T", value)
+	case 5: // TypeBytes
+		switch v := value.(type) {
+		case []byte:
+			return base64.StdEncoding.EncodeToString(v), nil
+		case string:
+			return v, nil
+		default:
+			return nil, fmt.Errorf("expected []byte or string, got %T", value)
+		}
+	case 6: // TypeJSON
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		return string(raw), nil
 	default:
-		return nil
+		return fmt.Sprint(value), nil
 	}
 }
 
-func extractID(s *structpb.Struct, pkCol string) string {
-	if s == nil {
-		return ""
+func protoValueToArg(v *proto.TypedValue, colType int32) (any, error) {
+	return protoValueToSQLArg(v, colType)
+}
+
+func extractID(record *proto.Record, pkCol string) (string, error) {
+	if record == nil {
+		return "", status.Error(codes.InvalidArgument, "record is required")
 	}
-	v, ok := s.Fields[pkCol]
+	v, ok := record.Fields[pkCol]
 	if !ok || v == nil {
-		return ""
+		return "", status.Errorf(codes.InvalidArgument, "record missing primary key %q", pkCol)
 	}
-	switch k := v.GetKind().(type) {
-	case *structpb.Value_StringValue:
-		return k.StringValue
-	case *structpb.Value_NumberValue:
-		return fmt.Sprintf("%v", k.NumberValue)
-	default:
-		return ""
+	value, err := gestalt.AnyFromTypedValue(v)
+	if err != nil {
+		return "", err
 	}
+	return fmt.Sprint(value), nil
 }
 
-func scanRow(row *sql.Row, cols []*proto.ColumnDef) (*structpb.Struct, error) {
+func scanRow(row *sql.Row, cols []*proto.ColumnDef) (*proto.Record, error) {
 	dest := make([]any, len(cols))
 	for i := range cols {
 		dest[i] = new(sql.NullString)
@@ -678,8 +760,8 @@ func scanRow(row *sql.Row, cols []*proto.ColumnDef) (*structpb.Struct, error) {
 	return destToStruct(dest, cols)
 }
 
-func scanRows(rows *sql.Rows, cols []*proto.ColumnDef) ([]*structpb.Struct, error) {
-	var out []*structpb.Struct
+func scanRows(rows *sql.Rows, cols []*proto.ColumnDef) ([]*proto.Record, error) {
+	var out []*proto.Record
 	for rows.Next() {
 		dest := make([]any, len(cols))
 		for i := range cols {
@@ -697,30 +779,135 @@ func scanRows(rows *sql.Rows, cols []*proto.ColumnDef) ([]*structpb.Struct, erro
 	return out, rows.Err()
 }
 
-func destToStruct(dest []any, cols []*proto.ColumnDef) (*structpb.Struct, error) {
-	fields := make(map[string]*structpb.Value, len(cols))
+func destToStruct(dest []any, cols []*proto.ColumnDef) (*proto.Record, error) {
+	record := make(map[string]any, len(cols))
 	for i, col := range cols {
 		ns := dest[i].(*sql.NullString)
 		if !ns.Valid {
-			fields[col.Name] = structpb.NewNullValue()
+			record[col.Name] = nil
 			continue
 		}
 		switch col.Type {
 		case 1: // TypeInt
-			var n int64
-			fmt.Sscanf(ns.String, "%d", &n)
-			fields[col.Name] = structpb.NewNumberValue(float64(n))
+			n, err := strconv.ParseInt(ns.String, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			record[col.Name] = n
 		case 2: // TypeFloat
-			var f float64
-			fmt.Sscanf(ns.String, "%g", &f)
-			fields[col.Name] = structpb.NewNumberValue(f)
+			f, err := strconv.ParseFloat(ns.String, 64)
+			if err != nil {
+				return nil, err
+			}
+			record[col.Name] = f
 		case 3: // TypeBool
-			fields[col.Name] = structpb.NewBoolValue(ns.String != "0" && ns.String != "false")
+			record[col.Name] = ns.String != "0" && ns.String != "false"
+		case 4: // TypeTime
+			record[col.Name] = parseStoredTime(ns.String)
+		case 5: // TypeBytes
+			record[col.Name] = parseStoredBytes(ns.String)
+		case 6: // TypeJSON
+			record[col.Name] = parseStoredJSON(ns.String)
 		default:
-			fields[col.Name] = structpb.NewStringValue(ns.String)
+			record[col.Name] = ns.String
 		}
 	}
-	return &structpb.Struct{Fields: fields}, nil
+	return gestalt.RecordToProto(record)
+}
+
+func columnType(m *storeMeta, name string) int32 {
+	for _, col := range m.columns {
+		if col.Name == name {
+			return col.Type
+		}
+	}
+	return 0
+}
+
+func toInt64(value any) (int64, error) {
+	switch v := value.(type) {
+	case int64:
+		return v, nil
+	case int32:
+		return int64(v), nil
+	case int:
+		return int64(v), nil
+	case float64:
+		return int64(v), nil
+	case string:
+		return strconv.ParseInt(v, 10, 64)
+	default:
+		return 0, fmt.Errorf("expected integer-compatible value, got %T", value)
+	}
+}
+
+func toFloat64(value any) (float64, error) {
+	switch v := value.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case string:
+		return strconv.ParseFloat(v, 64)
+	default:
+		return 0, fmt.Errorf("expected float-compatible value, got %T", value)
+	}
+}
+
+func toBool(value any) (bool, error) {
+	switch v := value.(type) {
+	case bool:
+		return v, nil
+	case int64:
+		return v != 0, nil
+	case int:
+		return v != 0, nil
+	case string:
+		switch strings.ToLower(v) {
+		case "1", "true":
+			return true, nil
+		case "0", "false":
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("expected bool-compatible value, got %T", value)
+}
+
+func parseStoredTime(raw string) any {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed
+		}
+	}
+	return raw
+}
+
+func parseStoredBytes(raw string) []byte {
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return []byte(raw)
+	}
+	return decoded
+}
+
+func parseStoredJSON(raw string) any {
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return raw
+	}
+	return value
 }
 
 // ---- DSN parsing ----

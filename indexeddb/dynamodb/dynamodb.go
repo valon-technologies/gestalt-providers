@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +13,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -231,7 +233,10 @@ func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	if err != nil {
 		return nil, err
 	}
-	data, _ := json.Marshal(req.Record.AsMap())
+	data, err := marshalRecord(req.Record)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
+	}
 	idxItems := st.buildIndexItems(req.Store, id, req.Record)
 
 	items := []ddbtypes.TransactWriteItem{
@@ -240,7 +245,7 @@ func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 			Item: map[string]ddbtypes.AttributeValue{
 				attrPK:   &ddbtypes.AttributeValueMemberS{Value: req.Store},
 				attrSK:   &ddbtypes.AttributeValueMemberS{Value: id},
-				attrData: &ddbtypes.AttributeValueMemberS{Value: string(data)},
+				attrData: &ddbtypes.AttributeValueMemberB{Value: data},
 			},
 			ConditionExpression: aws.String("attribute_not_exists(PK)"),
 		}},
@@ -252,7 +257,7 @@ func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 				Item: map[string]ddbtypes.AttributeValue{
 					attrPK:    &ddbtypes.AttributeValueMemberS{Value: idx.pk},
 					attrSK:    &ddbtypes.AttributeValueMemberS{Value: idx.sk},
-					attrData:  &ddbtypes.AttributeValueMemberS{Value: string(data)},
+					attrData:  &ddbtypes.AttributeValueMemberB{Value: data},
 					attrRefID: &ddbtypes.AttributeValueMemberS{Value: id},
 				},
 			},
@@ -275,7 +280,10 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	if err != nil {
 		return nil, err
 	}
-	data, _ := json.Marshal(req.Record.AsMap())
+	data, err := marshalRecord(req.Record)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
+	}
 
 	if old, _ := st.getRecord(ctx, req.Store, id); old != nil {
 		st.deleteIndexItems(ctx, st.buildIndexItems(req.Store, id, old))
@@ -288,7 +296,7 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 			Item: map[string]ddbtypes.AttributeValue{
 				attrPK:   &ddbtypes.AttributeValueMemberS{Value: req.Store},
 				attrSK:   &ddbtypes.AttributeValueMemberS{Value: id},
-				attrData: &ddbtypes.AttributeValueMemberS{Value: string(data)},
+				attrData: &ddbtypes.AttributeValueMemberB{Value: data},
 			},
 		})
 	} else {
@@ -298,7 +306,7 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 				Item: map[string]ddbtypes.AttributeValue{
 					attrPK:   &ddbtypes.AttributeValueMemberS{Value: req.Store},
 					attrSK:   &ddbtypes.AttributeValueMemberS{Value: id},
-					attrData: &ddbtypes.AttributeValueMemberS{Value: string(data)},
+					attrData: &ddbtypes.AttributeValueMemberB{Value: data},
 				},
 			}},
 		}
@@ -309,7 +317,7 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 					Item: map[string]ddbtypes.AttributeValue{
 						attrPK:    &ddbtypes.AttributeValueMemberS{Value: idx.pk},
 						attrSK:    &ddbtypes.AttributeValueMemberS{Value: idx.sk},
-						attrData:  &ddbtypes.AttributeValueMemberS{Value: string(data)},
+						attrData:  &ddbtypes.AttributeValueMemberB{Value: data},
 						attrRefID: &ddbtypes.AttributeValueMemberS{Value: id},
 					},
 				},
@@ -379,8 +387,8 @@ func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeR
 	}
 	var deleted int64
 	for _, rec := range records {
-		id, ok := rec.AsMap()["id"].(string)
-		if !ok {
+		id, err := extractID(rec)
+		if err != nil {
 			continue
 		}
 		st.deleteRecord(ctx, req.Store, id, st.buildIndexItems(req.Store, id, rec))
@@ -443,8 +451,8 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 	}
 	var deleted int64
 	for _, rec := range records {
-		id, ok := rec.AsMap()["id"].(string)
-		if !ok {
+		id, err := extractID(rec)
+		if err != nil {
 			continue
 		}
 		st.deleteRecord(ctx, req.Store, id, st.buildIndexItems(req.Store, id, rec))
@@ -455,7 +463,7 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 
 type indexItem struct{ pk, sk string }
 
-func (s *store) getRecord(ctx context.Context, storeName, id string) (*structpb.Struct, error) {
+func (s *store) getRecord(ctx context.Context, storeName, id string) (*proto.Record, error) {
 	resp, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: &s.table,
 		Key: map[string]ddbtypes.AttributeValue{
@@ -520,11 +528,10 @@ func (s *store) deleteIndexItems(ctx context.Context, items []indexItem) {
 	s.batchDelete(ctx, ddbItems)
 }
 
-func (s *store) buildIndexItems(storeName, id string, record *structpb.Struct) []indexItem {
+func (s *store) buildIndexItems(storeName, id string, record *proto.Record) []indexItem {
 	if record == nil {
 		return nil
 	}
-	m := record.AsMap()
 	sc, ok := s.getSchema(storeName)
 	if !ok {
 		return nil
@@ -533,7 +540,7 @@ func (s *store) buildIndexItems(storeName, id string, record *structpb.Struct) [
 	for _, idx := range sc.Indexes {
 		vals := make([]string, len(idx.KeyPath))
 		for i, field := range idx.KeyPath {
-			vals[i] = fmt.Sprint(m[field])
+			vals[i] = typedValueKeyString(record.GetFields()[field])
 		}
 		items = append(items, indexItem{
 			pk: indexPK(storeName, idx.Name),
@@ -543,9 +550,9 @@ func (s *store) buildIndexItems(storeName, id string, record *structpb.Struct) [
 	return items
 }
 
-func (s *store) queryRecords(ctx context.Context, storeName string, kr *proto.KeyRange) ([]*structpb.Struct, error) {
+func (s *store) queryRecords(ctx context.Context, storeName string, kr *proto.KeyRange) ([]*proto.Record, error) {
 	cond, vals := buildKeyCondition(storeName, kr)
-	var records []*structpb.Struct
+	var records []*proto.Record
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
@@ -620,10 +627,10 @@ func (s *store) queryCount(ctx context.Context, storeName string, kr *proto.KeyR
 	return total, nil
 }
 
-func (s *store) queryIndex(ctx context.Context, storeName, indexName string, values []*structpb.Value) ([]*structpb.Struct, error) {
+func (s *store) queryIndex(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) ([]*proto.Record, error) {
 	pk := indexPK(storeName, indexName)
 	skp := indexSKPrefix(protoValuesToStrings(values))
-	var records []*structpb.Struct
+	var records []*proto.Record
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
@@ -651,7 +658,7 @@ func (s *store) queryIndex(ctx context.Context, storeName, indexName string, val
 	return records, nil
 }
 
-func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string, values []*structpb.Value) ([]string, error) {
+func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) ([]string, error) {
 	pk := indexPK(storeName, indexName)
 	skp := indexSKPrefix(protoValuesToStrings(values))
 	var keys []string
@@ -681,7 +688,7 @@ func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string,
 	return keys, nil
 }
 
-func (s *store) queryIndexCount(ctx context.Context, storeName, indexName string, values []*structpb.Value) (int64, error) {
+func (s *store) queryIndexCount(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) (int64, error) {
 	pk := indexPK(storeName, indexName)
 	skp := indexSKPrefix(protoValuesToStrings(values))
 	var total int64
@@ -807,7 +814,14 @@ func getS(item map[string]ddbtypes.AttributeValue, key string) string {
 	return ""
 }
 
-func parseData(item map[string]ddbtypes.AttributeValue) (*structpb.Struct, error) {
+func parseData(item map[string]ddbtypes.AttributeValue) (*proto.Record, error) {
+	if raw, ok := item[attrData].(*ddbtypes.AttributeValueMemberB); ok {
+		record := &proto.Record{}
+		if err := gproto.Unmarshal(raw.Value, record); err != nil {
+			return nil, err
+		}
+		return record, nil
+	}
 	raw := getS(item, attrData)
 	if raw == "" {
 		return nil, nil
@@ -816,10 +830,10 @@ func parseData(item map[string]ddbtypes.AttributeValue) (*structpb.Struct, error
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return nil, err
 	}
-	return structpb.NewStruct(m)
+	return gestalt.RecordToProto(m)
 }
 
-func extractID(record *structpb.Struct) (string, error) {
+func extractID(record *proto.Record) (string, error) {
 	if record == nil {
 		return "", status.Error(codes.InvalidArgument, "record is required")
 	}
@@ -827,30 +841,25 @@ func extractID(record *structpb.Struct) (string, error) {
 	if !ok {
 		return "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
 	}
-	id := v.GetStringValue()
+	value, err := gestalt.AnyFromTypedValue(v)
+	if err != nil {
+		return "", status.Errorf(codes.InvalidArgument, "record id: %v", err)
+	}
+	id, ok := value.(string)
 	if id == "" {
 		return "", status.Error(codes.InvalidArgument, "record \"id\" must be a non-empty string")
 	}
 	return id, nil
 }
 
-func protoValueToString(v *structpb.Value) string {
+func protoValueToString(v *proto.TypedValue) string {
 	if v == nil {
 		return ""
 	}
-	switch k := v.Kind.(type) {
-	case *structpb.Value_StringValue:
-		return k.StringValue
-	case *structpb.Value_NumberValue:
-		return fmt.Sprintf("%g", k.NumberValue)
-	case *structpb.Value_BoolValue:
-		return fmt.Sprintf("%t", k.BoolValue)
-	default:
-		return ""
-	}
+	return typedValueKeyString(v)
 }
 
-func protoValuesToStrings(values []*structpb.Value) []string {
+func protoValuesToStrings(values []*proto.TypedValue) []string {
 	out := make([]string, len(values))
 	for i, v := range values {
 		out[i] = protoValueToString(v)
@@ -867,3 +876,48 @@ func isConditionFailed(err error) bool {
 	return strings.Contains(msg, "ConditionalCheckFailed") || strings.Contains(msg, "conditional request failed")
 }
 
+func marshalRecord(record *proto.Record) ([]byte, error) {
+	if record == nil {
+		return nil, status.Error(codes.InvalidArgument, "record is required")
+	}
+	return gproto.Marshal(record)
+}
+
+func typedValueKeyString(value *proto.TypedValue) string {
+	goValue, err := gestalt.AnyFromTypedValue(value)
+	if err != nil {
+		return ""
+	}
+	return keyStringFromAny(goValue)
+}
+
+func keyStringFromAny(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case bool:
+		return fmt.Sprintf("%t", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case int32:
+		return fmt.Sprintf("%d", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case float64:
+		return fmt.Sprintf("%g", v)
+	case float32:
+		return fmt.Sprintf("%g", v)
+	case time.Time:
+		return v.UTC().Format(time.RFC3339Nano)
+	case []byte:
+		return base64.StdEncoding.EncodeToString(v)
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(raw)
+	}
+}
