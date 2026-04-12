@@ -42,7 +42,7 @@ export default defineConfig({
     : {
         webServer: {
           command: process.env.CI
-            ? `npx -y serve out -l ${apiPort} --single`
+            ? `npx -y serve out -l ${apiPort}`
             : "./dev.sh",
           url: `http://localhost:${apiPort}`,
           reuseExistingServer: !process.env.CI,
