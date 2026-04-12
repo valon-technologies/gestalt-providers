@@ -96,6 +96,12 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: .github/scripts/configure_private_github.sh
+      - name: Install rcodesign
+        run: |
+          set -euo pipefail
+          version="0.29.0"
+          archive="apple-codesign-${version}-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/${version}/${archive}" | tar xz -C /usr/local/bin --strip-components=1 "apple-codesign-${version}-x86_64-unknown-linux-musl/rcodesign"
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
