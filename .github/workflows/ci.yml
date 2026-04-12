@@ -9,6 +9,7 @@ on:
       - 'auth/**'
       - 'indexeddb/**'
       - 'secrets/**'
+      - 'web/**'
   push:
     branches:
       - main
@@ -19,6 +20,7 @@ on:
       - 'auth/**'
       - 'indexeddb/**'
       - 'secrets/**'
+      - 'web/**'
 
 permissions:
   contents: read
@@ -274,3 +276,110 @@ jobs:
             echo "ERROR: ${plugin_name} produced no packaged artifacts"
             exit 1
           fi
+
+  web-lint:
+    name: Web UI Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web/default
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/default/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+  web-ui-tests:
+    name: Web UI Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web/default
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/default/package-lock.json
+      - run: npm ci && npm run build
+      - run: npx playwright install chromium --with-deps
+      - name: Run UI tests
+        run: npx playwright test
+        env:
+          CI: true
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: web-ui-playwright-report
+          path: web/default/playwright-report/
+          retention-days: 7
+
+  web-e2e:
+    name: Web E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Configure private Gestalt repository access
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: .github/scripts/configure_private_github.sh
+      - name: Build gestaltd and UI
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "main"
+
+          # Build UI from this repo
+          (cd web/default && npm ci && npm run build)
+
+          # Fix IndexedDB provider SDK replace path
+          sed -i "s|../../../gestalt/sdk/go|$gestalt_dir/sdk/go|" indexeddb/relationaldb/go.mod
+
+          # Build gestaltd
+          mkdir -p "${GITHUB_WORKSPACE}/../bin"
+          (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
+      - name: Start gestaltd
+        env:
+          GESTALT_PROVIDERS_DIR: ${{ github.workspace }}
+        run: |
+          ${GITHUB_WORKSPACE}/../bin/gestaltd >/tmp/gestaltd.log 2>&1 &
+          for i in $(seq 1 120); do
+            if curl -sf http://localhost:8080/health; then break; fi
+            sleep 0.5
+          done
+          if ! curl -sf http://localhost:8080/health; then
+            echo "::error::gestaltd did not become ready"
+            cat /tmp/gestaltd.log
+            exit 1
+          fi
+      - name: Run E2E tests
+        working-directory: web/default
+        env:
+          GESTALT_BASE_URL: http://localhost:8080
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+          npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: web-e2e-playwright-report
+          path: web/default/playwright-report/
+          retention-days: 7
