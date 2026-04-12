@@ -30,16 +30,26 @@ type storeMeta struct {
 	indexes []*proto.IndexSchema
 }
 
+const (
+	metadataTableName  = "_gestalt_stores"
+	defaultTablePrefix = "_gestalt_store_"
+)
+
 type Store struct {
 	proto.UnimplementedIndexedDBServer
-	db      *sql.DB
-	bind    bindStyle
-	dialect dialect
-	mu      sync.RWMutex
-	meta    map[string]*storeMeta
+	db          *sql.DB
+	bind        bindStyle
+	dialect     dialect
+	tablePrefix string
+	mu          sync.RWMutex
+	meta        map[string]*storeMeta
 }
 
 func NewStore(dsn string) (*Store, error) {
+	return newStoreWithTablePrefix(dsn, defaultTablePrefix)
+}
+
+func newStoreWithTablePrefix(dsn, tablePrefix string) (*Store, error) {
 	driver, connStr, style, d := parseDSN(dsn)
 	db, err := sql.Open(driver, connStr)
 	if err != nil {
@@ -50,7 +60,13 @@ func NewStore(dsn string) (*Store, error) {
 		return nil, fmt.Errorf("relationaldb: ping: %w", err)
 	}
 
-	s := &Store{db: db, bind: style, dialect: d, meta: make(map[string]*storeMeta)}
+	s := &Store{
+		db:          db,
+		bind:        style,
+		dialect:     d,
+		tablePrefix: tablePrefix,
+		meta:        make(map[string]*storeMeta),
+	}
 
 	if _, err := db.Exec(s.q(metadataTableSQL(d))); err != nil {
 		_ = db.Close()
@@ -58,7 +74,7 @@ func NewStore(dsn string) (*Store, error) {
 	}
 
 	rows, err := db.Query("SELECT " + quoteIdent(d, "name") + ", " + quoteIdent(d, "schema_json") +
-		" FROM " + quoteIdent(d, "_gestalt_stores"))
+		" FROM " + quoteIdent(d, metadataTableName))
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("relationaldb: load metadata: %w", err)
@@ -105,37 +121,152 @@ func (s *Store) getMeta(name string) (*storeMeta, error) {
 	return m, nil
 }
 
+func (s *Store) physicalTableName(store string) string {
+	if s.tablePrefix == "" {
+		return store
+	}
+	return s.tablePrefix + store
+}
+
+func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.ObjectStoreSchema) error {
+	ddl := createTableSQL(s.dialect, table, schema)
+	if _, err := s.db.ExecContext(ctx, s.q(ddl)); err != nil {
+		return status.Errorf(codes.Internal, "create table: %v", err)
+	}
+	for _, idx := range schema.GetIndexes() {
+		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, table, idx))); err != nil && !isDuplicateErr(err) {
+			return status.Errorf(codes.Internal, "create index: %v", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, s.q("SELECT * FROM "+quoteIdent(s.dialect, table)+" WHERE 1 = 0"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	names, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	cols := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		cols[name] = struct{}{}
+	}
+	return cols, nil
+}
+
+func schemaColumnsExist(existing map[string]struct{}, schema *proto.ObjectStoreSchema) bool {
+	for _, col := range schema.GetColumns() {
+		if _, ok := existing[col.Name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) tableCount(ctx context.Context, table string) (int64, error) {
+	var count int64
+	err := s.db.QueryRowContext(ctx, s.q("SELECT COUNT(*) FROM "+quoteIdent(s.dialect, table))).Scan(&count)
+	return count, err
+}
+
+func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string, schema *proto.ObjectStoreSchema) error {
+	if sourceTable == "" || sourceTable == destTable {
+		return nil
+	}
+
+	sourceCols, err := s.tableColumns(ctx, sourceTable)
+	if err != nil || !schemaColumnsExist(sourceCols, schema) {
+		return nil
+	}
+
+	destCount, err := s.tableCount(ctx, destTable)
+	if err != nil {
+		return status.Errorf(codes.Internal, "count destination rows: %v", err)
+	}
+	if destCount != 0 {
+		return nil
+	}
+
+	cols := make([]string, len(schema.GetColumns()))
+	for i, col := range schema.GetColumns() {
+		cols[i] = quoteIdent(s.dialect, col.Name)
+	}
+	colList := strings.Join(cols, ", ")
+	query := "INSERT INTO " + quoteIdent(s.dialect, destTable) +
+		" (" + colList + ") SELECT " + colList + " FROM " + quoteIdent(s.dialect, sourceTable)
+	if _, err := s.db.ExecContext(ctx, s.q(query)); err != nil {
+		return status.Errorf(codes.Internal, "copy existing rows: %v", err)
+	}
+	return nil
+}
+
+func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName string, schema *proto.ObjectStoreSchema) error {
+	schemaJSON, err := json.Marshal(newStoredSchema(tableName, schema))
+	if err != nil {
+		return status.Errorf(codes.Internal, "marshal schema: %v", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return status.Errorf(codes.Internal, "begin metadata tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		s.q("DELETE FROM "+quoteIdent(s.dialect, metadataTableName)+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
+		storeName,
+	); err != nil {
+		return status.Errorf(codes.Internal, "delete metadata: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		s.q("INSERT INTO "+quoteIdent(s.dialect, metadataTableName)+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
+		storeName, string(schemaJSON),
+	); err != nil {
+		return status.Errorf(codes.Internal, "insert metadata: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return status.Errorf(codes.Internal, "commit metadata tx: %v", err)
+	}
+
+	s.meta[storeName] = newStoredSchema(tableName, schema).toMeta(storeName)
+	return nil
+}
+
 // ---- Lifecycle ----
 
 func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.meta[req.Name]; ok {
+	schema := req.GetSchema()
+	tableName := s.physicalTableName(req.Name)
+
+	if existing, ok := s.meta[req.Name]; ok {
+		if err := s.ensureTable(ctx, tableName, schema); err != nil {
+			return nil, err
+		}
+		if existing.table != tableName {
+			if err := s.copyStoreRows(ctx, existing.table, tableName, schema); err != nil {
+				return nil, err
+			}
+		}
+		if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema); err != nil {
+			return nil, err
+		}
 		return &emptypb.Empty{}, nil
 	}
 
-	schema := req.GetSchema()
-	ddl := createTableSQL(s.dialect, req.Name, schema)
-	if _, err := s.db.ExecContext(ctx, s.q(ddl)); err != nil {
-		return nil, status.Errorf(codes.Internal, "create table: %v", err)
+	if err := s.ensureTable(ctx, tableName, schema); err != nil {
+		return nil, err
 	}
-
-	for _, idx := range schema.GetIndexes() {
-		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, req.Name, idx))); err != nil {
-			return nil, status.Errorf(codes.Internal, "create index: %v", err)
-		}
+	if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema); err != nil {
+		return nil, err
 	}
-
-	schemaJSON, _ := json.Marshal(newStoredSchema(schema))
-	_, err := s.db.ExecContext(ctx,
-		s.q("INSERT INTO "+quoteIdent(s.dialect, "_gestalt_stores")+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
-		req.Name, string(schemaJSON))
-	if err != nil && !isDuplicateErr(err) {
-		return nil, status.Errorf(codes.Internal, "insert metadata: %v", err)
-	}
-
-	s.meta[req.Name] = newStoredSchema(schema).toMeta(req.Name)
 	return &emptypb.Empty{}, nil
 }
 
@@ -143,11 +274,16 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, err := s.db.ExecContext(ctx, s.q(dropTableSQL(s.dialect, req.Name))); err != nil {
+	tableName := s.physicalTableName(req.Name)
+	if meta, ok := s.meta[req.Name]; ok && meta.table != "" {
+		tableName = meta.table
+	}
+
+	if _, err := s.db.ExecContext(ctx, s.q(dropTableSQL(s.dialect, tableName))); err != nil {
 		return nil, status.Errorf(codes.Internal, "drop table: %v", err)
 	}
 	_, _ = s.db.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteIdent(s.dialect, "_gestalt_stores")+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"), req.Name)
+		s.q("DELETE FROM "+quoteIdent(s.dialect, metadataTableName)+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"), req.Name)
 	delete(s.meta, req.Name)
 	return &emptypb.Empty{}, nil
 }
@@ -1007,6 +1143,7 @@ func isDuplicateErr(err error) bool {
 // ---- Schema persistence ----
 
 type storedSchema struct {
+	Table   string         `json:"table,omitempty"`
 	Columns []storedColumn `json:"columns"`
 	Indexes []storedIndex  `json:"indexes"`
 }
@@ -1025,8 +1162,8 @@ type storedIndex struct {
 	Unique  bool     `json:"unique"`
 }
 
-func newStoredSchema(schema *proto.ObjectStoreSchema) storedSchema {
-	s := storedSchema{}
+func newStoredSchema(table string, schema *proto.ObjectStoreSchema) storedSchema {
+	s := storedSchema{Table: table}
 	for _, c := range schema.GetColumns() {
 		s.Columns = append(s.Columns, storedColumn{
 			Name: c.Name, Type: c.Type, PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique,
@@ -1041,7 +1178,11 @@ func newStoredSchema(schema *proto.ObjectStoreSchema) storedSchema {
 }
 
 func (s storedSchema) toMeta(name string) *storeMeta {
-	m := &storeMeta{table: name, pkCol: "id"}
+	table := s.Table
+	if table == "" {
+		table = name
+	}
+	m := &storeMeta{table: table, pkCol: "id"}
 	for _, c := range s.Columns {
 		col := &proto.ColumnDef{Name: c.Name, Type: c.Type, PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique}
 		m.columns = append(m.columns, col)
