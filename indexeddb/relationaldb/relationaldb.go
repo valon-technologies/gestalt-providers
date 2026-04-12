@@ -35,22 +35,35 @@ const (
 	defaultTablePrefix = ""
 )
 
+type storeOptions struct {
+	TablePrefix string
+	Schema      string
+}
+
 type Store struct {
 	proto.UnimplementedIndexedDBServer
 	db          *sql.DB
 	bind        bindStyle
 	dialect     dialect
+	schemaName  string
 	tablePrefix string
 	mu          sync.RWMutex
 	meta        map[string]*storeMeta
 }
 
 func NewStore(dsn string) (*Store, error) {
-	return newStoreWithTablePrefix(dsn, defaultTablePrefix)
+	return newStoreWithOptions(dsn, storeOptions{TablePrefix: defaultTablePrefix})
 }
 
 func newStoreWithTablePrefix(dsn, tablePrefix string) (*Store, error) {
+	return newStoreWithOptions(dsn, storeOptions{TablePrefix: tablePrefix})
+}
+
+func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 	driver, connStr, style, d := parseDSN(dsn)
+	if d == dialectSQLite && options.Schema != "" {
+		return nil, fmt.Errorf("relationaldb: schema is not supported for sqlite")
+	}
 	db, err := sql.Open(driver, connStr)
 	if err != nil {
 		return nil, fmt.Errorf("relationaldb: open: %w", err)
@@ -64,17 +77,18 @@ func newStoreWithTablePrefix(dsn, tablePrefix string) (*Store, error) {
 		db:          db,
 		bind:        style,
 		dialect:     d,
-		tablePrefix: tablePrefix,
+		schemaName:  options.Schema,
+		tablePrefix: options.TablePrefix,
 		meta:        make(map[string]*storeMeta),
 	}
 
-	if _, err := db.Exec(s.q(metadataTableSQL(d))); err != nil {
+	if _, err := db.Exec(s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
 	}
 
 	rows, err := db.Query("SELECT " + quoteIdent(d, "name") + ", " + quoteIdent(d, "schema_json") +
-		" FROM " + quoteIdent(d, metadataTableName))
+		" FROM " + quoteTableName(d, s.metadataTable()))
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("relationaldb: load metadata: %w", err)
@@ -102,6 +116,10 @@ func (s *Store) Close() error {
 	return nil
 }
 
+func (s *Store) metadataTable() string {
+	return qualifyTableName(s.schemaName, metadataTableName)
+}
+
 func (s *Store) HealthCheck(_ context.Context) error {
 	return s.db.Ping()
 }
@@ -122,10 +140,11 @@ func (s *Store) getMeta(name string) (*storeMeta, error) {
 }
 
 func (s *Store) physicalTableName(store string) string {
-	if s.tablePrefix == "" {
-		return store
+	tableName := store
+	if s.tablePrefix != "" {
+		tableName = s.tablePrefix + tableName
 	}
-	return s.tablePrefix + store
+	return qualifyTableName(s.schemaName, tableName)
 }
 
 func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.ObjectStoreSchema) error {
@@ -142,7 +161,7 @@ func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.Obj
 }
 
 func (s *Store) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, s.q("SELECT * FROM "+quoteIdent(s.dialect, table)+" WHERE 1 = 0"))
+	rows, err := s.db.QueryContext(ctx, s.q("SELECT * FROM "+quoteTableName(s.dialect, table)+" WHERE 1 = 0"))
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +189,7 @@ func schemaColumnsExist(existing map[string]struct{}, schema *proto.ObjectStoreS
 
 func (s *Store) tableCount(ctx context.Context, table string) (int64, error) {
 	var count int64
-	err := s.db.QueryRowContext(ctx, s.q("SELECT COUNT(*) FROM "+quoteIdent(s.dialect, table))).Scan(&count)
+	err := s.db.QueryRowContext(ctx, s.q("SELECT COUNT(*) FROM "+quoteTableName(s.dialect, table))).Scan(&count)
 	return count, err
 }
 
@@ -214,8 +233,8 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 		cols[i] = quoteIdent(s.dialect, col.Name)
 	}
 	colList := strings.Join(cols, ", ")
-	query := "INSERT INTO " + quoteIdent(s.dialect, destTable) +
-		" (" + colList + ") SELECT " + colList + " FROM " + quoteIdent(s.dialect, sourceTable)
+	query := "INSERT INTO " + quoteTableName(s.dialect, destTable) +
+		" (" + colList + ") SELECT " + colList + " FROM " + quoteTableName(s.dialect, sourceTable)
 	if _, err := s.db.ExecContext(ctx, s.q(query)); err != nil {
 		return status.Errorf(codes.Internal, "copy existing rows: %v", err)
 	}
@@ -235,13 +254,13 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName s
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteIdent(s.dialect, metadataTableName)+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
+		s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
 		storeName,
 	); err != nil {
 		return status.Errorf(codes.Internal, "delete metadata: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		s.q("INSERT INTO "+quoteIdent(s.dialect, metadataTableName)+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
+		s.q("INSERT INTO "+quoteTableName(s.dialect, s.metadataTable())+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
 		storeName, string(schemaJSON),
 	); err != nil {
 		return status.Errorf(codes.Internal, "insert metadata: %v", err)
@@ -303,7 +322,7 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 		return nil, status.Errorf(codes.Internal, "drop table: %v", err)
 	}
 	_, _ = s.db.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteIdent(s.dialect, metadataTableName)+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"), req.Name)
+		s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"), req.Name)
 	delete(s.meta, req.Name)
 	return &emptypb.Empty{}, nil
 }
@@ -609,9 +628,9 @@ func selectAllWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []
 		return "", nil, err
 	}
 	if where == "" {
-		return fmt.Sprintf("SELECT %s FROM %s", colList(d, m.columns), quoteIdent(d, m.table)), args, nil
+		return fmt.Sprintf("SELECT %s FROM %s", colList(d, m.columns), quoteTableName(d, m.table)), args, nil
 	}
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", colList(d, m.columns), quoteIdent(d, m.table), where), args, nil
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", colList(d, m.columns), quoteTableName(d, m.table), where), args, nil
 }
 
 func selectKeysWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
@@ -621,9 +640,9 @@ func selectKeysWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, [
 		return "", nil, err
 	}
 	if where == "" {
-		return fmt.Sprintf("SELECT %s FROM %s", pk, quoteIdent(d, m.table)), args, nil
+		return fmt.Sprintf("SELECT %s FROM %s", pk, quoteTableName(d, m.table)), args, nil
 	}
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", pk, quoteIdent(d, m.table), where), args, nil
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", pk, quoteTableName(d, m.table), where), args, nil
 }
 
 func countWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
@@ -632,9 +651,9 @@ func countWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any,
 		return "", nil, err
 	}
 	if where == "" {
-		return fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(d, m.table)), args, nil
+		return fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteTableName(d, m.table)), args, nil
 	}
-	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", quoteIdent(d, m.table), where), args, nil
+	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", quoteTableName(d, m.table), where), args, nil
 }
 
 func deleteWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
@@ -643,9 +662,9 @@ func deleteWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any
 		return "", nil, err
 	}
 	if where == "" {
-		return fmt.Sprintf("DELETE FROM %s", quoteIdent(d, m.table)), args, nil
+		return fmt.Sprintf("DELETE FROM %s", quoteTableName(d, m.table)), args, nil
 	}
-	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteIdent(d, m.table), where), args, nil
+	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteTableName(d, m.table), where), args, nil
 }
 
 func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, limitOne bool, selectExpr string) (string, []any, error) {
@@ -685,7 +704,7 @@ func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, lim
 	if limitOne {
 		limit = " LIMIT 1"
 	}
-	return fmt.Sprintf("SELECT %s FROM %s%s%s", selectExpr, quoteIdent(d, m.table), where, limit), args, nil
+	return fmt.Sprintf("SELECT %s FROM %s%s%s", selectExpr, quoteTableName(d, m.table), where, limit), args, nil
 }
 
 func indexCountQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (string, []any, error) {
@@ -721,7 +740,7 @@ func indexCountQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (str
 	if len(clauses) > 0 {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
-	return fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdent(d, m.table), where), args, nil
+	return fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteTableName(d, m.table), where), args, nil
 }
 
 func indexDeleteQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (string, []any, error) {
@@ -746,7 +765,7 @@ func indexDeleteQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (st
 	if len(clauses) == 0 {
 		return "", nil, status.Errorf(codes.InvalidArgument, "no index values provided")
 	}
-	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteIdent(d, m.table), strings.Join(clauses, " AND ")), args, nil
+	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteTableName(d, m.table), strings.Join(clauses, " AND ")), args, nil
 }
 
 func findIndex(m *storeMeta, name string) *proto.IndexSchema {

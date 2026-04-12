@@ -58,6 +58,29 @@ func quoteIdent(d dialect, name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
+func quoteTableName(d dialect, name string) string {
+	parts := strings.Split(name, ".")
+	quoted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		quoted = append(quoted, quoteIdent(d, part))
+	}
+	return strings.Join(quoted, ".")
+}
+
+func qualifyTableName(schema, table string) string {
+	if schema == "" {
+		return table
+	}
+	return schema + "." + table
+}
+
+func baseTableName(table string) string {
+	if idx := strings.LastIndex(table, "."); idx >= 0 {
+		return table[idx+1:]
+	}
+	return table
+}
+
 // sqlType maps a proto ColumnDef type to a portable SQL type name.
 func sqlType(d dialect, colType int32, indexed bool) string {
 	switch colType {
@@ -92,10 +115,10 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 	}
 }
 
-func metadataTableSQL(d dialect) string {
+func metadataTableSQL(d dialect, table string) string {
 	return fmt.Sprintf(
 		"CREATE TABLE IF NOT EXISTS %s (%s VARCHAR(255) NOT NULL PRIMARY KEY, %s %s NOT NULL)",
-		quoteIdent(d, metadataTableName),
+		quoteTableName(d, table),
 		quoteIdent(d, "name"),
 		quoteIdent(d, "schema_json"),
 		sqlType(d, 0, false),
@@ -116,7 +139,7 @@ func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) st
 	cols := schema.GetColumns()
 	if len(cols) == 0 {
 		return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s %s NOT NULL PRIMARY KEY)",
-			quoteIdent(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
+			quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
 	}
 
 	indexed := indexedColumns(schema)
@@ -136,7 +159,7 @@ func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) st
 		defs[i] = def
 	}
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
-		quoteIdent(d, table), strings.Join(defs, ", "))
+		quoteTableName(d, table), strings.Join(defs, ", "))
 }
 
 func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *proto.ObjectStoreSchema) string {
@@ -156,17 +179,17 @@ func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *pro
 		}
 		cols[i] = colSQL
 	}
-	indexName := fmt.Sprintf("idx_%s_%s", table, idx.Name)
+	indexName := fmt.Sprintf("idx_%s_%s", baseTableName(table), idx.Name)
 	if d == dialectMySQL || d == dialectSQLServer {
 		return fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
-			unique, quoteIdent(d, indexName), quoteIdent(d, table), strings.Join(cols, ", "))
+			unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
 	}
 	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)",
-		unique, quoteIdent(d, indexName), quoteIdent(d, table), strings.Join(cols, ", "))
+		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
 }
 
 func dropTableSQL(d dialect, table string) string {
-	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteIdent(d, table))
+	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteTableName(d, table))
 }
 
 func colList(d dialect, cols []*proto.ColumnDef) string {
@@ -182,12 +205,12 @@ func colList(d dialect, cols []*proto.ColumnDef) string {
 
 func selectByPK(d dialect, table, pkCol string, cols []*proto.ColumnDef) string {
 	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		colList(d, cols), quoteIdent(d, table), quoteIdent(d, pkCol))
+		colList(d, cols), quoteTableName(d, table), quoteIdent(d, pkCol))
 }
 
 func selectKeyByPK(d dialect, table, pkCol string) string {
 	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		quoteIdent(d, pkCol), quoteIdent(d, table), quoteIdent(d, pkCol))
+		quoteIdent(d, pkCol), quoteTableName(d, table), quoteIdent(d, pkCol))
 }
 
 func insertSQL(d dialect, table string, cols []*proto.ColumnDef) string {
@@ -196,13 +219,13 @@ func insertSQL(d dialect, table string, cols []*proto.ColumnDef) string {
 		placeholders[i] = "?"
 	}
 	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		quoteIdent(d, table), colList(d, cols), strings.Join(placeholders, ", "))
+		quoteTableName(d, table), colList(d, cols), strings.Join(placeholders, ", "))
 }
 
 func deleteByPK(d dialect, table, pkCol string) string {
-	return fmt.Sprintf("DELETE FROM %s WHERE %s = ?", quoteIdent(d, table), quoteIdent(d, pkCol))
+	return fmt.Sprintf("DELETE FROM %s WHERE %s = ?", quoteTableName(d, table), quoteIdent(d, pkCol))
 }
 
 func deleteAll(d dialect, table string) string {
-	return fmt.Sprintf("DELETE FROM %s", quoteIdent(d, table))
+	return fmt.Sprintf("DELETE FROM %s", quoteTableName(d, table))
 }

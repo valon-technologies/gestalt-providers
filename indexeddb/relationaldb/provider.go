@@ -3,12 +3,17 @@ package relationaldb
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type config struct {
-	DSN string `yaml:"dsn"`
+	DSN         string `yaml:"dsn"`
+	TablePrefix string `yaml:"table_prefix"`
+	Prefix      string `yaml:"prefix"`
+	Schema      string `yaml:"schema"`
+	Namespace   string `yaml:"namespace"`
 }
 
 type Provider struct {
@@ -16,6 +21,32 @@ type Provider struct {
 }
 
 func New() *Provider { return &Provider{Store: &Store{}} }
+
+func (c config) storeOptions() (storeOptions, error) {
+	options := storeOptions{TablePrefix: defaultTablePrefix}
+
+	switch {
+	case c.TablePrefix != "" && c.Prefix != "" && c.TablePrefix != c.Prefix:
+		return options, fmt.Errorf("relationaldb: prefix and table_prefix must match when both are set")
+	case c.TablePrefix != "":
+		options.TablePrefix = c.TablePrefix
+	case c.Prefix != "":
+		options.TablePrefix = c.Prefix
+	}
+
+	switch {
+	case c.Schema != "" && c.Namespace != "" && c.Schema != c.Namespace:
+		return options, fmt.Errorf("relationaldb: schema and namespace must match when both are set")
+	case c.Schema != "":
+		options.Schema = c.Schema
+	case c.Namespace != "":
+		options.Schema = c.Namespace
+	}
+
+	options.TablePrefix = strings.TrimSpace(options.TablePrefix)
+	options.Schema = strings.TrimSpace(options.Schema)
+	return options, nil
+}
 
 func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) error {
 	var cfg config
@@ -29,7 +60,11 @@ func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) er
 	if cfg.DSN == "" {
 		return fmt.Errorf("relationaldb: dsn is required")
 	}
-	store, err := NewStore(cfg.DSN)
+	options, err := cfg.storeOptions()
+	if err != nil {
+		return err
+	}
+	store, err := newStoreWithOptions(cfg.DSN, options)
 	if err != nil {
 		return err
 	}

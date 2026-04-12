@@ -38,6 +38,65 @@ func openSQLiteDB(t *testing.T, dsn string) *sql.DB {
 	return db
 }
 
+func TestConfigStoreOptionsSupportsAliases(t *testing.T) {
+	options, err := (config{
+		Prefix:    "tenant_",
+		Namespace: "analytics",
+	}).storeOptions()
+	if err != nil {
+		t.Fatalf("storeOptions: %v", err)
+	}
+	if options.TablePrefix != "tenant_" {
+		t.Fatalf("options.TablePrefix = %q, want %q", options.TablePrefix, "tenant_")
+	}
+	if options.Schema != "analytics" {
+		t.Fatalf("options.Schema = %q, want %q", options.Schema, "analytics")
+	}
+}
+
+func TestConfigStoreOptionsRejectsConflictingAliases(t *testing.T) {
+	_, err := (config{
+		TablePrefix: "tenant_",
+		Prefix:      "other_",
+	}).storeOptions()
+	if err == nil {
+		t.Fatal("expected conflicting prefix aliases to fail")
+	}
+
+	_, err = (config{
+		Schema:    "analytics",
+		Namespace: "reporting",
+	}).storeOptions()
+	if err == nil {
+		t.Fatal("expected conflicting schema aliases to fail")
+	}
+}
+
+func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
+	s := &Store{
+		schemaName:  "analytics",
+		tablePrefix: "tenant_",
+	}
+	if got := s.metadataTable(); got != "analytics._gestalt_stores" {
+		t.Fatalf("metadataTable() = %q, want %q", got, "analytics._gestalt_stores")
+	}
+	if got := s.physicalTableName("widgets"); got != "analytics.tenant_widgets" {
+		t.Fatalf("physicalTableName() = %q, want %q", got, "analytics.tenant_widgets")
+	}
+}
+
+func TestNewStoreWithSchemaRejectsSQLite(t *testing.T) {
+	_, err := newStoreWithOptions("file:"+filepath.Join(t.TempDir(), "relationaldb.sqlite"), storeOptions{
+		Schema: "analytics",
+	})
+	if err == nil {
+		t.Fatal("expected sqlite schema config to fail")
+	}
+	if !strings.Contains(err.Error(), "schema is not supported for sqlite") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func widgetsSchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
 		Indexes: []*proto.IndexSchema{
@@ -229,7 +288,7 @@ func TestCreateObjectStoreMigratesLegacyBareStoreTable(t *testing.T) {
 	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-provider.sqlite")
 	db := openSQLiteDB(t, dsn)
 
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
 		t.Fatalf("create metadata table: %v", err)
 	}
 	if _, err := db.Exec(createTableSQL(dialectSQLite, "widgets", widgetsSchema())); err != nil {
@@ -278,7 +337,7 @@ func TestCreateObjectStoreMigratesLegacyPrefixedStoreTable(t *testing.T) {
 	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-prefixed-provider.sqlite")
 	db := openSQLiteDB(t, dsn)
 
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
 		t.Fatalf("create metadata table: %v", err)
 	}
 	if _, err := db.Exec(createTableSQL(dialectSQLite, "_gestalt_store_widgets", widgetsSchema())); err != nil {
@@ -478,7 +537,7 @@ func TestCreateIndexSQLMySQLOmitsIfNotExists(t *testing.T) {
 }
 
 func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
-	got := metadataTableSQL(dialectMySQL)
+	got := metadataTableSQL(dialectMySQL, metadataTableName)
 	if strings.Contains(got, `"`) {
 		t.Fatalf("metadataTableSQL(mysql) used double quotes: %s", got)
 	}
@@ -497,6 +556,25 @@ func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
 	}
 	if !strings.Contains(got, "`updated_at` DATETIME(6)") {
 		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
+	}
+}
+
+func TestCreateTableSQLSupportsQualifiedNames(t *testing.T) {
+	got := createTableSQL(dialectPostgres, "analytics.widgets", widgetsSchema())
+	if !strings.Contains(got, `CREATE TABLE IF NOT EXISTS "analytics"."widgets"`) {
+		t.Fatalf("createTableSQL(postgres) should quote qualified table names: %s", got)
+	}
+}
+
+func TestCreateIndexSQLUsesBaseTableNameForQualifiedTables(t *testing.T) {
+	got := createIndexSQL(dialectPostgres, "analytics.widgets", &proto.IndexSchema{
+		Name: "by_code", KeyPath: []string{"code"}, Unique: true,
+	}, widgetsSchema())
+	if !strings.Contains(got, `CREATE UNIQUE INDEX IF NOT EXISTS "idx_widgets_by_code"`) {
+		t.Fatalf("createIndexSQL(postgres) should derive index name from base table name: %s", got)
+	}
+	if !strings.Contains(got, `ON "analytics"."widgets" ("code")`) {
+		t.Fatalf("createIndexSQL(postgres) should target the qualified table name: %s", got)
 	}
 }
 
