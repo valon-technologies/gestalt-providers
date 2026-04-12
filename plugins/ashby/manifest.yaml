@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/ashby
-version: 0.0.1-alpha.10
+version: 0.0.1-alpha.1
 displayName: Ashby
 description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
 iconFile: assets/icon.svg

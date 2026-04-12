@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/datadog
-version: 0.0.1-alpha.9
+version: 0.0.1-alpha.1
 displayName: Datadog
 description: Manage dashboards, monitors, incidents, logs, and RUM.
 iconFile: assets/icon.svg

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/confluence
-version: 0.0.1-alpha.10
+version: 0.0.1-alpha.1
 displayName: Confluence Cloud
 description: Atlassian Confluence Cloud pages, spaces, and content search.
 iconFile: assets/icon.svg

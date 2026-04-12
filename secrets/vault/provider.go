@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	providerVersion  = "0.0.1-alpha.7"
+	providerVersion  = "0.0.1-alpha.1"
 	defaultTimeout   = 10 * time.Second
 	defaultMountPath = "secret"
 	kvDataKey        = "value"

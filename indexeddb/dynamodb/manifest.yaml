@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.1
 displayName: DynamoDB
 description: Amazon DynamoDB datastore provider.
 kind: indexeddb

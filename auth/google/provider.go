@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	providerVersion   = "0.0.1-alpha.9"
+	providerVersion   = "0.0.1-alpha.1"
 	defaultSessionTTL = 24 * time.Hour
 	userinfoURL       = "https://www.googleapis.com/oauth2/v3/userinfo"
 )

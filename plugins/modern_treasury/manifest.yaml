@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/modern_treasury
-version: 0.0.1-alpha.11
+version: 0.0.1-alpha.1
 displayName: Modern Treasury
 description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
 iconFile: assets/icon.svg

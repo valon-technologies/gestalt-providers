@@ -52,8 +52,8 @@ All providers are built and packaged with `gestaltd provider release`.
 Push a tag in the format `<kind>/<name>/v<version>`:
 
 ```sh
-git tag plugins/slack/v0.0.1-alpha.13
-git push origin plugins/slack/v0.0.1-alpha.13
+git tag plugins/slack/v0.0.1-alpha.1
+git push origin plugins/slack/v0.0.1-alpha.1
 ```
 
 The release workflow packages the provider for all supported platforms and
