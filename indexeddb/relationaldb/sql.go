@@ -70,6 +70,17 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 		return "DOUBLE PRECISION"
 	case 3: // TypeBool
 		return "SMALLINT"
+	case 4: // TypeTime
+		switch d {
+		case dialectPostgres:
+			return "TIMESTAMPTZ"
+		case dialectMySQL:
+			return "DATETIME(6)"
+		case dialectSQLServer:
+			return "DATETIME2"
+		default:
+			return "TEXT"
+		}
 	default: // TypeString, TypeTime, TypeBytes, TypeJSON
 		if d == dialectMySQL {
 			if indexed {

@@ -702,14 +702,7 @@ func anyToSQLArg(value any, colType int32) (any, error) {
 		}
 		return int16(0), nil
 	case 4: // TypeTime
-		t, ok := value.(time.Time)
-		if ok {
-			return t.UTC().Format(time.RFC3339Nano), nil
-		}
-		if s, ok := value.(string); ok {
-			return s, nil
-		}
-		return nil, fmt.Errorf("expected time.Time or string, got %T", value)
+		return coerceSQLTime(value)
 	case 5: // TypeBytes
 		switch v := value.(type) {
 		case []byte:
@@ -750,10 +743,7 @@ func extractID(record *proto.Record, pkCol string) (string, error) {
 }
 
 func scanRow(row *sql.Row, cols []*proto.ColumnDef) (*proto.Record, error) {
-	dest := make([]any, len(cols))
-	for i := range cols {
-		dest[i] = new(sql.NullString)
-	}
+	dest := scanDestinations(len(cols))
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
@@ -763,10 +753,7 @@ func scanRow(row *sql.Row, cols []*proto.ColumnDef) (*proto.Record, error) {
 func scanRows(rows *sql.Rows, cols []*proto.ColumnDef) ([]*proto.Record, error) {
 	var out []*proto.Record
 	for rows.Next() {
-		dest := make([]any, len(cols))
-		for i := range cols {
-			dest[i] = new(sql.NullString)
-		}
+		dest := scanDestinations(len(cols))
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
@@ -782,35 +769,11 @@ func scanRows(rows *sql.Rows, cols []*proto.ColumnDef) ([]*proto.Record, error) 
 func destToStruct(dest []any, cols []*proto.ColumnDef) (*proto.Record, error) {
 	record := make(map[string]any, len(cols))
 	for i, col := range cols {
-		ns := dest[i].(*sql.NullString)
-		if !ns.Valid {
-			record[col.Name] = nil
-			continue
+		value, err := sqlValueToRecordValue(*(dest[i].(*any)), col.Type)
+		if err != nil {
+			return nil, fmt.Errorf("column %q: %w", col.Name, err)
 		}
-		switch col.Type {
-		case 1: // TypeInt
-			n, err := strconv.ParseInt(ns.String, 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			record[col.Name] = n
-		case 2: // TypeFloat
-			f, err := strconv.ParseFloat(ns.String, 64)
-			if err != nil {
-				return nil, err
-			}
-			record[col.Name] = f
-		case 3: // TypeBool
-			record[col.Name] = ns.String != "0" && ns.String != "false"
-		case 4: // TypeTime
-			record[col.Name] = parseStoredTime(ns.String)
-		case 5: // TypeBytes
-			record[col.Name] = parseStoredBytes(ns.String)
-		case 6: // TypeJSON
-			record[col.Name] = parseStoredJSON(ns.String)
-		default:
-			record[col.Name] = ns.String
-		}
+		record[col.Name] = value
 	}
 	return gestalt.RecordToProto(record)
 }
@@ -836,6 +799,8 @@ func toInt64(value any) (int64, error) {
 		return int64(v), nil
 	case string:
 		return strconv.ParseInt(v, 10, 64)
+	case []byte:
+		return strconv.ParseInt(string(v), 10, 64)
 	default:
 		return 0, fmt.Errorf("expected integer-compatible value, got %T", value)
 	}
@@ -855,6 +820,8 @@ func toFloat64(value any) (float64, error) {
 		return float64(v), nil
 	case string:
 		return strconv.ParseFloat(v, 64)
+	case []byte:
+		return strconv.ParseFloat(string(v), 64)
 	default:
 		return 0, fmt.Errorf("expected float-compatible value, got %T", value)
 	}
@@ -875,21 +842,45 @@ func toBool(value any) (bool, error) {
 		case "0", "false":
 			return false, nil
 		}
+	case []byte:
+		return toBool(string(v))
 	}
 	return false, fmt.Errorf("expected bool-compatible value, got %T", value)
 }
 
-func parseStoredTime(raw string) any {
+func coerceSQLTime(value any) (time.Time, error) {
+	switch v := value.(type) {
+	case time.Time:
+		return v.UTC(), nil
+	case string:
+		return parseTimeString(v)
+	case []byte:
+		return parseTimeString(string(v))
+	default:
+		return time.Time{}, fmt.Errorf("expected time-compatible value, got %T", value)
+	}
+}
+
+func parseTimeString(raw string) (time.Time, error) {
 	layouts := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
 		"2006-01-02 15:04:05.999999999",
 		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
 	}
 	for _, layout := range layouts {
 		if parsed, err := time.Parse(layout, raw); err == nil {
-			return parsed
+			return parsed.UTC(), nil
 		}
+	}
+	return time.Time{}, fmt.Errorf("invalid time value %q", raw)
+}
+
+func parseStoredTime(raw string) any {
+	if parsed, err := parseTimeString(raw); err == nil {
+		return parsed
 	}
 	return raw
 }
@@ -908,6 +899,66 @@ func parseStoredJSON(raw string) any {
 		return raw
 	}
 	return value
+}
+
+func scanDestinations(n int) []any {
+	dest := make([]any, n)
+	for i := range dest {
+		dest[i] = new(any)
+	}
+	return dest
+}
+
+func sqlValueToRecordValue(raw any, colType int32) (any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	switch colType {
+	case 1: // TypeInt
+		return toInt64(raw)
+	case 2: // TypeFloat
+		return toFloat64(raw)
+	case 3: // TypeBool
+		return toBool(raw)
+	case 4: // TypeTime
+		switch v := raw.(type) {
+		case time.Time:
+			return v.UTC(), nil
+		case string:
+			return parseStoredTime(v), nil
+		case []byte:
+			return parseStoredTime(string(v)), nil
+		default:
+			return parseStoredTime(fmt.Sprint(v)), nil
+		}
+	case 5: // TypeBytes
+		switch v := raw.(type) {
+		case []byte:
+			return append([]byte(nil), v...), nil
+		case string:
+			return parseStoredBytes(v), nil
+		default:
+			return []byte(fmt.Sprint(v)), nil
+		}
+	case 6: // TypeJSON
+		switch v := raw.(type) {
+		case []byte:
+			return parseStoredJSON(string(v)), nil
+		case string:
+			return parseStoredJSON(v), nil
+		default:
+			return raw, nil
+		}
+	default:
+		switch v := raw.(type) {
+		case []byte:
+			return string(v), nil
+		case string:
+			return v, nil
+		default:
+			return fmt.Sprint(v), nil
+		}
+	}
 }
 
 // ---- DSN parsing ----
