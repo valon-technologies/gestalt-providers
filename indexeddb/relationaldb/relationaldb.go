@@ -32,7 +32,7 @@ type storeMeta struct {
 
 const (
 	metadataTableName  = "_gestalt_stores"
-	defaultTablePrefix = "_gestalt_store_"
+	defaultTablePrefix = "_gestalt_"
 )
 
 type Store struct {

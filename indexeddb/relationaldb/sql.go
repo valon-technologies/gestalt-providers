@@ -95,7 +95,7 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 func metadataTableSQL(d dialect) string {
 	return fmt.Sprintf(
 		"CREATE TABLE IF NOT EXISTS %s (%s VARCHAR(255) NOT NULL PRIMARY KEY, %s %s NOT NULL)",
-		quoteIdent(d, "_gestalt_stores"),
+		quoteIdent(d, metadataTableName),
 		quoteIdent(d, "name"),
 		quoteIdent(d, "schema_json"),
 		sqlType(d, 0, false),

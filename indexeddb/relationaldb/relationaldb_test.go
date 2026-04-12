@@ -273,6 +273,55 @@ func TestCreateObjectStoreMigratesLegacyBareStoreTable(t *testing.T) {
 	}
 }
 
+func TestCreateObjectStoreMigratesLegacyPrefixedStoreTable(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-prefixed-provider.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite)); err != nil {
+		t.Fatalf("create metadata table: %v", err)
+	}
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "_gestalt_store_users", usersSchema())); err != nil {
+		t.Fatalf("create legacy prefixed users table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_store_users" ("id", "email", "display_name", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"u1", "alice@example.com", "Alice", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("insert legacy prefixed user: %v", err)
+	}
+
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("_gestalt_store_users", usersSchema()))
+	if err != nil {
+		t.Fatalf("marshal legacy prefixed schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "users", string(legacySchemaJSON)); err != nil {
+		t.Fatalf("insert legacy prefixed metadata: %v", err)
+	}
+
+	s := testStoreWithDSN(t, dsn)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "users", Schema: usersSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore migrate legacy prefixed: %v", err)
+	}
+
+	meta, err := s.getMeta("users")
+	if err != nil {
+		t.Fatalf("getMeta: %v", err)
+	}
+	if meta.table != defaultTablePrefix+"users" {
+		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"users")
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "u1"})
+	if err != nil {
+		t.Fatalf("Get migrated prefixed user: %v", err)
+	}
+	if got := resp.Record.Fields["email"].GetStringValue(); got != "alice@example.com" {
+		t.Fatalf("Get migrated prefixed email = %q, want alice@example.com", got)
+	}
+}
+
 func TestCreateObjectStoreAvoidsLegacyApplicationTableCollision(t *testing.T) {
 	ctx := context.Background()
 	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-app.sqlite")
@@ -326,7 +375,7 @@ func TestCreateObjectStoreRebuildsOrphanedPrefixedTable(t *testing.T) {
 	dsn := "file:" + filepath.Join(t.TempDir(), "orphaned-prefixed.sqlite")
 	db := openSQLiteDB(t, dsn)
 
-	if _, err := db.Exec(`CREATE TABLE "_gestalt_store_integration_tokens" (
+	if _, err := db.Exec(`CREATE TABLE "_gestalt_integration_tokens" (
 		"id" TEXT NOT NULL PRIMARY KEY
 	)`); err != nil {
 		t.Fatalf("create orphaned prefixed table: %v", err)
