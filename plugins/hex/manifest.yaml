@@ -16,4 +16,4 @@ spec:
         credentials:
         - name: token
           label: API Token
-          description: See [API keys](https://app.hex.tech/25b0db0a-31a0-48eb-b68d-067ca98241ba/settings/api-keys) to create a Personal access token
+          description: Create a Personal access token in your Hex workspace settings.
