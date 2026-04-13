@@ -11,8 +11,8 @@ test.describe("Integrations", () => {
   }) => {
     await page.goto("/integrations");
     await expect(
-      page.getByRole("heading", { name: "Integrations" }),
+      page.getByRole("heading", { name: "Plugins" }),
     ).toBeVisible();
-    await expect(page.getByText(/no integrations/i)).toBeVisible();
+    await expect(page.getByText(/no plugins/i)).toBeVisible();
   });
 });

@@ -79,7 +79,7 @@ test.describe("Integrations", () => {
 
     await page.goto("/integrations");
     await expect(
-      page.getByRole("heading", { name: "Integrations" }),
+      page.getByRole("heading", { name: "Plugins" }),
     ).toBeVisible();
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
@@ -100,7 +100,7 @@ test.describe("Integrations", () => {
 
     await page.goto("/integrations");
     await expect(
-      page.getByText("No integrations registered."),
+      page.getByText("No plugins registered."),
     ).toBeVisible();
   });
 
@@ -148,7 +148,11 @@ test.describe("Integrations", () => {
     await dialog.getByRole("button", { name: "Disconnect" }).click();
 
     await expect(dialog.getByText("Disconnect OAuth Service?")).toBeVisible();
-    await expect(dialog.getByText("This will remove your OAuth Service integration.")).toBeVisible();
+    await expect(
+      dialog.getByText(
+        "This will remove your connection to OAuth Service. You can reconnect at any time.",
+      ),
+    ).toBeVisible();
 
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog.getByRole("button", { name: "Add Connection" })).toBeVisible();
