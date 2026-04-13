@@ -47,6 +47,9 @@ func (p *Provider) Configure(_ context.Context, name string, raw map[string]any)
 	client := ksm.NewSecretsManager(&ksm.ClientOptions{
 		Config: storage,
 	})
+	if client == nil {
+		return fmt.Errorf("keeper secrets: failed to initialize client (check config)")
+	}
 
 	p.name = name
 	p.client = client
@@ -72,27 +75,17 @@ func (p *Provider) GetSecret(_ context.Context, name string) (string, error) {
 }
 
 func (p *Provider) resolveNotation(notation string) (string, error) {
-	values, err := p.client.GetNotation(notation)
+	values, err := p.client.GetNotationResults(notation)
 	if err != nil {
 		return "", fmt.Errorf("accessing secret %q: %w", notation, err)
 	}
 	if len(values) == 0 {
 		return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, notation)
 	}
-	s, ok := values[0].(string)
-	if !ok {
-		return "", fmt.Errorf("secret %q: value is not a string", notation)
-	}
-	return s, nil
+	return values[0], nil
 }
 
 func (p *Provider) resolveByUID(uid string) (string, error) {
-	records, err := p.client.GetSecrets([]string{uid})
-	if err != nil {
-		return "", fmt.Errorf("accessing secret %q: %w", uid, err)
-	}
-	if len(records) == 0 {
-		return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, uid)
-	}
-	return records[0].Password(), nil
+	notation := fmt.Sprintf("keeper://%s/field/%s", uid, p.field)
+	return p.resolveNotation(notation)
 }
