@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/vercel
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Vercel
 description: Deploy, manage, and monitor Vercel projects and deployments.
 iconFile: assets/icon.svg
@@ -14,4 +14,4 @@ spec:
       auth:
         type: oauth2
         authorizationUrl: https://vercel.com/oauth/authorize
-        tokenUrl: https://api.vercel.com/v2/oauth/access_token
+        tokenUrl: https://api.vercel.com/login/oauth/token
