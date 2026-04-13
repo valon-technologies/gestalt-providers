@@ -47,9 +47,6 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Use With MCP" }),
     ).toBeVisible();
     await expect(
-      page.getByText("http://localhost:8080/docs"),
-    ).toBeVisible();
-    await expect(
       page.getByText("gestalt plugins list").first(),
     ).toBeVisible();
     await expect(

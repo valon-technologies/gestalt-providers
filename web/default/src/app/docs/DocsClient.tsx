@@ -6,7 +6,6 @@ import Nav from "@/components/Nav";
 import { CopyIcon, CheckIcon } from "@/components/icons";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
-const DEFAULT_LOCAL_DOCS_URL = "http://localhost:8080/docs";
 
 interface Subsection {
   id: string;
@@ -161,14 +160,6 @@ export default function DocsClient() {
                   Server URL
                 </p>
                 <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
-                <p className="mt-2 text-sm leading-6 text-muted">
-                  A default local server with the public UI enabled serves this
-                  guide at{" "}
-                  <code className="font-mono text-sm text-primary">
-                    {DEFAULT_LOCAL_DOCS_URL}
-                  </code>
-                  .
-                </p>
               </div>
             </header>
 
@@ -181,8 +172,7 @@ export default function DocsClient() {
               <p className="doc-copy">
                 End users only need the{" "}
                 <code className="font-mono text-sm text-primary">gestalt</code>{" "}
-                CLI. <code className="font-mono text-sm text-primary">gestaltd</code>{" "}
-                is the server binary that serves this UI and API.
+                CLI.
               </p>
               <p className="doc-copy">
                 The recommended way to install is with{" "}
