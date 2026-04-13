@@ -6,6 +6,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/microsoft/go-mssqldb v1.9.8
+	github.com/valon-technologies/gestalt-providers/indexeddb/contracttest v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -38,5 +39,7 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest => ../contracttest
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go

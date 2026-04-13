@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
+	"strings"
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -240,7 +242,7 @@ func (p *Provider) cursorRecords(ctx context.Context, cursor *mongoCursor, req *
 
 	records := make([]*proto.Record, 0, len(docs))
 	for _, doc := range docs {
-		record, err := mongoCursorDocToProto(doc)
+		record, err := docToProto(doc)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "marshal cursor record: %v", err)
 		}
@@ -308,18 +310,6 @@ func mongoCursorProjection(cursor *mongoCursor) bson.M {
 	return projection
 }
 
-func mongoCursorDocToProto(doc bson.M) (*proto.Record, error) {
-	record := make(map[string]any, len(doc))
-	for key, value := range doc {
-		if key == "_id" {
-			record["id"] = toGestaltCompatible(value)
-		} else {
-			record[key] = toGestaltCompatible(value)
-		}
-	}
-	return gestalt.RecordToProto(record)
-}
-
 func (c *mongoCursor) entryFromRecord(record *proto.Record) (mongoCursorEntry, error) {
 	primaryKeyValue, primaryKey, err := mongoExtractID(record)
 	if err != nil {
@@ -332,6 +322,9 @@ func (c *mongoCursor) entryFromRecord(record *proto.Record) (mongoCursorEntry, e
 		for i, field := range c.index.keyPath {
 			value, err := mongoRecordFieldAny(record, field)
 			if err != nil {
+				if errors.Is(err, errMongoCursorFieldMissing) {
+					return mongoCursorEntry{}, err
+				}
 				return mongoCursorEntry{}, status.Errorf(codes.InvalidArgument, "record index field %q: %v", field, err)
 			}
 			parts[i] = value
@@ -612,11 +605,33 @@ func mongoRecordFieldAny(record *proto.Record, field string) (any, error) {
 	if record == nil {
 		return nil, fmt.Errorf("record is required")
 	}
-	value, ok := record.Fields[field]
+
+	fields, err := gestalt.RecordFromProto(record)
+	if err != nil {
+		return nil, err
+	}
+
+	value, ok := mongoLookupField(fields, strings.Split(field, "."))
 	if !ok {
 		return nil, fmt.Errorf("%w: field %q", errMongoCursorFieldMissing, field)
 	}
-	return gestalt.AnyFromTypedValue(value)
+	return value, nil
+}
+
+func mongoLookupField(value any, path []string) (any, bool) {
+	current := value
+	for _, segment := range path {
+		obj, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		next, ok := obj[segment]
+		if !ok {
+			return nil, false
+		}
+		current = next
+	}
+	return current, true
 }
 
 func mongoEntryResponse(entry *proto.CursorEntry) *proto.CursorResponse {
@@ -685,14 +700,7 @@ func mongoCompareCursorValue(a, b any) int {
 
 	if af, ok := mongoCursorNumber(a); ok {
 		if bf, ok := mongoCursorNumber(b); ok {
-			switch {
-			case af < bf:
-				return -1
-			case af > bf:
-				return 1
-			default:
-				return 0
-			}
+			return af.Cmp(bf)
 		}
 	}
 
@@ -708,25 +716,33 @@ func mongoCompareCursorValue(a, b any) int {
 	}
 }
 
-func mongoCursorNumber(v any) (float64, bool) {
+func mongoCursorNumber(v any) (*big.Rat, bool) {
 	switch n := v.(type) {
 	case int:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int8:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int16:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int32:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int64:
-		return float64(n), true
+		return big.NewRat(n, 1), true
 	case float32:
-		return float64(n), true
+		return mongoCursorFloatRat(float64(n))
 	case float64:
-		return n, true
+		return mongoCursorFloatRat(n)
 	default:
-		return 0, false
+		return nil, false
 	}
+}
+
+func mongoCursorFloatRat(v float64) (*big.Rat, bool) {
+	r := new(big.Rat).SetFloat64(v)
+	if r == nil {
+		return nil, false
+	}
+	return r, true
 }
 
 func mongoMapCursorWriteErr(op string, err error) error {

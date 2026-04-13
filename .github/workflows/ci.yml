@@ -116,6 +116,9 @@ jobs:
                       run_all = True
                       break
                   parts = Path(path).parts
+                  if len(parts) >= 2 and parts[0] == "indexeddb" and parts[1] == "contracttest":
+                      run_all = True
+                      break
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
                       if (repo / package_dir / "manifest.yaml").is_file():
@@ -256,6 +259,7 @@ jobs:
           mkdir -p "$OUTPUT_ROOT"
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
+            . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
             (cd "$plugin_dir" && go test ./...)
           fi
 

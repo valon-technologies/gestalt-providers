@@ -104,6 +104,23 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 		default:
 			return "TEXT"
 		}
+	case 5: // TypeBytes
+		switch d {
+		case dialectPostgres:
+			return "BYTEA"
+		case dialectMySQL:
+			if indexed {
+				return "VARBINARY(255)"
+			}
+			return "BLOB"
+		case dialectSQLServer:
+			if indexed {
+				return "VARBINARY(255)"
+			}
+			return "VARBINARY(MAX)"
+		default:
+			return "BLOB"
+		}
 	default: // TypeString, TypeTime, TypeBytes, TypeJSON
 		if d == dialectMySQL {
 			if indexed {
@@ -111,11 +128,27 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 			}
 			return "LONGTEXT"
 		}
+		if d == dialectSQLServer {
+			if indexed {
+				return "NVARCHAR(255)"
+			}
+			return "NVARCHAR(MAX)"
+		}
 		return "TEXT"
 	}
 }
 
 func metadataTableSQL(d dialect, table string) string {
+	if d == dialectSQLServer {
+		return fmt.Sprintf(
+			"IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s VARCHAR(255) NOT NULL PRIMARY KEY, %s %s NOT NULL)",
+			table,
+			quoteTableName(d, table),
+			quoteIdent(d, "name"),
+			quoteIdent(d, "schema_json"),
+			sqlType(d, 0, false),
+		)
+	}
 	return fmt.Sprintf(
 		"CREATE TABLE IF NOT EXISTS %s (%s VARCHAR(255) NOT NULL PRIMARY KEY, %s %s NOT NULL)",
 		quoteTableName(d, table),
@@ -138,6 +171,10 @@ func indexedColumns(schema *proto.ObjectStoreSchema) map[string]struct{} {
 func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) string {
 	cols := schema.GetColumns()
 	if len(cols) == 0 {
+		if d == dialectSQLServer {
+			return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s %s NOT NULL PRIMARY KEY)",
+				table, quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
+		}
 		return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s %s NOT NULL PRIMARY KEY)",
 			quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
 	}
@@ -157,6 +194,10 @@ func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) st
 			def += " UNIQUE"
 		}
 		defs[i] = def
+	}
+	if d == dialectSQLServer {
+		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
+			table, quoteTableName(d, table), strings.Join(defs, ", "))
 	}
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
 		quoteTableName(d, table), strings.Join(defs, ", "))

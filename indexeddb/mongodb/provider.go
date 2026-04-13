@@ -51,10 +51,16 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		return fmt.Errorf("mongodb datastore: ping: %w", err)
 	}
 
+	store := NewStore(client, client.Database(cfg.Database))
+	if err := store.loadSchemas(ctx); err != nil {
+		_ = store.Close()
+		return fmt.Errorf("mongodb datastore: load schemas: %w", err)
+	}
+
 	if p.store != nil {
 		_ = p.store.Close()
 	}
-	p.store = NewStore(client, client.Database(cfg.Database))
+	p.store = store
 	return nil
 }
 

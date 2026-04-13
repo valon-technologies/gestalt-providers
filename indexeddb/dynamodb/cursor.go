@@ -5,9 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
@@ -171,21 +176,30 @@ func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursor
 		cursor.index = meta
 	}
 
-	records, err := p.cursorRecords(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]dynamoCursorEntry, 0, len(records))
-	for _, record := range records {
-		entry, err := cursor.entryFromRecord(record)
+	var entries []dynamoCursorEntry
+	var err error
+	if cursor.keysOnly {
+		entries, err = p.cursorKeys(ctx, cursor, req)
 		if err != nil {
-			if cursor.indexCursor && errors.Is(err, errDynamoCursorFieldMissing) {
-				continue
-			}
 			return nil, err
 		}
-		entries = append(entries, entry)
+	} else {
+		records, err := p.cursorRecords(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		entries = make([]dynamoCursorEntry, 0, len(records))
+		for _, record := range records {
+			entry, err := cursor.entryFromRecord(record)
+			if err != nil {
+				if cursor.indexCursor && errors.Is(err, errDynamoCursorFieldMissing) {
+					continue
+				}
+				return nil, err
+			}
+			entries = append(entries, entry)
+		}
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
@@ -205,6 +219,97 @@ func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursor
 	}
 	cursor.entries = entries
 	return cursor, nil
+}
+
+func (p *Provider) cursorKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]dynamoCursorEntry, error) {
+	if cursor.indexCursor {
+		return p.cursorIndexKeys(ctx, cursor, req)
+	}
+	return p.cursorObjectStoreKeys(ctx, req)
+}
+
+func (p *Provider) cursorObjectStoreKeys(ctx context.Context, req *proto.OpenCursorRequest) ([]dynamoCursorEntry, error) {
+	cond, vals := buildKeyCondition(req.GetStore(), req.GetRange())
+	var entries []dynamoCursorEntry
+	var startKey map[string]ddbtypes.AttributeValue
+	for {
+		resp, err := p.store.client.Query(ctx, &dynamodb.QueryInput{
+			TableName:                 &p.store.table,
+			KeyConditionExpression:    &cond,
+			ExpressionAttributeValues: vals,
+			ExclusiveStartKey:         startKey,
+			ProjectionExpression:      aws.String(attrSK),
+		})
+		if err != nil {
+			return nil, wrapErr(err)
+		}
+		for _, item := range resp.Items {
+			primaryKey := getS(item, attrSK)
+			entries = append(entries, dynamoCursorEntry{
+				key:        primaryKey,
+				primaryKey: primaryKey,
+			})
+		}
+		if resp.LastEvaluatedKey == nil {
+			break
+		}
+		startKey = resp.LastEvaluatedKey
+	}
+	return entries, nil
+}
+
+func (p *Provider) cursorIndexKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]dynamoCursorEntry, error) {
+	cond, exprVals := buildIndexCondition(req.GetStore(), req.GetIndex(), req.GetValues())
+	var entries []dynamoCursorEntry
+	var startKey map[string]ddbtypes.AttributeValue
+	for {
+		resp, err := p.store.client.Query(ctx, &dynamodb.QueryInput{
+			TableName:                 &p.store.table,
+			KeyConditionExpression:    aws.String(cond),
+			ExpressionAttributeValues: exprVals,
+			ExpressionAttributeNames: map[string]string{
+				"#idx_key": attrKey,
+			},
+			ExclusiveStartKey:    startKey,
+			ProjectionExpression: aws.String(attrSK + ",#idx_key," + attrRefID),
+		})
+		if err != nil {
+			return nil, wrapErr(err)
+		}
+		for _, item := range resp.Items {
+			key, err := dynamoIndexKeyFromItem(item, len(cursor.index.KeyPath))
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, dynamoCursorEntry{
+				key:        key,
+				primaryKey: getS(item, attrRefID),
+			})
+		}
+		if resp.LastEvaluatedKey == nil {
+			break
+		}
+		startKey = resp.LastEvaluatedKey
+	}
+	return entries, nil
+}
+
+func dynamoIndexKeyFromItem(item map[string]ddbtypes.AttributeValue, keyParts int) ([]any, error) {
+	if raw, ok := item[attrKey].(*ddbtypes.AttributeValueMemberB); ok && len(raw.Value) > 0 {
+		return unmarshalIndexKey(raw.Value, keyParts)
+	}
+
+	sk := getS(item, attrSK)
+	parts := strings.Split(sk, sep)
+	if len(parts) < keyParts+1 {
+		return nil, status.Errorf(codes.Internal, "invalid index sort key %q", sk)
+	}
+
+	key := make([]any, keyParts)
+	for i := 0; i < keyParts; i++ {
+		key[i] = parts[i]
+	}
+	return key, nil
 }
 
 func (p *Provider) lookupIndexMeta(storeName, indexName string) (*indexDef, error) {
@@ -256,6 +361,9 @@ func (c *dynamoCursor) entryFromRecord(record *proto.Record) (dynamoCursorEntry,
 		for i, field := range c.index.KeyPath {
 			value, err := dynamoRecordFieldAny(record, field)
 			if err != nil {
+				if errors.Is(err, errDynamoCursorFieldMissing) {
+					return dynamoCursorEntry{}, err
+				}
 				return dynamoCursorEntry{}, status.Errorf(codes.InvalidArgument, "record index field %q: %v", field, err)
 			}
 			parts[i] = value
@@ -590,14 +698,7 @@ func dynamoCompareCursorValue(a, b any) int {
 
 	if af, ok := dynamoCursorNumber(a); ok {
 		if bf, ok := dynamoCursorNumber(b); ok {
-			switch {
-			case af < bf:
-				return -1
-			case af > bf:
-				return 1
-			default:
-				return 0
-			}
+			return af.Cmp(bf)
 		}
 	}
 
@@ -613,23 +714,31 @@ func dynamoCompareCursorValue(a, b any) int {
 	}
 }
 
-func dynamoCursorNumber(v any) (float64, bool) {
+func dynamoCursorNumber(v any) (*big.Rat, bool) {
 	switch n := v.(type) {
 	case int:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int8:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int16:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int32:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int64:
-		return float64(n), true
+		return big.NewRat(n, 1), true
 	case float32:
-		return float64(n), true
+		return dynamoCursorFloatRat(float64(n))
 	case float64:
-		return n, true
+		return dynamoCursorFloatRat(n)
 	default:
-		return 0, false
+		return nil, false
 	}
+}
+
+func dynamoCursorFloatRat(v float64) (*big.Rat, bool) {
+	r := new(big.Rat).SetFloat64(v)
+	if r == nil {
+		return nil, false
+	}
+	return r, true
 }

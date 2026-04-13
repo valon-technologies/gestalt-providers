@@ -292,12 +292,12 @@ func TestMongoCursorProjectionForKeyOnlyIndexCursor(t *testing.T) {
 }
 
 func TestMongoCursorDocToProtoPreservesNativeIDType(t *testing.T) {
-	record, err := mongoCursorDocToProto(bson.M{
+	record, err := docToProto(bson.M{
 		"_id":  int64(10),
 		"name": "ten",
 	})
 	if err != nil {
-		t.Fatalf("mongoCursorDocToProto: %v", err)
+		t.Fatalf("docToProto: %v", err)
 	}
 
 	decoded, err := gestalt.RecordFromProto(record)

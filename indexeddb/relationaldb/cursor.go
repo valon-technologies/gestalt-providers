@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
 	"sort"
 	"time"
 
@@ -164,15 +165,15 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorReq
 		pos: -1,
 	}
 
-	records, err := s.cursorRecords(ctx, req)
-	if err != nil {
-		return nil, err
-	}
 	if cursor.indexCursor {
 		cursor.index = findIndex(meta, req.GetIndex())
 		if cursor.index == nil {
 			return nil, status.Errorf(codes.NotFound, "index not found: %s", req.GetIndex())
 		}
+	}
+	records, err := s.cursorRecords(ctx, cursor, req)
+	if err != nil {
+		return nil, err
 	}
 
 	entries := make([]cursorEntry, 0, len(records))
@@ -203,24 +204,100 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorReq
 	return cursor, nil
 }
 
-func (s *Store) cursorRecords(ctx context.Context, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
-	if req.GetIndex() == "" {
-		resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore()})
+func (s *Store) cursorRecords(ctx context.Context, cursor *relationalCursor, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
+	if !cursor.keysOnly {
+		if req.GetIndex() == "" {
+			resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore()})
+			if err != nil {
+				return nil, err
+			}
+			return resp.GetRecords(), nil
+		}
+
+		resp, err := s.IndexGetAll(ctx, &proto.IndexQueryRequest{
+			Store:  req.GetStore(),
+			Index:  req.GetIndex(),
+			Values: req.GetValues(),
+		})
 		if err != nil {
 			return nil, err
 		}
 		return resp.GetRecords(), nil
 	}
 
-	resp, err := s.IndexGetAll(ctx, &proto.IndexQueryRequest{
+	cols := cursorRecordColumns(cursor)
+	if req.GetIndex() == "" {
+		query, args, err := selectColumnsWithRange(s.dialect, cursor.meta, req.GetRange(), cols)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "open_cursor get_all scan: %v", err)
+		}
+		defer rows.Close()
+		records, err := scanRows(rows, cols)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "open_cursor get_all scan: %v", err)
+		}
+		return records, nil
+	}
+
+	query, args, err := indexSelectQuery(s.dialect, cursor.meta, &proto.IndexQueryRequest{
 		Store:  req.GetStore(),
 		Index:  req.GetIndex(),
 		Values: req.GetValues(),
-	})
+	}, false, colList(s.dialect, cols))
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetRecords(), nil
+	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "open_cursor index_get_all: %v", err)
+	}
+	defer rows.Close()
+	records, err := scanRows(rows, cols)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "open_cursor index_get_all scan: %v", err)
+	}
+	return records, nil
+}
+
+func cursorRecordColumns(cursor *relationalCursor) []*proto.ColumnDef {
+	seen := map[string]struct{}{cursor.meta.pkCol: {}}
+	names := []string{cursor.meta.pkCol}
+	if cursor.indexCursor {
+		for _, name := range cursor.index.GetKeyPath() {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+
+	cols := make([]*proto.ColumnDef, 0, len(names))
+	for _, col := range cursor.meta.columns {
+		if _, ok := seen[col.Name]; ok {
+			cols = append(cols, col)
+		}
+	}
+	return cols
+}
+
+func selectColumnsWithRange(d dialect, m *storeMeta, kr *proto.KeyRange, cols []*proto.ColumnDef) (string, []any, error) {
+	if len(cols) == 0 {
+		return "", nil, status.Error(codes.InvalidArgument, "cursor columns are required")
+	}
+
+	where, args, err := keyRangeWhere(d, m, kr)
+	if err != nil {
+		return "", nil, err
+	}
+	if where == "" {
+		return fmt.Sprintf("SELECT %s FROM %s", colList(d, cols), quoteTableName(d, m.table)), args, nil
+	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", colList(d, cols), quoteTableName(d, m.table), where), args, nil
 }
 
 func (c *relationalCursor) entryFromRecord(record *proto.Record) (cursorEntry, error) {
@@ -567,14 +644,7 @@ func compareCursorValue(a, b any) int {
 
 	if af, ok := cursorNumber(a); ok {
 		if bf, ok := cursorNumber(b); ok {
-			switch {
-			case af < bf:
-				return -1
-			case af > bf:
-				return 1
-			default:
-				return 0
-			}
+			return af.Cmp(bf)
 		}
 	}
 
@@ -590,23 +660,31 @@ func compareCursorValue(a, b any) int {
 	}
 }
 
-func cursorNumber(v any) (float64, bool) {
+func cursorNumber(v any) (*big.Rat, bool) {
 	switch n := v.(type) {
 	case int:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int8:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int16:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int32:
-		return float64(n), true
+		return big.NewRat(int64(n), 1), true
 	case int64:
-		return float64(n), true
+		return big.NewRat(n, 1), true
 	case float32:
-		return float64(n), true
+		return cursorFloatRat(float64(n))
 	case float64:
-		return n, true
+		return cursorFloatRat(n)
 	default:
-		return 0, false
+		return nil, false
 	}
+}
+
+func cursorFloatRat(v float64) (*big.Rat, bool) {
+	r := new(big.Rat).SetFloat64(v)
+	if r == nil {
+		return nil, false
+	}
+	return r, true
 }
