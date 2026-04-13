@@ -628,19 +628,15 @@ func (s *store) queryCount(ctx context.Context, storeName string, kr *proto.KeyR
 }
 
 func (s *store) queryIndex(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) ([]*proto.Record, error) {
-	pk := indexPK(storeName, indexName)
-	skp := indexSKPrefix(protoValuesToStrings(values))
+	cond, exprVals := buildIndexCondition(storeName, indexName, values)
 	var records []*proto.Record
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
-			TableName:              &s.table,
-			KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skp)"),
-			ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{
-				":pk":  &ddbtypes.AttributeValueMemberS{Value: pk},
-				":skp": &ddbtypes.AttributeValueMemberS{Value: skp},
-			},
-			ExclusiveStartKey: startKey,
+			TableName:                 &s.table,
+			KeyConditionExpression:    aws.String(cond),
+			ExpressionAttributeValues: exprVals,
+			ExclusiveStartKey:         startKey,
 		})
 		if err != nil {
 			return nil, wrapErr(err)
@@ -659,20 +655,16 @@ func (s *store) queryIndex(ctx context.Context, storeName, indexName string, val
 }
 
 func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) ([]string, error) {
-	pk := indexPK(storeName, indexName)
-	skp := indexSKPrefix(protoValuesToStrings(values))
+	cond, exprVals := buildIndexCondition(storeName, indexName, values)
 	var keys []string
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
-			TableName:              &s.table,
-			KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skp)"),
-			ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{
-				":pk":  &ddbtypes.AttributeValueMemberS{Value: pk},
-				":skp": &ddbtypes.AttributeValueMemberS{Value: skp},
-			},
-			ExclusiveStartKey:    startKey,
-			ProjectionExpression: aws.String(attrRefID),
+			TableName:                 &s.table,
+			KeyConditionExpression:    aws.String(cond),
+			ExpressionAttributeValues: exprVals,
+			ExclusiveStartKey:         startKey,
+			ProjectionExpression:      aws.String(attrRefID),
 		})
 		if err != nil {
 			return nil, wrapErr(err)
@@ -689,20 +681,16 @@ func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string,
 }
 
 func (s *store) queryIndexCount(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) (int64, error) {
-	pk := indexPK(storeName, indexName)
-	skp := indexSKPrefix(protoValuesToStrings(values))
+	cond, exprVals := buildIndexCondition(storeName, indexName, values)
 	var total int64
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
-			TableName:              &s.table,
-			KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :skp)"),
-			ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{
-				":pk":  &ddbtypes.AttributeValueMemberS{Value: pk},
-				":skp": &ddbtypes.AttributeValueMemberS{Value: skp},
-			},
-			ExclusiveStartKey: startKey,
-			Select:            ddbtypes.SelectCount,
+			TableName:                 &s.table,
+			KeyConditionExpression:    aws.String(cond),
+			ExpressionAttributeValues: exprVals,
+			ExclusiveStartKey:         startKey,
+			Select:                    ddbtypes.SelectCount,
 		})
 		if err != nil {
 			return 0, wrapErr(err)
@@ -770,6 +758,17 @@ func indexSK(values []string, id string) string {
 
 func indexSKPrefix(values []string) string {
 	return strings.Join(values, sep) + sep
+}
+
+func buildIndexCondition(storeName, indexName string, values []*proto.TypedValue) (string, map[string]ddbtypes.AttributeValue) {
+	exprVals := map[string]ddbtypes.AttributeValue{
+		":pk": &ddbtypes.AttributeValueMemberS{Value: indexPK(storeName, indexName)},
+	}
+	if len(values) == 0 {
+		return "PK = :pk", exprVals
+	}
+	exprVals[":skp"] = &ddbtypes.AttributeValueMemberS{Value: indexSKPrefix(protoValuesToStrings(values))}
+	return "PK = :pk AND begins_with(SK, :skp)", exprVals
 }
 
 func buildKeyCondition(storeName string, kr *proto.KeyRange) (string, map[string]ddbtypes.AttributeValue) {

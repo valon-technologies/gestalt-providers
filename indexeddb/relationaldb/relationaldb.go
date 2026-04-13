@@ -408,10 +408,21 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emp
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.db.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), req.Id); err != nil {
-		return nil, mapSQLErr("delete", err)
+	if err := s.deleteByPrimaryKeyValue(ctx, m, req.Id); err != nil {
+		return nil, err
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (s *Store) deleteByPrimaryKeyValue(ctx context.Context, m *storeMeta, value any) error {
+	arg, err := anyToSQLArg(value, columnType(m, m.pkCol))
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "marshal primary key: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), arg); err != nil {
+		return mapSQLErr("delete", err)
+	}
+	return nil
 }
 
 // ---- Bulk operations ----
