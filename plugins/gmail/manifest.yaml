@@ -12,7 +12,7 @@ spec:
     value: me
   surfaces:
     openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
+      document: https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest
   allowedOperations:
     gmail.users.messages.list:
       alias: messages.list
