@@ -69,6 +69,28 @@ spec:
       alias: validateRoutingNumber
   connections:
     default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: organization_id
+          label: Organization ID
+          description: Find this in Modern Treasury under Developers > API Keys.
+        - name: api_key
+          label: API Key
+          description: Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys).
+        authMapping:
+          basic:
+            username:
+              valueFrom:
+                credentialFieldRef:
+                  name: organization_id
+            password:
+              valueFrom:
+                credentialFieldRef:
+                  name: api_key
+    identity:
+      mode: identity
       auth:
         type: manual
         credentials:

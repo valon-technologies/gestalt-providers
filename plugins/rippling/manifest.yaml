@@ -597,6 +597,15 @@ spec:
           description: Comma-separated related resources to expand in the response
   connections:
     default:
+      mode: user
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: API Token
+          description: Create one in [Rippling API Tokens](https://app.rippling.com/developer/api-tokens)
+    identity:
+      mode: identity
       auth:
         type: bearer
         credentials:

@@ -17,6 +17,7 @@ cross-platform artifact that `gestaltd` resolves at runtime.
 - [Configuration](https://gestaltd.ai/configuration): config model, plugin setup, and auth
 - [Provider Development](https://gestaltd.ai/providers): writing plugins, auth backends, datastores, and secrets engines
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests): manifest format and schema
+- [Plugin Authorization Inventory](plugins/AUTHORIZATION.md): workload readiness and identity-connection guidance
 - [Releasing](https://gestaltd.ai/providers/releasing): publishing provider packages
 
 ## Usage

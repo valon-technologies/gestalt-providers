@@ -153,6 +153,15 @@ spec:
     updateVisitor: {}
   connections:
     default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Access Token
+          description: Copy the "Valon Technologies" token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)
+    identity:
+      mode: identity
       auth:
         type: manual
         credentials:

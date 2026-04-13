@@ -11,6 +11,15 @@ spec:
       document: https://app.launchdarkly.com/api/v2/openapi.json
   connections:
     default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Access Token
+          description: See [Authorization](https://app.launchdarkly.com/settings/authorization) to create an access token
+    identity:
+      mode: identity
       auth:
         type: manual
         credentials:
