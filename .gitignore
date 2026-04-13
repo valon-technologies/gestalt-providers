@@ -9,3 +9,9 @@ __pycache__/
 plugins/*/*.egg-info/
 .claude/
 gestalt
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+service-account*.json
