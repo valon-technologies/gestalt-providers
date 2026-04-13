@@ -159,7 +159,7 @@ spec:
         credentials:
         - name: token
           label: API Access Token
-          description: Copy the "Valon Technologies" token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)
+          description: Copy an API access token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)
     identity:
       mode: identity
       auth:
@@ -167,4 +167,4 @@ spec:
         credentials:
         - name: token
           label: API Access Token
-          description: Copy the "Valon Technologies" token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)
+          description: Copy an API access token from the [Developer Hub](https://app.intercom.com/a/apps/ag74yh29/developer-hub/app-packages/168387/oauth)

@@ -24,12 +24,6 @@ managing messaging resources.
 
 Authenticates with Twilio Account SID and Auth Token (HTTP Basic).
 
-## Connections
-
-The manifest now exposes both a per-user `default` connection and an additive
-`identity` connection for shared deployment credentials. Workloads should bind
-to `identity`; existing user flows continue to use `default`.
-
 ## Documentation
 
 - [Provider Development](https://gestaltd.ai/providers)
