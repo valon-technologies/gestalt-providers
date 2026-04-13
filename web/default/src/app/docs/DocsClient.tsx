@@ -33,7 +33,7 @@ const sections: Section[] = [
   {
     id: "invoke",
     label: "Invoke Operations",
-    subsections: [{ id: "invoke-http", label: "Invoke over HTTP" }],
+    subsections: [],
   },
   { id: "tokens", label: "Manage API Tokens", subsections: [] },
   { id: "mcp", label: "Use With MCP", subsections: [] },
@@ -300,42 +300,7 @@ gestalt plugins connect <plugin> --connection <name> --instance <instance>`}
               title="Invoke Operations"
               description="Use the catalog built into Gestalt to discover a plugin's operations before making requests."
             >
-              <CodeBlock
-                code={`gestalt plugins invoke <plugin>
-gestalt plugins describe <plugin> <operation>
-gestalt plugins invoke <plugin> <operation> -p key=value
-gestalt plugins invoke <plugin> <operation> -p filters:='{"status":"open"}'
-gestalt plugins invoke <plugin> <operation> --input-file payload.json --select data.items`}
-              />
-              <p className="doc-copy">
-                If you omit the operation,{" "}
-                <code className="font-mono text-sm text-primary">
-                  gestalt plugins invoke &lt;plugin&gt;
-                </code>{" "}
-                lists available operations instead of running one.
-              </p>
-
-              <Subheading id="invoke-http" title="Invoke over HTTP" />
-              <p className="doc-copy">
-                The CLI calls the same HTTP API that the server exposes for
-                direct programmatic access. The API keeps{" "}
-                <code className="font-mono text-sm text-primary">
-                  integrations
-                </code>{" "}
-                in its route paths even though the CLI uses{" "}
-                <code className="font-mono text-sm text-primary">plugins</code>.
-              </p>
-              <CodeBlock
-                code={`curl \\
-  -H "Authorization: Bearer $GESTALT_API_KEY" \\
-  ${origin}/api/v1/integrations
-
-curl \\
-  -H "Authorization: Bearer $GESTALT_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"example":"value"}' \\
-  ${origin}/api/v1/<plugin>/<operation>`}
-              />
+              <InvokeMethodTabs origin={origin} />
             </DocSection>
 
             <DocSection
@@ -689,6 +654,99 @@ function SetupMethodTabs({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+function InvokeMethodTabs({ origin }: { origin: string }) {
+  const [activeId, setActiveId] = useState<"invoke-cli" | "invoke-http">(
+    "invoke-cli",
+  );
+
+  return (
+    <div className="space-y-4">
+      <div
+        role="tablist"
+        aria-label="Invocation methods"
+        className="flex flex-wrap gap-2"
+      >
+        {[
+          { id: "invoke-cli", label: "CLI" },
+          { id: "invoke-http", label: "HTTP" },
+        ].map((item) => {
+          const isActive = item.id === activeId;
+          return (
+            <button
+              key={item.id}
+              id={item.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`${item.id}-panel`}
+              onClick={() =>
+                setActiveId(item.id as "invoke-cli" | "invoke-http")
+              }
+              className={`rounded-full border px-4 py-2 text-sm transition-colors duration-150 ${
+                isActive
+                  ? "border-gold-600 bg-gold-50 text-primary dark:border-gold-300 dark:bg-gold-400/10"
+                  : "border-alpha text-muted hover:text-primary"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <section
+        id="invoke-cli-panel"
+        role="tabpanel"
+        aria-labelledby="invoke-cli"
+        hidden={activeId !== "invoke-cli"}
+        className={activeId === "invoke-cli" ? "space-y-4" : "hidden"}
+      >
+        <CodeBlock
+          code={`gestalt plugins invoke <plugin>
+gestalt plugins describe <plugin> <operation>
+gestalt plugins invoke <plugin> <operation> -p key=value
+gestalt plugins invoke <plugin> <operation> -p filters:='{"status":"open"}'
+gestalt plugins invoke <plugin> <operation> --input-file payload.json --select data.items`}
+        />
+        <p className="doc-copy">
+          If you omit the operation,{" "}
+          <code className="font-mono text-sm text-primary">
+            gestalt plugins invoke &lt;plugin&gt;
+          </code>{" "}
+          lists available operations instead of running one.
+        </p>
+      </section>
+
+      <section
+        id="invoke-http-panel"
+        role="tabpanel"
+        aria-labelledby="invoke-http"
+        hidden={activeId !== "invoke-http"}
+        className={activeId === "invoke-http" ? "space-y-4" : "hidden"}
+      >
+        <p className="doc-copy">
+          The CLI calls the same HTTP API that the server exposes for direct
+          programmatic access. The API keeps{" "}
+          <code className="font-mono text-sm text-primary">integrations</code>{" "}
+          in its route paths even though the CLI uses{" "}
+          <code className="font-mono text-sm text-primary">plugins</code>.
+        </p>
+        <CodeBlock
+          code={`curl \\
+  -H "Authorization: Bearer $GESTALT_API_KEY" \\
+  ${origin}/api/v1/integrations
+
+curl \\
+  -H "Authorization: Bearer $GESTALT_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"example":"value"}' \\
+  ${origin}/api/v1/<plugin>/<operation>`}
+        />
+      </section>
     </div>
   );
 }

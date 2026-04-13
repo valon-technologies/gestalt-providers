@@ -49,6 +49,9 @@ test.describe("Docs page", () => {
     await expect(
       page.getByText("gestalt plugins list").first(),
     ).toBeVisible();
+    await expect(page.getByRole("tab", { name: "CLI" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "HTTP" })).toBeVisible();
+    await page.getByRole("tab", { name: "HTTP" }).click();
     await expect(
       page.getByText("/api/v1/integrations").first(),
     ).toBeVisible();
