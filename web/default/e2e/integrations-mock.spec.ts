@@ -54,8 +54,8 @@ const MULTI_CONNECTION_MULTI_OAUTH_INTEGRATION: Integration = {
 };
 
 const MCP_PASSTHROUGH_INTEGRATION: Integration = {
-  name: "clickhouse",
-  displayName: "ClickHouse",
+  name: "mcp-passthrough-svc",
+  displayName: "MCP Passthrough Service",
   connections: [
     {
       name: "MCP",
@@ -266,7 +266,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [MCP_PASSTHROUGH_INTEGRATION]);
 
     await page.goto("/integrations");
-    await page.getByRole("button", { name: "ClickHouse settings" }).click();
+    await page.getByRole("button", { name: "MCP Passthrough Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
     await expect(dialog.getByText("MCP")).toBeVisible();
