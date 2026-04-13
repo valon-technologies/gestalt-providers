@@ -53,6 +53,18 @@ const MULTI_CONNECTION_MULTI_OAUTH_INTEGRATION: Integration = {
   ],
 };
 
+const MCP_PASSTHROUGH_INTEGRATION: Integration = {
+  name: "clickhouse",
+  displayName: "ClickHouse",
+  connections: [
+    {
+      name: "MCP",
+      displayName: "MCP",
+      authTypes: [],
+    },
+  ],
+};
+
 const sampleIntegrations: Integration[] = [
   OAUTH_INTEGRATION,
   MANUAL_INTEGRATION,
@@ -245,6 +257,21 @@ test.describe("Integrations", () => {
     await expect(dialog.getByRole("button", { name: "Connect with workspace" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Use API Token for workspace" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Connect with personal" })).toBeVisible();
+  });
+
+  test("no-auth MCP connections are shown as passive passthroughs", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [MCP_PASSTHROUGH_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "ClickHouse settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await expect(dialog.getByText("MCP")).toBeVisible();
+    await expect(dialog.getByText("MCP passthrough")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /connect/i })).toHaveCount(0);
   });
 
   test("multi-connection loading state stays on the clicked oauth action", async ({

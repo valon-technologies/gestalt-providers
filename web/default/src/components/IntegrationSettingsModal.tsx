@@ -65,13 +65,12 @@ function resolveAuthTargets(integration: Integration): AuthTarget[] {
       .map((connection) => ({
         key: connection.name,
         connection: connection.name,
-        label: connection.name,
+        label: connection.displayName || connection.name,
         authTypes: normalizeAuthTypes(connection.authTypes, false),
         credentialFields: connection.credentialFields?.length
           ? connection.credentialFields
           : defaultCredentialFields,
-      }))
-      .filter((target) => target.authTypes.length > 0);
+      }));
   }
 
   return [{
@@ -163,6 +162,7 @@ export default function IntegrationSettingsModal({
   const defaultTarget = authTargets.length === 1 ? authTargets[0] : undefined;
   const defaultConnection = defaultTarget?.connection;
   const connectionActions = buildAuthActions(authTargets, !!integration.connected);
+  const passiveConnections = authTargets.filter((target) => target.authTypes.length === 0);
   const needsParams = integration.connectionParams && Object.keys(integration.connectionParams).length > 0;
 
   function handleCancel(e: React.SyntheticEvent<HTMLDialogElement>) {
@@ -266,6 +266,25 @@ export default function IntegrationSettingsModal({
           >
             {isPendingAction(action) ? "Connecting..." : action.label}
           </Button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderPassiveConnections() {
+    if (passiveConnections.length === 0) {
+      return null;
+    }
+    return (
+      <div className="mt-6 space-y-2">
+        {passiveConnections.map((target) => (
+          <div
+            key={`${target.key}:passive`}
+            className="flex items-center justify-between rounded-md border border-alpha px-4 py-3"
+          >
+            <div className="text-sm text-primary">{target.label}</div>
+            <div className="text-xs text-faint">MCP passthrough</div>
+          </div>
         ))}
       </div>
     );
@@ -414,12 +433,14 @@ export default function IntegrationSettingsModal({
                 )}
 
                 {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+                {renderPassiveConnections()}
                 {renderConnectionButtons()}
               </>
             ) : (
               <>
                 <p className="mt-4 text-sm text-faint">Not connected</p>
                 {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+                {renderPassiveConnections()}
                 {renderConnectionButtons()}
               </>
             )}
