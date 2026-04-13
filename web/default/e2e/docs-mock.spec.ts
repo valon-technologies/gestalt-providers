@@ -63,6 +63,17 @@ test.describe("Docs page", () => {
     await expect(
       page.locator("#setup-config-set-panel"),
     ).toContainText(`gestalt config set url ${expectedOrigin}`);
+    await expect(
+      page.getByRole("tab", { name: "gestalt auth" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "GESTALT_API_KEY" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "GESTALT_API_KEY" }).click();
+    await expect(page.locator("#auth-token-panel")).toContainText(
+      "export GESTALT_API_KEY=gst_api_your_token_here",
+    );
+    await expect(page.getByText("gestalt plugins list", { exact: true })).toBeVisible();
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
     await expect(page).toHaveURL(/\/docs\/invoke/);

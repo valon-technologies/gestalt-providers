@@ -154,19 +154,31 @@ export function GettingStartedDocsPage() {
 
         <Subheading id="authenticate" title="Authenticate" />
         <p className="doc-copy">
-          Browser login is the normal path for interactive use. Running the
-          command below opens your browser automatically. Just approve the
-          sign-in when prompted. If authentication is disabled, you can skip
-          login and call the API directly. For scripts, you can also set a
-          Gestalt API token directly when auth is enabled.
+          Use browser login for interactive sessions, or set a token directly
+          for scripts and other non-interactive clients. If authentication is
+          disabled, you can skip both flows and call the API directly.
         </p>
-        <CodeBlock
-          code={`gestalt auth login
-gestalt auth status
-
-export GESTALT_API_KEY=gst_api_your_token_here
-gestalt plugins list`}
+        <AuthMethodTabs
+          items={[
+            {
+              id: "auth-browser",
+              label: "gestalt auth",
+              code: `gestalt auth login
+gestalt auth status`,
+              description:
+                "Opens your browser for sign-in and then confirms the current session.",
+            },
+            {
+              id: "auth-token",
+              label: "GESTALT_API_KEY",
+              code: "export GESTALT_API_KEY=gst_api_your_token_here",
+              description:
+                "Uses an API token directly for scripts, MCP clients, and other non-interactive flows.",
+            },
+          ]}
         />
+        <p className="doc-copy">Then verify access:</p>
+        <CodeBlock code="gestalt plugins list" />
       </DocsPageBody>
     </>
   );
@@ -403,6 +415,67 @@ function SetupMethodTabs({
       <div
         role="tablist"
         aria-label="CLI setup methods"
+        className="flex flex-wrap gap-5 border-b border-alpha"
+      >
+        {items.map((item) => {
+          const isActive = item.id === activeId;
+          return (
+            <button
+              key={item.id}
+              id={item.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`${item.id}-panel`}
+              onClick={() => setActiveId(item.id)}
+              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
+                isActive
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {items.map((item) => {
+        const isActive = item.id === activeId;
+        return (
+          <section
+            key={item.id}
+            id={`${item.id}-panel`}
+            role="tabpanel"
+            aria-labelledby={item.id}
+            hidden={!isActive}
+            className={
+              isActive
+                ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+                : "hidden"
+            }
+          >
+            <CodeBlock code={item.code} />
+            <p className="doc-copy">{item.description}</p>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function AuthMethodTabs({
+  items,
+}: {
+  items: { id: string; label: string; code: string; description: string }[];
+}) {
+  const [activeId, setActiveId] = useState(items[0]?.id ?? "");
+
+  return (
+    <div className="space-y-4">
+      <div
+        role="tablist"
+        aria-label="Authentication methods"
         className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {items.map((item) => {
