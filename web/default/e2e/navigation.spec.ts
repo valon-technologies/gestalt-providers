@@ -50,6 +50,18 @@ test.describe("Navigation", () => {
     await expect(page.getByRole("heading", { name: "Gestalt User Guide" })).toBeVisible();
   });
 
+  test("docs subpages render", async ({ authenticatedPage: page }) => {
+    await page.goto("/docs/setup");
+    await expect(
+      page.getByRole("heading", { name: "Set Up The CLI" }),
+    ).toBeVisible();
+
+    await page.goto("/docs/mcp");
+    await expect(
+      page.getByRole("heading", { name: "Use With MCP" }),
+    ).toBeVisible();
+  });
+
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/integrations");
     await page.getByRole("link", { name: "API Tokens" }).click();

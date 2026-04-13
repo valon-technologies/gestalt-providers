@@ -19,6 +19,7 @@ test.describe("Docs page", () => {
   }) => {
     const pageErrors = trackPageErrors(page);
     const expectedOrigin = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8080";
+    const leftNav = page.locator("aside").first();
     await page.addInitScript(() => {
       localStorage.clear();
       sessionStorage.clear();
@@ -38,22 +39,50 @@ test.describe("Docs page", () => {
       }),
     ).toBeVisible();
     await expect(
+      leftNav.getByRole("link", { name: "Overview" }),
+    ).toHaveAttribute("href", "/docs/overview");
+    await expect(
+      leftNav.getByRole("link", { name: "Set Up The CLI" }),
+    ).toHaveAttribute("href", "/docs/setup");
+    await expect(
+      leftNav.getByRole("link", { name: "Invoke Operations" }),
+    ).toHaveAttribute("href", "/docs/invoke");
+    await expect(
+      leftNav.getByRole("link", { name: "Use With MCP" }),
+    ).toHaveAttribute("href", "/docs/mcp");
+    await expect(page.getByText("Base URL")).toBeVisible();
+    await expect(page.getByText("Current Host")).toHaveCount(0);
+    await expect(page.locator("article")).not.toContainText("gestaltd");
+
+    await leftNav.getByRole("link", { name: "Set Up The CLI" }).click();
+    await expect(page).toHaveURL(/\/docs\/setup/);
+    await expect(
       page.getByRole("heading", { name: "Set Up The CLI" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Connect Plugins" }),
+      page.getByRole("tab", { name: "gestalt init" }),
     ).toBeVisible();
+    await page.getByRole("tab", { name: "gestalt config set url" }).click();
     await expect(
-      page.getByRole("heading", { name: "Use With MCP" }),
-    ).toBeVisible();
+      page.locator("#setup-config-set-panel"),
+    ).toContainText(`gestalt config set url ${expectedOrigin}`);
+
+    await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
+    await expect(page).toHaveURL(/\/docs\/invoke/);
     await expect(
-      page.getByText("gestalt plugins list").first(),
+      page.getByRole("heading", { name: "Invoke Operations" }),
     ).toBeVisible();
     await expect(page.getByRole("tab", { name: "CLI" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "HTTP" })).toBeVisible();
     await page.getByRole("tab", { name: "HTTP" }).click();
     await expect(
       page.getByText("/api/v1/integrations").first(),
+    ).toBeVisible();
+
+    await leftNav.getByRole("link", { name: "Use With MCP" }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp/);
+    await expect(
+      page.getByRole("heading", { name: "Use With MCP" }),
     ).toBeVisible();
     await expect(
       page.getByText("claude mcp add --transport http").first(),
@@ -78,7 +107,6 @@ test.describe("Docs page", () => {
       page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();
     await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
-    await expect(page.getByText("Current Host")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
   });
 
@@ -97,6 +125,9 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Gestalt User Guide" }),
     ).toBeVisible();
+    await expect(
+      page.locator("aside").first().getByRole("link", { name: "Use With MCP" }),
+    ).toHaveAttribute("href", "/docs/mcp");
     await expect(
       page.locator("nav").getByRole("link", { name: "Plugins", exact: true }),
     ).toBeVisible();

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import DocsClient from "./DocsClient";
+import { OverviewDocsPage } from "./DocsContent";
 
 export const metadata: Metadata = {
   title: "Docs",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function DocsPage() {
-  return <DocsClient />;
+  return <OverviewDocsPage />;
 }
