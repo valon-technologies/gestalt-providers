@@ -18,9 +18,11 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative REST provider with a broad set of custom operations spanning
+Curated OpenAPI-backed provider with a sibling `openapi.yaml`, covering
 companies, employees, compensations, departments, teams, leave management, time
-entries, work locations, and more.
+entries, work locations, and more. Includes limited write support for employee
+updates, leave request creation and updates, and time entry create, update, and
+delete operations.
 
 Authenticates with a bearer API token.
 
