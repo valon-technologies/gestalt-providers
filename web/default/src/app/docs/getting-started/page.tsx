@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { GettingStartedDocsPage } from "./DocsContent";
+import { GettingStartedDocsPage } from "../DocsContent";
 
 export const metadata: Metadata = {
   title: "Getting Started",
@@ -7,6 +7,6 @@ export const metadata: Metadata = {
     "Install the Gestalt CLI, point it at your workspace, and authenticate.",
 };
 
-export default function DocsPage() {
+export default function GettingStartedPage() {
   return <GettingStartedDocsPage />;
 }

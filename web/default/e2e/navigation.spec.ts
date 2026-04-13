@@ -47,13 +47,13 @@ test.describe("Navigation", () => {
 
   test("docs page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/docs");
-    await expect(page.getByRole("heading", { name: "Gestalt User Guide" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Getting Started" })).toBeVisible();
   });
 
   test("docs subpages render", async ({ authenticatedPage: page }) => {
-    await page.goto("/docs/setup");
+    await page.goto("/docs/getting-started");
     await expect(
-      page.getByRole("heading", { name: "Set Up The CLI" }),
+      page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
 
     await page.goto("/docs/mcp");

@@ -35,29 +35,26 @@ test.describe("Docs page", () => {
     await expect(page).toHaveURL(/\/docs/);
     await expect(
       page.getByRole("heading", {
-        name: "Gestalt User Guide",
+        name: "Getting Started",
       }),
     ).toBeVisible();
     await expect(
-      leftNav.getByRole("link", { name: "Overview" }),
-    ).toHaveAttribute("href", "/docs/overview");
-    await expect(
-      leftNav.getByRole("link", { name: "Set Up The CLI" }),
-    ).toHaveAttribute("href", "/docs/setup");
+      leftNav.getByRole("link", { name: "Getting Started" }),
+    ).toHaveAttribute("href", "/docs/getting-started");
     await expect(
       leftNav.getByRole("link", { name: "Invoke Operations" }),
     ).toHaveAttribute("href", "/docs/invoke");
     await expect(
       leftNav.getByRole("link", { name: "Use With MCP" }),
     ).toHaveAttribute("href", "/docs/mcp");
-    await expect(page.getByText("Base URL")).toBeVisible();
+    await expect(page.getByText("Base URL", { exact: true })).toBeVisible();
     await expect(page.getByText("Current Host")).toHaveCount(0);
     await expect(page.locator("article")).not.toContainText("gestaltd");
 
-    await leftNav.getByRole("link", { name: "Set Up The CLI" }).click();
-    await expect(page).toHaveURL(/\/docs\/setup/);
+    await leftNav.getByRole("link", { name: "Getting Started" }).click();
+    await expect(page).toHaveURL(/\/docs\/getting-started/);
     await expect(
-      page.getByRole("heading", { name: "Set Up The CLI" }),
+      page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
     await expect(
       page.getByRole("tab", { name: "gestalt init" }),
@@ -123,7 +120,7 @@ test.describe("Docs page", () => {
     await page.goto("/docs");
     await expect(page).toHaveURL(/\/docs/);
     await expect(
-      page.getByRole("heading", { name: "Gestalt User Guide" }),
+      page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
     await expect(
       page.locator("aside").first().getByRole("link", { name: "Use With MCP" }),

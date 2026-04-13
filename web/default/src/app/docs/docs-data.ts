@@ -11,11 +11,10 @@ export interface DocsNavItem {
 }
 
 export const docsNavItems: DocsNavItem[] = [
-  { id: "overview", href: "/docs/overview", label: "Overview", subsections: [] },
   {
-    id: "setup",
-    href: "/docs/setup",
-    label: "Set Up The CLI",
+    id: "getting-started",
+    href: "/docs/getting-started",
+    label: "Getting Started",
     subsections: [
       { id: "install", label: "Install" },
       { id: "point-cli", label: "Point the CLI" },
@@ -39,7 +38,7 @@ export const docsNavItems: DocsNavItem[] = [
 ];
 
 export function getActiveDocsNavItem(pathname: string): DocsNavItem {
-  if (pathname === "/docs" || pathname === "/docs/overview") {
+  if (pathname === "/docs" || pathname === "/docs/getting-started") {
     return docsNavItems[0];
   }
 

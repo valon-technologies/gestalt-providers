@@ -18,14 +18,14 @@ type McpTabId = (typeof mcpTabs)[number]["id"];
 const mcpTabIds = mcpTabs.map((tab) => tab.id);
 const defaultMcpTabId: McpTabId = "mcp-claude-code";
 
-export function OverviewDocsPage() {
+export function GettingStartedDocsPage() {
   const origin = useDeploymentOrigin();
 
   return (
     <>
       <DocsPageHeader
-        eyebrow="Overview"
-        title="Gestalt User Guide"
+        eyebrow="Getting Started"
+        title="Getting Started"
         description={
           <>
             This guide covers the user-facing workflows for the Gestalt
@@ -45,22 +45,6 @@ export function OverviewDocsPage() {
           </p>
           <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
         </div>
-      </DocsPageBody>
-    </>
-  );
-}
-
-export function SetupDocsPage() {
-  const origin = useDeploymentOrigin();
-
-  return (
-    <>
-      <DocsPageHeader
-        eyebrow="Set Up The CLI"
-        title="Set Up The CLI"
-        description="Install the client binary, point it at this workspace, and authenticate once."
-      />
-      <DocsPageBody>
         <Subheading id="install" title="Install" />
         <p className="doc-copy">
           End users only need the{" "}
@@ -405,7 +389,11 @@ function SetupMethodTabs({
 
   return (
     <div className="space-y-4">
-      <div role="tablist" aria-label="CLI setup methods" className="flex flex-wrap gap-2">
+      <div
+        role="tablist"
+        aria-label="CLI setup methods"
+        className="flex flex-wrap gap-5 border-b border-alpha"
+      >
         {items.map((item) => {
           const isActive = item.id === activeId;
           return (
@@ -417,10 +405,10 @@ function SetupMethodTabs({
               aria-selected={isActive}
               aria-controls={`${item.id}-panel`}
               onClick={() => setActiveId(item.id)}
-              className={`rounded-full border px-4 py-2 text-sm transition-colors duration-150 ${
+              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 bg-gold-50 text-primary dark:border-gold-300 dark:bg-gold-400/10"
-                  : "border-alpha text-muted hover:text-primary"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -438,7 +426,11 @@ function SetupMethodTabs({
             role="tabpanel"
             aria-labelledby={item.id}
             hidden={!isActive}
-            className={isActive ? "space-y-4" : "hidden"}
+            className={
+              isActive
+                ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+                : "hidden"
+            }
           >
             <CodeBlock code={item.code} />
             <p className="doc-copy">{item.description}</p>
@@ -456,7 +448,11 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
 
   return (
     <div className="space-y-4">
-      <div role="tablist" aria-label="Invocation methods" className="flex flex-wrap gap-2">
+      <div
+        role="tablist"
+        aria-label="Invocation methods"
+        className="flex flex-wrap gap-5 border-b border-alpha"
+      >
         {[
           { id: "invoke-cli", label: "CLI" },
           { id: "invoke-http", label: "HTTP" },
@@ -473,10 +469,10 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
               onClick={() =>
                 setActiveId(item.id as "invoke-cli" | "invoke-http")
               }
-              className={`rounded-full border px-4 py-2 text-sm transition-colors duration-150 ${
+              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 bg-gold-50 text-primary dark:border-gold-300 dark:bg-gold-400/10"
-                  : "border-alpha text-muted hover:text-primary"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -490,7 +486,11 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
         role="tabpanel"
         aria-labelledby="invoke-cli"
         hidden={activeId !== "invoke-cli"}
-        className={activeId === "invoke-cli" ? "space-y-4" : "hidden"}
+        className={
+          activeId === "invoke-cli"
+            ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
       >
         <CodeBlock
           code={`gestalt plugins invoke <plugin>
@@ -513,7 +513,11 @@ gestalt plugins invoke <plugin> <operation> --input-file payload.json --select d
         role="tabpanel"
         aria-labelledby="invoke-http"
         hidden={activeId !== "invoke-http"}
-        className={activeId === "invoke-http" ? "space-y-4" : "hidden"}
+        className={
+          activeId === "invoke-http"
+            ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
       >
         <p className="doc-copy">
           The CLI calls the same HTTP API that the workspace exposes for direct
@@ -546,7 +550,7 @@ function McpClientTabs({ origin }: { origin: string }) {
       <div
         role="tablist"
         aria-label="MCP client configuration"
-        className="flex flex-wrap gap-2 border-b border-alpha pb-4"
+        className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {mcpTabs.map((tab) => {
           const isActive = tab.id === activeTabId;
@@ -559,10 +563,10 @@ function McpClientTabs({ origin }: { origin: string }) {
               aria-selected={isActive}
               aria-controls={`${tab.id}-panel`}
               onClick={() => setActiveTabId(tab.id)}
-              className={`rounded-full border px-4 py-2 text-sm transition-colors duration-150 ${
+              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 bg-gold-50 text-primary dark:border-gold-300 dark:bg-gold-400/10"
-                  : "border-alpha text-muted hover:text-primary"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -576,7 +580,11 @@ function McpClientTabs({ origin }: { origin: string }) {
         role="tabpanel"
         aria-labelledby="mcp-claude-code"
         hidden={activeTabId !== "mcp-claude-code"}
-        className={activeTabId === "mcp-claude-code" ? "space-y-5" : "hidden"}
+        className={
+          activeTabId === "mcp-claude-code"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
       >
         <p className="doc-copy">
           Use{" "}
@@ -609,7 +617,11 @@ function McpClientTabs({ origin }: { origin: string }) {
         role="tabpanel"
         aria-labelledby="mcp-codex"
         hidden={activeTabId !== "mcp-codex"}
-        className={activeTabId === "mcp-codex" ? "space-y-5" : "hidden"}
+        className={
+          activeTabId === "mcp-codex"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
       >
         <p className="doc-copy">
           Codex can register the workspace directly from the CLI:
@@ -631,7 +643,11 @@ function McpClientTabs({ origin }: { origin: string }) {
         role="tabpanel"
         aria-labelledby="mcp-cursor"
         hidden={activeTabId !== "mcp-cursor"}
-        className={activeTabId === "mcp-cursor" ? "space-y-5" : "hidden"}
+        className={
+          activeTabId === "mcp-cursor"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
       >
         <p className="doc-copy">
           Config file:{" "}
@@ -659,7 +675,11 @@ function McpClientTabs({ origin }: { origin: string }) {
         role="tabpanel"
         aria-labelledby="mcp-other"
         hidden={activeTabId !== "mcp-other"}
-        className={activeTabId === "mcp-other" ? "space-y-5" : "hidden"}
+        className={
+          activeTabId === "mcp-other"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
       >
         <p className="doc-copy">
           Any MCP-compatible client can connect to Gestalt. You need three
