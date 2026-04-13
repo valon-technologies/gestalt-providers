@@ -10,7 +10,7 @@ test.describe("Navigation", () => {
       {
         name: "httpbin",
         displayName: "HTTPBin",
-        description: "HTTP request and response testing service.",
+        description: "Development/testing-only HTTP request and response service. Do not use with production or sensitive data.",
         connected: true,
       },
     ]);

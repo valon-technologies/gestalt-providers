@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/httpbin
 version: 0.0.1-alpha.1
 displayName: HTTPBin
-description: HTTP request and response testing service.
+description: Development/testing-only HTTP request and response service. Do not use with production or sensitive data.
 kind: plugin
 spec:
   connectionMode: none

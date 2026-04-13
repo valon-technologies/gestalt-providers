@@ -2,6 +2,9 @@
 
 HTTP request and response testing service.
 
+> Warning: development/testing-only plugin. HTTPBin is a public echo service and
+> should not be used with production or sensitive data.
+
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
