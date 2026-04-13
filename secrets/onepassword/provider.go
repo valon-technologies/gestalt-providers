@@ -17,7 +17,7 @@ import (
 
 const (
 	providerVersion = "0.0.1-alpha.1"
-	defaultField    = "credential"
+	defaultField    = "password"
 	defaultTimeout  = 10 * time.Second
 )
 
@@ -83,6 +83,9 @@ func (p *Provider) GetSecret(_ context.Context, name string) (string, error) {
 	if err != nil {
 		var opErr *op.Error
 		if errors.As(err, &opErr) && opErr.StatusCode == http.StatusNotFound {
+			return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, name)
+		}
+		if strings.Contains(err.Error(), "Found 0 item(s)") {
 			return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, name)
 		}
 		return "", fmt.Errorf("accessing secret %q: %w", name, err)

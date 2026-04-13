@@ -77,6 +77,10 @@ func (p *Provider) GetSecret(_ context.Context, name string) (string, error) {
 func (p *Provider) resolveNotation(notation string) (string, error) {
 	values, err := p.client.GetNotationResults(notation)
 	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "no records match") || strings.Contains(msg, "has no fields matching") {
+			return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, notation)
+		}
 		return "", fmt.Errorf("accessing secret %q: %w", notation, err)
 	}
 	if len(values) == 0 {
