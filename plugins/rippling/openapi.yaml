@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Rippling REST API
-  version: 0.0.1-alpha.2
-  description: Curated Rippling REST operations for company, employee, org structure, identity, leave, and time data.
+  version: 0.0.1-alpha.4
+  description: Curated Rippling REST operations for company, employee, org structure, payroll, identity, leave, and time data.
 servers:
   - url: https://rest.ripplingapis.com
 security:
@@ -87,6 +87,22 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/ObjectArray'
+    post:
+      operationId: Departments.Create
+      summary: Create department
+      description: Create a department using Rippling's org data REST API.
+      tags: [Departments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepartmentCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
 
   /departments/{department_id}/:
     get:
@@ -97,6 +113,22 @@ paths:
       parameters:
         - $ref: '#/components/parameters/DepartmentId'
         - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    patch:
+      operationId: Departments.Update
+      summary: Update department
+      description: Update a department using Rippling's org data REST API.
+      tags: [Departments]
+      parameters:
+        - $ref: '#/components/parameters/DepartmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepartmentUpdateRequest'
       responses:
         '200':
           $ref: '#/components/responses/Object'
@@ -133,7 +165,7 @@ paths:
     put:
       operationId: Employees.Update
       summary: Update employee
-      description: Update supported employee fields such as manual custom fields or team memberships.
+      description: Update employee profile fields such as custom fields, team memberships, and common master-data payloads supported by the tenant.
       tags: [Employees]
       parameters:
         - $ref: '#/components/parameters/EmployeePlatformId'
@@ -174,6 +206,16 @@ paths:
         '200':
           $ref: '#/components/responses/Object'
 
+  /platform/api/earning_types:
+    get:
+      operationId: EarningTypes.List
+      summary: List earning types
+      description: List payroll earning types available to the authorized company.
+      tags: [EarningTypes]
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
   /job-functions/:
     get:
       operationId: JobFunctions.List
@@ -200,6 +242,150 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/Object'
+
+  /job-assignments/:
+    post:
+      operationId: JobAssignments.Create
+      summary: Create job assignment
+      description: Create a worker job assignment using Rippling's job roster REST API.
+      tags: [JobAssignments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobAssignmentCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
+
+  /job-assignments/{job_assignment_id}/:
+    patch:
+      operationId: JobAssignments.Update
+      summary: Update job assignment
+      description: Update a worker job assignment using Rippling's job roster REST API.
+      tags: [JobAssignments]
+      parameters:
+        - $ref: '#/components/parameters/JobAssignmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobAssignmentUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    delete:
+      operationId: JobAssignments.Delete
+      summary: Delete job assignment
+      description: Delete a worker job assignment using Rippling's job roster REST API.
+      tags: [JobAssignments]
+      parameters:
+        - $ref: '#/components/parameters/JobAssignmentId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '204':
+          $ref: '#/components/responses/NoContent'
+
+  /job-codes/:
+    post:
+      operationId: JobCodes.Create
+      summary: Create job code
+      description: Create a job code using Rippling's job roster REST API.
+      tags: [JobCodes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobCodeCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
+
+  /job-codes/{job_code_id}/:
+    patch:
+      operationId: JobCodes.Update
+      summary: Update job code
+      description: Update a job code using Rippling's job roster REST API.
+      tags: [JobCodes]
+      parameters:
+        - $ref: '#/components/parameters/JobCodeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobCodeUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    delete:
+      operationId: JobCodes.Delete
+      summary: Delete job code
+      description: Delete a job code using Rippling's job roster REST API.
+      tags: [JobCodes]
+      parameters:
+        - $ref: '#/components/parameters/JobCodeId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '204':
+          $ref: '#/components/responses/NoContent'
+
+  /job-dimensions/:
+    post:
+      operationId: JobDimensions.Create
+      summary: Create job dimension
+      description: Create a job dimension using Rippling's job roster REST API.
+      tags: [JobDimensions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobDimensionCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
+
+  /job-dimensions/{job_dimension_id}/:
+    patch:
+      operationId: JobDimensions.Update
+      summary: Update job dimension
+      description: Update a job dimension using Rippling's job roster REST API.
+      tags: [JobDimensions]
+      parameters:
+        - $ref: '#/components/parameters/JobDimensionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobDimensionUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    delete:
+      operationId: JobDimensions.Delete
+      summary: Delete job dimension
+      description: Delete a job dimension using Rippling's job roster REST API.
+      tags: [JobDimensions]
+      parameters:
+        - $ref: '#/components/parameters/JobDimensionId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '204':
+          $ref: '#/components/responses/NoContent'
 
   /legal-entities/:
     get:
@@ -372,6 +558,58 @@ paths:
         '200':
           $ref: '#/components/responses/Object'
 
+  /platform/api/payroll_runs:
+    get:
+      operationId: PayrollRuns.List
+      summary: List payroll runs
+      description: List payroll runs available to the authorized company.
+      tags: [PayrollRuns]
+      parameters:
+        - $ref: '#/components/parameters/Ein'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /platform/api/payroll_runs/{payrollRunId}/employees:
+    get:
+      operationId: PayrollRuns.ListEmployees
+      summary: List payroll run employees
+      description: List employees included in a payroll run.
+      tags: [PayrollRuns]
+      parameters:
+        - $ref: '#/components/parameters/PayrollRunId'
+        - $ref: '#/components/parameters/Ein'
+        - $ref: '#/components/parameters/PayrollRole'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /platform/api/payroll_runs/{payrollRunId}/employees/{employeePayrollRunId}/earnings:
+    post:
+      operationId: PayrollEarnings.Create
+      summary: Create payroll earning
+      description: Create or replace an earning on a payroll-run employee using Rippling's payroll API.
+      tags: [PayrollEarnings]
+      parameters:
+        - $ref: '#/components/parameters/PayrollRunId'
+        - $ref: '#/components/parameters/EmployeePayrollRunId'
+        - $ref: '#/components/parameters/IncludeInactive'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayrollEarningCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
+
   /teams/:
     get:
       operationId: Teams.List
@@ -484,6 +722,22 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/ObjectArray'
+    post:
+      operationId: Titles.Create
+      summary: Create title
+      description: Create a title using Rippling's org data REST API.
+      tags: [Titles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TitleCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
 
   /titles/{title_id}/:
     get:
@@ -497,6 +751,34 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/Object'
+    patch:
+      operationId: Titles.Update
+      summary: Update title
+      description: Update a title using Rippling's org data REST API.
+      tags: [Titles]
+      parameters:
+        - $ref: '#/components/parameters/TitleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TitleUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    delete:
+      operationId: Titles.Delete
+      summary: Delete title
+      description: Delete a title using Rippling's org data REST API.
+      tags: [Titles]
+      parameters:
+        - $ref: '#/components/parameters/TitleId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '204':
+          $ref: '#/components/responses/NoContent'
 
   /tracks/:
     get:
@@ -564,6 +846,22 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/ObjectArray'
+    post:
+      operationId: WorkLocations.Create
+      summary: Create work location
+      description: Create a work location using Rippling's org data REST API.
+      tags: [WorkLocations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkLocationCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
 
   /work-locations/{work_location_id}/:
     get:
@@ -574,6 +872,52 @@ paths:
       parameters:
         - $ref: '#/components/parameters/WorkLocationId'
         - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    patch:
+      operationId: WorkLocations.Update
+      summary: Update work location
+      description: Update a work location using Rippling's org data REST API.
+      tags: [WorkLocations]
+      parameters:
+        - $ref: '#/components/parameters/WorkLocationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkLocationUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    delete:
+      operationId: WorkLocations.Delete
+      summary: Delete work location
+      description: Delete a work location using Rippling's org data REST API.
+      tags: [WorkLocations]
+      parameters:
+        - $ref: '#/components/parameters/WorkLocationId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '204':
+          $ref: '#/components/responses/NoContent'
+
+  /platform/api/gp_deductions/{employeeId}:
+    patch:
+      operationId: EmployeeDeductions.Update
+      summary: Update employee deduction
+      description: Update a global payroll employee deduction.
+      tags: [EmployeeDeductions]
+      parameters:
+        - $ref: '#/components/parameters/EmployeePlatformId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeDeductionUpdateRequest'
       responses:
         '200':
           $ref: '#/components/responses/Object'
@@ -640,11 +984,53 @@ components:
       description: Unique identifier for the employee within Rippling.
       schema:
         type: string
+    EmployeePayrollRunId:
+      name: employeePayrollRunId
+      in: path
+      required: true
+      description: Unique identifier for the employee's payroll-run entry.
+      schema:
+        type: string
+    Ein:
+      name: ein
+      in: query
+      required: false
+      description: Employer Identification Number for the payroll run query.
+      schema:
+        type: integer
     EmploymentTypeId:
       name: employment_type_id
       in: path
       required: true
       description: Unique identifier for the employment type within Rippling.
+      schema:
+        type: string
+    IncludeInactive:
+      name: includeInactive
+      in: query
+      required: false
+      description: Include inactive employees when set to true.
+      schema:
+        type: string
+    JobAssignmentId:
+      name: job_assignment_id
+      in: path
+      required: true
+      description: Unique identifier for the job assignment within Rippling.
+      schema:
+        type: string
+    JobCodeId:
+      name: job_code_id
+      in: path
+      required: true
+      description: Unique identifier for the job code within Rippling.
+      schema:
+        type: string
+    JobDimensionId:
+      name: job_dimension_id
+      in: path
+      required: true
+      description: Unique identifier for the job dimension within Rippling.
       schema:
         type: string
     JobFunctionId:
@@ -694,6 +1080,34 @@ components:
       in: path
       required: true
       description: Unique identifier for the level within Rippling.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of results to return.
+      schema:
+        type: integer
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Result offset for paginated endpoints.
+      schema:
+        type: integer
+    PayrollRole:
+      name: role
+      in: query
+      required: false
+      description: Optional payroll role filter for payroll-run employee results.
+      schema:
+        type: string
+    PayrollRunId:
+      name: payrollRunId
+      in: path
+      required: true
+      description: Unique identifier for the payroll run within Rippling.
       schema:
         type: string
     TeamId:
@@ -767,7 +1181,8 @@ components:
         type: string
     EmployeesUpdateRequest:
       type: object
-      description: Update supported employee fields such as manual custom fields or team memberships.
+      description: Update employee profile fields via Rippling's platform API. Rippling explicitly documents customFields and teams; this schema also exposes common master-data fields used for employee syncs and allows additional pass-through fields for tenant-specific updates.
+      additionalProperties: true
       properties:
         customFields:
           type: object
@@ -778,6 +1193,219 @@ components:
           description: List of Rippling team IDs the employee should belong to.
           items:
             type: string
+        title:
+          type: string
+          description: Employee title value for tenants that update titles inline on the employee record.
+        titleId:
+          type: string
+          description: Unique identifier of the employee's title when your tenant uses title IDs.
+        department:
+          type: string
+          description: Employee department value for tenants that update departments inline on the employee record.
+        departmentId:
+          type: string
+          description: Unique identifier of the employee's department when your tenant uses department IDs.
+        workLocation:
+          type: string
+          description: Employee work location value for tenants that update work locations inline on the employee record.
+        workLocationId:
+          type: string
+          description: Unique identifier of the employee's work location when your tenant uses work location IDs.
+        compensation:
+          $ref: '#/components/schemas/GenericObject'
+        managerId:
+          type: string
+          description: Unique identifier of the employee's manager when supported by your Rippling tenant.
+    DepartmentCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The name of the department.
+        parent_id:
+          type: string
+          description: Identifier of the parent department.
+        reference_code:
+          type: string
+          description: Reference code of the department.
+    DepartmentUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The updated name of the department.
+        parent_id:
+          type: string
+          description: Identifier of the updated parent department.
+        reference_code:
+          type: string
+          description: Updated reference code of the department.
+    EmployeeDeductionUpdateRequest:
+      type: object
+      required:
+        - deductionCode
+        - countryCode
+      properties:
+        deductionCode:
+          type: string
+          description: Deduction code to update. Rippling recommends fetching the current deduction object before patching.
+        eeValue:
+          type: string
+          description: Updated employee deduction value.
+        eeValueType:
+          type: string
+          description: Type for eeValue. Provide this whenever eeValue is set.
+        erValue:
+          type: string
+          description: Updated employer deduction value.
+        erValueType:
+          type: string
+          description: Type for erValue. Provide this whenever erValue is set.
+        erTaxableValue:
+          type: string
+          description: Updated employer taxable deduction value.
+        erTaxableValueType:
+          type: string
+          description: Type for erTaxableValue. Provide this whenever erTaxableValue is set.
+        countryCode:
+          type: string
+          description: Country code for the deduction. Rippling documents support for CA, IN, US, GB, and AU.
+    JobAssignmentCreateRequest:
+      type: object
+      required:
+        - worker_id
+        - job_code_id
+      properties:
+        worker_id:
+          type: string
+          description: Identifier of the worker receiving the job assignment.
+        job_code_id:
+          type: string
+          description: Identifier of the job code assigned to the worker.
+        job_pay_rate:
+          type: number
+          description: Job-specific pay rate for this assignment.
+        job_pay_rate_effective_from:
+          type: string
+          description: Timestamp when the job pay rate takes effect.
+        job_pay_rate_change_reason:
+          type: string
+          description: Reason for the job pay rate change.
+    JobAssignmentUpdateRequest:
+      type: object
+      properties:
+        worker_id:
+          type: string
+          description: Identifier of the worker receiving the job assignment.
+        job_code_id:
+          type: string
+          description: Identifier of the job code assigned to the worker.
+        job_pay_rate:
+          type: number
+          description: Updated job-specific pay rate for this assignment.
+        job_pay_rate_effective_from:
+          type: string
+          description: Updated timestamp when the job pay rate takes effect.
+        job_pay_rate_change_reason:
+          type: string
+          description: Updated reason for the job pay rate change.
+    JobCodeCreateRequest:
+      type: object
+      required:
+        - name
+        - job_dimension_id
+      properties:
+        name:
+          type: string
+          description: The name of the job code.
+        job_dimension_id:
+          type: string
+          description: Identifier of the job dimension this code belongs to.
+        external_id:
+          type: string
+          description: External identifier for the job code.
+        street_address:
+          type: string
+          description: Street address associated with the job code.
+        locality:
+          type: string
+          description: Locality associated with the job code.
+        region:
+          type: string
+          description: Region associated with the job code.
+        postal_code:
+          type: string
+          description: Postal code associated with the job code.
+        pay_rate:
+          type: number
+          description: Default pay rate associated with the job code.
+        pay_rate_effective_from:
+          type: string
+          description: Timestamp when the pay rate takes effect.
+        pay_rate_change_reason:
+          type: string
+          description: Reason for the pay rate change.
+    JobCodeUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The updated name of the job code.
+        job_dimension_id:
+          type: string
+          description: Identifier of the job dimension this code belongs to.
+        external_id:
+          type: string
+          description: Updated external identifier for the job code.
+        street_address:
+          type: string
+          description: Updated street address associated with the job code.
+        locality:
+          type: string
+          description: Updated locality associated with the job code.
+        region:
+          type: string
+          description: Updated region associated with the job code.
+        postal_code:
+          type: string
+          description: Updated postal code associated with the job code.
+        pay_rate:
+          type: number
+          description: Updated default pay rate associated with the job code.
+        pay_rate_effective_from:
+          type: string
+          description: Updated timestamp when the pay rate takes effect.
+        pay_rate_change_reason:
+          type: string
+          description: Updated reason for the pay rate change.
+    JobDimensionCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The name of the job dimension.
+        external_id:
+          type: string
+          description: External identifier for the job dimension.
+        includes_custom_location:
+          type: boolean
+          description: Whether the job dimension includes a custom location.
+    JobDimensionUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The updated name of the job dimension.
+        external_id:
+          type: string
+          description: Updated external identifier for the job dimension.
+        includes_custom_location:
+          type: boolean
+          description: Whether the job dimension includes a custom location.
     LeaveRequestCreateRequest:
       type: object
       required:
@@ -858,6 +1486,39 @@ components:
         reasonForLeave:
           type: string
           description: Updated reason for the leave request.
+    PayrollEarningCreateRequest:
+      type: object
+      description: Create an earning for an employee in a payroll run. Rippling requires either companyEarningType or companyEarningTypeName.
+      additionalProperties: true
+      anyOf:
+        - required:
+            - companyEarningType
+        - required:
+            - companyEarningTypeName
+      properties:
+        amount:
+          type: string
+          description: Earning amount. If omitted, Rippling may calculate the amount from the pay rate and hours.
+        hours:
+          type: string
+          description: Hour quantity for hourly earning types.
+        companyEarningType:
+          type: string
+          description: Unique identifier of the company earning type.
+        companyEarningTypeName:
+          type: string
+          description: Name of the company earning type when an ID is not supplied.
+        earningTypeEnum:
+          type: string
+          description: Optional earning type enum value recognized by Rippling.
+        time_labels:
+          type: array
+          description: Optional time labels for the earning.
+          items:
+            type: string
+        shiftId:
+          type: string
+          description: Optional shift identifier associated with the earning.
     TimeEntryJobShiftCreateInput:
       type: object
       required:
@@ -970,3 +1631,57 @@ components:
           description: Replacement break segments for the time entry.
           items:
             $ref: '#/components/schemas/TimeEntryBreakUpdateInput'
+    TitleCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The name of the title.
+    TitleUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The updated name of the title.
+    WorkLocationAddressInput:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Address type.
+          enum: [HOME, WORK, OTHER]
+        street_address:
+          type: string
+          description: Street address.
+        locality:
+          type: string
+          description: Locality or city.
+        region:
+          type: string
+          description: Region, state, or province.
+        postal_code:
+          type: string
+          description: Postal code.
+        country:
+          type: string
+          description: ISO country code for the address.
+    WorkLocationCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The name of the work location.
+        address:
+          $ref: '#/components/schemas/WorkLocationAddressInput'
+    WorkLocationUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The updated name of the work location.
+        address:
+          $ref: '#/components/schemas/WorkLocationAddressInput'
