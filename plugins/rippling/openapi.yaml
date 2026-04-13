@@ -1,0 +1,972 @@
+openapi: 3.0.3
+info:
+  title: Rippling REST API
+  version: 0.0.1-alpha.2
+  description: Curated Rippling REST operations for company, employee, org structure, identity, leave, and time data.
+servers:
+  - url: https://rest.ripplingapis.com
+security:
+  - bearerAuth: []
+paths:
+  /companies/:
+    get:
+      operationId: Companies.List
+      summary: List companies
+      description: List companies available to the authorized Rippling token.
+      tags: [Companies]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /compensations/:
+    get:
+      operationId: Compensations.List
+      summary: List compensations
+      description: List compensations for the authorized company.
+      tags: [Compensations]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /compensations/{compensation_id}/:
+    get:
+      operationId: Compensations.Get
+      summary: Get compensation
+      description: Get a single compensation by ID.
+      tags: [Compensations]
+      parameters:
+        - $ref: '#/components/parameters/CompensationId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /sso-me/:
+    get:
+      operationId: CurrentUser.Get
+      summary: Get current user SSO identity
+      description: Get SSO identity data for the Rippling user tied to the token.
+      tags: [CurrentUser]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /custom-fields/:
+    get:
+      operationId: CustomFields.List
+      summary: List custom fields
+      description: List custom fields for the authorized company.
+      tags: [CustomFields]
+      parameters:
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /departments/:
+    get:
+      operationId: Departments.List
+      summary: List departments
+      description: List departments for the authorized company.
+      tags: [Departments]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /departments/{department_id}/:
+    get:
+      operationId: Departments.Get
+      summary: Get department
+      description: Get a single department by ID.
+      tags: [Departments]
+      parameters:
+        - $ref: '#/components/parameters/DepartmentId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /workers/:
+    get:
+      operationId: Employees.List
+      summary: List employees
+      description: List employees for the authorized company.
+      tags: [Employees]
+      parameters:
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /workers/{employee_id}/:
+    get:
+      operationId: Employees.Get
+      summary: Get employee
+      description: Get a single employee by ID.
+      tags: [Employees]
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /platform/api/employees/{employeeId}:
+    put:
+      operationId: Employees.Update
+      summary: Update employee
+      description: Update supported employee fields such as manual custom fields or team memberships.
+      tags: [Employees]
+      parameters:
+        - $ref: '#/components/parameters/EmployeePlatformId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeesUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /employment-types/:
+    get:
+      operationId: EmploymentTypes.List
+      summary: List employment types
+      description: List employment types for the authorized company.
+      tags: [EmploymentTypes]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /employment-types/{employment_type_id}/:
+    get:
+      operationId: EmploymentTypes.Get
+      summary: Get employment type
+      description: Get a single employment type by ID.
+      tags: [EmploymentTypes]
+      parameters:
+        - $ref: '#/components/parameters/EmploymentTypeId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /job-functions/:
+    get:
+      operationId: JobFunctions.List
+      summary: List job functions
+      description: List job functions for the authorized company.
+      tags: [JobFunctions]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /job-functions/{job_function_id}/:
+    get:
+      operationId: JobFunctions.Get
+      summary: Get job function
+      description: Get a single job function by ID.
+      tags: [JobFunctions]
+      parameters:
+        - $ref: '#/components/parameters/JobFunctionId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /legal-entities/:
+    get:
+      operationId: LegalEntities.List
+      summary: List legal entities
+      description: List legal entities for the authorized company.
+      tags: [LegalEntities]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /legal-entities/{legal_entity_id}/:
+    get:
+      operationId: LegalEntities.Get
+      summary: Get legal entity
+      description: Get a single legal entity by ID.
+      tags: [LegalEntities]
+      parameters:
+        - $ref: '#/components/parameters/LegalEntityId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /leave-balances/:
+    get:
+      operationId: LeaveBalances.List
+      summary: List leave balances
+      description: List leave balances for employees.
+      tags: [LeaveBalances]
+      parameters:
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /leave-balances/{leave_balance_id}/:
+    get:
+      operationId: LeaveBalances.Get
+      summary: Get leave balance
+      description: Get a single leave balance by ID.
+      tags: [LeaveBalances]
+      parameters:
+        - $ref: '#/components/parameters/LeaveBalanceId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /leave-requests/:
+    get:
+      operationId: LeaveRequests.List
+      summary: List leave requests
+      description: List leave requests with optional filtering.
+      tags: [LeaveRequests]
+      parameters:
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /leave-requests/{leave_request_id}/:
+    get:
+      operationId: LeaveRequests.Get
+      summary: Get leave request
+      description: Get a single leave request by ID.
+      tags: [LeaveRequests]
+      parameters:
+        - $ref: '#/components/parameters/LeaveRequestId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /platform/api/leave_requests:
+    post:
+      operationId: LeaveRequests.Create
+      summary: Create leave request
+      description: Create a leave request using Rippling's platform API.
+      tags: [LeaveRequests]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRequestCreateRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/Object'
+
+  /platform/api/leave_requests/{id}:
+    patch:
+      operationId: LeaveRequests.Update
+      summary: Update leave request
+      description: Update supported leave request fields using Rippling's platform API.
+      tags: [LeaveRequests]
+      parameters:
+        - $ref: '#/components/parameters/LeaveRequestPlatformId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRequestUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /leave-types/:
+    get:
+      operationId: LeaveTypes.List
+      summary: List leave types
+      description: List leave types configured for the authorized company.
+      tags: [LeaveTypes]
+      parameters:
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /leave-types/{leave_type_id}/:
+    get:
+      operationId: LeaveTypes.Get
+      summary: Get leave type
+      description: Get a single leave type by ID.
+      tags: [LeaveTypes]
+      parameters:
+        - $ref: '#/components/parameters/LeaveTypeId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /levels/:
+    get:
+      operationId: Levels.List
+      summary: List levels
+      description: List levels for the authorized company.
+      tags: [Levels]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /levels/{level_id}/:
+    get:
+      operationId: Levels.Get
+      summary: Get level
+      description: Get a single level by ID.
+      tags: [Levels]
+      parameters:
+        - $ref: '#/components/parameters/LevelId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /teams/:
+    get:
+      operationId: Teams.List
+      summary: List teams
+      description: List teams for the authorized company.
+      tags: [Teams]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /teams/{team_id}/:
+    get:
+      operationId: Teams.Get
+      summary: Get team
+      description: Get a single team by ID.
+      tags: [Teams]
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /time-entries/:
+    get:
+      operationId: TimeEntries.List
+      summary: List time entries
+      description: List time entries for the authorized company.
+      tags: [TimeEntries]
+      parameters:
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /time-entries/{time_entry_id}/:
+    get:
+      operationId: TimeEntries.Get
+      summary: Get time entry
+      description: Get a single time entry by ID.
+      tags: [TimeEntries]
+      parameters:
+        - $ref: '#/components/parameters/TimeEntryId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /platform/api/time_entries:
+    post:
+      operationId: TimeEntries.Create
+      summary: Create time entry
+      description: Create a time entry using Rippling's platform API.
+      tags: [TimeEntries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeEntryCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /platform/api/time_entries/{time_entry_id}:
+    patch:
+      operationId: TimeEntries.Update
+      summary: Update time entry
+      description: Update a time entry's job shift or break data using Rippling's platform API.
+      tags: [TimeEntries]
+      parameters:
+        - $ref: '#/components/parameters/TimeEntryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeEntryUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+    delete:
+      operationId: TimeEntries.Delete
+      summary: Delete time entry
+      description: Delete a time entry using Rippling's platform API.
+      tags: [TimeEntries]
+      parameters:
+        - $ref: '#/components/parameters/TimeEntryId'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+
+  /titles/:
+    get:
+      operationId: Titles.List
+      summary: List titles
+      description: List titles for the authorized company.
+      tags: [Titles]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /titles/{title_id}/:
+    get:
+      operationId: Titles.Get
+      summary: Get title
+      description: Get a single title by ID.
+      tags: [Titles]
+      parameters:
+        - $ref: '#/components/parameters/TitleId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /tracks/:
+    get:
+      operationId: Tracks.List
+      summary: List tracks
+      description: List tracks for the authorized company.
+      tags: [Tracks]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /tracks/{track_id}/:
+    get:
+      operationId: Tracks.Get
+      summary: Get track
+      description: Get a single track by ID.
+      tags: [Tracks]
+      parameters:
+        - $ref: '#/components/parameters/TrackId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /users/:
+    get:
+      operationId: Users.List
+      summary: List users
+      description: List users for the authorized company.
+      tags: [Users]
+      parameters:
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /users/{user_id}/:
+    get:
+      operationId: Users.Get
+      summary: Get user
+      description: Get a single user by ID.
+      tags: [Users]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+  /work-locations/:
+    get:
+      operationId: WorkLocations.List
+      summary: List work locations
+      description: List work locations for the authorized company.
+      tags: [WorkLocations]
+      parameters:
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+
+  /work-locations/{work_location_id}/:
+    get:
+      operationId: WorkLocations.Get
+      summary: Get work location
+      description: Get a single work location by ID.
+      tags: [WorkLocations]
+      parameters:
+        - $ref: '#/components/parameters/WorkLocationId'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    Expand:
+      name: expand
+      in: query
+      required: false
+      description: Comma-separated related resources to expand in the response.
+      schema:
+        type: string
+    OrderBy:
+      name: order_by
+      in: query
+      required: false
+      description: Sort order for the results.
+      schema:
+        type: string
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Cursor returned by a previous response.
+      schema:
+        type: string
+    Filter:
+      name: filter
+      in: query
+      required: false
+      description: Filter expression for the resource collection.
+      schema:
+        type: string
+    CompensationId:
+      name: compensation_id
+      in: path
+      required: true
+      description: Unique identifier for the compensation within Rippling.
+      schema:
+        type: string
+    DepartmentId:
+      name: department_id
+      in: path
+      required: true
+      description: Unique identifier for the department within Rippling.
+      schema:
+        type: string
+    EmployeeId:
+      name: employee_id
+      in: path
+      required: true
+      description: Unique identifier for the employee within Rippling.
+      schema:
+        type: string
+    EmployeePlatformId:
+      name: employeeId
+      in: path
+      required: true
+      description: Unique identifier for the employee within Rippling.
+      schema:
+        type: string
+    EmploymentTypeId:
+      name: employment_type_id
+      in: path
+      required: true
+      description: Unique identifier for the employment type within Rippling.
+      schema:
+        type: string
+    JobFunctionId:
+      name: job_function_id
+      in: path
+      required: true
+      description: Unique identifier for the job function within Rippling.
+      schema:
+        type: string
+    LegalEntityId:
+      name: legal_entity_id
+      in: path
+      required: true
+      description: Unique identifier for the legal entity within Rippling.
+      schema:
+        type: string
+    LeaveBalanceId:
+      name: leave_balance_id
+      in: path
+      required: true
+      description: Unique identifier for the leave balance within Rippling.
+      schema:
+        type: string
+    LeaveRequestId:
+      name: leave_request_id
+      in: path
+      required: true
+      description: Unique identifier for the leave request within Rippling.
+      schema:
+        type: string
+    LeaveRequestPlatformId:
+      name: id
+      in: path
+      required: true
+      description: Unique identifier of the leave request being modified.
+      schema:
+        type: string
+    LeaveTypeId:
+      name: leave_type_id
+      in: path
+      required: true
+      description: Unique identifier for the leave type within Rippling.
+      schema:
+        type: string
+    LevelId:
+      name: level_id
+      in: path
+      required: true
+      description: Unique identifier for the level within Rippling.
+      schema:
+        type: string
+    TeamId:
+      name: team_id
+      in: path
+      required: true
+      description: Unique identifier for the team within Rippling.
+      schema:
+        type: string
+    TimeEntryId:
+      name: time_entry_id
+      in: path
+      required: true
+      description: Unique identifier for the time entry within Rippling.
+      schema:
+        type: string
+    TitleId:
+      name: title_id
+      in: path
+      required: true
+      description: Unique identifier for the title within Rippling.
+      schema:
+        type: string
+    TrackId:
+      name: track_id
+      in: path
+      required: true
+      description: Unique identifier for the track within Rippling.
+      schema:
+        type: string
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      description: Unique identifier for the user within Rippling.
+      schema:
+        type: string
+    WorkLocationId:
+      name: work_location_id
+      in: path
+      required: true
+      description: Unique identifier for the work location within Rippling.
+      schema:
+        type: string
+  responses:
+    Object:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GenericObject'
+    ObjectArray:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GenericObjectArray'
+    NoContent:
+      description: No Content
+  schemas:
+    GenericObject:
+      type: object
+      additionalProperties: true
+    GenericObjectArray:
+      type: array
+      items:
+        $ref: '#/components/schemas/GenericObject'
+    StringArray:
+      type: array
+      items:
+        type: string
+    EmployeesUpdateRequest:
+      type: object
+      description: Update supported employee fields such as manual custom fields or team memberships.
+      properties:
+        customFields:
+          type: object
+          description: Object mapping manual custom field names to updated values.
+          additionalProperties: true
+        teams:
+          type: array
+          description: List of Rippling team IDs the employee should belong to.
+          items:
+            type: string
+    LeaveRequestCreateRequest:
+      type: object
+      required:
+        - role
+        - startDate
+        - endDate
+        - companyLeaveType
+      properties:
+        role:
+          type: string
+          description: Unique identifier of the employee who is taking leave.
+        requestedBy:
+          type: string
+          description: Unique identifier of the employee creating the request.
+        status:
+          type: string
+          description: Leave status. Rippling documents non-PENDING values for TILT-managed requests only.
+        startDate:
+          type: string
+          description: Leave start date.
+        endDate:
+          type: string
+          description: Leave end date.
+        startDateStartTime:
+          type: string
+          description: Optional start timestamp for a partial first day.
+        endDateEndTime:
+          type: string
+          description: Optional end timestamp for a partial last day.
+        startDateCustomHours:
+          type: string
+          description: Optional custom hours for the first leave day.
+        endDateCustomHours:
+          type: string
+          description: Optional custom hours for the last leave day.
+        companyLeaveType:
+          type: string
+          description: Unique identifier of the company leave type.
+        leavePolicy:
+          type: string
+          description: Unique identifier of the leave policy. Required when the request is not managed by TILT.
+        reasonForLeave:
+          type: string
+          description: Human-readable reason for the leave request.
+        managedBy:
+          type: string
+          description: Optional external system identifier such as TILT for partner-managed requests.
+        externalId:
+          type: string
+          description: Identifier for the corresponding leave object in the external system.
+    LeaveRequestUpdateRequest:
+      type: object
+      properties:
+        requestedBy:
+          type: string
+          description: Unique identifier of the employee updating the request.
+        status:
+          type: string
+          description: Updated leave status. Rippling documents this for TILT-managed requests only.
+        startDate:
+          type: string
+          description: Updated leave start date.
+        endDate:
+          type: string
+          description: Updated leave end date.
+        startDateStartTime:
+          type: string
+          description: Updated partial-day start timestamp.
+        endDateEndTime:
+          type: string
+          description: Updated partial-day end timestamp.
+        startDateCustomHours:
+          type: string
+          description: Updated custom hours for the first leave day.
+        endDateCustomHours:
+          type: string
+          description: Updated custom hours for the last leave day.
+        reasonForLeave:
+          type: string
+          description: Updated reason for the leave request.
+    TimeEntryJobShiftCreateInput:
+      type: object
+      required:
+        - startTime
+        - endTime
+      properties:
+        startTime:
+          type: string
+          description: Start timestamp for the job shift in UTC.
+        endTime:
+          type: string
+          nullable: true
+          description: End timestamp for the job shift in UTC.
+        jobCodes:
+          $ref: '#/components/schemas/StringArray'
+    TimeEntryBreakCreateInput:
+      type: object
+      required:
+        - startTime
+        - endTime
+        - companyBreakType
+      properties:
+        startTime:
+          type: string
+          description: Start timestamp for the break in UTC.
+        endTime:
+          type: string
+          description: End timestamp for the break in UTC.
+        companyBreakType:
+          type: string
+          description: Unique identifier of the Rippling break type.
+    TimeEntryCreateRequest:
+      type: object
+      required:
+        - role
+        - company
+      anyOf:
+        - required:
+            - startTime
+            - endTime
+        - required:
+            - jobShifts
+            - breaks
+      properties:
+        role:
+          type: string
+          description: Unique identifier of the employee role to create the time entry for.
+        company:
+          type: string
+          description: Unique identifier of the company that owns the time entry.
+        startTime:
+          type: string
+          description: Start timestamp for the time entry in UTC.
+        endTime:
+          type: string
+          nullable: true
+          description: End timestamp for the time entry in UTC.
+        comments:
+          $ref: '#/components/schemas/StringArray'
+        jobShifts:
+          type: array
+          description: Optional list of job shift segments with startTime, endTime, and jobCodes.
+          items:
+            $ref: '#/components/schemas/TimeEntryJobShiftCreateInput'
+        breaks:
+          type: array
+          description: Optional list of breaks with startTime, endTime, and companyBreakType.
+          items:
+            $ref: '#/components/schemas/TimeEntryBreakCreateInput'
+        status:
+          type: string
+          description: Optional status such as DRAFT, APPROVED, or PAID.
+          default: DRAFT
+        idempotencyKey:
+          type: string
+          description: External identifier Rippling uses to enforce create idempotency.
+    TimeEntryJobShiftUpdateInput:
+      type: object
+      properties:
+        startTime:
+          type: string
+          description: Updated start timestamp for the job shift in UTC.
+        endTime:
+          type: string
+          description: Updated end timestamp for the job shift in UTC.
+        jobCodes:
+          $ref: '#/components/schemas/StringArray'
+    TimeEntryBreakUpdateInput:
+      type: object
+      properties:
+        startTime:
+          type: string
+          description: Updated start timestamp for the break in UTC.
+        endTime:
+          type: string
+          description: Updated end timestamp for the break in UTC.
+        companyBreakType:
+          type: string
+          description: Unique identifier of the Rippling break type.
+    TimeEntryUpdateRequest:
+      type: object
+      properties:
+        jobShifts:
+          type: array
+          description: Replacement job shift segments for the time entry.
+          items:
+            $ref: '#/components/schemas/TimeEntryJobShiftUpdateInput'
+        breaks:
+          type: array
+          description: Replacement break segments for the time entry.
+          items:
+            $ref: '#/components/schemas/TimeEntryBreakUpdateInput'
