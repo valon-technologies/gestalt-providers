@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/rippling
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 displayName: Rippling
 description: Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
 iconFile: assets/icon.svg
@@ -9,13 +9,6 @@ spec:
     openapi:
       connection: default
       document: openapi.yaml
-  allowedOperations:
-    Companies.Get:
-      alias: Companies.List
-      description: Get the current company context available to the authorized Rippling token
-    Employees.ListIncludingTerminated:
-      alias: Employees.List
-      description: List employees, including terminated workers when requested via the filter query
   connections:
     default:
       auth:
