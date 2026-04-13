@@ -1,6 +1,6 @@
 # 1Password
 
-Resolves secrets from 1Password.
+Resolves secrets from 1Password Connect.
 
 ## Configuration
 
@@ -19,9 +19,9 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 ## Overview
 
 This provider resolves secret references in your Gestalt configuration against
-1Password using Service Account authentication. At runtime, `gestaltd` resolves
-secrets using the 1Password SDK, constructing `op://` references from the
-configured vault and field defaults.
+a 1Password Connect Server. At runtime, `gestaltd` looks up items by name in
+the configured vault and extracts the specified field value. Secret names can
+include a field suffix (e.g. `my-item/password`) to override the default field.
 
 ## Documentation
 

@@ -1,12 +1,15 @@
 package onepassword
 
 import (
+	"errors"
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
-	"github.com/1password/onepassword-sdk-go"
+	"github.com/1Password/connect-sdk-go/connect"
+	op "github.com/1Password/connect-sdk-go/onepassword"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 
 	"github.com/valon-technologies/gestalt-providers/secrets/internal/configutil"
@@ -19,27 +22,31 @@ const (
 )
 
 type config struct {
-	ServiceAccountToken string `yaml:"serviceAccountToken"`
-	Vault               string `yaml:"vault"`
-	Field               string `yaml:"field"`
+	Host  string `yaml:"host"`
+	Token string `yaml:"token"`
+	Vault string `yaml:"vault"`
+	Field string `yaml:"field"`
 }
 
 type Provider struct {
 	name   string
-	client *onepassword.Client
+	client connect.Client
 	vault  string
 	field  string
 }
 
 func New() *Provider { return &Provider{} }
 
-func (p *Provider) Configure(ctx context.Context, name string, raw map[string]any) error {
+func (p *Provider) Configure(_ context.Context, name string, raw map[string]any) error {
 	var cfg config
 	if err := configutil.Decode(raw, &cfg); err != nil {
 		return fmt.Errorf("onepassword secrets: %w", err)
 	}
-	if cfg.ServiceAccountToken == "" {
-		return fmt.Errorf("onepassword secrets: serviceAccountToken is required")
+	if cfg.Host == "" {
+		return fmt.Errorf("onepassword secrets: host is required")
+	}
+	if cfg.Token == "" {
+		return fmt.Errorf("onepassword secrets: token is required")
 	}
 	if cfg.Vault == "" {
 		return fmt.Errorf("onepassword secrets: vault is required")
@@ -48,19 +55,8 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		cfg.Field = defaultField
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
-
-	client, err := onepassword.NewClient(ctx,
-		onepassword.WithServiceAccountToken(cfg.ServiceAccountToken),
-		onepassword.WithIntegrationInfo("Gestalt", providerVersion),
-	)
-	if err != nil {
-		return fmt.Errorf("onepassword secrets: creating client: %w", err)
-	}
-
 	p.name = name
-	p.client = client
+	p.client = connect.NewClientWithUserAgent(cfg.Host, cfg.Token, "gestalt/"+providerVersion)
 	p.vault = cfg.Vault
 	p.field = cfg.Field
 	return nil
@@ -71,23 +67,30 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		Kind:        gestalt.ProviderKindSecrets,
 		Name:        p.name,
 		DisplayName: "1Password",
-		Description: "Resolves secrets from 1Password.",
+		Description: "Resolves secrets from 1Password Connect.",
 		Version:     providerVersion,
 	}
 }
 
-func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
-
-	reference := name
-	if !strings.HasPrefix(name, "op://") {
-		reference = fmt.Sprintf("op://%s/%s/%s", p.vault, name, p.field)
+func (p *Provider) GetSecret(_ context.Context, name string) (string, error) {
+	field := p.field
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		field = name[i+1:]
+		name = name[:i]
 	}
 
-	secret, err := p.client.Secrets().Resolve(ctx, reference)
+	item, err := p.client.GetItem(name, p.vault)
 	if err != nil {
-		return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, name)
+		var opErr *op.Error
+		if errors.As(err, &opErr) && opErr.StatusCode == http.StatusNotFound {
+			return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, name)
+		}
+		return "", fmt.Errorf("accessing secret %q: %w", name, err)
 	}
-	return secret, nil
+
+	value := item.GetValue(field)
+	if value == "" {
+		return "", fmt.Errorf("%w: %q (field %q)", gestalt.ErrSecretNotFound, name, field)
+	}
+	return value, nil
 }
