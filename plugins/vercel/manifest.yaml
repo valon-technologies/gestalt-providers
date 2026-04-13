@@ -1,0 +1,17 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/vercel
+version: 0.0.1-alpha.1
+displayName: Vercel
+description: Deploy, manage, and monitor Vercel projects and deployments.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: https://openapi.vercel.sh
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://vercel.com/integrations/oauthclient/authorize
+        tokenUrl: https://api.vercel.com/v2/oauth/access_token

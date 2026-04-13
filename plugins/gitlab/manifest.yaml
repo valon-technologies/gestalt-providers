@@ -8,3 +8,5 @@ spec:
   surfaces:
     openapi:
       document: openapi.yaml
+    graphql:
+      url: https://gitlab.com/api/graphql

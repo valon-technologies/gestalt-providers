@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: Vercel OAuth client ID.
+  clientSecret:
+    type: string
+    description: Vercel OAuth client secret.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false

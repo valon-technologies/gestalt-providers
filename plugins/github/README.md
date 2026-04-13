@@ -18,8 +18,10 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built on the GitHub REST API OpenAPI specification. Exposes
-operations for repositories, issues, pull requests, workflows, and code search.
+Declarative provider with both an OpenAPI surface and a GraphQL surface. The
+OpenAPI surface exposes GitHub's REST API for repositories, issues, pull
+requests, workflows, and code search. The GraphQL surface provides access to
+GitHub's GraphQL API.
 
 Authenticates with GitHub OAuth 2.0.
 
