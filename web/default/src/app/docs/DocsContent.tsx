@@ -29,11 +29,11 @@ export function GettingStartedDocsPage() {
         description={
           <>
             This guide covers the user-facing workflows for the Gestalt
-            workspace you are currently using: install the{" "}
-            <code className="font-mono text-sm text-primary">gestalt</code>{" "}
-            CLI, point it at this workspace, sign in when required, connect
+            workspace you are currently using: install{" "}
+            <code className="font-mono text-sm text-primary">gestalt</code>,
+            point it at this workspace, sign in when required, connect
             plugins, invoke operations, mint API tokens, and attach an
-            MCP-aware client. No command-line experience is required — follow
+            MCP-aware client. No command-line experience is required. Follow
             the pages below and copy the commands as-is.
           </>
         }
@@ -144,7 +144,7 @@ export function GettingStartedDocsPage() {
         <Subheading id="authenticate" title="Authenticate" />
         <p className="doc-copy">
           Browser login is the normal path for interactive use. Running the
-          command below opens your browser automatically — just approve the
+          command below opens your browser automatically. Just approve the
           sign-in when prompted. If authentication is disabled, you can skip
           login and call the API directly. For scripts, you can also set a
           Gestalt API token directly when auth is enabled.
