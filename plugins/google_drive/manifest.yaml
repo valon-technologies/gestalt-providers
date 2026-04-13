@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_drive
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.3
 displayName: Google Drive
 description: Read, create, update, and share files in Google Drive.
 iconFile: assets/icon.svg
@@ -8,7 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      document: https://www.googleapis.com/discovery/v1/apis/drive/v3/rest
+      document: https://api.apis.guru/v2/specs/googleapis.com/drive/v3/openapi.json
   allowedOperations:
     drive.files.list:
       alias: files.list

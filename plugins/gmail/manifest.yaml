@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/gmail
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.3
 displayName: Gmail
 description: Read, send, and manage Gmail messages, threads, drafts, and labels.
 iconFile: assets/icon.svg
@@ -12,7 +12,7 @@ spec:
     value: me
   surfaces:
     openapi:
-      document: https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest
+      document: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
   allowedOperations:
     gmail.users.messages.list:
       alias: messages.list

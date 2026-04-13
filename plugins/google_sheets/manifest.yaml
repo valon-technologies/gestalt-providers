@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_sheets
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.3
 displayName: Google Sheets
 description: Read and update Google Sheets spreadsheets and values.
 iconFile: assets/icon.svg
@@ -8,7 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      document: https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest
+      document: https://api.apis.guru/v2/specs/googleapis.com/sheets/v4/openapi.json
   allowedOperations:
     sheets.spreadsheets.create:
       alias: create

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_docs
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.3
 displayName: Google Docs
 description: Read, create, and edit Google Docs documents.
 iconFile: assets/icon.svg
@@ -8,7 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      document: https://www.googleapis.com/discovery/v1/apis/docs/v1/rest
+      document: https://api.apis.guru/v2/specs/googleapis.com/docs/v1/openapi.json
   allowedOperations:
     docs.documents.get:
       alias: get
