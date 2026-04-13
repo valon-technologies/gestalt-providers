@@ -99,7 +99,7 @@ export function GettingStartedDocsPage() {
               label: "gestalt init",
               code: "gestalt init",
               description:
-                "Interactive setup that stores the URL, can create a project-local .gestalt/config.json, and can start browser login.",
+                "Interactive setup that stores the URL, can create a project-local `.gestalt/config.json`, and can start browser login.",
             },
             {
               id: "setup-config-set",
@@ -126,20 +126,31 @@ export function GettingStartedDocsPage() {
           and then parent directories until it finds the nearest project
           config.
         </p>
-        <p className="doc-copy">
-          Resolution order is{" "}
-          <code className="font-mono text-sm text-primary">--url</code>,{" "}
-          <code className="font-mono text-sm text-primary">GESTALT_URL</code>,
-          project-local{" "}
-          <code className="font-mono text-sm text-primary">
-            .gestalt/config.json
-          </code>
-          , user-local CLI config file, for example{" "}
-          <code className="font-mono text-sm text-primary">
-            ~/.config/gestalt/config.json
-          </code>
-          .
-        </p>
+        <div className="doc-copy space-y-2">
+          <p>Resolution order:</p>
+          <ol className="list-decimal space-y-1 pl-6">
+            <li>
+              <code className="font-mono text-sm text-primary">--url</code>
+            </li>
+            <li>
+              <code className="font-mono text-sm text-primary">
+                GESTALT_URL
+              </code>
+            </li>
+            <li>
+              project-local{" "}
+              <code className="font-mono text-sm text-primary">
+                .gestalt/config.json
+              </code>
+            </li>
+            <li>
+              user-local CLI config file, for example{" "}
+              <code className="font-mono text-sm text-primary">
+                ~/.config/gestalt/config.json
+              </code>
+            </li>
+          </ol>
+        </div>
 
         <Subheading id="authenticate" title="Authenticate" />
         <p className="doc-copy">
