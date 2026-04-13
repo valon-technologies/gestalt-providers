@@ -59,7 +59,7 @@ export default function IntegrationsPage() {
               Plugins
             </h1>
             <p className="mt-2 text-sm text-muted">
-              Browse and connect plugins exposed by this server.
+              Browse and connect plugins.
             </p>
           </div>
 
