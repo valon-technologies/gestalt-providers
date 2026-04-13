@@ -37,16 +37,7 @@ const sections: Section[] = [
     subsections: [{ id: "invoke-http", label: "Invoke over HTTP" }],
   },
   { id: "tokens", label: "Manage API Tokens", subsections: [] },
-  {
-    id: "mcp",
-    label: "Use With MCP",
-    subsections: [
-      { id: "mcp-claude-code", label: "Claude Code" },
-      { id: "mcp-codex", label: "Codex" },
-      { id: "mcp-cursor", label: "Cursor" },
-      { id: "mcp-other", label: "Other Clients" },
-    ],
-  },
+  { id: "mcp", label: "Use With MCP", subsections: [] },
   {
     id: "troubleshooting",
     label: "Troubleshooting",
@@ -57,6 +48,18 @@ const sections: Section[] = [
     ],
   },
 ];
+
+const mcpTabs = [
+  { id: "mcp-claude-code", label: "Claude Code" },
+  { id: "mcp-codex", label: "Codex" },
+  { id: "mcp-cursor", label: "Cursor" },
+  { id: "mcp-other", label: "Other Clients" },
+] as const;
+
+type McpTabId = (typeof mcpTabs)[number]["id"];
+
+const mcpTabIds = mcpTabs.map((tab) => tab.id);
+const defaultMcpTabId: McpTabId = "mcp-claude-code";
 
 const allTrackableIds = sections.flatMap((s) => [
   s.id,
@@ -387,104 +390,7 @@ gestalt tokens revoke <token-id>`}
                   ],
                 ]}
               />
-
-              <Subheading id="mcp-claude-code" title="Claude Code" />
-              <p className="doc-copy">
-                Use{" "}
-                <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
-                for a project-scoped server shared in version control, or{" "}
-                <code className="font-mono text-sm text-primary">
-                  ~/.claude.json
-                </code>{" "}
-                for a private local or user-scoped config.
-              </p>
-              <CodeBlock
-                code={`{
-  "mcpServers": {
-    "gestalt": {
-      "type": "http",
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer \${GESTALT_API_KEY}"
-      }
-    }
-  }
-}`}
-              />
-              <p className="doc-copy">
-                Or add it from the CLI:
-              </p>
-              <CodeBlock
-                code={`claude mcp add --transport http --scope project --header "Authorization: Bearer $GESTALT_API_KEY" gestalt ${origin}/mcp`}
-              />
-
-              <Subheading id="mcp-codex" title="Codex" />
-              <p className="doc-copy">
-                Codex can register the server directly from the CLI:
-              </p>
-              <CodeBlock
-                code={`codex mcp add gestalt --url ${origin}/mcp --bearer-token-env-var GESTALT_API_KEY`}
-              />
-              <p className="doc-copy">
-                If this server has authentication disabled, omit{" "}
-                <code className="font-mono text-sm text-primary">
-                  --bearer-token-env-var GESTALT_API_KEY
-                </code>{" "}
-                from the command.
-              </p>
-
-              <Subheading id="mcp-cursor" title="Cursor" />
-              <p className="doc-copy">
-                Config file:{" "}
-                <code className="font-mono text-sm text-primary">
-                  .cursor/mcp.json
-                </code>{" "}
-                in your project root, or{" "}
-                <code className="font-mono text-sm text-primary">
-                  ~/.cursor/mcp.json
-                </code>{" "}
-                globally.
-              </p>
-              <CodeBlock
-                code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer \${env:GESTALT_API_KEY}"
-      }
-    }
-  }
-}`}
-              />
-
-              <Subheading id="mcp-other" title="Other Clients" />
-              <p className="doc-copy">
-                Any MCP-compatible client can connect to Gestalt. You need
-                three pieces of information:
-              </p>
-              <InfoTable
-                rows={[
-                  ["URL", `${origin}/mcp`],
-                  [
-                    "Header",
-                    "Authorization: Bearer gst_api_... when auth is enabled",
-                  ],
-                  ["Config key", "usually mcpServers"],
-                ]}
-              />
-              <CodeBlock
-                code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
-      }
-    }
-  }
-}`}
-              />
+              <McpClientTabs origin={origin} />
             </DocSection>
 
             <DocSection
@@ -554,6 +460,188 @@ gestalt tokens revoke <token-id>`}
           </aside>
         </div>
       </main>
+    </div>
+  );
+}
+
+function useHashTab(ids: readonly string[], fallbackId: string) {
+  const [activeId, setActiveId] = useState(fallbackId);
+
+  useEffect(() => {
+    function syncFromHash() {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (ids.includes(hash)) {
+        setActiveId(hash);
+      } else if (!hash) {
+        setActiveId(fallbackId);
+      }
+    }
+
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, [fallbackId, ids]);
+
+  function selectTab(id: string) {
+    setActiveId(id);
+    const url = new URL(window.location.href);
+    url.hash = id;
+    window.history.replaceState(null, "", url);
+  }
+
+  return [activeId, selectTab] as const;
+}
+
+function McpClientTabs({ origin }: { origin: string }) {
+  const [activeTabId, setActiveTabId] = useHashTab(mcpTabIds, defaultMcpTabId);
+
+  return (
+    <div className="space-y-5">
+      <div
+        role="tablist"
+        aria-label="MCP client configuration"
+        className="flex flex-wrap gap-2 border-b border-alpha pb-4"
+      >
+        {mcpTabs.map((tab) => {
+          const isActive = tab.id === activeTabId;
+          return (
+            <button
+              key={tab.id}
+              id={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`${tab.id}-panel`}
+              onClick={() => setActiveTabId(tab.id)}
+              className={`rounded-full border px-4 py-2 text-sm transition-colors duration-150 ${
+                isActive
+                  ? "border-gold-600 bg-gold-50 text-primary dark:border-gold-300 dark:bg-gold-400/10"
+                  : "border-alpha text-muted hover:text-primary"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <section
+        id="mcp-claude-code-panel"
+        role="tabpanel"
+        aria-labelledby="mcp-claude-code"
+        hidden={activeTabId !== "mcp-claude-code"}
+        className={activeTabId === "mcp-claude-code" ? "space-y-5" : "hidden"}
+      >
+        <p className="doc-copy">
+          Use{" "}
+          <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
+          for a project-scoped server shared in version control, or{" "}
+          <code className="font-mono text-sm text-primary">~/.claude.json</code>{" "}
+          for a private local or user-scoped config.
+        </p>
+        <CodeBlock
+          code={`{
+  "mcpServers": {
+    "gestalt": {
+      "type": "http",
+      "url": "${origin}/mcp",
+      "headers": {
+        "Authorization": "Bearer \${GESTALT_API_KEY}"
+      }
+    }
+  }
+}`}
+        />
+        <p className="doc-copy">Or add it from the CLI:</p>
+        <CodeBlock
+          code={`claude mcp add --transport http --scope project --header "Authorization: Bearer $GESTALT_API_KEY" gestalt ${origin}/mcp`}
+        />
+      </section>
+
+      <section
+        id="mcp-codex-panel"
+        role="tabpanel"
+        aria-labelledby="mcp-codex"
+        hidden={activeTabId !== "mcp-codex"}
+        className={activeTabId === "mcp-codex" ? "space-y-5" : "hidden"}
+      >
+        <p className="doc-copy">
+          Codex can register the server directly from the CLI:
+        </p>
+        <CodeBlock
+          code={`codex mcp add gestalt --url ${origin}/mcp --bearer-token-env-var GESTALT_API_KEY`}
+        />
+        <p className="doc-copy">
+          If this server has authentication disabled, omit{" "}
+          <code className="font-mono text-sm text-primary">
+            --bearer-token-env-var GESTALT_API_KEY
+          </code>{" "}
+          from the command.
+        </p>
+      </section>
+
+      <section
+        id="mcp-cursor-panel"
+        role="tabpanel"
+        aria-labelledby="mcp-cursor"
+        hidden={activeTabId !== "mcp-cursor"}
+        className={activeTabId === "mcp-cursor" ? "space-y-5" : "hidden"}
+      >
+        <p className="doc-copy">
+          Config file:{" "}
+          <code className="font-mono text-sm text-primary">.cursor/mcp.json</code>{" "}
+          in your project root, or{" "}
+          <code className="font-mono text-sm text-primary">~/.cursor/mcp.json</code>{" "}
+          globally.
+        </p>
+        <CodeBlock
+          code={`{
+  "mcpServers": {
+    "gestalt": {
+      "url": "${origin}/mcp",
+      "headers": {
+        "Authorization": "Bearer \${env:GESTALT_API_KEY}"
+      }
+    }
+  }
+}`}
+        />
+      </section>
+
+      <section
+        id="mcp-other-panel"
+        role="tabpanel"
+        aria-labelledby="mcp-other"
+        hidden={activeTabId !== "mcp-other"}
+        className={activeTabId === "mcp-other" ? "space-y-5" : "hidden"}
+      >
+        <p className="doc-copy">
+          Any MCP-compatible client can connect to Gestalt. You need three
+          pieces of information:
+        </p>
+        <InfoTable
+          rows={[
+            ["URL", `${origin}/mcp`],
+            [
+              "Header",
+              "Authorization: Bearer gst_api_... when auth is enabled",
+            ],
+            ["Config key", "usually mcpServers"],
+          ]}
+        />
+        <CodeBlock
+          code={`{
+  "mcpServers": {
+    "gestalt": {
+      "url": "${origin}/mcp",
+      "headers": {
+        "Authorization": "Bearer gst_api_your_token_here"
+      }
+    }
+  }
+}`}
+        />
+      </section>
     </div>
   );
 }

@@ -59,16 +59,24 @@ test.describe("Docs page", () => {
       page.getByText("claude mcp add --transport http").first(),
     ).toBeVisible();
     await expect(
-      page.locator("body"),
+      page.getByRole("tab", { name: "Claude Code" }),
+    ).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Codex" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Cursor" })).toBeVisible();
+    await page.getByRole("tab", { name: "Codex" }).click();
+    await expect(
+      page.locator("#mcp-codex-panel"),
     ).toContainText(
       `codex mcp add gestalt --url ${expectedOrigin}/mcp --bearer-token-env-var GESTALT_API_KEY`,
     );
+    await page.getByRole("tab", { name: "Cursor" }).click();
+    await expect(
+      page.locator("#mcp-cursor-panel"),
+    ).toContainText(".cursor/mcp.json");
+    await page.getByRole("tab", { name: "Other Clients" }).click();
     await expect(
       page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();
-    await expect(page.getByText("Claude Code").first()).toBeVisible();
-    await expect(page.getByText("Codex").first()).toBeVisible();
-    await expect(page.getByText("Cursor").first()).toBeVisible();
     await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
     await expect(page.getByText("Current Host")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
