@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/rippling
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Rippling
-description: Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
+description: Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API.
 iconFile: assets/icon.svg
 kind: plugin
 spec:

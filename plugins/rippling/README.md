@@ -1,6 +1,6 @@
 # Rippling
 
-Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
+Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API.
 
 ## Configuration
 
@@ -20,9 +20,10 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 Curated OpenAPI-backed provider with a sibling `openapi.yaml`, covering
 companies, employees, compensations, departments, teams, leave management, time
-entries, work locations, and more. Includes limited write support for employee
-updates, leave request creation and updates, and time entry create, update, and
-delete operations.
+entries, work locations, payroll runs, earning types, and more. Includes write
+support for employee updates, department/title/work-location management, job
+assignments/codes/dimensions, leave request creation and updates, time entry
+create/update/delete, and payroll earnings.
 
 Authenticates with a bearer API token.
 
