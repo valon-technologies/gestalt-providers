@@ -106,7 +106,7 @@ test.describe("Authentication", () => {
       page.getByRole("heading", { name: "Dashboard" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Integrations", exact: true }),
+      page.getByRole("link", { name: "Plugins", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "API Tokens", exact: true }),
