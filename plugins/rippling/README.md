@@ -23,7 +23,7 @@ companies, employees, compensations, departments, teams, leave management, time
 entries, work locations, payroll runs, earning types, and more. Includes write
 support for employee updates, department/title/work-location management, job
 assignments/codes/dimensions, leave request creation and updates, time entry
-create/update/delete, payroll earnings, and global payroll deductions.
+create/update/delete, and payroll earnings.
 
 Authenticates with a bearer API token.
 

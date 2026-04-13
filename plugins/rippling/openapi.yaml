@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Rippling REST API
-  version: 0.0.1-alpha.4
+  version: 0.0.1-alpha.3
   description: Curated Rippling REST operations for company, employee, org structure, payroll, identity, leave, and time data.
 servers:
   - url: https://rest.ripplingapis.com
@@ -904,24 +904,6 @@ paths:
         '204':
           $ref: '#/components/responses/NoContent'
 
-  /platform/api/gp_deductions/{employeeId}:
-    patch:
-      operationId: EmployeeDeductions.Update
-      summary: Update employee deduction
-      description: Update a global payroll employee deduction.
-      tags: [EmployeeDeductions]
-      parameters:
-        - $ref: '#/components/parameters/EmployeePlatformId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EmployeeDeductionUpdateRequest'
-      responses:
-        '200':
-          $ref: '#/components/responses/Object'
-
 components:
   securitySchemes:
     bearerAuth:
@@ -1206,8 +1188,7 @@ components:
           type: string
           description: Unique identifier of the employee's department when your tenant uses department IDs.
         workLocation:
-          type: string
-          description: Employee work location value for tenants that update work locations inline on the employee record.
+          $ref: '#/components/schemas/EmployeeWorkLocationInput'
         workLocationId:
           type: string
           description: Unique identifier of the employee's work location when your tenant uses work location IDs.
@@ -1242,36 +1223,16 @@ components:
         reference_code:
           type: string
           description: Updated reference code of the department.
-    EmployeeDeductionUpdateRequest:
+    EmployeeWorkLocationInput:
       type: object
-      required:
-        - deductionCode
-        - countryCode
+      description: Inline employee work-location object. Rippling documents this as an object with nested address fields.
+      additionalProperties: true
       properties:
-        deductionCode:
+        name:
           type: string
-          description: Deduction code to update. Rippling recommends fetching the current deduction object before patching.
-        eeValue:
-          type: string
-          description: Updated employee deduction value.
-        eeValueType:
-          type: string
-          description: Type for eeValue. Provide this whenever eeValue is set.
-        erValue:
-          type: string
-          description: Updated employer deduction value.
-        erValueType:
-          type: string
-          description: Type for erValue. Provide this whenever erValue is set.
-        erTaxableValue:
-          type: string
-          description: Updated employer taxable deduction value.
-        erTaxableValueType:
-          type: string
-          description: Type for erTaxableValue. Provide this whenever erTaxableValue is set.
-        countryCode:
-          type: string
-          description: Country code for the deduction. Rippling documents support for CA, IN, US, GB, and AU.
+          description: Work location name.
+        address:
+          $ref: '#/components/schemas/WorkLocationAddressInput'
     JobAssignmentCreateRequest:
       type: object
       required:
