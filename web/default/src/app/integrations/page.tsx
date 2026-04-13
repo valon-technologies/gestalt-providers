@@ -56,10 +56,10 @@ export default function IntegrationsPage() {
           <div className="animate-fade-in-up">
             <span className="label-text">Catalog</span>
             <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
-              Integrations
+              Plugins
             </h1>
             <p className="mt-2 text-sm text-muted">
-              Browse and connect third-party services.
+              Browse and connect plugins.
             </p>
           </div>
 
@@ -71,7 +71,7 @@ export default function IntegrationsPage() {
 
           {!loading && !error && integrations.length === 0 && (
             <p className="mt-10 text-sm text-faint">
-              No integrations registered.
+              No plugins registered.
             </p>
           )}
 

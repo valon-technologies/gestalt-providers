@@ -1,7 +1,6 @@
 import { test, expect, mockAuthInfo } from "./fixtures";
 
-const hasBackend =
-  !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
+const hasBackend = !!process.env.GESTALT_BASE_URL;
 
 function trackPageErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
@@ -19,6 +18,8 @@ test.describe("Docs page", () => {
     page,
   }) => {
     const pageErrors = trackPageErrors(page);
+    const expectedOrigin = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8080";
+    const leftNav = page.locator("aside").first();
     await page.addInitScript(() => {
       localStorage.clear();
       sessionStorage.clear();
@@ -34,19 +35,86 @@ test.describe("Docs page", () => {
     await expect(page).toHaveURL(/\/docs/);
     await expect(
       page.getByRole("heading", {
-        name: "Gestalt User Guide",
+        name: "Getting Started",
       }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Set Up The CLI" }),
+      leftNav.getByRole("link", { name: "Getting Started" }),
+    ).toHaveAttribute("href", "/docs/getting-started");
+    await expect(
+      leftNav.getByRole("link", { name: "Invoke Operations" }),
+    ).toHaveAttribute("href", "/docs/invoke");
+    await expect(
+      leftNav.getByRole("link", { name: "Use With MCP" }),
+    ).toHaveAttribute("href", "/docs/mcp");
+    await expect(page.getByText("Base URL", { exact: true })).toBeVisible();
+    await expect(page.getByText("Current Host")).toHaveCount(0);
+    await expect(page.locator("article")).not.toContainText("gestaltd");
+
+    await leftNav.getByRole("link", { name: "Getting Started" }).click();
+    await expect(page).toHaveURL(/\/docs\/getting-started/);
+    await expect(
+      page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "gestalt init" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "gestalt config set url" }).click();
+    await expect(
+      page.locator("#setup-config-set-panel"),
+    ).toContainText(`gestalt config set url ${expectedOrigin}`);
+    await expect(
+      page.getByRole("tab", { name: "gestalt auth" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "GESTALT_API_KEY" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "GESTALT_API_KEY" }).click();
+    await expect(page.locator("#auth-token-panel")).toContainText(
+      "export GESTALT_API_KEY=gst_api_your_token_here",
+    );
+    await expect(page.getByText("gestalt plugins list", { exact: true })).toBeVisible();
+
+    await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
+    await expect(page).toHaveURL(/\/docs\/invoke/);
+    await expect(
+      page.getByRole("heading", { name: "Invoke Operations" }),
+    ).toBeVisible();
+    await expect(page.getByRole("tab", { name: "CLI" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "HTTP" })).toBeVisible();
+    await page.getByRole("tab", { name: "HTTP" }).click();
+    await expect(
+      page.getByText("/api/v1/integrations").first(),
+    ).toBeVisible();
+
+    await leftNav.getByRole("link", { name: "Use With MCP" }).click();
+    await expect(page).toHaveURL(/\/docs\/mcp/);
     await expect(
       page.getByRole("heading", { name: "Use With MCP" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("cell", { name: "http://localhost:8080/mcp" }).first(),
+      page.getByText("claude mcp add --transport http").first(),
     ).toBeVisible();
-    await expect(page.getByText("Claude Code").first()).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "Claude Code" }),
+    ).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Codex" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Cursor" })).toBeVisible();
+    await page.getByRole("tab", { name: "Codex" }).click();
+    await expect(
+      page.locator("#mcp-codex-panel"),
+    ).toContainText(
+      `codex mcp add gestalt --url ${expectedOrigin}/mcp --bearer-token-env-var GESTALT_API_KEY`,
+    );
+    await page.getByRole("tab", { name: "Cursor" }).click();
+    await expect(
+      page.locator("#mcp-cursor-panel"),
+    ).toContainText(".cursor/mcp.json");
+    await page.getByRole("tab", { name: "Other Clients" }).click();
+    await expect(
+      page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
+    ).toBeVisible();
+    await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
   });
 
@@ -63,7 +131,13 @@ test.describe("Docs page", () => {
     await page.goto("/docs");
     await expect(page).toHaveURL(/\/docs/);
     await expect(
-      page.getByRole("heading", { name: "Gestalt User Guide" }),
+      page.getByRole("heading", { name: "Getting Started" }),
+    ).toBeVisible();
+    await expect(
+      page.locator("aside").first().getByRole("link", { name: "Use With MCP" }),
+    ).toHaveAttribute("href", "/docs/mcp");
+    await expect(
+      page.locator("nav").getByRole("link", { name: "Plugins", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("test@gestalt.dev")).toBeVisible();
     expect(pageErrors).toEqual([]);
