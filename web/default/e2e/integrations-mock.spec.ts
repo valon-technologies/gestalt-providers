@@ -269,8 +269,8 @@ test.describe("Integrations", () => {
     await page.getByRole("button", { name: "MCP Passthrough Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
-    await expect(dialog.getByText("MCP")).toBeVisible();
-    await expect(dialog.getByText("MCP passthrough")).toBeVisible();
+    await expect(dialog.getByText("MCP", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("MCP passthrough", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("button", { name: /connect/i })).toHaveCount(0);
   });
 
