@@ -1,17 +1,22 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/linear
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Linear
 description: Manage issues, projects, and teams.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
-  auth:
-    type: oauth2
-    authorizationUrl: https://linear.app/oauth/authorize
-    tokenUrl: https://api.linear.app/oauth/token
-    acceptHeader: application/json
   surfaces:
     graphql:
+      connection: OAuth
       url: https://api.linear.app/graphql
     mcp:
+      connection: OAuth
       url: https://mcp.linear.app/mcp
+  connections:
+    OAuth:
+      mode: user
+      auth:
+        type: oauth2
+        authorizationUrl: https://linear.app/oauth/authorize
+        tokenUrl: https://api.linear.app/oauth/token
+        acceptHeader: application/json
