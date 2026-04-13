@@ -309,8 +309,8 @@ export default function IntegrationSettingsModal({
               Disconnect {displayName}?
             </h2>
             <p className="mt-3 text-sm text-muted">
-              This will remove your {displayName} integration. You can reconnect
-              at any time.
+              This will remove your connection to {displayName}. You can
+              reconnect at any time.
             </p>
             {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
             <div className="mt-6 flex gap-3">

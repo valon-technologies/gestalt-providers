@@ -61,7 +61,7 @@ export default function DashboardPage() {
               Dashboard
             </h1>
             <p className="mt-2 text-sm text-muted">
-              Manage the client-facing integration workspace from one place.
+              Manage the client-facing plugin workspace from one place.
             </p>
           </div>
 
@@ -74,12 +74,12 @@ export default function DashboardPage() {
               href="/integrations"
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
             >
-              <span className="label-text">Integrations</span>
+              <span className="label-text">Plugins</span>
               <p className="mt-3 text-3xl font-heading font-bold text-primary">
                 {data.integrations ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                Manage integrations
+                Manage plugins
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>

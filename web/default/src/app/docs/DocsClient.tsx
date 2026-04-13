@@ -6,6 +6,7 @@ import Nav from "@/components/Nav";
 import { CopyIcon, CheckIcon } from "@/components/icons";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
+const DEFAULT_LOCAL_DOCS_URL = "http://localhost:8080/docs";
 
 interface Subsection {
   id: string;
@@ -29,7 +30,7 @@ const sections: Section[] = [
       { id: "authenticate", label: "Authenticate" },
     ],
   },
-  { id: "connect", label: "Connect Integrations", subsections: [] },
+  { id: "connect", label: "Connect Plugins", subsections: [] },
   {
     id: "invoke",
     label: "Invoke Operations",
@@ -41,10 +42,8 @@ const sections: Section[] = [
     label: "Use With MCP",
     subsections: [
       { id: "mcp-claude-code", label: "Claude Code" },
-      { id: "mcp-claude-desktop", label: "Claude Desktop" },
+      { id: "mcp-codex", label: "Codex" },
       { id: "mcp-cursor", label: "Cursor" },
-      { id: "mcp-vscode-copilot", label: "VS Code Copilot" },
-      { id: "mcp-windsurf", label: "Windsurf" },
       { id: "mcp-other", label: "Other Clients" },
     ],
   },
@@ -145,25 +144,27 @@ export default function DocsClient() {
                 Gestalt User Guide
               </h1>
               <p className="mt-6 max-w-3xl text-base leading-7 text-secondary">
-                This page covers the user-facing workflows for the Gestalt
-                deployment you are currently using: install the{" "}
+                This guide covers the user-facing workflows for the Gestalt
+                server you are currently using: install the{" "}
                 <code className="font-mono text-sm text-primary">gestalt</code>{" "}
-                CLI, point it at this deployment, sign in, connect
-                integrations, invoke operations, mint API tokens, and attach an
+                CLI, point it at this server, sign in when required, connect
+                plugins, invoke operations, mint API tokens, and attach an
                 MCP-aware client to the same server. No command-line
                 experience is required — follow the steps below and copy the
                 commands as-is.
               </p>
               <div className="mt-8 rounded-xl border border-alpha bg-base-100 p-5 dark:bg-surface">
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-                  Deployment URL
+                  Server URL
                 </p>
                 <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
                 <p className="mt-2 text-sm leading-6 text-muted">
-                  Full URLs on this page use the current deployment origin so
-                  you can copy commands without replacing{" "}
-                  <code className="font-mono text-sm">gestalt.example.com</code>{" "}
-                  by hand.
+                  A default local server with the public UI enabled serves this
+                  guide at{" "}
+                  <code className="font-mono text-sm text-primary">
+                    {DEFAULT_LOCAL_DOCS_URL}
+                  </code>
+                  .
                 </p>
               </div>
             </header>
@@ -171,14 +172,14 @@ export default function DocsClient() {
             <DocSection
               id="setup"
               title="Set Up The CLI"
-              description="Install the client binary, point it at this deployment, and authenticate once."
+              description="Install the client binary, point it at this server, and authenticate once."
             >
               <Subheading id="install" title="Install" />
               <p className="doc-copy">
                 End users only need the{" "}
                 <code className="font-mono text-sm text-primary">gestalt</code>{" "}
                 CLI. <code className="font-mono text-sm text-primary">gestaltd</code>{" "}
-                is the server binary used by whoever operates the deployment.
+                is the server binary that serves this UI and API.
               </p>
               <p className="doc-copy">
                 The recommended way to install is with{" "}
@@ -205,7 +206,7 @@ export default function DocsClient() {
                 <code className="font-mono text-sm text-primary">PATH</code>.
               </p>
 
-              <Subheading id="point-cli" title="Point the CLI at this deployment" />
+              <Subheading id="point-cli" title="Point the CLI at this server" />
               <p className="doc-copy">
                 The CLI needs the base URL for the Gestalt server. Use either
                 the setup wizard or a direct config command.
@@ -227,7 +228,7 @@ export GESTALT_URL=${origin}`}
                   ],
                   [
                     ".gestalt/config.json",
-                    "Project-local URL override for one checkout or deployment directory.",
+                    "Project-local URL override for one checkout or working directory.",
                   ],
                   [
                     "GESTALT_URL",
@@ -240,7 +241,7 @@ export GESTALT_URL=${origin}`}
                 <code className="font-mono text-sm text-primary">
                   .gestalt/config.json
                 </code>{" "}
-                file stores only the deployment URL. The CLI searches the
+                file stores only the server URL. The CLI searches the
                 current directory and then parent directories until it finds the
                 nearest project config.
               </p>
@@ -263,37 +264,39 @@ export GESTALT_URL=${origin}`}
               <p className="doc-copy">
                 Browser login is the normal path for interactive use. Running
                 the command below opens your browser automatically — just
-                approve the sign-in when prompted. For scripts, you can also
-                set a Gestalt API token directly.
+                approve the sign-in when prompted. If this server has
+                authentication disabled, you can skip login and call the server
+                directly. For scripts, you can also set a Gestalt API token
+                directly when auth is enabled.
               </p>
               <CodeBlock
                 code={`gestalt auth login
 gestalt auth status
 
 export GESTALT_API_KEY=gst_api_your_token_here
-gestalt integrations list`}
+gestalt plugins list`}
               />
             </DocSection>
 
             <DocSection
               id="connect"
-              title="Connect Integrations"
-              description="Inspect available integrations first, then authorize the ones you need."
+              title="Connect Plugins"
+              description="Inspect available plugins first, then connect the ones you need."
             >
               <p className="doc-copy">
-                Integrations exposed by the deployment appear in both the CLI
-                and the web UI. Use either surface to start the underlying OAuth
-                or manual credential flow.
+                Plugins exposed by this server appear in both the CLI and the
+                web UI. Use either surface to start the underlying OAuth or
+                manual credential flow.
               </p>
               <CodeBlock
-                code={`gestalt integrations list
-gestalt integrations connect <integration>
-gestalt integrations connect <integration> --connection <name> --instance <instance>`}
+                code={`gestalt plugins list
+gestalt plugins connect <plugin>
+gestalt plugins connect <plugin> --connection <name> --instance <instance>`}
               />
               <p className="doc-copy">
                 If you prefer the browser flow, the same work is available on{" "}
                 <Link href="/integrations" className="doc-link">
-                  Integrations
+                  Plugins
                 </Link>
                 .
               </p>
@@ -302,19 +305,19 @@ gestalt integrations connect <integration> --connection <name> --instance <insta
             <DocSection
               id="invoke"
               title="Invoke Operations"
-              description="Use the catalog built into Gestalt to discover an integration's operations before making requests."
+              description="Use the catalog built into Gestalt to discover a plugin's operations before making requests."
             >
               <CodeBlock
-                code={`gestalt invoke <integration>
-gestalt describe <integration> <operation>
-gestalt invoke <integration> <operation> -p key=value
-gestalt invoke <integration> <operation> -p filters:='{"status":"open"}'
-gestalt invoke <integration> <operation> --input-file payload.json --select data.items`}
+                code={`gestalt plugins invoke <plugin>
+gestalt plugins describe <plugin> <operation>
+gestalt plugins invoke <plugin> <operation> -p key=value
+gestalt plugins invoke <plugin> <operation> -p filters:='{"status":"open"}'
+gestalt plugins invoke <plugin> <operation> --input-file payload.json --select data.items`}
               />
               <p className="doc-copy">
                 If you omit the operation,{" "}
                 <code className="font-mono text-sm text-primary">
-                  gestalt invoke &lt;integration&gt;
+                  gestalt plugins invoke &lt;plugin&gt;
                 </code>{" "}
                 lists available operations instead of running one.
               </p>
@@ -322,7 +325,12 @@ gestalt invoke <integration> <operation> --input-file payload.json --select data
               <Subheading id="invoke-http" title="Invoke over HTTP" />
               <p className="doc-copy">
                 The CLI calls the same HTTP API that the server exposes for
-                direct programmatic access.
+                direct programmatic access. The API keeps{" "}
+                <code className="font-mono text-sm text-primary">
+                  integrations
+                </code>{" "}
+                in its route paths even though the CLI uses{" "}
+                <code className="font-mono text-sm text-primary">plugins</code>.
               </p>
               <CodeBlock
                 code={`curl \\
@@ -333,7 +341,7 @@ curl \\
   -H "Authorization: Bearer $GESTALT_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"example":"value"}' \\
-  ${origin}/api/v1/<integration>/<operation>`}
+  ${origin}/api/v1/<plugin>/<operation>`}
               />
             </DocSection>
 
@@ -360,85 +368,69 @@ gestalt tokens revoke <token-id>`}
             <DocSection
               id="mcp"
               title="Use With MCP"
-              description="Gestalt exposes a single MCP endpoint that gives AI tools access to all your connected integrations. Create an API token on the API Tokens page first, then configure your preferred tool below."
+              description="Gestalt exposes a single MCP endpoint that gives AI tools access to all your connected plugins. If this server requires authentication, create an API token on the API Tokens page first."
             >
+              <p className="doc-copy">
+                On servers with authentication disabled, omit the bearer-token
+                flag and header blocks shown below.
+              </p>
               <InfoTable
                 rows={[
                   ["Endpoint", `${origin}/mcp`],
-                  ["Authentication", "Authorization: Bearer gst_api_..."],
+                  [
+                    "Authentication",
+                    "Authorization: Bearer gst_api_... when auth is enabled",
+                  ],
                   [
                     "If no tools appear",
-                    "Confirm that the integration is MCP-enabled and connected for your user.",
+                    "Confirm that the plugin is MCP-enabled and connected for your user.",
                   ],
                 ]}
               />
 
               <Subheading id="mcp-claude-code" title="Claude Code" />
               <p className="doc-copy">
-                Add Gestalt as an MCP server in your Claude Code settings. You
-                can configure it globally or per-project.
-              </p>
-              <p className="doc-copy">
-                Config file:{" "}
+                Use{" "}
+                <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
+                for a project-scoped server shared in version control, or{" "}
                 <code className="font-mono text-sm text-primary">
-                  .claude/settings.json
+                  ~/.claude.json
                 </code>{" "}
-                (global) or{" "}
-                <code className="font-mono text-sm text-primary">
-                  .claude/settings.local.json
-                </code>{" "}
-                (project)
+                for a private local or user-scoped config.
               </p>
               <CodeBlock
                 code={`{
   "mcpServers": {
     "gestalt": {
+      "type": "http",
       "url": "${origin}/mcp",
       "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
+        "Authorization": "Bearer \${GESTALT_API_KEY}"
       }
     }
   }
 }`}
               />
               <p className="doc-copy">
-                You can also run{" "}
-                <code className="font-mono text-sm text-primary">
-                  gestalt init
-                </code>{" "}
-                to configure this automatically.
+                Or add it from the CLI:
               </p>
+              <CodeBlock
+                code={`claude mcp add --transport http --scope project --header "Authorization: Bearer $GESTALT_API_KEY" gestalt ${origin}/mcp`}
+              />
 
-              <Subheading id="mcp-claude-desktop" title="Claude Desktop" />
+              <Subheading id="mcp-codex" title="Codex" />
               <p className="doc-copy">
-                Add the same server block to Claude Desktop&apos;s config file:
+                Codex can register the server directly from the CLI:
               </p>
-              <InfoTable
-                rows={[
-                  [
-                    "macOS",
-                    "~/Library/Application Support/Claude/claude_desktop_config.json",
-                  ],
-                  [
-                    "Windows",
-                    "%APPDATA%\\Claude\\claude_desktop_config.json",
-                  ],
-                ]}
-              />
               <CodeBlock
-                code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
-      }
-    }
-  }
-}`}
+                code={`codex mcp add gestalt --url ${origin}/mcp --bearer-token-env-var GESTALT_API_KEY`}
               />
               <p className="doc-copy">
-                Restart Claude Desktop after editing the config file.
+                If this server has authentication disabled, omit{" "}
+                <code className="font-mono text-sm text-primary">
+                  --bearer-token-env-var GESTALT_API_KEY
+                </code>{" "}
+                from the command.
               </p>
 
               <Subheading id="mcp-cursor" title="Cursor" />
@@ -459,49 +451,7 @@ gestalt tokens revoke <token-id>`}
     "gestalt": {
       "url": "${origin}/mcp",
       "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
-      }
-    }
-  }
-}`}
-              />
-
-              <Subheading id="mcp-vscode-copilot" title="VS Code Copilot" />
-              <p className="doc-copy">
-                Config file:{" "}
-                <code className="font-mono text-sm text-primary">
-                  .vscode/settings.json
-                </code>
-              </p>
-              <CodeBlock
-                code={`{
-  "github.copilot.chat.mcp.servers": [
-    {
-      "name": "gestalt",
-      "type": "http",
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
-      }
-    }
-  ]
-}`}
-              />
-
-              <Subheading id="mcp-windsurf" title="Windsurf" />
-              <p className="doc-copy">
-                Config file:{" "}
-                <code className="font-mono text-sm text-primary">
-                  ~/.codeium/windsurf/mcp_config.json
-                </code>
-              </p>
-              <CodeBlock
-                code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "${origin}/mcp",
-      "headers": {
-        "Authorization": "Bearer gst_api_your_token_here"
+        "Authorization": "Bearer \${env:GESTALT_API_KEY}"
       }
     }
   }
@@ -516,7 +466,10 @@ gestalt tokens revoke <token-id>`}
               <InfoTable
                 rows={[
                   ["URL", `${origin}/mcp`],
-                  ["Header", "Authorization: Bearer gst_api_..."],
+                  [
+                    "Header",
+                    "Authorization: Bearer gst_api_... when auth is enabled",
+                  ],
                   ["Config key", "usually mcpServers"],
                 ]}
               />
@@ -552,7 +505,7 @@ gestalt tokens revoke <token-id>`}
                 if you are using a token directly.
               </p>
 
-              <Subheading id="ts-multiple-connections" title="An integration has multiple connections" />
+              <Subheading id="ts-multiple-connections" title="A plugin has multiple connections" />
               <p className="doc-copy">
                 Pass{" "}
                 <code className="font-mono text-sm text-primary">
@@ -567,7 +520,7 @@ gestalt tokens revoke <token-id>`}
 
               <Subheading id="ts-empty-tools" title="The MCP endpoint is mounted, but the tool list is empty" />
               <p className="doc-copy">
-                That usually means the integration is available in the server
+                That usually means the plugin is available in the server
                 config but has not been connected for your current user yet.
               </p>
             </DocSection>
@@ -597,14 +550,6 @@ gestalt tokens revoke <token-id>`}
                   </nav>
                 </div>
               )}
-              <div className="rounded-xl border border-alpha bg-base-white/80 p-5 text-sm leading-6 text-muted dark:bg-surface/80">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-                  Current Host
-                </p>
-                <p className="mt-3 break-all font-mono text-xs text-primary">
-                  {origin}
-                </p>
-              </div>
             </div>
           </aside>
         </div>

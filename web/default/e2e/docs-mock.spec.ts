@@ -1,7 +1,6 @@
 import { test, expect, mockAuthInfo } from "./fixtures";
 
-const hasBackend =
-  !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
+const hasBackend = !!process.env.GESTALT_BASE_URL;
 
 function trackPageErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
@@ -19,6 +18,7 @@ test.describe("Docs page", () => {
     page,
   }) => {
     const pageErrors = trackPageErrors(page);
+    const expectedOrigin = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8080";
     await page.addInitScript(() => {
       localStorage.clear();
       sessionStorage.clear();
@@ -41,12 +41,36 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Set Up The CLI" }),
     ).toBeVisible();
     await expect(
+      page.getByRole("heading", { name: "Connect Plugins" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("heading", { name: "Use With MCP" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("cell", { name: "http://localhost:8080/mcp" }).first(),
+      page.getByText("http://localhost:8080/docs"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("gestalt plugins list").first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("/api/v1/integrations").first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("claude mcp add --transport http").first(),
+    ).toBeVisible();
+    await expect(
+      page.locator("body"),
+    ).toContainText(
+      `codex mcp add gestalt --url ${expectedOrigin}/mcp --bearer-token-env-var GESTALT_API_KEY`,
+    );
+    await expect(
+      page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();
     await expect(page.getByText("Claude Code").first()).toBeVisible();
+    await expect(page.getByText("Codex").first()).toBeVisible();
+    await expect(page.getByText("Cursor").first()).toBeVisible();
+    await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
+    await expect(page.getByText("Current Host")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
   });
 
@@ -64,6 +88,9 @@ test.describe("Docs page", () => {
     await expect(page).toHaveURL(/\/docs/);
     await expect(
       page.getByRole("heading", { name: "Gestalt User Guide" }),
+    ).toBeVisible();
+    await expect(
+      page.locator("nav").getByRole("link", { name: "Plugins", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("test@gestalt.dev")).toBeVisible();
     expect(pageErrors).toEqual([]);
