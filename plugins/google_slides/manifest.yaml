@@ -8,7 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/slides/v1/openapi.json
+      document: https://www.googleapis.com/discovery/v1/apis/slides/v1/rest
   allowedOperations:
     slides.presentations.create:
       alias: presentations.create

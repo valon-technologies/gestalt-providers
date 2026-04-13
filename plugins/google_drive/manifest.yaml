@@ -8,7 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/drive/v3/openapi.json
+      document: https://www.googleapis.com/discovery/v1/apis/drive/v3/rest
   allowedOperations:
     drive.files.list:
       alias: files.list

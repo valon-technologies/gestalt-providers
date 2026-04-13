@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: Asana OAuth client ID.
+  clientSecret:
+    type: string
+    description: Asana OAuth client secret.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false

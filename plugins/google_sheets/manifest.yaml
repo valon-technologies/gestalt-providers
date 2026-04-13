@@ -8,7 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      document: https://api.apis.guru/v2/specs/googleapis.com/sheets/v4/openapi.json
+      document: https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest
   allowedOperations:
     sheets.spreadsheets.create:
       alias: create

@@ -1,0 +1,34 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/google_forms
+version: 0.0.1-alpha.1
+displayName: Google Forms
+description: Read and manage Google Forms and responses.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: https://www.googleapis.com/discovery/v1/apis/forms/v1/rest
+  allowedOperations:
+    forms.forms.get:
+      alias: forms.get
+    forms.forms.create:
+      alias: forms.create
+    forms.forms.batchUpdate:
+      alias: forms.batchUpdate
+    forms.forms.responses.list:
+      alias: responses.list
+    forms.forms.responses.get:
+      alias: responses.get
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+        - https://www.googleapis.com/auth/forms.body
+        - https://www.googleapis.com/auth/forms.responses.readonly
+        authorizationParams:
+          access_type: offline
+          prompt: consent

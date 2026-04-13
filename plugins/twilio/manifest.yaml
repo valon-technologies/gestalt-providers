@@ -1,0 +1,31 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/twilio
+version: 0.0.1-alpha.1
+displayName: Twilio
+description: Send and receive SMS, voice calls, and messaging operations.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  surfaces:
+    openapi:
+      document: https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/json/twilio_api_v2010.json
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+        - name: account_sid
+          label: Account SID
+          description: Find this on your Twilio Console dashboard.
+        - name: auth_token
+          label: Auth Token
+          description: Find this on your Twilio Console dashboard.
+        authMapping:
+          basic:
+            username:
+              valueFrom:
+                credentialFieldRef:
+                  name: account_sid
+            password:
+              valueFrom:
+                credentialFieldRef:
+                  name: auth_token
