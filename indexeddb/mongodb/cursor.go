@@ -10,7 +10,9 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,9 +32,10 @@ type mongoCursor struct {
 }
 
 type mongoCursorEntry struct {
-	key        any
-	primaryKey string
-	record     *proto.Record
+	key             any
+	primaryKey      string
+	primaryKeyValue any
+	record          *proto.Record
 }
 
 var errMongoCursorFieldMissing = errors.New("mongodb cursor field missing")
@@ -172,7 +175,7 @@ func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursor
 		cursor.index = meta
 	}
 
-	records, err := p.cursorRecords(ctx, req)
+	records, err := p.cursorRecords(ctx, cursor, req)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +195,7 @@ func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursor
 	sort.Slice(entries, func(i, j int) bool {
 		cmp := mongoCompareCursorValue(entries[i].key, entries[j].key)
 		if cmp == 0 {
-			cmp = mongoCompareCursorValue(entries[i].primaryKey, entries[j].primaryKey)
+			cmp = mongoCompareCursorValue(entries[i].primaryKeyValue, entries[j].primaryKeyValue)
 		}
 		if cursor.reverse {
 			return cmp > 0
@@ -229,33 +232,101 @@ func (p *Provider) lookupIndexMeta(storeName, indexName string) (*indexMeta, err
 	return &metaCopy, nil
 }
 
-func (p *Provider) cursorRecords(ctx context.Context, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
-	if req.GetIndex() == "" {
-		resp, err := p.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore()})
-		if err != nil {
-			return nil, err
-		}
-		return resp.GetRecords(), nil
-	}
-
-	resp, err := p.IndexGetAll(ctx, &proto.IndexQueryRequest{
-		Store:  req.GetStore(),
-		Index:  req.GetIndex(),
-		Values: req.GetValues(),
-	})
+func (p *Provider) cursorRecords(ctx context.Context, cursor *mongoCursor, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
+	docs, err := p.cursorDocuments(ctx, cursor, req)
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetRecords(), nil
+
+	records := make([]*proto.Record, 0, len(docs))
+	for _, doc := range docs {
+		record, err := mongoCursorDocToProto(doc)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "marshal cursor record: %v", err)
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
+func (p *Provider) cursorDocuments(ctx context.Context, cursor *mongoCursor, req *proto.OpenCursorRequest) ([]bson.M, error) {
+	s, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	var filter bson.M
+	if cursor.indexCursor {
+		filter, err = s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		filter, err = keyRangeFilter(req.GetRange())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+		}
+	}
+
+	var mongoCursorDocs *mongo.Cursor
+	projection := mongoCursorProjection(cursor)
+	if projection == nil {
+		mongoCursorDocs, err = s.db.Collection(req.GetStore()).Find(ctx, filter)
+	} else {
+		mongoCursorDocs, err = s.db.Collection(req.GetStore()).Find(ctx, filter, options.Find().SetProjection(projection))
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "open cursor snapshot: %v", err)
+	}
+	defer mongoCursorDocs.Close(ctx)
+
+	var docs []bson.M
+	for mongoCursorDocs.Next(ctx) {
+		var doc bson.M
+		if err := mongoCursorDocs.Decode(&doc); err != nil {
+			return nil, status.Errorf(codes.Internal, "decode cursor snapshot: %v", err)
+		}
+		docs = append(docs, doc)
+	}
+	if err := mongoCursorDocs.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "cursor snapshot: %v", err)
+	}
+	return docs, nil
+}
+
+func mongoCursorProjection(cursor *mongoCursor) bson.M {
+	if !cursor.keysOnly {
+		return nil
+	}
+
+	projection := bson.M{"_id": 1}
+	if cursor.indexCursor && cursor.index != nil {
+		for _, field := range cursor.index.keyPath {
+			projection[field] = 1
+		}
+	}
+	return projection
+}
+
+func mongoCursorDocToProto(doc bson.M) (*proto.Record, error) {
+	record := make(map[string]any, len(doc))
+	for key, value := range doc {
+		if key == "_id" {
+			record["id"] = toGestaltCompatible(value)
+		} else {
+			record[key] = toGestaltCompatible(value)
+		}
+	}
+	return gestalt.RecordToProto(record)
 }
 
 func (c *mongoCursor) entryFromRecord(record *proto.Record) (mongoCursorEntry, error) {
-	primaryKey, err := mongoExtractID(record)
+	primaryKeyValue, primaryKey, err := mongoExtractID(record)
 	if err != nil {
 		return mongoCursorEntry{}, status.Errorf(codes.InvalidArgument, "record primary key: %v", err)
 	}
 
-	key := any(primaryKey)
+	key := primaryKeyValue
 	if c.indexCursor {
 		parts := make([]any, len(c.index.keyPath))
 		for i, field := range c.index.keyPath {
@@ -269,9 +340,10 @@ func (c *mongoCursor) entryFromRecord(record *proto.Record) (mongoCursorEntry, e
 	}
 
 	return mongoCursorEntry{
-		key:        key,
-		primaryKey: primaryKey,
-		record:     record,
+		key:             key,
+		primaryKey:      primaryKey,
+		primaryKeyValue: primaryKeyValue,
+		record:          record,
 	}, nil
 }
 
@@ -414,11 +486,7 @@ func (c *mongoCursor) deleteCurrent(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.provider.Delete(ctx, &proto.ObjectStoreRequest{
-		Store: c.storeName,
-		Id:    entry.primaryKey,
-	})
-	return err
+	return c.provider.deleteByIDValue(ctx, c.storeName, entry.primaryKeyValue)
 }
 
 func (c *mongoCursor) updateCurrent(ctx context.Context, record *proto.Record) (*proto.CursorEntry, error) {
@@ -426,7 +494,7 @@ func (c *mongoCursor) updateCurrent(ctx context.Context, record *proto.Record) (
 	if err != nil {
 		return nil, err
 	}
-	cloned, err := c.prepareUpdatedRecord(record, entry.primaryKey)
+	cloned, err := c.prepareUpdatedRecord(record, entry.primaryKeyValue)
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +511,7 @@ func (c *mongoCursor) updateCurrent(ctx context.Context, record *proto.Record) (
 	return c.currentEntry()
 }
 
-func (c *mongoCursor) prepareUpdatedRecord(record *proto.Record, primaryKey string) (*proto.Record, error) {
+func (c *mongoCursor) prepareUpdatedRecord(record *proto.Record, primaryKey any) (*proto.Record, error) {
 	if record == nil {
 		return nil, status.Error(codes.InvalidArgument, "update record is required")
 	}
@@ -518,23 +586,26 @@ func mongoCursorRangeBounds(kr *proto.KeyRange, indexCursor bool) (any, any, err
 	return lower, upper, nil
 }
 
-func mongoExtractID(record *proto.Record) (string, error) {
+func mongoExtractID(record *proto.Record) (any, string, error) {
 	if record == nil {
-		return "", status.Error(codes.InvalidArgument, "record is required")
+		return nil, "", status.Error(codes.InvalidArgument, "record is required")
 	}
 	value, ok := record.Fields["id"]
 	if !ok || value == nil {
-		return "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
+		return nil, "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
 	}
 	goValue, err := gestalt.AnyFromTypedValue(value)
 	if err != nil {
-		return "", err
+		return nil, "", err
+	}
+	if goValue == nil {
+		return nil, "", status.Error(codes.InvalidArgument, "record \"id\" must be non-null")
 	}
 	id := fmt.Sprint(goValue)
 	if id == "" {
-		return "", status.Error(codes.InvalidArgument, "record \"id\" must be non-empty")
+		return nil, "", status.Error(codes.InvalidArgument, "record \"id\" must be non-empty")
 	}
-	return id, nil
+	return goValue, id, nil
 }
 
 func mongoRecordFieldAny(record *proto.Record, field string) (any, error) {

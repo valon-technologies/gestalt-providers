@@ -177,15 +177,22 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 }
 
 func (p *Provider) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	_, err = s.db.Collection(req.GetStore()).DeleteOne(ctx, idFilter(req.GetId()))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "delete: %v", err)
+	if err := p.deleteByIDValue(ctx, req.GetStore(), req.GetId()); err != nil {
+		return nil, err
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (p *Provider) deleteByIDValue(ctx context.Context, storeName string, id any) error {
+	s, err := p.configured()
+	if err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	_, err = s.db.Collection(storeName).DeleteOne(ctx, idFilter(id))
+	if err != nil {
+		return status.Errorf(codes.Internal, "delete: %v", err)
+	}
+	return nil
 }
 
 func (p *Provider) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {

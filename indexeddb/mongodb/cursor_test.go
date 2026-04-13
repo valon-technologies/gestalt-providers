@@ -2,9 +2,11 @@ package mongodb
 
 import (
 	"testing"
+	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func mongoTestRecord(t *testing.T, id string, fields map[string]any) *proto.Record {
@@ -74,6 +76,31 @@ func TestMongoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 	}
 }
 
+func TestMongoEntryFromRecordPreservesNativeObjectStorePrimaryKey(t *testing.T) {
+	record, err := gestalt.RecordToProto(map[string]any{
+		"id":   int64(10),
+		"name": "ten",
+	})
+	if err != nil {
+		t.Fatalf("RecordToProto: %v", err)
+	}
+
+	cursor := &mongoCursor{}
+	entry, err := cursor.entryFromRecord(record)
+	if err != nil {
+		t.Fatalf("entryFromRecord: %v", err)
+	}
+	if got := entry.primaryKey; got != "10" {
+		t.Fatalf("primaryKey = %q, want %q", got, "10")
+	}
+	if got, ok := entry.primaryKeyValue.(int64); !ok || got != 10 {
+		t.Fatalf("primaryKeyValue = %#v, want int64(10)", entry.primaryKeyValue)
+	}
+	if got, ok := entry.key.(int64); !ok || got != 10 {
+		t.Fatalf("key = %#v, want int64(10)", entry.key)
+	}
+}
+
 func TestMongoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 	cursor := &mongoCursor{
 		indexCursor: true,
@@ -124,6 +151,32 @@ func TestMongoCursorReverseContinueToKey(t *testing.T) {
 	}
 	if got := entry.GetPrimaryKey(); got != "c" {
 		t.Fatalf("ContinueToKey(\"c\") primary key = %q, want %q", got, "c")
+	}
+}
+
+func TestMongoCursorObjectStoreRangeUsesNativePrimaryKeys(t *testing.T) {
+	cursor := &mongoCursor{}
+	entries := []mongoCursorEntry{
+		{primaryKey: "1", primaryKeyValue: int64(1), key: int64(1), record: mongoTestRecord(t, "1", nil)},
+		{primaryKey: "2", primaryKeyValue: int64(2), key: int64(2), record: mongoTestRecord(t, "2", nil)},
+		{primaryKey: "10", primaryKeyValue: int64(10), key: int64(10), record: mongoTestRecord(t, "10", nil)},
+	}
+
+	filtered, err := cursor.applyRange(entries, &proto.KeyRange{
+		Lower: mongoMustTypedValue(t, int64(2)),
+		Upper: mongoMustTypedValue(t, int64(10)),
+	})
+	if err != nil {
+		t.Fatalf("applyRange: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("filtered count = %d, want 2", len(filtered))
+	}
+	if got := filtered[0].primaryKey; got != "2" {
+		t.Fatalf("first filtered primary key = %q, want %q", got, "2")
+	}
+	if got := filtered[1].primaryKey; got != "10" {
+		t.Fatalf("second filtered primary key = %q, want %q", got, "10")
 	}
 }
 
@@ -180,5 +233,78 @@ func TestMongoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
 	}
 	if got, ok := decoded["status"]; ok && got != nil {
 		t.Fatalf("decoded status = %#v, want nil", got)
+	}
+}
+
+func TestMongoPrepareUpdatedRecordPreservesNativePrimaryKeyType(t *testing.T) {
+	cursor := &mongoCursor{}
+	updateRecord, err := gestalt.RecordToProto(map[string]any{
+		"name": "updated",
+	})
+	if err != nil {
+		t.Fatalf("RecordToProto: %v", err)
+	}
+
+	record, err := cursor.prepareUpdatedRecord(updateRecord, time.Unix(1700000000, 0).UTC())
+	if err != nil {
+		t.Fatalf("prepareUpdatedRecord: %v", err)
+	}
+
+	decoded, err := gestalt.RecordFromProto(record)
+	if err != nil {
+		t.Fatalf("RecordFromProto: %v", err)
+	}
+	got, ok := decoded["id"].(time.Time)
+	if !ok {
+		t.Fatalf("decoded id type = %T, want time.Time", decoded["id"])
+	}
+	want := time.Unix(1700000000, 0).UTC()
+	if !got.Equal(want) {
+		t.Fatalf("decoded id = %s, want %s", got.Format(time.RFC3339Nano), want.Format(time.RFC3339Nano))
+	}
+}
+
+func TestMongoCursorProjectionForKeyOnlyObjectStore(t *testing.T) {
+	projection := mongoCursorProjection(&mongoCursor{keysOnly: true})
+	if len(projection) != 1 {
+		t.Fatalf("projection = %#v, want only _id", projection)
+	}
+	if got, ok := projection["_id"]; !ok || got != 1 {
+		t.Fatalf("projection[_id] = %#v, want 1", got)
+	}
+}
+
+func TestMongoCursorProjectionForKeyOnlyIndexCursor(t *testing.T) {
+	projection := mongoCursorProjection(&mongoCursor{
+		keysOnly:    true,
+		indexCursor: true,
+		index:       &indexMeta{keyPath: []string{"status", "rank"}},
+	})
+	if got, ok := projection["_id"]; !ok || got != 1 {
+		t.Fatalf("projection[_id] = %#v, want 1", got)
+	}
+	if got, ok := projection["status"]; !ok || got != 1 {
+		t.Fatalf("projection[status] = %#v, want 1", got)
+	}
+	if got, ok := projection["rank"]; !ok || got != 1 {
+		t.Fatalf("projection[rank] = %#v, want 1", got)
+	}
+}
+
+func TestMongoCursorDocToProtoPreservesNativeIDType(t *testing.T) {
+	record, err := mongoCursorDocToProto(bson.M{
+		"_id":  int64(10),
+		"name": "ten",
+	})
+	if err != nil {
+		t.Fatalf("mongoCursorDocToProto: %v", err)
+	}
+
+	decoded, err := gestalt.RecordFromProto(record)
+	if err != nil {
+		t.Fatalf("RecordFromProto: %v", err)
+	}
+	if got, ok := decoded["id"].(int64); !ok || got != 10 {
+		t.Fatalf("decoded id = %#v, want int64(10)", decoded["id"])
 	}
 }

@@ -88,6 +88,6 @@ var _ gestalt.Closer = (*Provider)(nil)
 // delegate to the store without repeating the configured() boilerplate 18
 // times. It is wired up via the embed in provider_indexeddb.go.
 
-func idFilter(id string) bson.D {
+func idFilter(id any) bson.D {
 	return bson.D{{Key: "_id", Value: id}}
 }
