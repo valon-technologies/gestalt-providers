@@ -204,29 +204,29 @@ export default function DocsClient() {
                 The CLI needs the base URL for the Gestalt server. Use either
                 the setup wizard or a direct config command.
               </p>
-              <CodeBlock
-                code={`gestalt init
-gestalt config set url ${origin}
-export GESTALT_URL=${origin}`}
-              />
-              <InfoTable
-                rows={[
-                  [
-                    "gestalt init",
-                    "Interactive setup that stores the URL, can create a project-local .gestalt/config.json, and can start browser login.",
-                  ],
-                  [
-                    "gestalt config set url ...",
-                    "Writes the user-local CLI config file for this machine.",
-                  ],
-                  [
-                    ".gestalt/config.json",
-                    "Project-local URL override for one checkout or working directory.",
-                  ],
-                  [
-                    "GESTALT_URL",
-                    "Per-shell override when you do not want to change stored config.",
-                  ],
+              <SetupMethodTabs
+                items={[
+                  {
+                    id: "setup-init",
+                    label: "gestalt init",
+                    code: "gestalt init",
+                    description:
+                      "Interactive setup that stores the URL, can create a project-local .gestalt/config.json, and can start browser login.",
+                  },
+                  {
+                    id: "setup-config-set",
+                    label: "gestalt config set url",
+                    code: `gestalt config set url ${origin}`,
+                    description:
+                      "Writes the user-local CLI config file for this machine.",
+                  },
+                  {
+                    id: "setup-env-var",
+                    label: "GESTALT_URL",
+                    code: `export GESTALT_URL=${origin}`,
+                    description:
+                      "Per-shell override when you do not want to change stored config.",
+                  },
                 ]}
               />
               <p className="doc-copy">
@@ -632,6 +632,63 @@ function McpClientTabs({ origin }: { origin: string }) {
 }`}
         />
       </section>
+    </div>
+  );
+}
+
+function SetupMethodTabs({
+  items,
+}: {
+  items: { id: string; label: string; code: string; description: string }[];
+}) {
+  const [activeId, setActiveId] = useState(items[0]?.id ?? "");
+
+  return (
+    <div className="space-y-4">
+      <div
+        role="tablist"
+        aria-label="CLI setup methods"
+        className="flex flex-wrap gap-2"
+      >
+        {items.map((item) => {
+          const isActive = item.id === activeId;
+          return (
+            <button
+              key={item.id}
+              id={item.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`${item.id}-panel`}
+              onClick={() => setActiveId(item.id)}
+              className={`rounded-full border px-4 py-2 text-sm transition-colors duration-150 ${
+                isActive
+                  ? "border-gold-600 bg-gold-50 text-primary dark:border-gold-300 dark:bg-gold-400/10"
+                  : "border-alpha text-muted hover:text-primary"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {items.map((item) => {
+        const isActive = item.id === activeId;
+        return (
+          <section
+            key={item.id}
+            id={`${item.id}-panel`}
+            role="tabpanel"
+            aria-labelledby={item.id}
+            hidden={!isActive}
+            className={isActive ? "space-y-4" : "hidden"}
+          >
+            <CodeBlock code={item.code} />
+            <p className="doc-copy">{item.description}</p>
+          </section>
+        );
+      })}
     </div>
   );
 }
