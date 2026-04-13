@@ -163,8 +163,7 @@ export function GettingStartedDocsPage() {
             {
               id: "auth-browser",
               label: "gestalt auth",
-              code: `gestalt auth login
-gestalt auth status`,
+              code: "gestalt auth login",
               description:
                 "Opens your browser for sign-in and then confirms the current session.",
             },
