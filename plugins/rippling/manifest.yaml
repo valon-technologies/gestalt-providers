@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/rippling
-version: 0.0.1-alpha.3
+version: 0.0.1-alpha.4
 displayName: Rippling
 description: Access company, employee, org structure, identity, leave, and time data from Rippling's REST API.
 iconFile: assets/icon.svg
@@ -10,94 +10,12 @@ spec:
       connection: default
       document: openapi.yaml
   allowedOperations:
-    Companies.List:
-      alias: companies.list
     Companies.Get:
-      alias: companies.list
+      alias: Companies.List
       description: Get the current company context available to the authorized Rippling token
-    Compensations.List:
-      alias: compensations.list
-    Compensations.Get:
-      alias: compensations.get
-    CurrentUser.Get:
-      alias: currentUser.get
-    CustomFields.List:
-      alias: customFields.list
-    Departments.List:
-      alias: departments.list
-    Departments.Get:
-      alias: departments.get
-    Employees.List:
-      alias: employees.list
     Employees.ListIncludingTerminated:
-      alias: employees.list
+      alias: Employees.List
       description: List employees, including terminated workers when requested via the filter query
-    Employees.Get:
-      alias: employees.get
-    Employees.Update:
-      alias: employees.update
-    EmploymentTypes.List:
-      alias: employmentTypes.list
-    EmploymentTypes.Get:
-      alias: employmentTypes.get
-    JobFunctions.List:
-      alias: jobFunctions.list
-    JobFunctions.Get:
-      alias: jobFunctions.get
-    LegalEntities.List:
-      alias: legalEntities.list
-    LegalEntities.Get:
-      alias: legalEntities.get
-    LeaveBalances.List:
-      alias: leaveBalances.list
-    LeaveBalances.Get:
-      alias: leaveBalances.get
-    LeaveRequests.List:
-      alias: leaveRequests.list
-    LeaveRequests.Get:
-      alias: leaveRequests.get
-    LeaveRequests.Create:
-      alias: leaveRequests.create
-    LeaveRequests.Update:
-      alias: leaveRequests.update
-    LeaveTypes.List:
-      alias: leaveTypes.list
-    LeaveTypes.Get:
-      alias: leaveTypes.get
-    Levels.List:
-      alias: levels.list
-    Levels.Get:
-      alias: levels.get
-    Teams.List:
-      alias: teams.list
-    Teams.Get:
-      alias: teams.get
-    TimeEntries.List:
-      alias: timeEntries.list
-    TimeEntries.Get:
-      alias: timeEntries.get
-    TimeEntries.Create:
-      alias: timeEntries.create
-    TimeEntries.Update:
-      alias: timeEntries.update
-    TimeEntries.Delete:
-      alias: timeEntries.delete
-    Titles.List:
-      alias: titles.list
-    Titles.Get:
-      alias: titles.get
-    Tracks.List:
-      alias: tracks.list
-    Tracks.Get:
-      alias: tracks.get
-    Users.List:
-      alias: users.list
-    Users.Get:
-      alias: users.get
-    WorkLocations.List:
-      alias: workLocations.list
-    WorkLocations.Get:
-      alias: workLocations.get
   connections:
     default:
       auth:

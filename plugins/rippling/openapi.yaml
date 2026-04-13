@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Rippling REST API
-  version: 0.0.1-alpha.3
+  version: 0.0.1-alpha.4
   description: Curated Rippling REST operations for company, employee, org structure, identity, leave, and time data.
 servers:
   - url: https://rest.ripplingapis.com
@@ -10,7 +10,7 @@ security:
 paths:
   /companies/:
     get:
-      operationId: companies.list
+      operationId: Companies.List
       summary: List companies
       description: List companies available to the authorized Rippling token.
       tags: [Companies]
@@ -24,7 +24,7 @@ paths:
 
   /compensations/:
     get:
-      operationId: compensations.list
+      operationId: Compensations.List
       summary: List compensations
       description: List compensations for the authorized company.
       tags: [Compensations]
@@ -38,7 +38,7 @@ paths:
 
   /compensations/{compensation_id}/:
     get:
-      operationId: compensations.get
+      operationId: Compensations.Get
       summary: Get compensation
       description: Get a single compensation by ID.
       tags: [Compensations]
@@ -51,7 +51,7 @@ paths:
 
   /sso-me/:
     get:
-      operationId: currentUser.get
+      operationId: CurrentUser.Get
       summary: Get current user SSO identity
       description: Get SSO identity data for the Rippling user tied to the token.
       tags: [CurrentUser]
@@ -63,7 +63,7 @@ paths:
 
   /custom-fields/:
     get:
-      operationId: customFields.list
+      operationId: CustomFields.List
       summary: List custom fields
       description: List custom fields for the authorized company.
       tags: [CustomFields]
@@ -76,7 +76,7 @@ paths:
 
   /departments/:
     get:
-      operationId: departments.list
+      operationId: Departments.List
       summary: List departments
       description: List departments for the authorized company.
       tags: [Departments]
@@ -90,7 +90,7 @@ paths:
 
   /departments/{department_id}/:
     get:
-      operationId: departments.get
+      operationId: Departments.Get
       summary: Get department
       description: Get a single department by ID.
       tags: [Departments]
@@ -103,7 +103,7 @@ paths:
 
   /workers/:
     get:
-      operationId: employees.list
+      operationId: Employees.List
       summary: List employees
       description: List employees for the authorized company.
       tags: [Employees]
@@ -118,7 +118,7 @@ paths:
 
   /workers/{employee_id}/:
     get:
-      operationId: employees.get
+      operationId: Employees.Get
       summary: Get employee
       description: Get a single employee by ID.
       tags: [Employees]
@@ -131,7 +131,7 @@ paths:
 
   /platform/api/employees/{employeeId}:
     put:
-      operationId: employees.update
+      operationId: Employees.Update
       summary: Update employee
       description: Update supported employee fields such as manual custom fields or team memberships.
       tags: [Employees]
@@ -149,7 +149,7 @@ paths:
 
   /employment-types/:
     get:
-      operationId: employmentTypes.list
+      operationId: EmploymentTypes.List
       summary: List employment types
       description: List employment types for the authorized company.
       tags: [EmploymentTypes]
@@ -163,7 +163,7 @@ paths:
 
   /employment-types/{employment_type_id}/:
     get:
-      operationId: employmentTypes.get
+      operationId: EmploymentTypes.Get
       summary: Get employment type
       description: Get a single employment type by ID.
       tags: [EmploymentTypes]
@@ -176,7 +176,7 @@ paths:
 
   /job-functions/:
     get:
-      operationId: jobFunctions.list
+      operationId: JobFunctions.List
       summary: List job functions
       description: List job functions for the authorized company.
       tags: [JobFunctions]
@@ -190,7 +190,7 @@ paths:
 
   /job-functions/{job_function_id}/:
     get:
-      operationId: jobFunctions.get
+      operationId: JobFunctions.Get
       summary: Get job function
       description: Get a single job function by ID.
       tags: [JobFunctions]
@@ -203,7 +203,7 @@ paths:
 
   /legal-entities/:
     get:
-      operationId: legalEntities.list
+      operationId: LegalEntities.List
       summary: List legal entities
       description: List legal entities for the authorized company.
       tags: [LegalEntities]
@@ -217,7 +217,7 @@ paths:
 
   /legal-entities/{legal_entity_id}/:
     get:
-      operationId: legalEntities.get
+      operationId: LegalEntities.Get
       summary: Get legal entity
       description: Get a single legal entity by ID.
       tags: [LegalEntities]
@@ -230,7 +230,7 @@ paths:
 
   /leave-balances/:
     get:
-      operationId: leaveBalances.list
+      operationId: LeaveBalances.List
       summary: List leave balances
       description: List leave balances for employees.
       tags: [LeaveBalances]
@@ -245,7 +245,7 @@ paths:
 
   /leave-balances/{leave_balance_id}/:
     get:
-      operationId: leaveBalances.get
+      operationId: LeaveBalances.Get
       summary: Get leave balance
       description: Get a single leave balance by ID.
       tags: [LeaveBalances]
@@ -258,7 +258,7 @@ paths:
 
   /leave-requests/:
     get:
-      operationId: leaveRequests.list
+      operationId: LeaveRequests.List
       summary: List leave requests
       description: List leave requests with optional filtering.
       tags: [LeaveRequests]
@@ -273,7 +273,7 @@ paths:
 
   /leave-requests/{leave_request_id}/:
     get:
-      operationId: leaveRequests.get
+      operationId: LeaveRequests.Get
       summary: Get leave request
       description: Get a single leave request by ID.
       tags: [LeaveRequests]
@@ -286,7 +286,7 @@ paths:
 
   /platform/api/leave_requests:
     post:
-      operationId: leaveRequests.create
+      operationId: LeaveRequests.Create
       summary: Create leave request
       description: Create a leave request using Rippling's platform API.
       tags: [LeaveRequests]
@@ -302,7 +302,7 @@ paths:
 
   /platform/api/leave_requests/{id}:
     patch:
-      operationId: leaveRequests.update
+      operationId: LeaveRequests.Update
       summary: Update leave request
       description: Update supported leave request fields using Rippling's platform API.
       tags: [LeaveRequests]
@@ -320,7 +320,7 @@ paths:
 
   /leave-types/:
     get:
-      operationId: leaveTypes.list
+      operationId: LeaveTypes.List
       summary: List leave types
       description: List leave types configured for the authorized company.
       tags: [LeaveTypes]
@@ -334,7 +334,7 @@ paths:
 
   /leave-types/{leave_type_id}/:
     get:
-      operationId: leaveTypes.get
+      operationId: LeaveTypes.Get
       summary: Get leave type
       description: Get a single leave type by ID.
       tags: [LeaveTypes]
@@ -347,7 +347,7 @@ paths:
 
   /levels/:
     get:
-      operationId: levels.list
+      operationId: Levels.List
       summary: List levels
       description: List levels for the authorized company.
       tags: [Levels]
@@ -361,7 +361,7 @@ paths:
 
   /levels/{level_id}/:
     get:
-      operationId: levels.get
+      operationId: Levels.Get
       summary: Get level
       description: Get a single level by ID.
       tags: [Levels]
@@ -374,7 +374,7 @@ paths:
 
   /teams/:
     get:
-      operationId: teams.list
+      operationId: Teams.List
       summary: List teams
       description: List teams for the authorized company.
       tags: [Teams]
@@ -388,7 +388,7 @@ paths:
 
   /teams/{team_id}/:
     get:
-      operationId: teams.get
+      operationId: Teams.Get
       summary: Get team
       description: Get a single team by ID.
       tags: [Teams]
@@ -401,7 +401,7 @@ paths:
 
   /time-entries/:
     get:
-      operationId: timeEntries.list
+      operationId: TimeEntries.List
       summary: List time entries
       description: List time entries for the authorized company.
       tags: [TimeEntries]
@@ -416,7 +416,7 @@ paths:
 
   /time-entries/{time_entry_id}/:
     get:
-      operationId: timeEntries.get
+      operationId: TimeEntries.Get
       summary: Get time entry
       description: Get a single time entry by ID.
       tags: [TimeEntries]
@@ -429,7 +429,7 @@ paths:
 
   /platform/api/time_entries:
     post:
-      operationId: timeEntries.create
+      operationId: TimeEntries.Create
       summary: Create time entry
       description: Create a time entry using Rippling's platform API.
       tags: [TimeEntries]
@@ -445,7 +445,7 @@ paths:
 
   /platform/api/time_entries/{time_entry_id}:
     patch:
-      operationId: timeEntries.update
+      operationId: TimeEntries.Update
       summary: Update time entry
       description: Update a time entry's job shift or break data using Rippling's platform API.
       tags: [TimeEntries]
@@ -461,7 +461,7 @@ paths:
         '200':
           $ref: '#/components/responses/Object'
     delete:
-      operationId: timeEntries.delete
+      operationId: TimeEntries.Delete
       summary: Delete time entry
       description: Delete a time entry using Rippling's platform API.
       tags: [TimeEntries]
@@ -473,7 +473,7 @@ paths:
 
   /titles/:
     get:
-      operationId: titles.list
+      operationId: Titles.List
       summary: List titles
       description: List titles for the authorized company.
       tags: [Titles]
@@ -487,7 +487,7 @@ paths:
 
   /titles/{title_id}/:
     get:
-      operationId: titles.get
+      operationId: Titles.Get
       summary: Get title
       description: Get a single title by ID.
       tags: [Titles]
@@ -500,7 +500,7 @@ paths:
 
   /tracks/:
     get:
-      operationId: tracks.list
+      operationId: Tracks.List
       summary: List tracks
       description: List tracks for the authorized company.
       tags: [Tracks]
@@ -514,7 +514,7 @@ paths:
 
   /tracks/{track_id}/:
     get:
-      operationId: tracks.get
+      operationId: Tracks.Get
       summary: Get track
       description: Get a single track by ID.
       tags: [Tracks]
@@ -527,7 +527,7 @@ paths:
 
   /users/:
     get:
-      operationId: users.list
+      operationId: Users.List
       summary: List users
       description: List users for the authorized company.
       tags: [Users]
@@ -541,7 +541,7 @@ paths:
 
   /users/{user_id}/:
     get:
-      operationId: users.get
+      operationId: Users.Get
       summary: Get user
       description: Get a single user by ID.
       tags: [Users]
@@ -554,7 +554,7 @@ paths:
 
   /work-locations/:
     get:
-      operationId: workLocations.list
+      operationId: WorkLocations.List
       summary: List work locations
       description: List work locations for the authorized company.
       tags: [WorkLocations]
@@ -567,7 +567,7 @@ paths:
 
   /work-locations/{work_location_id}/:
     get:
-      operationId: workLocations.get
+      operationId: WorkLocations.Get
       summary: Get work location
       description: Get a single work location by ID.
       tags: [WorkLocations]
