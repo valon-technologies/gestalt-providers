@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,9 +25,10 @@ const (
 )
 
 type config struct {
-	Region       string `yaml:"region"`
-	VersionStage string `yaml:"versionStage"`
-	Endpoint     string `yaml:"endpoint"`
+	Region            string `yaml:"region"`
+	VersionStage      string `yaml:"versionStage"`
+	Endpoint          string `yaml:"endpoint"`
+	AllowInsecureHTTP bool   `yaml:"allowInsecureHttp"`
 }
 
 type Provider struct {
@@ -46,6 +50,11 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	if cfg.VersionStage == "" {
 		cfg.VersionStage = defaultVersionStage
 	}
+	if cfg.Endpoint != "" {
+		if err := validateEndpointURL(cfg.Endpoint, cfg.AllowInsecureHTTP); err != nil {
+			return err
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
@@ -66,6 +75,40 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.client = secretsmanager.NewFromConfig(awsCfg, clientOpts...)
 	p.versionStage = cfg.VersionStage
 	return nil
+}
+
+func validateEndpointURL(rawURL string, allowInsecureHTTP bool) error {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("aws secrets: endpoint must be a valid URL: %w", err)
+	}
+	if parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return fmt.Errorf("aws secrets: endpoint must be an absolute URL")
+	}
+
+	switch strings.ToLower(parsedURL.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if !allowInsecureHTTP {
+			return fmt.Errorf("aws secrets: endpoint must use https unless allowInsecureHttp is true for local loopback development")
+		}
+		if !isLoopbackHost(parsedURL.Hostname()) {
+			return fmt.Errorf("aws secrets: endpoint may use http only for localhost or loopback IPs when allowInsecureHttp is true")
+		}
+		return nil
+	default:
+		return fmt.Errorf("aws secrets: endpoint must use https")
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
