@@ -7,10 +7,13 @@ Resolves secrets from Google Cloud Secret Manager.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-secrets:
-  google:
-    source: github.com/valon-technologies/gestalt-providers/secrets/google
-    version: ...
+providers:
+  secrets:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/secrets/google
+      version: ...
+    config:
+      project: my-gcp-project
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

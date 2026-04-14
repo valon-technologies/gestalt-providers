@@ -7,10 +7,16 @@ MongoDB datastore provider.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-indexeddb:
-  mongodb:
-    source: github.com/valon-technologies/gestalt-providers/indexeddb/mongodb
-    version: ...
+server:
+  providers:
+    indexeddb: main
+
+providers:
+  indexeddb:
+    main:
+      source:
+        ref: github.com/valon-technologies/gestalt-providers/indexeddb/mongodb
+        version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

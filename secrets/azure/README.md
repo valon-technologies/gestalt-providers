@@ -7,10 +7,13 @@ Resolves secrets from Azure Key Vault.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-secrets:
-  azure:
-    source: github.com/valon-technologies/gestalt-providers/secrets/azure
-    version: ...
+providers:
+  secrets:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/secrets/azure
+      version: ...
+    config:
+      vaultUrl: https://example.vault.azure.net
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

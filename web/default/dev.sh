@@ -86,18 +86,27 @@ if [[ -z "$CONFIG" && "$API_PORT" != "8080" ]]; then
     fi
     CONFIG="$DEV_STATE_DIR/config.yaml"
     cat > "$CONFIG" <<EOF
-datastore:
-  provider:
-    source:
-      path: "$PROVIDERS_DIR/datastore/sqlite"
-  config:
-    path: "$DEV_STATE_DIR/gestalt.db"
-secrets:
-  provider: env
 server:
   public:
     port: $API_PORT
-  encryption_key: "$(cat "$KEY_FILE")"
+  encryptionKey: "$(cat "$KEY_FILE")"
+  providers:
+    indexeddb: main
+providers:
+  indexeddb:
+    main:
+      source:
+        path: "$PROVIDERS_DIR/indexeddb/relationaldb/manifest.yaml"
+      config:
+        dsn: "sqlite://$DEV_STATE_DIR/gestalt.db"
+  ui:
+    root:
+      source:
+        path: "$PROVIDERS_DIR/web/default/manifest.yaml"
+      path: /
+  secrets:
+    env:
+      source: env
 EOF
 fi
 
@@ -123,7 +132,7 @@ info "Starting Go API server on port $API_PORT..."
 warn "Dev mode - auth is disabled in the generated config."
 warn "Client UI is served by gestaltd from $SCRIPT_DIR/out. Re-run this script after UI changes."
 if [[ -n "$CONFIG" ]]; then
-    (cd "$GESTALTD_DIR" && GESTALTD_CLIENT_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd" --config "$CONFIG") &
+    (cd "$GESTALTD_DIR" && GESTALTD_CLIENT_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd" serve --config "$CONFIG") &
 else
     (cd "$GESTALTD_DIR" && GESTALTD_CLIENT_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd") &
 fi

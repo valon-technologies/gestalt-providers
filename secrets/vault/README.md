@@ -7,10 +7,13 @@ Resolves secrets from HashiCorp Vault KV v2.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-secrets:
-  vault:
-    source: github.com/valon-technologies/gestalt-providers/secrets/vault
-    version: ...
+providers:
+  secrets:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/secrets/vault
+      version: ...
+    config:
+      address: https://vault.example.com
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

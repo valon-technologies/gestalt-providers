@@ -7,12 +7,19 @@ IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-indexeddb:
-  relationaldb:
-    source: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
-    version: ...
-    dsn: postgres://...
-    schema: plugin_alpha
+server:
+  providers:
+    indexeddb: main
+
+providers:
+  indexeddb:
+    main:
+      source:
+        ref: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
+        version: ...
+      config:
+        dsn: postgres://...
+        schema: plugin_alpha
 ```
 
 Optional configuration:
@@ -34,22 +41,36 @@ Examples:
 
 ```yaml
 # PostgreSQL / MySQL / SQL Server: isolate provider state in a schema.
-indexeddb:
-  relationaldb:
-    source: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
-    version: ...
-    dsn: postgres://...
-    schema: plugin_alpha
+server:
+  providers:
+    indexeddb: main
+
+providers:
+  indexeddb:
+    main:
+      source:
+        ref: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
+        version: ...
+      config:
+        dsn: postgres://...
+        schema: plugin_alpha
 ```
 
 ```yaml
 # SQLite fallback: isolate provider state with table and metadata prefixes.
-indexeddb:
-  relationaldb:
-    source: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
-    version: ...
-    dsn: file:/var/lib/gestalt/plugins.sqlite
-    table_prefix: plugin_alpha_
+server:
+  providers:
+    indexeddb: main
+
+providers:
+  indexeddb:
+    main:
+      source:
+        ref: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
+        version: ...
+      config:
+        dsn: file:/var/lib/gestalt/plugins.sqlite
+        table_prefix: plugin_alpha_
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

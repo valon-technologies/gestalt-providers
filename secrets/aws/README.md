@@ -7,10 +7,13 @@ Resolves secrets from AWS Secrets Manager.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-secrets:
-  aws:
-    source: github.com/valon-technologies/gestalt-providers/secrets/aws
-    version: ...
+providers:
+  secrets:
+    source:
+      ref: github.com/valon-technologies/gestalt-providers/secrets/aws
+      version: ...
+    config:
+      region: us-east-1
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

@@ -7,10 +7,16 @@ Amazon DynamoDB datastore provider.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-indexeddb:
-  dynamodb:
-    source: github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb
-    version: ...
+server:
+  providers:
+    indexeddb: main
+
+providers:
+  indexeddb:
+    main:
+      source:
+        ref: github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb
+        version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

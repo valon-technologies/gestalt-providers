@@ -7,10 +7,13 @@ Default Gestalt web UI bundle served at /.
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-web:
-  default:
-    source: github.com/valon-technologies/gestalt-providers/web/default
-    version: ...
+providers:
+  ui:
+    default:
+      source:
+        ref: github.com/valon-technologies/gestalt-providers/web/default
+        version: ...
+      path: /
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and

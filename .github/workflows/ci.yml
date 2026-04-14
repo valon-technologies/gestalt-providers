@@ -374,9 +374,10 @@ jobs:
             public:
               port: 8080
             encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            indexeddb: main
+            providers:
+              indexeddb: main
           providers:
-            indexeddbs:
+            indexeddb:
               main:
                 source:
                   path: "${GITHUB_WORKSPACE}/indexeddb/relationaldb/manifest.yaml"
@@ -388,7 +389,8 @@ jobs:
                 source:
                   path: "${GITHUB_WORKSPACE}/web/default/manifest.yaml"
             secrets:
-              source: env
+              env:
+                source: env
           EOF
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
