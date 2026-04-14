@@ -10,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 providers:
   fileapis:
     gcs:
-      source: github.com/valon-technologies/gestalt-providers/fileapi/gcs
+      source: github.com/valon-technologies/gestalt-providers/files/gcs
       version: ...
       config:
         bucket: my-fileapi-bucket

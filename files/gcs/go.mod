@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-providers/fileapi/gcs
+module github.com/valon-technologies/gestalt-providers/files/gcs
 
 go 1.26
 
