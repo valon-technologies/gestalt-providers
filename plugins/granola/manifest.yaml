@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/granola
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Granola
-description: Read meeting notes, summaries, attendees, and transcripts from Granola.
+description: Read Granola meeting notes over REST and use the official Granola MCP server.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
@@ -9,6 +9,9 @@ spec:
     openapi:
       connection: default
       document: openapi.yaml
+    mcp:
+      connection: MCP
+      url: https://mcp.granola.ai/mcp
   allowedOperations:
     list_notes:
       alias: listNotes
@@ -40,6 +43,10 @@ spec:
         - name: token
           label: Granola Enterprise API Key
           description: Use an enterprise admin key for shared deployments that need Team-space coverage. Create it in the Granola desktop app under Settings > API.
+    MCP:
+      mode: user
+      auth:
+        type: mcp_oauth
   pagination:
     style: cursor
     cursorParam: cursor

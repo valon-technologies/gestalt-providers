@@ -1,6 +1,7 @@
 # Granola
 
-Read meeting notes, summaries, attendees, and transcripts from Granola.
+Read meeting notes, summaries, attendees, and transcripts from Granola, and use
+Granola's official MCP server.
 
 ## Configuration
 
@@ -18,9 +19,9 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built on Granola's public REST API. Exposes the note list
-and note detail endpoints, including cursor-based pagination and optional
-transcript retrieval.
+Dual-surface provider built on Granola's public REST API plus Granola's hosted
+MCP endpoint. The REST surface exposes the note list and note detail endpoints,
+including cursor-based pagination and optional transcript retrieval.
 
 Authenticates with a Granola API key using HTTP Bearer auth. Generate a key in
 the Granola desktop app under Settings > API. Granola documents personal API
@@ -32,10 +33,15 @@ access. For shared deployments, prefer the identity connection with an
 enterprise admin key so the plugin can access Team-space notes across the
 workspace.
 
+The MCP surface uses Granola's OAuth-protected hosted endpoint at
+`https://mcp.granola.ai/mcp`, so MCP clients authenticate in-browser rather
+than by reusing the REST API key connection.
+
 Granola only returns notes that already have an AI summary and transcript.
 
 ## Documentation
 
 - [Granola API Introduction](https://docs.granola.ai/introduction)
+- `https://mcp.granola.ai/mcp`
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
