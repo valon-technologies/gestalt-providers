@@ -3,7 +3,6 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,18 +51,14 @@ func openSQLiteDB(t *testing.T, dsn string) *sql.DB {
 
 func TestConfigStoreOptionsSupportsSchemaAndPrefixes(t *testing.T) {
 	options, err := (config{
-		Prefix:            "tenant_",
-		LegacyTablePrefix: "plugin_alpha_",
-		Schema:            "analytics",
+		Prefix: "tenant_",
+		Schema: "analytics",
 	}).storeOptions()
 	if err != nil {
 		t.Fatalf("storeOptions: %v", err)
 	}
 	if options.TablePrefix != "tenant_" {
 		t.Fatalf("options.TablePrefix = %q, want %q", options.TablePrefix, "tenant_")
-	}
-	if options.LegacyTablePrefix != "plugin_alpha_" {
-		t.Fatalf("options.LegacyTablePrefix = %q, want %q", options.LegacyTablePrefix, "plugin_alpha_")
 	}
 	if options.Schema != "analytics" {
 		t.Fatalf("options.Schema = %q, want %q", options.Schema, "analytics")
@@ -104,7 +99,21 @@ func TestProviderConfigureRejectsRemovedAliases(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected legacy_prefix alias to fail")
 		}
-		if !strings.Contains(err.Error(), "legacy_prefix is no longer supported; use legacy_table_prefix") {
+		if !strings.Contains(err.Error(), "legacy_prefix is no longer supported") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("legacy_table_prefix", func(t *testing.T) {
+		p := New()
+		err := p.Configure(context.Background(), "", map[string]any{
+			"dsn":                 "file:" + filepath.Join(t.TempDir(), "legacy-table-prefix.sqlite"),
+			"legacy_table_prefix": "plugin_alpha_",
+		})
+		if err == nil {
+			t.Fatal("expected legacy_table_prefix to fail")
+		}
+		if !strings.Contains(err.Error(), "legacy_table_prefix is no longer supported") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -321,104 +330,6 @@ func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
 	}
 }
 
-func TestCreateObjectStoreMigratesLegacyBareStoreTable(t *testing.T) {
-	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-provider.sqlite")
-	db := openSQLiteDB(t, dsn)
-
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
-		t.Fatalf("create metadata table: %v", err)
-	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "widgets", widgetsSchema())); err != nil {
-		t.Fatalf("create legacy widgets table: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
-	); err != nil {
-		t.Fatalf("insert legacy widget: %v", err)
-	}
-
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("", widgetsSchema()))
-	if err != nil {
-		t.Fatalf("marshal legacy schema: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "widgets", string(legacySchemaJSON)); err != nil {
-		t.Fatalf("insert legacy metadata: %v", err)
-	}
-
-	s := testStoreWithDSN(t, dsn)
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore migrate: %v", err)
-	}
-
-	meta, err := s.getMeta("widgets")
-	if err != nil {
-		t.Fatalf("getMeta: %v", err)
-	}
-	if meta.table != defaultTablePrefix+"widgets" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
-	}
-
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if err != nil {
-		t.Fatalf("Get migrated widget: %v", err)
-	}
-	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
-		t.Fatalf("Get migrated code = %q, want W-001", got)
-	}
-}
-
-func TestCreateObjectStoreMigratesLegacyPrefixedStoreTable(t *testing.T) {
-	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-prefixed-provider.sqlite")
-	db := openSQLiteDB(t, dsn)
-
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
-		t.Fatalf("create metadata table: %v", err)
-	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "_gestalt_store_widgets", widgetsSchema())); err != nil {
-		t.Fatalf("create legacy prefixed widgets table: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_store_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
-	); err != nil {
-		t.Fatalf("insert legacy prefixed widget: %v", err)
-	}
-
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("_gestalt_store_widgets", widgetsSchema()))
-	if err != nil {
-		t.Fatalf("marshal legacy prefixed schema: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "widgets", string(legacySchemaJSON)); err != nil {
-		t.Fatalf("insert legacy prefixed metadata: %v", err)
-	}
-
-	s := testStoreWithDSN(t, dsn)
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore migrate legacy prefixed: %v", err)
-	}
-
-	meta, err := s.getMeta("widgets")
-	if err != nil {
-		t.Fatalf("getMeta: %v", err)
-	}
-	if meta.table != defaultTablePrefix+"widgets" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
-	}
-
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if err != nil {
-		t.Fatalf("Get migrated prefixed widget: %v", err)
-	}
-	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
-		t.Fatalf("Get migrated prefixed code = %q, want W-001", got)
-	}
-}
-
 func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
@@ -532,239 +443,6 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 	}
 	if _, err := betaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "alpha_tasks", Id: "a1"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("Get(beta reload foreign store) error = %v, want NotFound", err)
-	}
-}
-
-func TestCreateObjectStoreMigratesLegacyUnnamespacedPrefixedMetadata(t *testing.T) {
-	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-unnamespaced-prefixed.sqlite")
-	db := openSQLiteDB(t, dsn)
-
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
-		t.Fatalf("create metadata table: %v", err)
-	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "alpha_widgets", widgetsSchema())); err != nil {
-		t.Fatalf("create prefixed widgets table: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "alpha_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
-	); err != nil {
-		t.Fatalf("insert prefixed widget: %v", err)
-	}
-
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("alpha_widgets", widgetsSchema()))
-	if err != nil {
-		t.Fatalf("marshal legacy prefixed schema: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "widgets", string(legacySchemaJSON)); err != nil {
-		t.Fatalf("insert legacy prefixed metadata: %v", err)
-	}
-
-	s := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "alpha_"})
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore migrate namespaced metadata: %v", err)
-	}
-
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if err != nil {
-		t.Fatalf("Get migrated prefixed widget: %v", err)
-	}
-	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
-		t.Fatalf("Get migrated prefixed code = %q, want W-001", got)
-	}
-
-	rows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
-	if err != nil {
-		t.Fatalf("query migrated metadata rows: %v", err)
-	}
-	defer rows.Close()
-
-	var metadataNames []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan migrated metadata row: %v", err)
-		}
-		metadataNames = append(metadataNames, name)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("migrated metadata rows err: %v", err)
-	}
-	if got := strings.Join(metadataNames, ","); got != "alpha_widgets" {
-		t.Fatalf("metadata names after migration = %q, want %q", got, "alpha_widgets")
-	}
-}
-
-func TestCreateObjectStoreMigratesLegacyPluginPrefixedMetadata(t *testing.T) {
-	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-plugin-prefixed.sqlite")
-	db := openSQLiteDB(t, dsn)
-
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
-		t.Fatalf("create metadata table: %v", err)
-	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "plugin_alpha_widgets", widgetsSchema())); err != nil {
-		t.Fatalf("create legacy plugin-prefixed widgets table: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "plugin_alpha_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
-	); err != nil {
-		t.Fatalf("insert legacy plugin-prefixed widget: %v", err)
-	}
-
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("plugin_alpha_widgets", widgetsSchema()))
-	if err != nil {
-		t.Fatalf("marshal legacy plugin-prefixed schema: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "plugin_alpha_widgets", string(legacySchemaJSON)); err != nil {
-		t.Fatalf("insert legacy plugin-prefixed metadata: %v", err)
-	}
-
-	s := testStoreWithOptions(t, dsn, storeOptions{
-		TablePrefix:       "alpha_",
-		LegacyTablePrefix: "plugin_alpha_",
-	})
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore migrate legacy plugin-prefixed metadata: %v", err)
-	}
-
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if err != nil {
-		t.Fatalf("Get migrated plugin-prefixed widget: %v", err)
-	}
-	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
-		t.Fatalf("Get migrated plugin-prefixed code = %q, want W-001", got)
-	}
-
-	rows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
-	if err != nil {
-		t.Fatalf("query migrated plugin metadata rows: %v", err)
-	}
-	defer rows.Close()
-
-	var metadataNames []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan migrated plugin metadata row: %v", err)
-		}
-		metadataNames = append(metadataNames, name)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("migrated plugin metadata rows err: %v", err)
-	}
-	if got := strings.Join(metadataNames, ","); got != "alpha_widgets" {
-		t.Fatalf("metadata names after plugin migration = %q, want %q", got, "alpha_widgets")
-	}
-}
-
-func TestCreateObjectStoreMigratesLegacyPluginPrefixedMetadataIntoSchema(t *testing.T) {
-	ctx := context.Background()
-	root := t.TempDir()
-	dsn := "file:" + filepath.Join(root, "legacy-plugin-prefixed-schema.sqlite")
-	db := openSQLiteDB(t, dsn)
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	schema := &proto.ObjectStoreSchema{Columns: widgetsSchema().Columns}
-
-	schemaFile := filepath.Join(root, "alpha.sqlite")
-	if _, err := db.Exec(`ATTACH DATABASE ? AS "alpha"`, schemaFile); err != nil {
-		t.Fatalf("attach alpha schema db: %v", err)
-	}
-
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
-		t.Fatalf("create legacy metadata table: %v", err)
-	}
-	if _, err := db.Exec(metadataTableSQL(dialectSQLite, qualifyTableName("alpha", metadataTableName))); err != nil {
-		t.Fatalf("create schema metadata table: %v", err)
-	}
-	if _, err := db.Exec(createTableSQL(dialectSQLite, "plugin_alpha_widgets", schema)); err != nil {
-		t.Fatalf("create legacy plugin-prefixed widgets table: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "plugin_alpha_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
-		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
-	); err != nil {
-		t.Fatalf("insert legacy plugin-prefixed widget: %v", err)
-	}
-
-	legacySchemaJSON, err := json.Marshal(newStoredSchema("plugin_alpha_widgets", schema))
-	if err != nil {
-		t.Fatalf("marshal legacy plugin-prefixed schema: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "plugin_alpha_widgets", string(legacySchemaJSON)); err != nil {
-		t.Fatalf("insert legacy plugin-prefixed metadata: %v", err)
-	}
-
-	s := &Store{
-		db:                db,
-		bind:              bindQuestion,
-		dialect:           dialectSQLite,
-		schemaName:        "alpha",
-		legacyTablePrefix: "plugin_alpha_",
-		meta:              make(map[string]*storeMeta),
-	}
-	if err := s.loadMetadata(); err != nil {
-		t.Fatalf("loadMetadata with legacy schema table: %v", err)
-	}
-
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: schema,
-	}); err != nil {
-		t.Fatalf("CreateObjectStore migrate legacy plugin-prefixed schema metadata: %v", err)
-	}
-
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if err != nil {
-		t.Fatalf("Get migrated plugin-prefixed widget from schema: %v", err)
-	}
-	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
-		t.Fatalf("Get migrated plugin-prefixed schema code = %q, want W-001", got)
-	}
-
-	legacyRows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
-	if err != nil {
-		t.Fatalf("query legacy metadata rows: %v", err)
-	}
-	defer legacyRows.Close()
-
-	var legacyNames []string
-	for legacyRows.Next() {
-		var name string
-		if err := legacyRows.Scan(&name); err != nil {
-			t.Fatalf("scan legacy metadata row: %v", err)
-		}
-		legacyNames = append(legacyNames, name)
-	}
-	if err := legacyRows.Err(); err != nil {
-		t.Fatalf("legacy metadata rows err: %v", err)
-	}
-	if got := strings.Join(legacyNames, ","); got != "" {
-		t.Fatalf("legacy metadata names after schema migration = %q, want empty", got)
-	}
-
-	schemaRows, err := db.Query(`SELECT "name" FROM "alpha"."_gestalt_stores" ORDER BY "name"`)
-	if err != nil {
-		t.Fatalf("query schema metadata rows: %v", err)
-	}
-	defer schemaRows.Close()
-
-	var schemaNames []string
-	for schemaRows.Next() {
-		var name string
-		if err := schemaRows.Scan(&name); err != nil {
-			t.Fatalf("scan schema metadata row: %v", err)
-		}
-		schemaNames = append(schemaNames, name)
-	}
-	if err := schemaRows.Err(); err != nil {
-		t.Fatalf("schema metadata rows err: %v", err)
-	}
-	if got := strings.Join(schemaNames, ","); got != "widgets" {
-		t.Fatalf("schema metadata names after migration = %q, want %q", got, "widgets")
 	}
 }
 
