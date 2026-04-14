@@ -172,10 +172,10 @@ components:
         cursor:
           type: string
           nullable: true
+          description: Cursor for the next page. Granola may omit this on the terminal page.
       required:
         - notes
         - hasMore
-        - cursor
     Person:
       type: object
       additionalProperties: true

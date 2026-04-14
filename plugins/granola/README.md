@@ -27,6 +27,11 @@ the Granola desktop app under Settings > API. Granola documents personal API
 keys for Business and Enterprise workspaces, plus enterprise-scoped keys for
 workspace admins.
 
+Use the default user connection with a personal key for user-scoped note
+access. For shared deployments, prefer the identity connection with an
+enterprise admin key so the plugin can access Team-space notes across the
+workspace.
+
 Granola only returns notes that already have an AI summary and transcript.
 
 ## Documentation

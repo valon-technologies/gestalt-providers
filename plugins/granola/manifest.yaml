@@ -15,6 +15,14 @@ spec:
       paginate: true
     get_note:
       alias: getNote
+  responseMapping:
+    pagination:
+      hasMore:
+        source: body
+        path: hasMore
+      cursor:
+        source: body
+        path: cursor
   connections:
     default:
       mode: user
@@ -23,15 +31,15 @@ spec:
         credentials:
         - name: token
           label: Granola API Key
-          description: Create a key in the Granola desktop app under Settings > API.
+          description: For user-scoped access, personal keys only expose notes the key owner can access. Create a key in the Granola desktop app under Settings > API.
     identity:
       mode: identity
       auth:
         type: bearer
         credentials:
         - name: token
-          label: Granola API Key
-          description: Create a key in the Granola desktop app under Settings > API.
+          label: Granola Enterprise API Key
+          description: Use an enterprise admin key for shared deployments that need Team-space coverage. Create it in the Granola desktop app under Settings > API.
   pagination:
     style: cursor
     cursorParam: cursor
