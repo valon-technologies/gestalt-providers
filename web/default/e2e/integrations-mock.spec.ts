@@ -98,6 +98,9 @@ test.describe("Integrations", () => {
     await expect(
       page.getByRole("heading", { name: "Plugins" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: "Search plugins" }),
+    ).toBeVisible();
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText("Another Service")).toBeVisible();
@@ -119,6 +122,67 @@ test.describe("Integrations", () => {
     await expect(
       page.getByText("No plugins registered."),
     ).toBeVisible();
+  });
+
+  test("filters plugins by display name", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+
+    await page.goto("/integrations");
+    const search = page.getByRole("combobox", { name: "Search plugins" });
+    const grid = page.getByTestId("plugin-grid");
+
+    await search.fill("manual");
+
+    await expect(grid.getByText("Manual Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("OAuth Service", { exact: true })).toHaveCount(0);
+    await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
+  });
+
+  test("filters plugins by plugin name", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+
+    await page.goto("/integrations");
+    const search = page.getByRole("combobox", { name: "Search plugins" });
+    const grid = page.getByTestId("plugin-grid");
+
+    await search.fill("oauth-svc");
+
+    await expect(grid.getByText("OAuth Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("Manual Service", { exact: true })).toHaveCount(0);
+    await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
+  });
+
+  test("shows a search empty state when no plugins match", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+
+    await page.goto("/integrations");
+    const search = page.getByRole("combobox", { name: "Search plugins" });
+
+    await search.fill("missing-plugin");
+
+    await expect(page.getByText('No plugins match "missing-plugin".')).toBeVisible();
+    await expect(page.getByTestId("plugin-grid")).toHaveCount(0);
+  });
+
+  test("supports keyboard selection from the search results", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+
+    await page.goto("/integrations");
+    const search = page.getByRole("combobox", { name: "Search plugins" });
+    const grid = page.getByTestId("plugin-grid");
+
+    await search.fill("oauth");
+    await search.press("ArrowDown");
+    await search.press("Enter");
+
+    await expect(search).toHaveValue("OAuth Service");
+    await expect(grid.getByText("OAuth Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("Manual Service", { exact: true })).toHaveCount(0);
+    await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
   });
 
   test("connected integration shows check icon and settings gear", async ({
