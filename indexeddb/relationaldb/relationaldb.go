@@ -35,22 +35,25 @@ type storeMeta struct {
 const (
 	metadataTableName  = "_gestalt_stores"
 	defaultTablePrefix = ""
+	legacyTablePrefix  = "_gestalt_store_"
 )
 
 type storeOptions struct {
-	TablePrefix string
-	Schema      string
+	TablePrefix       string
+	LegacyTablePrefix string
+	Schema            string
 }
 
 type Store struct {
 	proto.UnimplementedIndexedDBServer
-	db          *sql.DB
-	bind        bindStyle
-	dialect     dialect
-	schemaName  string
-	tablePrefix string
-	mu          sync.RWMutex
-	meta        map[string]*storeMeta
+	db                *sql.DB
+	bind              bindStyle
+	dialect           dialect
+	schemaName        string
+	tablePrefix       string
+	legacyTablePrefix string
+	mu                sync.RWMutex
+	meta              map[string]*storeMeta
 }
 
 func NewStore(dsn string) (*Store, error) {
@@ -76,12 +79,13 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 	}
 
 	s := &Store{
-		db:          db,
-		bind:        style,
-		dialect:     d,
-		schemaName:  options.Schema,
-		tablePrefix: options.TablePrefix,
-		meta:        make(map[string]*storeMeta),
+		db:                db,
+		bind:              style,
+		dialect:           d,
+		schemaName:        options.Schema,
+		tablePrefix:       options.TablePrefix,
+		legacyTablePrefix: options.LegacyTablePrefix,
+		meta:              make(map[string]*storeMeta),
 	}
 
 	if _, err := db.Exec(s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
@@ -89,26 +93,11 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
 	}
 
-	rows, err := db.Query("SELECT " + quoteIdent(d, "name") + ", " + quoteIdent(d, "schema_json") +
-		" FROM " + quoteTableName(d, s.metadataTable()))
-	if err != nil {
+	if err := s.loadMetadata(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("relationaldb: load metadata: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var name, schemaJSON string
-		if err := rows.Scan(&name, &schemaJSON); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("relationaldb: scan metadata: %w", err)
-		}
-		var stored storedSchema
-		if err := json.Unmarshal([]byte(schemaJSON), &stored); err != nil {
-			continue
-		}
-		s.meta[name] = stored.toMeta(name)
-	}
-	return s, rows.Err()
+	return s, nil
 }
 
 func (s *Store) Close() error {
@@ -120,6 +109,150 @@ func (s *Store) Close() error {
 
 func (s *Store) metadataTable() string {
 	return qualifyTableName(s.schemaName, metadataTableName)
+}
+
+func (s *Store) legacyMetadataTable() string {
+	if s.schemaName != "" && s.legacyTablePrefix != "" {
+		return metadataTableName
+	}
+	return ""
+}
+
+func (s *Store) metadataTablesForCleanup() []string {
+	tables := []string{s.metadataTable()}
+	if legacy := s.legacyMetadataTable(); legacy != "" && legacy != tables[0] {
+		tables = append(tables, legacy)
+	}
+	return tables
+}
+
+func (s *Store) usesNamespacedMetadata() bool {
+	return s.dialect == dialectSQLite && s.schemaName == "" && s.tablePrefix != ""
+}
+
+func (s *Store) metadataStoreKey(storeName string) string {
+	if !s.usesNamespacedMetadata() {
+		return storeName
+	}
+	return s.tablePrefix + storeName
+}
+
+func (s *Store) legacyPhysicalTableName(storeName string) string {
+	if s.legacyTablePrefix == "" {
+		return storeName
+	}
+	return s.legacyTablePrefix + storeName
+}
+
+func (s *Store) legacyMetadataStoreKeys(storeName string) []string {
+	keys := []string{storeName}
+	current := s.metadataStoreKey(storeName)
+	if current != storeName {
+		keys = append(keys, current)
+	}
+	if s.legacyTablePrefix != "" {
+		keys = append(keys, s.legacyTablePrefix+storeName)
+	}
+	return keys
+}
+
+func (s *Store) loadMetadata() error {
+	current := make(map[string]storedSchema)
+	legacy := make(map[string]storedSchema)
+	if err := s.loadMetadataTable(s.metadataTable(), false, current, legacy); err != nil {
+		return err
+	}
+	if legacyTable := s.legacyMetadataTable(); legacyTable != "" && legacyTable != s.metadataTable() {
+		if err := s.loadMetadataTable(legacyTable, true, current, legacy); err != nil {
+			return err
+		}
+	}
+
+	for name, stored := range legacy {
+		if _, exists := current[name]; exists {
+			continue
+		}
+		s.meta[name] = stored.toMeta(name)
+	}
+	for name, stored := range current {
+		s.meta[name] = stored.toMeta(name)
+	}
+	return nil
+}
+
+func (s *Store) loadMetadataTable(table string, legacyOnly bool, current, legacy map[string]storedSchema) error {
+	rows, err := s.db.Query("SELECT " + quoteIdent(s.dialect, "name") + ", " + quoteIdent(s.dialect, "schema_json") +
+		" FROM " + quoteTableName(s.dialect, table))
+	if err != nil {
+		if legacyOnly && isMissingMetadataTableErr(s.dialect, err) {
+			return nil
+		}
+		return fmt.Errorf("relationaldb: load metadata: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, schemaJSON string
+		if err := rows.Scan(&name, &schemaJSON); err != nil {
+			return fmt.Errorf("relationaldb: scan metadata: %w", err)
+		}
+		var stored storedSchema
+		if err := json.Unmarshal([]byte(schemaJSON), &stored); err != nil {
+			continue
+		}
+		if !legacyOnly {
+			if logicalName, ok := s.currentMetadataStoreName(name); ok {
+				current[logicalName] = stored
+				continue
+			}
+		}
+		if logicalName, ok := s.legacyMetadataStoreName(name, stored); ok {
+			if _, exists := legacy[logicalName]; !exists {
+				legacy[logicalName] = stored
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("relationaldb: load metadata rows: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) currentMetadataStoreName(key string) (string, bool) {
+	if !s.usesNamespacedMetadata() {
+		return key, true
+	}
+	if !strings.HasPrefix(key, s.tablePrefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(key, s.tablePrefix), true
+}
+
+func (s *Store) legacyMetadataStoreName(key string, stored storedSchema) (string, bool) {
+	if key == "" {
+		return "", false
+	}
+	if s.usesNamespacedMetadata() && strings.HasPrefix(key, s.tablePrefix) {
+		return "", false
+	}
+	if s.legacyTablePrefix != "" && strings.HasPrefix(key, s.legacyTablePrefix) {
+		logicalName := strings.TrimPrefix(key, s.legacyTablePrefix)
+		switch stored.Table {
+		case key, s.legacyPhysicalTableName(logicalName):
+			return logicalName, true
+		default:
+			return "", false
+		}
+	}
+	if !s.usesNamespacedMetadata() {
+		return "", false
+	}
+	switch stored.Table {
+	case s.physicalTableName(key), legacyTablePrefix + key:
+		return key, true
+	default:
+		return "", false
+	}
 }
 
 func (s *Store) HealthCheck(_ context.Context) error {
@@ -255,15 +388,19 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName s
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
-		storeName,
-	); err != nil {
-		return status.Errorf(codes.Internal, "delete metadata: %v", err)
+	for _, table := range s.metadataTablesForCleanup() {
+		for _, key := range s.legacyMetadataStoreKeys(storeName) {
+			if _, err := tx.ExecContext(ctx,
+				s.q("DELETE FROM "+quoteTableName(s.dialect, table)+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
+				key,
+			); err != nil && !(table == s.legacyMetadataTable() && isMissingMetadataTableErr(s.dialect, err)) {
+				return status.Errorf(codes.Internal, "delete metadata: %v", err)
+			}
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		s.q("INSERT INTO "+quoteTableName(s.dialect, s.metadataTable())+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
-		storeName, string(schemaJSON),
+		s.metadataStoreKey(storeName), string(schemaJSON),
 	); err != nil {
 		return status.Errorf(codes.Internal, "insert metadata: %v", err)
 	}
@@ -323,10 +460,33 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 	if _, err := s.db.ExecContext(ctx, s.q(dropTableSQL(s.dialect, tableName))); err != nil {
 		return nil, status.Errorf(codes.Internal, "drop table: %v", err)
 	}
-	_, _ = s.db.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"), req.Name)
+	for _, table := range s.metadataTablesForCleanup() {
+		for _, key := range s.legacyMetadataStoreKeys(req.Name) {
+			_, _ = s.db.ExecContext(ctx,
+				s.q("DELETE FROM "+quoteTableName(s.dialect, table)+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"), key)
+		}
+	}
 	delete(s.meta, req.Name)
 	return &emptypb.Empty{}, nil
+}
+
+func isMissingMetadataTableErr(d dialect, err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	switch d {
+	case dialectSQLite:
+		return strings.Contains(msg, "no such table")
+	case dialectPostgres:
+		return strings.Contains(msg, "SQLSTATE 42P01")
+	case dialectMySQL:
+		return strings.Contains(msg, "Error 1146")
+	case dialectSQLServer:
+		return strings.Contains(msg, "Invalid object name")
+	default:
+		return false
+	}
 }
 
 // ---- Primary key CRUD ----
