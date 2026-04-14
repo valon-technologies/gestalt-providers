@@ -11,6 +11,8 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func testStore(t *testing.T) *Store {
@@ -28,6 +30,16 @@ func testStoreWithDSN(t *testing.T, dsn string) *Store {
 	return store
 }
 
+func testStoreWithOptions(t *testing.T, dsn string, options storeOptions) *Store {
+	t.Helper()
+	store, err := newStoreWithOptions(dsn, options)
+	if err != nil {
+		t.Fatalf("newStoreWithOptions: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return store
+}
+
 func openSQLiteDB(t *testing.T, dsn string) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", strings.TrimPrefix(dsn, "sqlite://"))
@@ -38,10 +50,11 @@ func openSQLiteDB(t *testing.T, dsn string) *sql.DB {
 	return db
 }
 
-func TestConfigStoreOptionsSupportsAliases(t *testing.T) {
+func TestConfigStoreOptionsSupportsSchemaAndPrefixes(t *testing.T) {
 	options, err := (config{
-		Prefix:    "tenant_",
-		Namespace: "analytics",
+		Prefix:            "tenant_",
+		LegacyTablePrefix: "plugin_alpha_",
+		Schema:            "analytics",
 	}).storeOptions()
 	if err != nil {
 		t.Fatalf("storeOptions: %v", err)
@@ -49,12 +62,15 @@ func TestConfigStoreOptionsSupportsAliases(t *testing.T) {
 	if options.TablePrefix != "tenant_" {
 		t.Fatalf("options.TablePrefix = %q, want %q", options.TablePrefix, "tenant_")
 	}
+	if options.LegacyTablePrefix != "plugin_alpha_" {
+		t.Fatalf("options.LegacyTablePrefix = %q, want %q", options.LegacyTablePrefix, "plugin_alpha_")
+	}
 	if options.Schema != "analytics" {
 		t.Fatalf("options.Schema = %q, want %q", options.Schema, "analytics")
 	}
 }
 
-func TestConfigStoreOptionsRejectsConflictingAliases(t *testing.T) {
+func TestConfigStoreOptionsRejectsConflictingPrefixAliases(t *testing.T) {
 	_, err := (config{
 		TablePrefix: "tenant_",
 		Prefix:      "other_",
@@ -62,14 +78,36 @@ func TestConfigStoreOptionsRejectsConflictingAliases(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected conflicting prefix aliases to fail")
 	}
+}
 
-	_, err = (config{
-		Schema:    "analytics",
-		Namespace: "reporting",
-	}).storeOptions()
-	if err == nil {
-		t.Fatal("expected conflicting schema aliases to fail")
-	}
+func TestProviderConfigureRejectsRemovedAliases(t *testing.T) {
+	t.Run("namespace", func(t *testing.T) {
+		p := New()
+		err := p.Configure(context.Background(), "", map[string]any{
+			"dsn":       "file:" + filepath.Join(t.TempDir(), "namespace.sqlite"),
+			"namespace": "analytics",
+		})
+		if err == nil {
+			t.Fatal("expected namespace alias to fail")
+		}
+		if !strings.Contains(err.Error(), "namespace is no longer supported; use schema") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("legacy_prefix", func(t *testing.T) {
+		p := New()
+		err := p.Configure(context.Background(), "", map[string]any{
+			"dsn":           "file:" + filepath.Join(t.TempDir(), "legacy-prefix.sqlite"),
+			"legacy_prefix": "plugin_alpha_",
+		})
+		if err == nil {
+			t.Fatal("expected legacy_prefix alias to fail")
+		}
+		if !strings.Contains(err.Error(), "legacy_prefix is no longer supported; use legacy_table_prefix") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
@@ -409,6 +447,324 @@ func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
 	}
 	if got := resp.Record.Fields["payload"].GetStringValue(); got != "payload-a" {
 		t.Fatalf("payload = %q, want payload-a", got)
+	}
+}
+
+func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "namespaced-metadata.sqlite")
+
+	alpha := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "alpha_"})
+	beta := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "beta_"})
+
+	for _, tc := range []struct {
+		store  *Store
+		id     string
+		code   string
+		title  string
+		table  string
+		prefix string
+	}{
+		{store: alpha, id: "a1", code: "A-001", title: "Alpha Task", table: "alpha_tasks", prefix: "alpha_"},
+		{store: beta, id: "b1", code: "B-001", title: "Beta Task", table: "beta_tasks", prefix: "beta_"},
+	} {
+		if _, err := tc.store.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+			Name: "tasks", Schema: widgetsSchema(),
+		}); err != nil {
+			t.Fatalf("CreateObjectStore(%s): %v", tc.prefix, err)
+		}
+		if _, err := tc.store.Add(ctx, &proto.RecordRequest{
+			Store: "tasks", Record: makeWidget(tc.id, tc.code, tc.title),
+		}); err != nil {
+			t.Fatalf("Add(%s): %v", tc.prefix, err)
+		}
+		meta, err := tc.store.getMeta("tasks")
+		if err != nil {
+			t.Fatalf("getMeta(%s): %v", tc.prefix, err)
+		}
+		if meta.table != tc.table {
+			t.Fatalf("meta.table(%s) = %q, want %q", tc.prefix, meta.table, tc.table)
+		}
+	}
+
+	db := openSQLiteDB(t, dsn)
+	rows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
+	if err != nil {
+		t.Fatalf("query metadata rows: %v", err)
+	}
+	defer rows.Close()
+
+	var metadataNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan metadata row: %v", err)
+		}
+		metadataNames = append(metadataNames, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("metadata rows err: %v", err)
+	}
+	if got := strings.Join(metadataNames, ","); got != "alpha_tasks,beta_tasks" {
+		t.Fatalf("metadata names = %q, want %q", got, "alpha_tasks,beta_tasks")
+	}
+
+	alphaReloaded := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "alpha_"})
+	betaReloaded := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "beta_"})
+
+	alphaResp, err := alphaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "tasks", Id: "a1"})
+	if err != nil {
+		t.Fatalf("Get(alpha reload): %v", err)
+	}
+	if got := alphaResp.Record.Fields["title"].GetStringValue(); got != "Alpha Task" {
+		t.Fatalf("alpha reloaded title = %q, want %q", got, "Alpha Task")
+	}
+	if _, err := alphaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "beta_tasks", Id: "b1"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("Get(alpha reload foreign store) error = %v, want NotFound", err)
+	}
+
+	betaResp, err := betaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "tasks", Id: "b1"})
+	if err != nil {
+		t.Fatalf("Get(beta reload): %v", err)
+	}
+	if got := betaResp.Record.Fields["title"].GetStringValue(); got != "Beta Task" {
+		t.Fatalf("beta reloaded title = %q, want %q", got, "Beta Task")
+	}
+	if _, err := betaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "alpha_tasks", Id: "a1"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("Get(beta reload foreign store) error = %v, want NotFound", err)
+	}
+}
+
+func TestCreateObjectStoreMigratesLegacyUnnamespacedPrefixedMetadata(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-unnamespaced-prefixed.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
+		t.Fatalf("create metadata table: %v", err)
+	}
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "alpha_widgets", widgetsSchema())); err != nil {
+		t.Fatalf("create prefixed widgets table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "alpha_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("insert prefixed widget: %v", err)
+	}
+
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("alpha_widgets", widgetsSchema()))
+	if err != nil {
+		t.Fatalf("marshal legacy prefixed schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "widgets", string(legacySchemaJSON)); err != nil {
+		t.Fatalf("insert legacy prefixed metadata: %v", err)
+	}
+
+	s := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "alpha_"})
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore migrate namespaced metadata: %v", err)
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	if err != nil {
+		t.Fatalf("Get migrated prefixed widget: %v", err)
+	}
+	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+		t.Fatalf("Get migrated prefixed code = %q, want W-001", got)
+	}
+
+	rows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
+	if err != nil {
+		t.Fatalf("query migrated metadata rows: %v", err)
+	}
+	defer rows.Close()
+
+	var metadataNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan migrated metadata row: %v", err)
+		}
+		metadataNames = append(metadataNames, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("migrated metadata rows err: %v", err)
+	}
+	if got := strings.Join(metadataNames, ","); got != "alpha_widgets" {
+		t.Fatalf("metadata names after migration = %q, want %q", got, "alpha_widgets")
+	}
+}
+
+func TestCreateObjectStoreMigratesLegacyPluginPrefixedMetadata(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-plugin-prefixed.sqlite")
+	db := openSQLiteDB(t, dsn)
+
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
+		t.Fatalf("create metadata table: %v", err)
+	}
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "plugin_alpha_widgets", widgetsSchema())); err != nil {
+		t.Fatalf("create legacy plugin-prefixed widgets table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "plugin_alpha_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("insert legacy plugin-prefixed widget: %v", err)
+	}
+
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("plugin_alpha_widgets", widgetsSchema()))
+	if err != nil {
+		t.Fatalf("marshal legacy plugin-prefixed schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "plugin_alpha_widgets", string(legacySchemaJSON)); err != nil {
+		t.Fatalf("insert legacy plugin-prefixed metadata: %v", err)
+	}
+
+	s := testStoreWithOptions(t, dsn, storeOptions{
+		TablePrefix:       "alpha_",
+		LegacyTablePrefix: "plugin_alpha_",
+	})
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore migrate legacy plugin-prefixed metadata: %v", err)
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	if err != nil {
+		t.Fatalf("Get migrated plugin-prefixed widget: %v", err)
+	}
+	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+		t.Fatalf("Get migrated plugin-prefixed code = %q, want W-001", got)
+	}
+
+	rows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
+	if err != nil {
+		t.Fatalf("query migrated plugin metadata rows: %v", err)
+	}
+	defer rows.Close()
+
+	var metadataNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan migrated plugin metadata row: %v", err)
+		}
+		metadataNames = append(metadataNames, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("migrated plugin metadata rows err: %v", err)
+	}
+	if got := strings.Join(metadataNames, ","); got != "alpha_widgets" {
+		t.Fatalf("metadata names after plugin migration = %q, want %q", got, "alpha_widgets")
+	}
+}
+
+func TestCreateObjectStoreMigratesLegacyPluginPrefixedMetadataIntoSchema(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dsn := "file:" + filepath.Join(root, "legacy-plugin-prefixed-schema.sqlite")
+	db := openSQLiteDB(t, dsn)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	schema := &proto.ObjectStoreSchema{Columns: widgetsSchema().Columns}
+
+	schemaFile := filepath.Join(root, "alpha.sqlite")
+	if _, err := db.Exec(`ATTACH DATABASE ? AS "alpha"`, schemaFile); err != nil {
+		t.Fatalf("attach alpha schema db: %v", err)
+	}
+
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite, metadataTableName)); err != nil {
+		t.Fatalf("create legacy metadata table: %v", err)
+	}
+	if _, err := db.Exec(metadataTableSQL(dialectSQLite, qualifyTableName("alpha", metadataTableName))); err != nil {
+		t.Fatalf("create schema metadata table: %v", err)
+	}
+	if _, err := db.Exec(createTableSQL(dialectSQLite, "plugin_alpha_widgets", schema)); err != nil {
+		t.Fatalf("create legacy plugin-prefixed widgets table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "plugin_alpha_widgets" ("id", "code", "title", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)`,
+		"w1", "W-001", "Alpha Widget", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("insert legacy plugin-prefixed widget: %v", err)
+	}
+
+	legacySchemaJSON, err := json.Marshal(newStoredSchema("plugin_alpha_widgets", schema))
+	if err != nil {
+		t.Fatalf("marshal legacy plugin-prefixed schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO "_gestalt_stores" ("name", "schema_json") VALUES (?, ?)`, "plugin_alpha_widgets", string(legacySchemaJSON)); err != nil {
+		t.Fatalf("insert legacy plugin-prefixed metadata: %v", err)
+	}
+
+	s := &Store{
+		db:                db,
+		bind:              bindQuestion,
+		dialect:           dialectSQLite,
+		schemaName:        "alpha",
+		legacyTablePrefix: "plugin_alpha_",
+		meta:              make(map[string]*storeMeta),
+	}
+	if err := s.loadMetadata(); err != nil {
+		t.Fatalf("loadMetadata with legacy schema table: %v", err)
+	}
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: schema,
+	}); err != nil {
+		t.Fatalf("CreateObjectStore migrate legacy plugin-prefixed schema metadata: %v", err)
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	if err != nil {
+		t.Fatalf("Get migrated plugin-prefixed widget from schema: %v", err)
+	}
+	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+		t.Fatalf("Get migrated plugin-prefixed schema code = %q, want W-001", got)
+	}
+
+	legacyRows, err := db.Query(`SELECT "name" FROM "_gestalt_stores" ORDER BY "name"`)
+	if err != nil {
+		t.Fatalf("query legacy metadata rows: %v", err)
+	}
+	defer legacyRows.Close()
+
+	var legacyNames []string
+	for legacyRows.Next() {
+		var name string
+		if err := legacyRows.Scan(&name); err != nil {
+			t.Fatalf("scan legacy metadata row: %v", err)
+		}
+		legacyNames = append(legacyNames, name)
+	}
+	if err := legacyRows.Err(); err != nil {
+		t.Fatalf("legacy metadata rows err: %v", err)
+	}
+	if got := strings.Join(legacyNames, ","); got != "" {
+		t.Fatalf("legacy metadata names after schema migration = %q, want empty", got)
+	}
+
+	schemaRows, err := db.Query(`SELECT "name" FROM "alpha"."_gestalt_stores" ORDER BY "name"`)
+	if err != nil {
+		t.Fatalf("query schema metadata rows: %v", err)
+	}
+	defer schemaRows.Close()
+
+	var schemaNames []string
+	for schemaRows.Next() {
+		var name string
+		if err := schemaRows.Scan(&name); err != nil {
+			t.Fatalf("scan schema metadata row: %v", err)
+		}
+		schemaNames = append(schemaNames, name)
+	}
+	if err := schemaRows.Err(); err != nil {
+		t.Fatalf("schema metadata rows err: %v", err)
+	}
+	if got := strings.Join(schemaNames, ","); got != "widgets" {
+		t.Fatalf("schema metadata names after migration = %q, want %q", got, "widgets")
 	}
 }
 
