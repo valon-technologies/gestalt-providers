@@ -359,11 +359,32 @@ jobs:
           # Build gestaltd
           mkdir -p "${GITHUB_WORKSPACE}/../bin"
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
+
+          cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
+          server:
+            public:
+              port: 8080
+            encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            indexeddb: main
+          providers:
+            indexeddbs:
+              main:
+                source:
+                  path: "${GITHUB_WORKSPACE}/indexeddb/relationaldb/manifest.yaml"
+                config:
+                  dsn: "sqlite://${RUNNER_TEMP}/gestalt-web-e2e.db"
+            ui:
+              default:
+                path: /
+                source:
+                  path: "${GITHUB_WORKSPACE}/web/default/manifest.yaml"
+            secrets:
+              source: env
+          EOF
+          echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
-        env:
-          GESTALT_PROVIDERS_DIR: ${{ github.workspace }}
         run: |
-          ${GITHUB_WORKSPACE}/../bin/gestaltd >/tmp/gestaltd.log 2>&1 &
+          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
           for i in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5
