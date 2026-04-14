@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -20,10 +22,12 @@ import (
 )
 
 const (
-	providerVersion    = "0.0.1-alpha.1"
-	defaultSessionTTL  = 24 * time.Hour
-	defaultDisplayName = "SSO"
-	defaultHTTPTimeout = 10 * time.Second
+	providerVersion             = "0.0.1-alpha.1"
+	defaultSessionTTL           = 24 * time.Hour
+	defaultDisplayName          = "SSO"
+	defaultHTTPTimeout          = 10 * time.Second
+	defaultPKCEVerifierTTL      = time.Hour
+	defaultPKCEVerifierMaxItems = 10_000
 )
 
 type discoveryDocument struct {
@@ -33,29 +37,43 @@ type discoveryDocument struct {
 }
 
 type config struct {
-	IssuerURL      string        `yaml:"issuerUrl"`
-	ClientID       string        `yaml:"clientId"`
-	ClientSecret   string        `yaml:"clientSecret"`
-	RedirectURL    string        `yaml:"redirectUrl"`
-	AllowedDomains []string      `yaml:"allowedDomains"`
-	Scopes         []string      `yaml:"scopes"`
-	SessionTTL     time.Duration `yaml:"sessionTtl"`
-	PKCE           bool          `yaml:"pkce"`
-	DisplayName    string        `yaml:"displayName"`
+	IssuerURL            string        `yaml:"issuerUrl"`
+	ClientID             string        `yaml:"clientId"`
+	ClientSecret         string        `yaml:"clientSecret"`
+	RedirectURL          string        `yaml:"redirectUrl"`
+	AllowedDomains       []string      `yaml:"allowedDomains"`
+	Scopes               []string      `yaml:"scopes"`
+	SessionTTL           time.Duration `yaml:"sessionTtl"`
+	PKCE                 bool          `yaml:"pkce"`
+	DisplayName          string        `yaml:"displayName"`
+	AllowInsecureHTTP    bool          `yaml:"allowInsecureHttp"`
+	PKCEVerifierTTL      time.Duration `yaml:"pkceVerifierTtl"`
+	PKCEVerifierMaxItems int           `yaml:"pkceVerifierMaxItems"`
+}
+
+type pkceVerifierEntry struct {
+	verifier  string
+	expiresAt time.Time
 }
 
 type Provider struct {
-	cfg           config
-	doc           discoveryDocument
-	httpClient    *http.Client
-	pkceMu        sync.Mutex
-	pkceVerifiers map[string]string
+	cfg                  config
+	doc                  discoveryDocument
+	httpClient           *http.Client
+	pkceMu               sync.Mutex
+	pkceVerifiers        map[string]pkceVerifierEntry
+	pkceVerifierTTL      time.Duration
+	pkceVerifierMaxItems int
+	now                  func() time.Time
 }
 
 func New() *Provider {
 	return &Provider{
-		httpClient:    &http.Client{Timeout: defaultHTTPTimeout},
-		pkceVerifiers: make(map[string]string),
+		httpClient:           &http.Client{Timeout: defaultHTTPTimeout},
+		pkceVerifiers:        make(map[string]pkceVerifierEntry),
+		pkceVerifierTTL:      defaultPKCEVerifierTTL,
+		pkceVerifierMaxItems: defaultPKCEVerifierMaxItems,
+		now:                  time.Now,
 	}
 }
 
@@ -70,12 +88,31 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	if cfg.ClientID == "" {
 		return fmt.Errorf("oidc auth: clientId is required")
 	}
-	doc, err := discover(ctx, p.httpClient, cfg.IssuerURL)
+	if _, ok := raw["pkceVerifierTtl"]; ok && cfg.PKCEVerifierTTL <= 0 {
+		return fmt.Errorf("oidc auth: pkceVerifierTtl must be greater than 0 when set")
+	}
+	if _, ok := raw["pkceVerifierMaxItems"]; ok && cfg.PKCEVerifierMaxItems <= 0 {
+		return fmt.Errorf("oidc auth: pkceVerifierMaxItems must be greater than 0 when set")
+	}
+	if err := validateEndpointURL("issuerUrl", cfg.IssuerURL, cfg.AllowInsecureHTTP); err != nil {
+		return err
+	}
+	doc, err := discover(ctx, p.httpClient, cfg.IssuerURL, cfg.AllowInsecureHTTP)
 	if err != nil {
 		return err
 	}
 	p.cfg = cfg
 	p.doc = doc
+	if cfg.PKCEVerifierTTL > 0 {
+		p.pkceVerifierTTL = cfg.PKCEVerifierTTL
+	} else {
+		p.pkceVerifierTTL = defaultPKCEVerifierTTL
+	}
+	if cfg.PKCEVerifierMaxItems > 0 {
+		p.pkceVerifierMaxItems = cfg.PKCEVerifierMaxItems
+	} else {
+		p.pkceVerifierMaxItems = defaultPKCEVerifierMaxItems
+	}
 	return nil
 }
 
@@ -115,7 +152,9 @@ func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest)
 	if req.HostState == "" {
 		return nil, fmt.Errorf("oidc auth: host state is required when pkce is enabled")
 	}
-	p.storePKCEVerifier(req.HostState, verifier)
+	if err := p.storePKCEVerifier(req.HostState, verifier); err != nil {
+		return nil, err
+	}
 	challenge := computeS256Challenge(verifier)
 	authURL := oauthCfg.AuthCodeURL(
 		req.HostState,
@@ -222,7 +261,7 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 	}, nil
 }
 
-func discover(ctx context.Context, client *http.Client, issuerURL string) (discoveryDocument, error) {
+func discover(ctx context.Context, client *http.Client, issuerURL string, allowInsecureHTTP bool) (discoveryDocument, error) {
 	wellKnown := strings.TrimRight(issuerURL, "/") + "/.well-known/openid-configuration"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnown, nil)
 	if err != nil {
@@ -244,7 +283,52 @@ func discover(ctx context.Context, client *http.Client, issuerURL string) (disco
 	if doc.AuthorizationEndpoint == "" || doc.TokenEndpoint == "" || doc.UserinfoEndpoint == "" {
 		return discoveryDocument{}, fmt.Errorf("oidc auth: discovery document is missing required endpoints")
 	}
+	if err := validateEndpointURL("authorization_endpoint", doc.AuthorizationEndpoint, allowInsecureHTTP); err != nil {
+		return discoveryDocument{}, err
+	}
+	if err := validateEndpointURL("token_endpoint", doc.TokenEndpoint, allowInsecureHTTP); err != nil {
+		return discoveryDocument{}, err
+	}
+	if err := validateEndpointURL("userinfo_endpoint", doc.UserinfoEndpoint, allowInsecureHTTP); err != nil {
+		return discoveryDocument{}, err
+	}
 	return doc, nil
+}
+
+func validateEndpointURL(fieldName, rawURL string, allowInsecureHTTP bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("oidc auth: %s must be a valid URL: %w", fieldName, err)
+	}
+	if parsed.Scheme == "" {
+		return fmt.Errorf("oidc auth: %s must be a valid absolute URL", fieldName)
+	}
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("oidc auth: %s must include a host", fieldName)
+	}
+
+	switch parsed.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if !allowInsecureHTTP {
+			return fmt.Errorf("oidc auth: %s must use https unless allowInsecureHttp is true for loopback/local development", fieldName)
+		}
+		if !isLoopbackHost(parsed.Hostname()) {
+			return fmt.Errorf("oidc auth: %s may use http only for loopback/local development hosts when allowInsecureHttp is true", fieldName)
+		}
+		return nil
+	default:
+		return fmt.Errorf("oidc auth: %s must use https", fieldName)
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func generateVerifier() (string, error) {
@@ -260,21 +344,68 @@ func computeS256Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-func (p *Provider) storePKCEVerifier(hostState, verifier string) {
+func (p *Provider) storePKCEVerifier(hostState, verifier string) error {
 	p.pkceMu.Lock()
 	defer p.pkceMu.Unlock()
-	p.pkceVerifiers[hostState] = verifier
+	now := p.currentTime()
+	p.evictExpiredPKCEVerifiersLocked(now)
+	if _, ok := p.pkceVerifiers[hostState]; !ok && len(p.pkceVerifiers) >= p.maxPKCEVerifierItems() {
+		return fmt.Errorf("oidc auth: too many in-flight PKCE login attempts; increase pkceVerifierMaxItems or wait for older attempts to complete")
+	}
+	p.pkceVerifiers[hostState] = pkceVerifierEntry{
+		verifier:  verifier,
+		expiresAt: now.Add(p.pkceTTL()),
+	}
+	return nil
 }
 
 func (p *Provider) pkceVerifier(hostState string) (string, bool) {
 	p.pkceMu.Lock()
 	defer p.pkceMu.Unlock()
-	verifier, ok := p.pkceVerifiers[hostState]
-	return verifier, ok
+	now := p.currentTime()
+	p.evictExpiredPKCEVerifiersLocked(now)
+	entry, ok := p.pkceVerifiers[hostState]
+	if !ok {
+		return "", false
+	}
+	if !entry.expiresAt.After(now) {
+		delete(p.pkceVerifiers, hostState)
+		return "", false
+	}
+	return entry.verifier, true
 }
 
 func (p *Provider) deletePKCEVerifier(hostState string) {
 	p.pkceMu.Lock()
 	defer p.pkceMu.Unlock()
 	delete(p.pkceVerifiers, hostState)
+}
+
+func (p *Provider) evictExpiredPKCEVerifiersLocked(now time.Time) {
+	for hostState, entry := range p.pkceVerifiers {
+		if !entry.expiresAt.After(now) {
+			delete(p.pkceVerifiers, hostState)
+		}
+	}
+}
+
+func (p *Provider) pkceTTL() time.Duration {
+	if p.pkceVerifierTTL > 0 {
+		return p.pkceVerifierTTL
+	}
+	return defaultPKCEVerifierTTL
+}
+
+func (p *Provider) maxPKCEVerifierItems() int {
+	if p.pkceVerifierMaxItems > 0 {
+		return p.pkceVerifierMaxItems
+	}
+	return defaultPKCEVerifierMaxItems
+}
+
+func (p *Provider) currentTime() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
 }
