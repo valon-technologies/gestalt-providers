@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
@@ -709,17 +710,17 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 
 func TestRelationalCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	cursor := &relationalCursor{
-		indexCursor: true,
-		index:       &proto.IndexSchema{KeyPath: []string{"status", "rank"}},
+		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		index:    &proto.IndexSchema{KeyPath: []string{"status", "rank"}},
 	}
 
-	entries := []cursorEntry{
-		{primaryKey: "a", key: []any{"active", int64(1)}, record: makeCursorItem("a", "Alice", "active", "alice@test.com")},
-		{primaryKey: "b", key: []any{"active", int64(2)}, record: makeCursorItem("b", "Bob", "active", "bob@test.com")},
-		{primaryKey: "c", key: []any{"inactive", int64(1)}, record: makeCursorItem("c", "Carol", "inactive", "carol@test.com")},
+	entries := []cursorutil.Entry{
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: makeCursorItem("a", "Alice", "active", "alice@test.com")},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"active", int64(2)}, Record: makeCursorItem("b", "Bob", "active", "bob@test.com")},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"inactive", int64(1)}, Record: makeCursorItem("c", "Carol", "inactive", "carol@test.com")},
 	}
 
-	filtered, err := cursor.applyRange(entries, &proto.KeyRange{
+	filtered, err := cursor.ApplyRange(entries, &proto.KeyRange{
 		Lower: mustTypedValue(t, []any{"active", int64(2)}),
 		Upper: mustTypedValue(t, []any{"active", int64(2)}),
 	})
@@ -729,7 +730,7 @@ func TestRelationalCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	if len(filtered) != 1 {
 		t.Fatalf("filtered count = %d, want 1", len(filtered))
 	}
-	if got := filtered[0].primaryKey; got != "b" {
+	if got := filtered[0].PrimaryKey; got != "b" {
 		t.Fatalf("filtered primary key = %q, want %q", got, "b")
 	}
 }

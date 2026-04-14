@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/microsoft/go-mssqldb v1.9.8
 	github.com/valon-technologies/gestalt-providers/indexeddb/contracttest v0.0.0-00010101000000-000000000000
+	github.com/valon-technologies/gestalt-providers/indexeddb/internal v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -41,5 +42,7 @@ require (
 )
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest => ../contracttest
+
+replace github.com/valon-technologies/gestalt-providers/indexeddb/internal => ../internal
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go
