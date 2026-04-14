@@ -150,7 +150,7 @@ wheels = [
 [[package]]
 name = "gestalt"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=b02e2baadb95c8a638f96046b4f089517681fb6e#b02e2baadb95c8a638f96046b4f089517681fb6e" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#35f199b59d5a17309f82f40358b222e1b57d3e28" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
@@ -178,7 +178,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gestalt", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=b02e2baadb95c8a638f96046b4f089517681fb6e" },
+    { name = "gestalt", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" },
     { name = "google-auth", specifier = "==2.49.1" },
     { name = "google-cloud-bigquery", specifier = "==3.41.0" },
 ]

@@ -27,8 +27,8 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.7
-  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.7
+  LEGACY_GESTALT_REF: main
+  PROVIDER_GESTALT_REF: main
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -176,9 +176,9 @@ jobs:
       matrix:
         toolchain:
           - name: legacy
-            gestalt_ref: gestaltd/v0.0.1-alpha.7
+            gestalt_ref: main
           - name: provider
-            gestalt_ref: gestaltd/v0.0.1-alpha.7
+            gestalt_ref: main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -374,9 +374,11 @@ jobs:
             public:
               port: 8080
             encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            indexeddb: main
+            providers:
+              secrets: secrets
+              indexeddb: main
           providers:
-            indexeddbs:
+            indexeddb:
               main:
                 source:
                   path: "${GITHUB_WORKSPACE}/indexeddb/relationaldb/manifest.yaml"
@@ -388,7 +390,8 @@ jobs:
                 source:
                   path: "${GITHUB_WORKSPACE}/web/default/manifest.yaml"
             secrets:
-              source: env
+              secrets:
+                source: env
           EOF
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
