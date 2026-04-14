@@ -25,10 +25,6 @@ Optional configuration:
 - `schema`: Qualifies provider tables under a database schema. This is
   supported for PostgreSQL, MySQL, and SQL Server. SQLite does not support
   schema qualification.
-- `legacy_table_prefix`: Compatibility hook for migrating legacy prefixed plugin
-  tables and metadata. The Gestalt host sets this automatically for plugin
-  IndexedDB bindings when it needs to preserve old `plugin_<name>_<store>`
-  relationaldb data.
 
 Examples:
 

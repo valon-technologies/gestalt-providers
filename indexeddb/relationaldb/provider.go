@@ -9,11 +9,10 @@ import (
 )
 
 type config struct {
-	DSN               string `yaml:"dsn"`
-	TablePrefix       string `yaml:"table_prefix"`
-	Prefix            string `yaml:"prefix"`
-	LegacyTablePrefix string `yaml:"legacy_table_prefix"`
-	Schema            string `yaml:"schema"`
+	DSN         string `yaml:"dsn"`
+	TablePrefix string `yaml:"table_prefix"`
+	Prefix      string `yaml:"prefix"`
+	Schema      string `yaml:"schema"`
 }
 
 type Provider struct {
@@ -34,23 +33,21 @@ func (c config) storeOptions() (storeOptions, error) {
 		options.TablePrefix = c.Prefix
 	}
 
-	if c.LegacyTablePrefix != "" {
-		options.LegacyTablePrefix = c.LegacyTablePrefix
-	}
-
 	if c.Schema != "" {
 		options.Schema = c.Schema
 	}
 
 	options.TablePrefix = strings.TrimSpace(options.TablePrefix)
-	options.LegacyTablePrefix = strings.TrimSpace(options.LegacyTablePrefix)
 	options.Schema = strings.TrimSpace(options.Schema)
 	return options, nil
 }
 
 func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) error {
+	if _, ok := raw["legacy_table_prefix"]; ok {
+		return fmt.Errorf("relationaldb: legacy_table_prefix is no longer supported")
+	}
 	if _, ok := raw["legacy_prefix"]; ok {
-		return fmt.Errorf("relationaldb: legacy_prefix is no longer supported; use legacy_table_prefix")
+		return fmt.Errorf("relationaldb: legacy_prefix is no longer supported")
 	}
 	if _, ok := raw["namespace"]; ok {
 		return fmt.Errorf("relationaldb: namespace is no longer supported; use schema")
