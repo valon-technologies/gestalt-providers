@@ -17,6 +17,7 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	_ "modernc.org/sqlite"
 
+	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
@@ -532,7 +533,7 @@ func (s *Store) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*pr
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: entries[0].record}, nil
+	return &proto.RecordResponse{Record: entries[0].Record}, nil
 }
 
 func (s *Store) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
@@ -543,7 +544,7 @@ func (s *Store) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "key not found")
 	}
-	return &proto.KeyResponse{Key: entries[0].primaryKey}, nil
+	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
 }
 
 func (s *Store) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
@@ -553,7 +554,7 @@ func (s *Store) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (
 	}
 	records := make([]*proto.Record, 0, len(entries))
 	for _, entry := range entries {
-		records = append(records, entry.record)
+		records = append(records, entry.Record)
 	}
 	return &proto.RecordsResponse{Records: records}, nil
 }
@@ -565,7 +566,7 @@ func (s *Store) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryReques
 	}
 	keys := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		keys = append(keys, entry.primaryKey)
+		keys = append(keys, entry.PrimaryKey)
 	}
 	return &proto.KeysResponse{Keys: keys}, nil
 }
@@ -585,7 +586,7 @@ func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (
 	}
 	var deleted int64
 	for _, entry := range entries {
-		if err := s.deleteByPrimaryKeyValue(ctx, m, entry.primaryKeyValue); err != nil {
+		if err := s.deleteByPrimaryKeyValue(ctx, m, entry.PrimaryKeyValue); err != nil {
 			return nil, status.Errorf(codes.Internal, "index_delete: %v", err)
 		}
 		deleted++
@@ -595,7 +596,7 @@ func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (
 
 // ---- Query builders for range and index operations ----
 
-func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest, keyOnly bool) (*storeMeta, []cursorEntry, error) {
+func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest, keyOnly bool) (*storeMeta, []cursorutil.Entry, error) {
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, nil, err
@@ -624,8 +625,12 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 		return nil, nil, status.Errorf(codes.Internal, "index_query scan: %v", err)
 	}
 
-	rangeCursor := &relationalCursor{meta: m, index: idx, indexCursor: true}
-	entries := make([]cursorEntry, 0, len(records))
+	rangeCursor := &relationalCursor{
+		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		meta:     m,
+		index:    idx,
+	}
+	entries := make([]cursorutil.Entry, 0, len(records))
 	for _, record := range records {
 		entry, err := rangeCursor.entryFromRecord(record)
 		if err != nil {
@@ -634,7 +639,7 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 		entries = append(entries, entry)
 	}
 
-	entries, err = rangeCursor.applyRange(entries, req.GetRange())
+	entries, err = rangeCursor.ApplyRange(entries, req.GetRange())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -672,12 +677,12 @@ func findColumn(m *storeMeta, name string) *proto.ColumnDef {
 	return nil
 }
 
-func sortCursorEntries(entries []cursorEntry) {
+func sortCursorEntries(entries []cursorutil.Entry) {
 	sort.Slice(entries, func(i, j int) bool {
-		if cmp := compareCursorValue(entries[i].key, entries[j].key); cmp != 0 {
+		if cmp := cursorutil.CompareValues(entries[i].Key, entries[j].Key); cmp != 0 {
 			return cmp < 0
 		}
-		return compareCursorValue(entries[i].primaryKeyValue, entries[j].primaryKeyValue) < 0
+		return cursorutil.CompareValues(entries[i].PrimaryKeyValue, entries[j].PrimaryKeyValue) < 0
 	})
 }
 

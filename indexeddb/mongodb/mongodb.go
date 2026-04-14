@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -342,7 +343,7 @@ func (p *Provider) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: entries[0].record}, nil
+	return &proto.RecordResponse{Record: entries[0].Record}, nil
 }
 
 func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
@@ -353,7 +354,7 @@ func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "key not found")
 	}
-	return &proto.KeyResponse{Key: entries[0].primaryKey}, nil
+	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
 }
 
 func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
@@ -363,7 +364,7 @@ func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest
 	}
 	records := make([]*proto.Record, 0, len(entries))
 	for _, entry := range entries {
-		records = append(records, entry.record)
+		records = append(records, entry.Record)
 	}
 	return &proto.RecordsResponse{Records: records}, nil
 }
@@ -375,7 +376,7 @@ func (p *Provider) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryReq
 	}
 	keys := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		keys = append(keys, entry.primaryKey)
+		keys = append(keys, entry.PrimaryKey)
 	}
 	return &proto.KeysResponse{Keys: keys}, nil
 }
@@ -395,7 +396,7 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 	}
 	var deleted int64
 	for _, entry := range entries {
-		if err := p.deleteByIDValue(ctx, req.GetStore(), entry.primaryKeyValue); err != nil {
+		if err := p.deleteByIDValue(ctx, req.GetStore(), entry.PrimaryKeyValue); err != nil {
 			return nil, mongoMapCursorWriteErr("index_delete", err)
 		}
 		deleted++
@@ -407,11 +408,11 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 // Helpers
 // ---------------------------------------------------------------------------
 
-func (p *Provider) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]mongoCursorEntry, error) {
+func (p *Provider) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
 	return p.queryIndexEntriesWithProjection(ctx, req, nil)
 }
 
-func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]mongoCursorEntry, error) {
+func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -423,7 +424,7 @@ func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQue
 	return p.queryIndexEntriesWithProjection(ctx, req, indexProjection(meta.keyPath))
 }
 
-func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *proto.IndexQueryRequest, projection bson.M) ([]mongoCursorEntry, error) {
+func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *proto.IndexQueryRequest, projection bson.M) ([]cursorutil.Entry, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -453,8 +454,11 @@ func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *pro
 		return nil, status.Errorf(codes.Internal, "index query cursor: %v", err)
 	}
 
-	rangeCursor := &mongoCursor{indexCursor: true, index: &meta}
-	entries := make([]mongoCursorEntry, 0, len(records))
+	rangeCursor := &mongoCursor{
+		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		index:    &meta,
+	}
+	entries := make([]cursorutil.Entry, 0, len(records))
 	for _, record := range records {
 		entry, err := rangeCursor.entryFromRecord(record)
 		if err != nil {
@@ -466,7 +470,7 @@ func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *pro
 		entries = append(entries, entry)
 	}
 
-	entries, err = rangeCursor.applyRange(entries, req.GetRange())
+	entries, err = rangeCursor.ApplyRange(entries, req.GetRange())
 	if err != nil {
 		return nil, err
 	}
@@ -474,12 +478,12 @@ func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *pro
 	return entries, nil
 }
 
-func sortMongoIndexEntries(entries []mongoCursorEntry) {
+func sortMongoIndexEntries(entries []cursorutil.Entry) {
 	sort.Slice(entries, func(i, j int) bool {
-		if cmp := mongoCompareCursorValue(entries[i].key, entries[j].key); cmp != 0 {
+		if cmp := cursorutil.CompareValues(entries[i].Key, entries[j].Key); cmp != 0 {
 			return cmp < 0
 		}
-		return mongoCompareCursorValue(entries[i].primaryKeyValue, entries[j].primaryKeyValue) < 0
+		return cursorutil.CompareValues(entries[i].PrimaryKeyValue, entries[j].PrimaryKeyValue) < 0
 	})
 }
 

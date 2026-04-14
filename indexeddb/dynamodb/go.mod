@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.1
 	github.com/valon-technologies/gestalt-providers/indexeddb/contracttest v0.0.0-00010101000000-000000000000
+	github.com/valon-technologies/gestalt-providers/indexeddb/internal v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -34,5 +35,7 @@ require (
 )
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest => ../contracttest
+
+replace github.com/valon-technologies/gestalt-providers/indexeddb/internal => ../internal
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go
