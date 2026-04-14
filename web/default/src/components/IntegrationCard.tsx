@@ -14,40 +14,12 @@ import Button from "./Button";
 import { CheckCircleIcon, GearIcon, DefaultIcon } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
 
-const DANGEROUS_ELEMENTS = [
-  "script",
-  "foreignObject",
-  "iframe",
-  "embed",
-  "object",
-  "style",
-  "animate",
-  "set",
-];
-
-function stripDangerousAttrs(el: Element) {
-  for (const { name, value } of Array.from(el.attributes)) {
-    if (name.startsWith("on")) {
-      el.removeAttribute(name);
-    } else if (
-      (name === "href" || name === "xlink:href") &&
-      value.replace(/\s/g, "").toLowerCase().startsWith("javascript:")
-    ) {
-      el.removeAttribute(name);
-    }
+function iconDataURL(svg: string): string | null {
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  if (doc.documentElement.nodeName !== "svg") {
+    return null;
   }
-}
-
-function sanitizeSVG(raw: string): string {
-  const doc = new DOMParser().parseFromString(raw, "image/svg+xml");
-  const svg = doc.documentElement;
-  if (svg.nodeName !== "svg") return "";
-  for (const tag of DANGEROUS_ELEMENTS) {
-    svg.querySelectorAll(tag).forEach((el) => el.remove());
-  }
-  stripDangerousAttrs(svg);
-  svg.querySelectorAll("*").forEach((el) => stripDangerousAttrs(el));
-  return svg.outerHTML;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function hasConnectionParams(integration: Integration): boolean {
@@ -86,9 +58,9 @@ export default function IntegrationCard({
   const [submitting, setSubmitting] = useState(false);
   const pendingSelectionFormRef = useRef<HTMLFormElement>(null);
 
-  const safeIconSVG = integration.iconSvg
-    ? sanitizeSVG(integration.iconSvg)
-    : "";
+  const iconSrc = integration.iconSvg
+    ? iconDataURL(integration.iconSvg)
+    : null;
   const needsParams = hasConnectionParams(integration);
 
   useEffect(() => {
@@ -238,10 +210,15 @@ export default function IntegrationCard({
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-base-100 text-muted [&>svg]:h-5 [&>svg]:w-5 dark:bg-surface-raised">
-            {safeIconSVG ? (
-              <div
-                dangerouslySetInnerHTML={{ __html: safeIconSVG }}
-                className="flex items-center justify-center [&>svg]:h-5 [&>svg]:w-5"
+            {iconSrc ? (
+              // Data URLs are already decoded client-side, so next/image does not
+              // add optimization value here.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={iconSrc}
+                alt=""
+                aria-hidden="true"
+                className="h-5 w-5"
               />
             ) : (
               <DefaultIcon />
