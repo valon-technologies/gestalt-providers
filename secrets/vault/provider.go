@@ -3,6 +3,8 @@ package vault
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,10 +22,11 @@ const (
 )
 
 type config struct {
-	Address   string `yaml:"address"`
-	Token     string `yaml:"token"`
-	MountPath string `yaml:"mountPath"`
-	Namespace string `yaml:"namespace"`
+	Address           string `yaml:"address"`
+	Token             string `yaml:"token"`
+	MountPath         string `yaml:"mountPath"`
+	Namespace         string `yaml:"namespace"`
+	AllowInsecureHTTP bool   `yaml:"allowInsecureHttp"`
 }
 
 type Provider struct {
@@ -44,6 +47,9 @@ func (p *Provider) Configure(_ context.Context, name string, raw map[string]any)
 	}
 	if cfg.Token == "" {
 		return fmt.Errorf("vault secrets: token is required")
+	}
+	if err := validateAddressURL(cfg.Address, cfg.AllowInsecureHTTP); err != nil {
+		return err
 	}
 	if cfg.MountPath == "" {
 		cfg.MountPath = defaultMountPath
@@ -66,6 +72,40 @@ func (p *Provider) Configure(_ context.Context, name string, raw map[string]any)
 	p.client = client
 	p.mountPath = cfg.MountPath
 	return nil
+}
+
+func validateAddressURL(rawURL string, allowInsecureHTTP bool) error {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("vault secrets: address must be a valid URL: %w", err)
+	}
+	if parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return fmt.Errorf("vault secrets: address must be an absolute URL")
+	}
+
+	switch strings.ToLower(parsedURL.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if !allowInsecureHTTP {
+			return fmt.Errorf("vault secrets: address must use https unless allowInsecureHttp is true for local loopback development")
+		}
+		if !isLoopbackHost(parsedURL.Hostname()) {
+			return fmt.Errorf("vault secrets: address may use http only for localhost or loopback IPs when allowInsecureHttp is true")
+		}
+		return nil
+	default:
+		return fmt.Errorf("vault secrets: address must use https")
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
