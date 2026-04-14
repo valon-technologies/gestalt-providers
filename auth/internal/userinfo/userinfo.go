@@ -23,7 +23,7 @@ func CheckAllowedDomains(provider string, allowed []string, email string) error 
 	}
 	at := strings.LastIndex(email, "@")
 	if at < 0 || at == len(email)-1 {
-		return fmt.Errorf("%s auth: invalid email %q", provider, email)
+		return fmt.Errorf("%s auth: invalid email", provider)
 	}
 	domain := strings.ToLower(email[at+1:])
 	for _, allowedDomain := range allowed {

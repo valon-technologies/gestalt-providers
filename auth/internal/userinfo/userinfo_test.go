@@ -39,4 +39,9 @@ func TestCheckAllowedDomains(t *testing.T) {
 	if err := CheckAllowedDomains("google", []string{"example.com"}, "user@other.com"); err == nil {
 		t.Fatal("expected disallowed domain to fail")
 	}
+	if err := CheckAllowedDomains("google", []string{"example.com"}, "not-an-email"); err == nil {
+		t.Fatal("expected malformed email to fail")
+	} else if err.Error() != "google auth: invalid email" {
+		t.Fatalf("unexpected malformed email error: %v", err)
+	}
 }

@@ -19,8 +19,9 @@ import (
 const (
 	providerVersion   = "0.0.1-alpha.1"
 	defaultSessionTTL = 24 * time.Hour
-	userinfoURL       = "https://www.googleapis.com/oauth2/v3/userinfo"
 )
+
+var userinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 type config struct {
 	ClientID       string        `yaml:"clientId"`
@@ -135,7 +136,7 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		return nil, fmt.Errorf("google auth: decode userinfo: %w", err)
 	}
 	if !userinfo.EmailVerified(info.EmailVerified) {
-		return nil, fmt.Errorf("google auth: email %s is not verified", info.Email)
+		return nil, fmt.Errorf("google auth: email is not verified")
 	}
 	if err := userinfo.CheckAllowedDomains("google", p.cfg.AllowedDomains, info.Email); err != nil {
 		return nil, err

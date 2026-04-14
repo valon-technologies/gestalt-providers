@@ -119,3 +119,38 @@ func TestCompleteLoginPKCEUsesStoredVerifier(t *testing.T) {
 		t.Fatalf("CompleteLogin() email = %q, want %q", user.Email, "user@example.com")
 	}
 }
+
+func TestValidateExternalTokenRedactsUnverifiedEmail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/userinfo" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sub":            "user-123",
+			"email":          "user@example.com",
+			"name":           "User Example",
+			"picture":        "https://issuer.example/avatar.png",
+			"email_verified": false,
+		})
+	}))
+	defer server.Close()
+
+	p := New()
+	p.httpClient = server.Client()
+	p.doc = discoveryDocument{
+		UserinfoEndpoint: server.URL + "/userinfo",
+	}
+
+	_, err := p.ValidateExternalToken(context.Background(), "access-token")
+	if err == nil {
+		t.Fatal("ValidateExternalToken() error = nil, want non-nil")
+	}
+	if got := err.Error(); got != "oidc auth: email is not verified" {
+		t.Fatalf("ValidateExternalToken() error = %q, want %q", got, "oidc auth: email is not verified")
+	}
+	if strings.Contains(err.Error(), "user@example.com") {
+		t.Fatalf("ValidateExternalToken() leaked email address in error: %q", err.Error())
+	}
+}

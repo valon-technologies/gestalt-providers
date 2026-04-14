@@ -208,7 +208,7 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		return nil, fmt.Errorf("oidc auth: decode userinfo: %w", err)
 	}
 	if !userinfo.EmailVerified(info.EmailVerified) {
-		return nil, fmt.Errorf("oidc auth: email %s is not verified", info.Email)
+		return nil, fmt.Errorf("oidc auth: email is not verified")
 	}
 	if err := userinfo.CheckAllowedDomains("oidc", p.cfg.AllowedDomains, info.Email); err != nil {
 		return nil, err
