@@ -15,7 +15,7 @@ cross-platform artifact that `gestaltd` resolves at runtime.
 
 - [Getting Started](https://gestaltd.ai/getting-started): run Gestalt in five minutes
 - [Configuration](https://gestaltd.ai/configuration): config model, plugin setup, and auth
-- [Provider Development](https://gestaltd.ai/providers): writing plugins, auth backends, datastores, and secrets engines
+- [Provider Development](https://gestaltd.ai/providers): writing plugins, auth backends, File API backends, datastores, and secrets engines
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests): manifest format and schema
 - [Releasing](https://gestaltd.ai/providers/releasing): publishing provider packages
 
@@ -32,6 +32,7 @@ Reference providers in your Gestalt configuration by source and version. See the
 ```
 plugins/<name>/       Integration plugin packages (Go, Python)
 auth/<name>/          Authentication providers (Go)
+fileapi/<name>/       File API providers (Go)
 indexeddb/<name>/     Datastore providers (Go, Rust)
 secrets/<name>/       Secrets providers (Go)
 web/<name>/           Web UI bundles

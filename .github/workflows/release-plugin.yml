@@ -5,12 +5,16 @@ on:
     tags:
       - 'plugins/*/v*'
       - 'auth/*/v*'
+      - 'fileapi/*/v*'
       - 'indexeddb/*/v*'
       - 'secrets/*/v*'
       - 'web/*/v*'
 
 permissions:
   contents: write
+
+env:
+  FILEAPI_GESTALT_REF: codex/fileapi-provider
 
 jobs:
   prepare:
@@ -58,6 +62,9 @@ jobs:
           case "$PLUGIN_ROOT" in
             plugins|auth|indexeddb|secrets|web)
               GESTALT_REF="gestaltd/v0.0.1-alpha.7"
+              ;;
+            fileapi)
+              GESTALT_REF="${FILEAPI_GESTALT_REF}"
               ;;
             *)
               echo "ERROR: unsupported plugin root ${PLUGIN_ROOT}"

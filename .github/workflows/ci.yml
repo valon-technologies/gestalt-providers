@@ -7,6 +7,7 @@ on:
       - '.github/scripts/**'
       - 'plugins/**'
       - 'auth/**'
+      - 'fileapi/**'
       - 'indexeddb/**'
       - 'secrets/**'
       - 'web/**'
@@ -18,6 +19,7 @@ on:
       - '.github/scripts/**'
       - 'plugins/**'
       - 'auth/**'
+      - 'fileapi/**'
       - 'indexeddb/**'
       - 'secrets/**'
       - 'web/**'
@@ -29,6 +31,7 @@ env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
   LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.7
   PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.7
+  FILEAPI_GESTALT_REF: codex/fileapi-provider
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -62,16 +65,18 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "indexeddb", "secrets")
+          package_roots = ("plugins", "auth", "fileapi", "indexeddb", "secrets")
           gestalt_ref_by_root = {
               "plugins": os.environ["LEGACY_GESTALT_REF"],
               "auth": os.environ["PROVIDER_GESTALT_REF"],
+              "fileapi": os.environ["FILEAPI_GESTALT_REF"],
               "indexeddb": os.environ["PROVIDER_GESTALT_REF"],
               "secrets": os.environ["PROVIDER_GESTALT_REF"],
           }
           toolchain_by_root = {
               "plugins": "legacy",
               "auth": "provider",
+              "fileapi": "provider",
               "indexeddb": "provider",
               "secrets": "provider",
           }
