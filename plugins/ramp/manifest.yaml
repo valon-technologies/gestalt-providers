@@ -8,13 +8,14 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
-      connection: default
+      connection: OAuth
       document: https://docs.ramp.com/openapi/developer-api.json
     mcp:
       connection: MCP
       url: https://mcp.ramp.com/mcp
   connections:
-    default:
+    OAuth:
+      displayName: OAuth
       mode: user
       auth:
         type: oauth2
