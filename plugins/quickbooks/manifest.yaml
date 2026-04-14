@@ -3,12 +3,9 @@ version: 0.0.1-alpha.1
 displayName: QuickBooks Online
 description: Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.
 iconFile: assets/icon.svg
-plugin:
+kind: plugin
+spec:
   configSchemaPath: schemas/config.schema.yaml
-  managedParameters:
-  - in: query
-    name: minorversion
-    value: '75'
   surfaces:
     openapi:
       document: openapi.yaml
