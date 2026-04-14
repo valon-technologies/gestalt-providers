@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/granola
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Granola
 description: Read meeting notes, summaries, attendees, and transcripts from Granola.
 iconFile: assets/icon.svg
