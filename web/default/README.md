@@ -16,6 +16,9 @@ web:
 See [Getting Started](https://gestaltd.ai/getting-started) and
 [Configuration](https://gestaltd.ai/configuration).
 
+If you serve this static bundle behind a Content Security Policy, allow
+`data:` in `img-src` for provider icons.
+
 ## Build
 
 This package publishes the default Gestalt web UI as a `webui` bundle.
