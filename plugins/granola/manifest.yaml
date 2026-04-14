@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/granola
-version: 0.0.1-alpha.3
+version: 0.0.1-alpha.4
 displayName: Granola
 description: Read Granola meeting notes over REST and use the official Granola MCP server.
 iconFile: assets/icon.svg
