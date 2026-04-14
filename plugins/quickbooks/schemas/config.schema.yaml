@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: QuickBooks OAuth client ID.
+  clientSecret:
+    type: string
+    description: QuickBooks OAuth client secret.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false
