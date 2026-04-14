@@ -1,0 +1,6 @@
+source: github.com/valon-technologies/gestalt-providers/s3/s3
+version: 0.0.1-alpha.1
+displayName: S3
+description: S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends.
+kind: s3
+spec: {}

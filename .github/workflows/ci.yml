@@ -7,6 +7,7 @@ on:
       - '.github/scripts/**'
       - 'plugins/**'
       - 'auth/**'
+      - 's3/**'
       - 'indexeddb/**'
       - 'cache/**'
       - 'secrets/**'
@@ -19,6 +20,7 @@ on:
       - '.github/scripts/**'
       - 'plugins/**'
       - 'auth/**'
+      - 's3/**'
       - 'indexeddb/**'
       - 'cache/**'
       - 'secrets/**'
@@ -64,10 +66,11 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "indexeddb", "cache", "secrets")
+          package_roots = ("plugins", "auth", "s3", "indexeddb", "cache", "secrets")
           gestalt_ref_by_root = {
               "plugins": os.environ["LEGACY_GESTALT_REF"],
               "auth": os.environ["PROVIDER_GESTALT_REF"],
+              "s3": os.environ["PROVIDER_GESTALT_REF"],
               "indexeddb": os.environ["PROVIDER_GESTALT_REF"],
               "cache": os.environ["PROVIDER_GESTALT_REF"],
               "secrets": os.environ["PROVIDER_GESTALT_REF"],
@@ -75,6 +78,7 @@ jobs:
           toolchain_by_root = {
               "plugins": "legacy",
               "auth": "provider",
+              "s3": "provider",
               "indexeddb": "provider",
               "cache": "provider",
               "secrets": "provider",
@@ -277,8 +281,16 @@ jobs:
           mkdir -p "$OUTPUT_ROOT"
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
-            . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
-            . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
+            case "$plugin_dir" in
+              indexeddb/*)
+                . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
+                ;;
+            esac
+            case "$plugin_dir" in
+              cache/*)
+                . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
+                ;;
+            esac
             (cd "$plugin_dir" && go test ./...)
           fi
 
