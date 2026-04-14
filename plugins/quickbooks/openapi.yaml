@@ -1,0 +1,855 @@
+---
+openapi: 3.0.3
+info:
+  title: QuickBooks Online Accounting API
+  version: v3
+  description: >-
+    QuickBooks Online REST API for managing accounting data including customers,
+    invoices, bills, payments, accounts, and financial reports.
+  contact:
+    name: Intuit Developer
+    url: https://developer.intuit.com
+servers:
+- url: https://{host}/v3/company/{realm_id}
+  variables:
+    host:
+      default: quickbooks.api.intuit.com
+      description: API host (use sandbox-quickbooks.api.intuit.com for sandbox)
+    realm_id:
+      description: QuickBooks Company ID (Realm ID)
+      default: ''
+components:
+  schemas:
+    EntityRef:
+      type: object
+      description: 'Entity reference, e.g. {"value": "123"}'
+      properties:
+        value:
+          type: string
+  parameters:
+    OperationVoid:
+      name: operation
+      in: query
+      schema:
+        type: string
+        enum: [void]
+      description: Set to "void" to void instead of creating/updating
+paths:
+  # ── Company ───────────────────────────────────────────────
+  /preferences:
+    get:
+      operationId: get_preferences
+      summary: Get company preferences and configuration
+      responses:
+        '200':
+          description: Success
+  # ── Customers ─────────────────────────────────────────────
+  /customer/{customerId}:
+    get:
+      operationId: get_customer
+      summary: Get a customer by ID
+      parameters:
+      - name: customerId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /customer:
+    post:
+      operationId: save_customer
+      summary: Create or update a customer
+      description: >-
+        To create: omit Id. To update: include Id and SyncToken from a prior
+        read, and set sparse to true for a partial update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Customer ID (include for updates, omit for creates)
+                SyncToken:
+                  type: string
+                  description: Concurrency token from the last read (required for updates)
+                sparse:
+                  type: boolean
+                  description: Set to true for partial update (only sent fields are changed)
+                DisplayName:
+                  type: string
+                  description: Unique display name for the customer
+                CompanyName:
+                  type: string
+                PrimaryEmailAddr:
+                  type: object
+                  description: 'Email, e.g. {"Address": "user@example.com"}'
+                PrimaryPhone:
+                  type: object
+                  description: 'Phone, e.g. {"FreeFormNumber": "555-1234"}'
+                BillAddr:
+                  type: object
+                  description: Billing address
+                ShipAddr:
+                  type: object
+                  description: Shipping address
+                Notes:
+                  type: string
+                Active:
+                  type: boolean
+                  description: Set to false to deactivate
+      responses:
+        '200':
+          description: Success
+  # ── Invoices ──────────────────────────────────────────────
+  /invoice/{invoiceId}:
+    get:
+      operationId: get_invoice
+      summary: Get an invoice by ID
+      parameters:
+      - name: invoiceId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /invoice:
+    post:
+      operationId: save_invoice
+      summary: Create, update, or void an invoice
+      description: >-
+        To create: omit Id. To update: include Id and SyncToken, set sparse to
+        true for partial update. To void: include Id and SyncToken, and pass
+        operation=void as a query parameter.
+      parameters:
+      - $ref: '#/components/parameters/OperationVoid'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Invoice ID (include for updates/voids, omit for creates)
+                SyncToken:
+                  type: string
+                  description: Concurrency token from the last read (required for updates/voids)
+                sparse:
+                  type: boolean
+                  description: Set to true for partial update
+                CustomerRef:
+                  $ref: '#/components/schemas/EntityRef'
+                Line:
+                  type: array
+                  description: Invoice line items
+                  items:
+                    type: object
+                DueDate:
+                  type: string
+                  description: Due date (YYYY-MM-DD)
+                DocNumber:
+                  type: string
+                  description: Reference number
+                BillEmail:
+                  type: object
+                  description: 'Recipient email, e.g. {"Address": "user@example.com"}'
+                SalesTermRef:
+                  $ref: '#/components/schemas/EntityRef'
+                TxnDate:
+                  type: string
+                  description: Transaction date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Success
+  /invoice/{invoiceId}/send:
+    post:
+      operationId: send_invoice
+      summary: Email an invoice to the customer
+      parameters:
+      - name: invoiceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sendTo
+        in: query
+        schema:
+          type: string
+        description: Override recipient email address
+
+      responses:
+        '200':
+          description: Success
+  # ── Payments ──────────────────────────────────────────────
+  /payment/{paymentId}:
+    get:
+      operationId: get_payment
+      summary: Get a payment by ID
+      parameters:
+      - name: paymentId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /payment:
+    post:
+      operationId: save_payment
+      summary: Record a customer payment or void an existing one
+      description: >-
+        To create: include CustomerRef and TotalAmt. To void: include Id and
+        SyncToken, and pass operation=void as a query parameter.
+      parameters:
+      - $ref: '#/components/parameters/OperationVoid'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Payment ID (required for voids)
+                SyncToken:
+                  type: string
+                  description: Concurrency token (required for voids)
+                CustomerRef:
+                  $ref: '#/components/schemas/EntityRef'
+                TotalAmt:
+                  type: number
+                  description: Total payment amount
+                Line:
+                  type: array
+                  description: Payment line items linking to invoices
+                  items:
+                    type: object
+                PaymentMethodRef:
+                  $ref: '#/components/schemas/EntityRef'
+                DepositToAccountRef:
+                  $ref: '#/components/schemas/EntityRef'
+                TxnDate:
+                  type: string
+                  description: Payment date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Success
+  # ── Bills ─────────────────────────────────────────────────
+  /bill/{billId}:
+    get:
+      operationId: get_bill
+      summary: Get a bill by ID
+      parameters:
+      - name: billId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /bill:
+    post:
+      operationId: save_bill
+      summary: Create or update a bill (accounts payable)
+      description: >-
+        To create: omit Id. To update: include Id and SyncToken, set sparse to
+        true for partial update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Bill ID (include for updates, omit for creates)
+                SyncToken:
+                  type: string
+                  description: Concurrency token (required for updates)
+                sparse:
+                  type: boolean
+                  description: Set to true for partial update
+                VendorRef:
+                  $ref: '#/components/schemas/EntityRef'
+                Line:
+                  type: array
+                  description: Bill line items
+                  items:
+                    type: object
+                DueDate:
+                  type: string
+                  description: Due date (YYYY-MM-DD)
+                TxnDate:
+                  type: string
+                  description: Transaction date (YYYY-MM-DD)
+                DocNumber:
+                  type: string
+      responses:
+        '200':
+          description: Success
+  # ── Bill Payments ─────────────────────────────────────────
+  /billpayment/{billPaymentId}:
+    get:
+      operationId: get_bill_payment
+      summary: Get a bill payment by ID
+      parameters:
+      - name: billPaymentId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /billpayment:
+    post:
+      operationId: create_bill_payment
+      summary: Record a payment made to a vendor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [VendorRef, TotalAmt, PayType, Line]
+              properties:
+                VendorRef:
+                  $ref: '#/components/schemas/EntityRef'
+                TotalAmt:
+                  type: number
+                  description: Total payment amount
+                PayType:
+                  type: string
+                  description: Payment type
+                  enum: [Check, CreditCard]
+                Line:
+                  type: array
+                  description: Line items linking to bills
+                  items:
+                    type: object
+                CheckPayment:
+                  type: object
+                  description: Check details (required when PayType is Check)
+                CreditCardPayment:
+                  type: object
+                  description: Credit card details (required when PayType is CreditCard)
+      responses:
+        '200':
+          description: Success
+  # ── Vendors ───────────────────────────────────────────────
+  /vendor/{vendorId}:
+    get:
+      operationId: get_vendor
+      summary: Get a vendor by ID
+      parameters:
+      - name: vendorId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /vendor:
+    post:
+      operationId: save_vendor
+      summary: Create or update a vendor
+      description: >-
+        To create: omit Id. To update: include Id and SyncToken, set sparse to
+        true for partial update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Vendor ID (include for updates, omit for creates)
+                SyncToken:
+                  type: string
+                  description: Concurrency token (required for updates)
+                sparse:
+                  type: boolean
+                  description: Set to true for partial update
+                DisplayName:
+                  type: string
+                  description: Unique display name
+                CompanyName:
+                  type: string
+                PrimaryEmailAddr:
+                  type: object
+                  description: 'Email, e.g. {"Address": "user@example.com"}'
+                PrimaryPhone:
+                  type: object
+                  description: 'Phone, e.g. {"FreeFormNumber": "555-1234"}'
+                BillAddr:
+                  type: object
+                  description: Billing address
+                Active:
+                  type: boolean
+                  description: Set to false to deactivate
+      responses:
+        '200':
+          description: Success
+  # ── Accounts ──────────────────────────────────────────────
+  /account/{accountId}:
+    get:
+      operationId: get_account
+      summary: Get a chart of accounts entry by ID
+      parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /account:
+    post:
+      operationId: create_account
+      summary: Create a new account in the chart of accounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [Name, AccountType]
+              properties:
+                Name:
+                  type: string
+                  description: Account name
+                AccountType:
+                  type: string
+                  description: 'Bank, Accounts Receivable, Other Current Asset, Fixed Asset, Accounts Payable, Credit Card, Other Current Liability, Long Term Liability, Equity, Income, Cost of Goods Sold, Expense, Other Income, Other Expense'
+                AccountSubType:
+                  type: string
+                  description: Sub-type for further classification
+                Description:
+                  type: string
+      responses:
+        '200':
+          description: Success
+  # ── Items ─────────────────────────────────────────────────
+  /item/{itemId}:
+    get:
+      operationId: get_item
+      summary: Get an item (product or service) by ID
+      parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /item:
+    post:
+      operationId: save_item
+      summary: Create or update an item (product or service)
+      description: >-
+        To create: omit Id. To update: include Id and SyncToken, set sparse to
+        true for partial update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Item ID (include for updates, omit for creates)
+                SyncToken:
+                  type: string
+                  description: Concurrency token (required for updates)
+                sparse:
+                  type: boolean
+                  description: Set to true for partial update
+                Name:
+                  type: string
+                  description: Item name
+                Type:
+                  type: string
+                  description: Item type
+                  enum: [Inventory, NonInventory, Service, Group, Category]
+                IncomeAccountRef:
+                  $ref: '#/components/schemas/EntityRef'
+                ExpenseAccountRef:
+                  $ref: '#/components/schemas/EntityRef'
+                UnitPrice:
+                  type: number
+                  description: Sales price per unit
+                PurchaseCost:
+                  type: number
+                  description: Purchase cost per unit
+                Description:
+                  type: string
+                Active:
+                  type: boolean
+                  description: Set to false to deactivate
+      responses:
+        '200':
+          description: Success
+  # ── Estimates ─────────────────────────────────────────────
+  /estimate/{estimateId}:
+    get:
+      operationId: get_estimate
+      summary: Get an estimate by ID
+      parameters:
+      - name: estimateId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /estimate:
+    post:
+      operationId: save_estimate
+      summary: Create or update an estimate
+      description: >-
+        To create: omit Id. To update: include Id and SyncToken, set sparse to
+        true for partial update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Id:
+                  type: string
+                  description: Estimate ID (include for updates, omit for creates)
+                SyncToken:
+                  type: string
+                  description: Concurrency token (required for updates)
+                sparse:
+                  type: boolean
+                  description: Set to true for partial update
+                CustomerRef:
+                  $ref: '#/components/schemas/EntityRef'
+                Line:
+                  type: array
+                  description: Estimate line items
+                  items:
+                    type: object
+                TxnDate:
+                  type: string
+                  description: Transaction date (YYYY-MM-DD)
+                ExpirationDate:
+                  type: string
+                  description: Expiration date (YYYY-MM-DD)
+                DocNumber:
+                  type: string
+      responses:
+        '200':
+          description: Success
+  # ── Credit Memos ──────────────────────────────────────────
+  /creditmemo/{creditMemoId}:
+    get:
+      operationId: get_credit_memo
+      summary: Get a credit memo by ID
+      parameters:
+      - name: creditMemoId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /creditmemo:
+    post:
+      operationId: create_credit_memo
+      summary: Create a credit memo for a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [CustomerRef, Line]
+              properties:
+                CustomerRef:
+                  $ref: '#/components/schemas/EntityRef'
+                Line:
+                  type: array
+                  description: Credit memo line items
+                  items:
+                    type: object
+                TxnDate:
+                  type: string
+                  description: Transaction date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Success
+  # ── Journal Entries ───────────────────────────────────────
+  /journalentry/{journalEntryId}:
+    get:
+      operationId: get_journal_entry
+      summary: Get a journal entry by ID
+      parameters:
+      - name: journalEntryId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /journalentry:
+    post:
+      operationId: create_journal_entry
+      summary: Create a manual journal entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [Line]
+              properties:
+                Line:
+                  type: array
+                  description: Journal entry lines (must include both debit and credit entries)
+                  items:
+                    type: object
+                TxnDate:
+                  type: string
+                  description: Transaction date (YYYY-MM-DD)
+                DocNumber:
+                  type: string
+      responses:
+        '200':
+          description: Success
+  # ── Deposits ──────────────────────────────────────────────
+  /deposit/{depositId}:
+    get:
+      operationId: get_deposit
+      summary: Get a deposit by ID
+      parameters:
+      - name: depositId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /deposit:
+    post:
+      operationId: create_deposit
+      summary: Create a bank deposit grouping payments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [DepositToAccountRef, Line]
+              properties:
+                DepositToAccountRef:
+                  $ref: '#/components/schemas/EntityRef'
+                Line:
+                  type: array
+                  description: Deposit line items
+                  items:
+                    type: object
+                TxnDate:
+                  type: string
+                  description: Deposit date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Success
+  # ── Employees ─────────────────────────────────────────────
+  /employee/{employeeId}:
+    get:
+      operationId: get_employee
+      summary: Get an employee by ID
+      parameters:
+      - name: employeeId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  # ── Purchase Orders ───────────────────────────────────────
+  /purchaseorder/{purchaseOrderId}:
+    get:
+      operationId: get_purchase_order
+      summary: Get a purchase order by ID
+      parameters:
+      - name: purchaseOrderId
+        in: path
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: Success
+  /purchaseorder:
+    post:
+      operationId: create_purchase_order
+      summary: Create a new purchase order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [VendorRef, Line]
+              properties:
+                VendorRef:
+                  $ref: '#/components/schemas/EntityRef'
+                Line:
+                  type: array
+                  description: Purchase order line items
+                  items:
+                    type: object
+                APAccountRef:
+                  $ref: '#/components/schemas/EntityRef'
+                TxnDate:
+                  type: string
+                  description: Transaction date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Success
+  # ── Query ─────────────────────────────────────────────────
+  /query:
+    get:
+      operationId: query
+      summary: Run a SQL-like query against any QuickBooks entity
+      description: >-
+        Accepts SQL-like syntax to query any entity type. Example: SELECT * FROM
+        Invoice WHERE TotalAmt > 1000 ORDERBY TxnDate DESC MAXRESULTS 10
+      parameters:
+      - name: query
+        in: query
+        required: true
+        schema:
+          type: string
+        description: 'SQL-like query, e.g. SELECT * FROM Customer WHERE Active = true'
+
+      responses:
+        '200':
+          description: Success
+  # ── Reports ───────────────────────────────────────────────
+  /reports/ProfitAndLoss:
+    get:
+      operationId: profit_and_loss
+      summary: Generate a Profit and Loss (income statement) report
+      parameters:
+      - name: start_date
+        in: query
+        schema:
+          type: string
+        description: Start date (YYYY-MM-DD)
+      - name: end_date
+        in: query
+        schema:
+          type: string
+        description: End date (YYYY-MM-DD)
+      - name: accounting_method
+        in: query
+        schema:
+          type: string
+          enum: [Cash, Accrual]
+      - name: summarize_column_by
+        in: query
+        schema:
+          type: string
+          enum: [Total, Month, Week, Days, Quarter, Year]
+      - name: customer
+        in: query
+        schema:
+          type: string
+        description: Filter by customer ID
+      - name: department
+        in: query
+        schema:
+          type: string
+        description: Filter by department ID
+      - name: class
+        in: query
+        schema:
+          type: string
+        description: Filter by class ID
+
+      responses:
+        '200':
+          description: Success
+  /reports/BalanceSheet:
+    get:
+      operationId: balance_sheet
+      summary: Generate a Balance Sheet report
+      parameters:
+      - name: start_date
+        in: query
+        schema:
+          type: string
+        description: Start date (YYYY-MM-DD)
+      - name: end_date
+        in: query
+        schema:
+          type: string
+        description: End date (YYYY-MM-DD)
+      - name: accounting_method
+        in: query
+        schema:
+          type: string
+          enum: [Cash, Accrual]
+      - name: summarize_column_by
+        in: query
+        schema:
+          type: string
+          enum: [Total, Month, Week, Days, Quarter, Year]
+      - name: department
+        in: query
+        schema:
+          type: string
+        description: Filter by department ID
+      - name: class
+        in: query
+        schema:
+          type: string
+        description: Filter by class ID
+
+      responses:
+        '200':
+          description: Success

@@ -1,0 +1,30 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/quickbooks
+version: 0.0.1-alpha.1
+displayName: QuickBooks Online
+description: Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: openapi.yaml
+      connection: default
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://appcenter.intuit.com/connect/oauth2
+        tokenUrl: https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
+        clientAuth: header
+        scopes:
+        - com.intuit.quickbooks.accounting
+        authorizationParams:
+          prompt: consent
+      params:
+        host:
+          required: false
+          description: API host. Use sandbox-quickbooks.api.intuit.com for sandbox companies.
+        realm_id:
+          required: true
+          description: QuickBooks Company ID (Realm ID). Found in your QuickBooks URL after /app/ or returned during OAuth authorization.
