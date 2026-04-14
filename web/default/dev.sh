@@ -86,18 +86,23 @@ if [[ -z "$CONFIG" && "$API_PORT" != "8080" ]]; then
     fi
     CONFIG="$DEV_STATE_DIR/config.yaml"
     cat > "$CONFIG" <<EOF
-datastore:
-  provider:
-    source:
-      path: "$PROVIDERS_DIR/datastore/sqlite"
-  config:
-    path: "$DEV_STATE_DIR/gestalt.db"
-secrets:
-  provider: env
 server:
   public:
     port: $API_PORT
-  encryption_key: "$(cat "$KEY_FILE")"
+  encryptionKey: "$(cat "$KEY_FILE")"
+  providers:
+    secrets: secrets
+    indexeddb: main
+providers:
+  secrets:
+    secrets:
+      source: env
+  indexeddb:
+    main:
+      source:
+        path: "$PROVIDERS_DIR/indexeddb/relationaldb/manifest.yaml"
+      config:
+        dsn: "sqlite://$DEV_STATE_DIR/gestalt.db"
 EOF
 fi
 
