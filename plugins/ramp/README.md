@@ -18,11 +18,15 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built on the Ramp Developer API OpenAPI specification.
-Exposes operations for managing corporate cards, transactions, users,
-departments, reimbursements, receipts, limits, and spend programs.
+Declarative provider with both an OpenAPI surface and an
+[MCP](https://modelcontextprotocol.io/) surface. The OpenAPI surface exposes
+Ramp Developer API operations for managing corporate cards, transactions,
+users, departments, reimbursements, receipts, limits, and spend programs. The
+MCP surface is configured as a passthrough to Ramp's hosted MCP server at
+`https://mcp.ramp.com/mcp`.
 
-Authenticates with Ramp OAuth 2.0.
+The OpenAPI surface authenticates with Ramp OAuth 2.0. The MCP surface is
+exposed as a passive passthrough connection.
 
 ## Documentation
 

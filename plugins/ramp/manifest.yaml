@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/ramp
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Ramp
 description: Manage corporate cards, transactions, and reimbursements.
 iconFile: assets/icon.svg
@@ -8,9 +8,15 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: oauth
       document: https://docs.ramp.com/openapi/developer-api.json
+    mcp:
+      connection: mcp
+      url: https://mcp.ramp.com/mcp
   connections:
-    default:
+    oauth:
+      displayName: OAuth
+      mode: user
       auth:
         type: oauth2
         authorizationUrl: https://app.ramp.com/v1/authorize
@@ -28,3 +34,8 @@ spec:
         - limits:read
         - spend_programs:read
         - spend_programs:write
+    mcp:
+      displayName: MCP
+      mode: user
+      auth:
+        type: none
