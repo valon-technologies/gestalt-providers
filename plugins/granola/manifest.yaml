@@ -1,0 +1,51 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/granola
+version: 0.0.1-alpha.1
+displayName: Granola
+description: Read meeting notes, summaries, attendees, and transcripts from Granola.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  allowedOperations:
+    list_notes:
+      alias: listNotes
+      paginate: true
+    get_note:
+      alias: getNote
+  responseMapping:
+    pagination:
+      hasMore:
+        source: body
+        path: hasMore
+      cursor:
+        source: body
+        path: cursor
+  connections:
+    default:
+      mode: user
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: Granola API Key
+          description: For user-scoped access, personal keys only expose notes the key owner can access. Create a key in the Granola desktop app under Settings > API.
+    identity:
+      mode: identity
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: Granola Enterprise API Key
+          description: Use an enterprise admin key for shared deployments that need Team-space coverage. Create it in the Granola desktop app under Settings > API.
+  pagination:
+    style: cursor
+    cursorParam: cursor
+    cursor:
+      source: body
+      path: cursor
+    limitParam: page_size
+    defaultLimit: 10
+    resultsPath: notes

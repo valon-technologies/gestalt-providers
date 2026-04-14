@@ -1,0 +1,337 @@
+openapi: 3.0.3
+info:
+  title: Granola API
+  version: 1.0.0
+  description: Public Granola API for meeting notes, summaries, and transcripts.
+servers:
+  - url: https://public-api.granola.ai
+security:
+  - bearerAuth: []
+paths:
+  /v1/notes:
+    get:
+      operationId: list_notes
+      summary: List notes
+      description: List all accessible meeting notes with optional date filters and cursor pagination.
+      tags:
+        - Notes
+      parameters:
+        - $ref: '#/components/parameters/CreatedBefore'
+        - $ref: '#/components/parameters/CreatedAfter'
+        - $ref: '#/components/parameters/UpdatedAfter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of notes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListNotesResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/ErrorResponse'
+  /v1/notes/{note_id}:
+    get:
+      operationId: get_note
+      summary: Get note
+      description: Retrieve a single note, optionally including its transcript.
+      tags:
+        - Notes
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+        - $ref: '#/components/parameters/IncludeTranscript'
+      responses:
+        '200':
+          description: The requested note.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    CreatedBefore:
+      name: created_before
+      in: query
+      description: Return notes created before this date or timestamp.
+      schema:
+        $ref: '#/components/schemas/DateOrDateTime'
+    CreatedAfter:
+      name: created_after
+      in: query
+      description: Return notes created after this date or timestamp.
+      schema:
+        $ref: '#/components/schemas/DateOrDateTime'
+    UpdatedAfter:
+      name: updated_after
+      in: query
+      description: Return notes updated after this date or timestamp.
+      schema:
+        $ref: '#/components/schemas/DateOrDateTime'
+    Cursor:
+      name: cursor
+      in: query
+      description: Cursor returned from a previous list call.
+      schema:
+        type: string
+    PageSize:
+      name: page_size
+      in: query
+      description: Maximum number of notes to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 30
+        default: 10
+    NoteId:
+      name: note_id
+      in: path
+      required: true
+      description: The note identifier.
+      schema:
+        $ref: '#/components/schemas/NoteId'
+    IncludeTranscript:
+      name: include
+      in: query
+      description: Include the transcript in the response.
+      schema:
+        type: string
+        enum:
+          - transcript
+  responses:
+    ErrorResponse:
+      description: Error response from Granola.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    DateOrDateTime:
+      oneOf:
+        - type: string
+          format: date
+        - type: string
+          format: date-time
+    NoteId:
+      type: string
+      pattern: '^not_[a-zA-Z0-9]{14}$'
+      example: not_1d3tmYTlCICgjy
+    FolderId:
+      type: string
+      pattern: '^fol_[a-zA-Z0-9]{14}$'
+      example: fol_4y6LduVdwSKC27
+    NoteListItem:
+      type: object
+      description: Summary note object returned from list notes.
+      additionalProperties: true
+      properties:
+        id:
+          $ref: '#/components/schemas/NoteId'
+        object:
+          type: string
+          example: note
+        title:
+          type: string
+          nullable: true
+        owner:
+          $ref: '#/components/schemas/Person'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - object
+        - title
+        - owner
+        - created_at
+        - updated_at
+    ListNotesResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NoteListItem'
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page. Granola may omit this on the terminal page.
+      required:
+        - notes
+        - hasMore
+    Person:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+      required:
+        - name
+        - email
+    Invitee:
+      type: object
+      additionalProperties: true
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+      required:
+        - email
+    Folder:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          $ref: '#/components/schemas/FolderId'
+        object:
+          type: string
+          example: folder
+        name:
+          type: string
+      required:
+        - id
+        - object
+        - name
+    CalendarEvent:
+      type: object
+      nullable: true
+      additionalProperties: true
+      properties:
+        event_title:
+          type: string
+          nullable: true
+        invitees:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invitee'
+        organiser:
+          type: string
+          format: email
+          nullable: true
+        calendar_event_id:
+          type: string
+          nullable: true
+        scheduled_start_time:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_end_time:
+          type: string
+          format: date-time
+          nullable: true
+    Speaker:
+      type: object
+      additionalProperties: true
+      properties:
+        source:
+          type: string
+          description: Audio source for the transcript segment.
+        diarization_label:
+          type: string
+          nullable: true
+          description: Anonymous speaker label when Granola provides diarization.
+    TranscriptEntry:
+      type: object
+      additionalProperties: true
+      properties:
+        speaker:
+          $ref: '#/components/schemas/Speaker'
+        text:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - speaker
+        - text
+    Note:
+      type: object
+      description: Full Granola note payload.
+      additionalProperties: true
+      properties:
+        id:
+          $ref: '#/components/schemas/NoteId'
+        object:
+          type: string
+          example: note
+        title:
+          type: string
+          nullable: true
+        owner:
+          $ref: '#/components/schemas/Person'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        calendar_event:
+          $ref: '#/components/schemas/CalendarEvent'
+        attendees:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        folder_membership:
+          type: array
+          items:
+            $ref: '#/components/schemas/Folder'
+        summary_text:
+          type: string
+        summary_markdown:
+          type: string
+          nullable: true
+        transcript:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/TranscriptEntry'
+      required:
+        - id
+        - object
+        - title
+        - owner
+        - created_at
+        - updated_at
+        - calendar_event
+        - attendees
+        - folder_membership
+        - summary_text
+        - summary_markdown
+        - transcript
+    Error:
+      type: object
+      description: Granola error payload. Exact fields may vary by endpoint.
+      additionalProperties: true
+      properties:
+        error:
+          type: string
+        message:
+          type: string
