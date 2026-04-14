@@ -10,7 +10,7 @@ Reference this provider in your Gestalt configuration:
 providers:
   fileapis:
     s3:
-      source: github.com/valon-technologies/gestalt-providers/fileapi/s3
+      source: github.com/valon-technologies/gestalt-providers/files/s3
       version: ...
       config:
         bucket: my-gestalt-files

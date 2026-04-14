@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-providers/fileapi/s3
+module github.com/valon-technologies/gestalt-providers/files/s3
 
 go 1.26
 
