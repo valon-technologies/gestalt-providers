@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/slack
 version: 0.0.1-alpha.1
 displayName: Slack
-description: Send messages, search conversations, and manage channels.
+description: Read public and private conversations, DMs, and group DMs; send messages; and manage channels.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
