@@ -33,6 +33,7 @@ Reference providers in your Gestalt configuration by source and version. See the
 plugins/<name>/       Integration plugin packages (Go, Python)
 auth/<name>/          Authentication providers (Go)
 indexeddb/<name>/     Datastore providers (Go, Rust)
+cache/<name>/         Cache providers (Go)
 secrets/<name>/       Secrets providers (Go)
 web/<name>/           Web UI bundles
 ```

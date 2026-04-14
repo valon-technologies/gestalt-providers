@@ -126,7 +126,10 @@ jobs:
       # -- Tests (amd64 only) --
       - name: Test Go plugin
         if: steps.detect.outputs.has-go == 'true'
-        run: cd "${{ inputs.plugin-dir }}" && go test ./...
+        run: |
+          . .github/scripts/setup_go_indexeddb_test_env.sh "${{ inputs.plugin-dir }}"
+          . .github/scripts/setup_go_cache_test_env.sh "${{ inputs.plugin-dir }}"
+          cd "${{ inputs.plugin-dir }}" && go test ./...
       - name: Test Rust plugin
         if: steps.detect.outputs.has-rust == 'true'
         run: |
