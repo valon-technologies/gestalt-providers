@@ -51,10 +51,16 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		return fmt.Errorf("mongodb datastore: ping: %w", err)
 	}
 
+	store := NewStore(client, client.Database(cfg.Database))
+	if err := store.loadSchemas(ctx); err != nil {
+		_ = store.Close()
+		return fmt.Errorf("mongodb datastore: load schemas: %w", err)
+	}
+
 	if p.store != nil {
 		_ = p.store.Close()
 	}
-	p.store = NewStore(client, client.Database(cfg.Database))
+	p.store = store
 	return nil
 }
 
@@ -88,6 +94,6 @@ var _ gestalt.Closer = (*Provider)(nil)
 // delegate to the store without repeating the configured() boilerplate 18
 // times. It is wired up via the embed in provider_indexeddb.go.
 
-func idFilter(id string) bson.D {
+func idFilter(id any) bson.D {
 	return bson.D{{Key: "_id", Value: id}}
 }

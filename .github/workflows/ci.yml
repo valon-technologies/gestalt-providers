@@ -27,8 +27,8 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.6
-  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.6
+  LEGACY_GESTALT_REF: gestaltd/v0.0.1-alpha.7
+  PROVIDER_GESTALT_REF: gestaltd/v0.0.1-alpha.7
   VALIDATION_VERSION: 0.0.1-alpha.1
   GOPRIVATE: github.com/valon-technologies/*
   GONOSUMDB: github.com/valon-technologies/*
@@ -116,6 +116,9 @@ jobs:
                       run_all = True
                       break
                   parts = Path(path).parts
+                  if len(parts) >= 2 and parts[0] == "indexeddb" and parts[1] == "contracttest":
+                      run_all = True
+                      break
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
                       if (repo / package_dir / "manifest.yaml").is_file():
@@ -164,9 +167,9 @@ jobs:
       matrix:
         toolchain:
           - name: legacy
-            gestalt_ref: gestaltd/v0.0.1-alpha.6
+            gestalt_ref: gestaltd/v0.0.1-alpha.7
           - name: provider
-            gestalt_ref: gestaltd/v0.0.1-alpha.6
+            gestalt_ref: gestaltd/v0.0.1-alpha.7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -256,6 +259,7 @@ jobs:
           mkdir -p "$OUTPUT_ROOT"
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
+            . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
             (cd "$plugin_dir" && go test ./...)
           fi
 
@@ -355,11 +359,32 @@ jobs:
           # Build gestaltd
           mkdir -p "${GITHUB_WORKSPACE}/../bin"
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
+
+          cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
+          server:
+            public:
+              port: 8080
+            encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            indexeddb: main
+          providers:
+            indexeddbs:
+              main:
+                source:
+                  path: "${GITHUB_WORKSPACE}/indexeddb/relationaldb/manifest.yaml"
+                config:
+                  dsn: "sqlite://${RUNNER_TEMP}/gestalt-web-e2e.db"
+            ui:
+              default:
+                path: /
+                source:
+                  path: "${GITHUB_WORKSPACE}/web/default/manifest.yaml"
+            secrets:
+              source: env
+          EOF
+          echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
-        env:
-          GESTALT_PROVIDERS_DIR: ${{ github.workspace }}
         run: |
-          ${GITHUB_WORKSPACE}/../bin/gestaltd >/tmp/gestaltd.log 2>&1 &
+          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
           for i in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5

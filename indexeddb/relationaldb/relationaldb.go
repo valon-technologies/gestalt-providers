@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -376,9 +377,13 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 		return nil, err
 	}
 	record := req.GetRecord()
-	id, err := extractID(record, m.pkCol)
+	id, err := extractPrimaryKeyValue(record, m.pkCol)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "record id: %v", err)
+	}
+	idArg, err := anyToSQLArg(id, columnType(m, m.pkCol))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "marshal record id: %v", err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -387,7 +392,7 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), id); err != nil {
+	if _, err := tx.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), idArg); err != nil {
 		return nil, status.Errorf(codes.Internal, "put delete: %v", err)
 	}
 	args, err := recordToArgs(record, m.columns)
@@ -408,10 +413,21 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emp
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.db.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), req.Id); err != nil {
-		return nil, mapSQLErr("delete", err)
+	if err := s.deleteByPrimaryKeyValue(ctx, m, req.Id); err != nil {
+		return nil, err
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (s *Store) deleteByPrimaryKeyValue(ctx context.Context, m *storeMeta, value any) error {
+	arg, err := anyToSQLArg(value, columnType(m, m.pkCol))
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "marshal primary key: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), arg); err != nil {
+		return mapSQLErr("delete", err)
+	}
+	return nil
 }
 
 // ---- Bulk operations ----
@@ -509,118 +525,161 @@ func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequ
 // ---- Index queries ----
 
 func (s *Store) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
-	m, err := s.getMeta(req.Store)
+	_, entries, err := s.queryIndexEntries(ctx, req, false)
 	if err != nil {
 		return nil, err
 	}
-	query, args, err := indexSelectQuery(s.dialect, m, req, true, colList(s.dialect, m.columns))
-	if err != nil {
-		return nil, err
+	if len(entries) == 0 {
+		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	row := s.db.QueryRowContext(ctx, s.q(query), args...)
-	record, err := scanRow(row, m.columns)
-	if err != nil {
-		return nil, mapSQLErr("index_get", err)
-	}
-	return &proto.RecordResponse{Record: record}, nil
+	return &proto.RecordResponse{Record: entries[0].record}, nil
 }
 
 func (s *Store) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
-	m, err := s.getMeta(req.Store)
+	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
 		return nil, err
 	}
-	query, args, err := indexSelectQuery(s.dialect, m, req, true, quoteIdent(s.dialect, m.pkCol))
-	if err != nil {
-		return nil, err
+	if len(entries) == 0 {
+		return nil, status.Error(codes.NotFound, "key not found")
 	}
-	var key string
-	if err := s.db.QueryRowContext(ctx, s.q(query), args...).Scan(&key); err != nil {
-		return nil, mapSQLErr("index_get_key", err)
-	}
-	return &proto.KeyResponse{Key: key}, nil
+	return &proto.KeyResponse{Key: entries[0].primaryKey}, nil
 }
 
 func (s *Store) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
-	m, err := s.getMeta(req.Store)
+	_, entries, err := s.queryIndexEntries(ctx, req, false)
 	if err != nil {
 		return nil, err
 	}
-	query, args, err := indexSelectQuery(s.dialect, m, req, false, colList(s.dialect, m.columns))
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index_get_all: %v", err)
-	}
-	defer rows.Close()
-	records, err := scanRows(rows, m.columns)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index_get_all scan: %v", err)
+	records := make([]*proto.Record, 0, len(entries))
+	for _, entry := range entries {
+		records = append(records, entry.record)
 	}
 	return &proto.RecordsResponse{Records: records}, nil
 }
 
 func (s *Store) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
-	m, err := s.getMeta(req.Store)
+	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
 		return nil, err
 	}
-	query, args, err := indexSelectQuery(s.dialect, m, req, false, quoteIdent(s.dialect, m.pkCol))
-	if err != nil {
-		return nil, err
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		keys = append(keys, entry.primaryKey)
 	}
-	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index_get_all_keys: %v", err)
-	}
-	defer rows.Close()
-	var keys []string
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, status.Errorf(codes.Internal, "index_get_all_keys scan: %v", err)
-		}
-		keys = append(keys, k)
-	}
-	return &proto.KeysResponse{Keys: keys}, rows.Err()
+	return &proto.KeysResponse{Keys: keys}, nil
 }
 
 func (s *Store) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
-	m, err := s.getMeta(req.Store)
+	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
 		return nil, err
 	}
-	query, args, err := indexCountQuery(s.dialect, m, req)
-	if err != nil {
-		return nil, err
-	}
-	var count int64
-	if err := s.db.QueryRowContext(ctx, s.q(query), args...).Scan(&count); err != nil {
-		return nil, status.Errorf(codes.Internal, "index_count: %v", err)
-	}
-	return &proto.CountResponse{Count: count}, nil
+	return &proto.CountResponse{Count: int64(len(entries))}, nil
 }
 
 func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
 		return nil, err
 	}
-	query, args, err := indexDeleteQuery(s.dialect, m, req)
-	if err != nil {
-		return nil, err
+	var deleted int64
+	for _, entry := range entries {
+		if err := s.deleteByPrimaryKeyValue(ctx, m, entry.primaryKeyValue); err != nil {
+			return nil, status.Errorf(codes.Internal, "index_delete: %v", err)
+		}
+		deleted++
 	}
-	result, err := s.db.ExecContext(ctx, s.q(query), args...)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index_delete: %v", err)
-	}
-	n, _ := result.RowsAffected()
-	return &proto.DeleteResponse{Deleted: n}, nil
+	return &proto.DeleteResponse{Deleted: deleted}, nil
 }
 
 // ---- Query builders for range and index operations ----
+
+func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest, keyOnly bool) (*storeMeta, []cursorEntry, error) {
+	m, err := s.getMeta(req.Store)
+	if err != nil {
+		return nil, nil, err
+	}
+	idx := findIndex(m, req.Index)
+	if idx == nil {
+		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
+	}
+	cols := m.columns
+	if keyOnly {
+		cols = indexQueryColumns(m, idx)
+	}
+
+	query, args, err := indexSelectQuery(s.dialect, m, req, false, colList(s.dialect, cols))
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+	if err != nil {
+		return nil, nil, status.Errorf(codes.Internal, "index_query: %v", err)
+	}
+	defer rows.Close()
+
+	records, err := scanRows(rows, cols)
+	if err != nil {
+		return nil, nil, status.Errorf(codes.Internal, "index_query scan: %v", err)
+	}
+
+	rangeCursor := &relationalCursor{meta: m, index: idx, indexCursor: true}
+	entries := make([]cursorEntry, 0, len(records))
+	for _, record := range records {
+		entry, err := rangeCursor.entryFromRecord(record)
+		if err != nil {
+			return nil, nil, status.Errorf(codes.Internal, "index_query decode: %v", err)
+		}
+		entries = append(entries, entry)
+	}
+
+	entries, err = rangeCursor.applyRange(entries, req.GetRange())
+	if err != nil {
+		return nil, nil, err
+	}
+	sortCursorEntries(entries)
+	return m, entries, nil
+}
+
+func indexQueryColumns(m *storeMeta, idx *proto.IndexSchema) []*proto.ColumnDef {
+	if m == nil || idx == nil {
+		return []*proto.ColumnDef{}
+	}
+
+	seen := map[string]struct{}{m.pkCol: {}}
+	cols := []*proto.ColumnDef{findColumn(m, m.pkCol)}
+	for _, field := range idx.KeyPath {
+		if _, ok := seen[field]; ok {
+			continue
+		}
+		col := findColumn(m, field)
+		if col == nil {
+			continue
+		}
+		seen[field] = struct{}{}
+		cols = append(cols, col)
+	}
+	return cols
+}
+
+func findColumn(m *storeMeta, name string) *proto.ColumnDef {
+	for _, col := range m.columns {
+		if col.Name == name {
+			return col
+		}
+	}
+	return nil
+}
+
+func sortCursorEntries(entries []cursorEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if cmp := compareCursorValue(entries[i].key, entries[j].key); cmp != 0 {
+			return cmp < 0
+		}
+		return compareCursorValue(entries[i].primaryKeyValue, entries[j].primaryKeyValue) < 0
+	})
+}
 
 func selectAllWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
 	where, args, err := keyRangeWhere(d, m, kr)
@@ -687,15 +746,6 @@ func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, lim
 		args = append(args, arg)
 	}
 
-	rangeWhere, rangeArgs, err := keyRangeWhere(d, m, req.Range)
-	if err != nil {
-		return "", nil, err
-	}
-	if rangeWhere != "" {
-		clauses = append(clauses, rangeWhere)
-		args = append(args, rangeArgs...)
-	}
-
 	where := ""
 	if len(clauses) > 0 {
 		where = " WHERE " + strings.Join(clauses, " AND ")
@@ -705,67 +755,6 @@ func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, lim
 		limit = " LIMIT 1"
 	}
 	return fmt.Sprintf("SELECT %s FROM %s%s%s", selectExpr, quoteTableName(d, m.table), where, limit), args, nil
-}
-
-func indexCountQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (string, []any, error) {
-	idx := findIndex(m, req.Index)
-	if idx == nil {
-		return "", nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
-	}
-
-	var clauses []string
-	var args []any
-	for i, col := range idx.KeyPath {
-		if i >= len(req.Values) {
-			break
-		}
-		clauses = append(clauses, quoteIdent(d, col)+" = ?")
-		arg, err := protoValueToArg(req.Values[i], columnType(m, col))
-		if err != nil {
-			return "", nil, status.Errorf(codes.InvalidArgument, "index value %d: %v", i, err)
-		}
-		args = append(args, arg)
-	}
-
-	rangeWhere, rangeArgs, err := keyRangeWhere(d, m, req.Range)
-	if err != nil {
-		return "", nil, err
-	}
-	if rangeWhere != "" {
-		clauses = append(clauses, rangeWhere)
-		args = append(args, rangeArgs...)
-	}
-
-	where := ""
-	if len(clauses) > 0 {
-		where = " WHERE " + strings.Join(clauses, " AND ")
-	}
-	return fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteTableName(d, m.table), where), args, nil
-}
-
-func indexDeleteQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest) (string, []any, error) {
-	idx := findIndex(m, req.Index)
-	if idx == nil {
-		return "", nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
-	}
-
-	var clauses []string
-	var args []any
-	for i, col := range idx.KeyPath {
-		if i >= len(req.Values) {
-			break
-		}
-		clauses = append(clauses, quoteIdent(d, col)+" = ?")
-		arg, err := protoValueToArg(req.Values[i], columnType(m, col))
-		if err != nil {
-			return "", nil, status.Errorf(codes.InvalidArgument, "index value %d: %v", i, err)
-		}
-		args = append(args, arg)
-	}
-	if len(clauses) == 0 {
-		return "", nil, status.Errorf(codes.InvalidArgument, "no index values provided")
-	}
-	return fmt.Sprintf("DELETE FROM %s WHERE %s", quoteTableName(d, m.table), strings.Join(clauses, " AND ")), args, nil
 }
 
 func findIndex(m *storeMeta, name string) *proto.IndexSchema {
@@ -881,9 +870,9 @@ func anyToSQLArg(value any, colType int32) (any, error) {
 	case 5: // TypeBytes
 		switch v := value.(type) {
 		case []byte:
-			return base64.StdEncoding.EncodeToString(v), nil
+			return append([]byte(nil), v...), nil
 		case string:
-			return v, nil
+			return parseStoredBytes(v), nil
 		default:
 			return nil, fmt.Errorf("expected []byte or string, got %T", value)
 		}
@@ -902,19 +891,19 @@ func protoValueToArg(v *proto.TypedValue, colType int32) (any, error) {
 	return protoValueToSQLArg(v, colType)
 }
 
-func extractID(record *proto.Record, pkCol string) (string, error) {
+func extractPrimaryKeyValue(record *proto.Record, pkCol string) (any, error) {
 	if record == nil {
-		return "", status.Error(codes.InvalidArgument, "record is required")
+		return nil, status.Error(codes.InvalidArgument, "record is required")
 	}
 	v, ok := record.Fields[pkCol]
 	if !ok || v == nil {
-		return "", status.Errorf(codes.InvalidArgument, "record missing primary key %q", pkCol)
+		return nil, status.Errorf(codes.InvalidArgument, "record missing primary key %q", pkCol)
 	}
 	value, err := gestalt.AnyFromTypedValue(v)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return fmt.Sprint(value), nil
+	return value, nil
 }
 
 func scanRow(row *sql.Row, cols []*proto.ColumnDef) (*proto.Record, error) {

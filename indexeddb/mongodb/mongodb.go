@@ -2,7 +2,9 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -34,6 +36,49 @@ func NewStore(client *mongo.Client, db *mongo.Database) *Store {
 		db:      db,
 		schemas: make(map[string]map[string]indexMeta),
 	}
+}
+
+func (s *Store) loadSchemas(ctx context.Context) error {
+	names, err := s.db.ListCollectionNames(ctx, bson.D{})
+	if err != nil {
+		return err
+	}
+
+	schemas := make(map[string]map[string]indexMeta, len(names))
+	for _, name := range names {
+		specs, err := s.db.Collection(name).Indexes().ListSpecifications(ctx)
+		if err != nil {
+			return err
+		}
+
+		indexes := make(map[string]indexMeta)
+		for _, spec := range specs {
+			if spec.Name == "_id_" {
+				continue
+			}
+
+			var keys bson.D
+			if err := bson.Unmarshal(spec.KeysDocument, &keys); err != nil {
+				return err
+			}
+
+			keyPath := make([]string, 0, len(keys))
+			for _, key := range keys {
+				keyPath = append(keyPath, key.Key)
+			}
+
+			indexes[spec.Name] = indexMeta{
+				keyPath: keyPath,
+				unique:  spec.Unique != nil && *spec.Unique,
+			}
+		}
+		schemas[name] = indexes
+	}
+
+	s.mu.Lock()
+	s.schemas = schemas
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *Store) Close() error {
@@ -171,21 +216,31 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	opts := options.Replace().SetUpsert(true)
 	_, err = s.db.Collection(req.GetStore()).ReplaceOne(ctx, bson.M{"_id": id}, doc, opts)
 	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return nil, status.Error(codes.AlreadyExists, "record already exists")
+		}
 		return nil, status.Errorf(codes.Internal, "put: %v", err)
 	}
 	return &emptypb.Empty{}, nil
 }
 
 func (p *Provider) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	_, err = s.db.Collection(req.GetStore()).DeleteOne(ctx, idFilter(req.GetId()))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "delete: %v", err)
+	if err := p.deleteByIDValue(ctx, req.GetStore(), req.GetId()); err != nil {
+		return nil, err
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (p *Provider) deleteByIDValue(ctx context.Context, storeName string, id any) error {
+	s, err := p.configured()
+	if err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	_, err = s.db.Collection(storeName).DeleteOne(ctx, idFilter(id))
+	if err != nil {
+		return status.Errorf(codes.Internal, "delete: %v", err)
+	}
+	return nil
 }
 
 func (p *Provider) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
@@ -280,143 +335,181 @@ func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeR
 }
 
 func (p *Provider) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	var doc bson.M
-	err = s.db.Collection(req.GetStore()).FindOne(ctx, filter).Decode(&doc)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil, status.Error(codes.NotFound, "record not found")
-		}
-		return nil, status.Errorf(codes.Internal, "index get: %v", err)
+	if len(entries) == 0 {
+		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	rec, err := docToProto(doc)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "marshal record: %v", err)
-	}
-	return &proto.RecordResponse{Record: rec}, nil
+	return &proto.RecordResponse{Record: entries[0].record}, nil
 }
 
 func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	opts := options.FindOne().SetProjection(bson.M{"_id": 1})
-	var doc bson.M
-	err = s.db.Collection(req.GetStore()).FindOne(ctx, filter, opts).Decode(&doc)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil, status.Error(codes.NotFound, "key not found")
-		}
-		return nil, status.Errorf(codes.Internal, "index get key: %v", err)
+	if len(entries) == 0 {
+		return nil, status.Error(codes.NotFound, "key not found")
 	}
-	return &proto.KeyResponse{Key: fmt.Sprint(doc["_id"])}, nil
+	return &proto.KeyResponse{Key: entries[0].primaryKey}, nil
 }
 
 func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index get all: %v", err)
-	}
-	defer cursor.Close(ctx)
-	records, err := cursorToProtos(ctx, cursor)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index get all cursor: %v", err)
+	records := make([]*proto.Record, 0, len(entries))
+	for _, entry := range entries {
+		records = append(records, entry.record)
 	}
 	return &proto.RecordsResponse{Records: records}, nil
 }
 
 func (p *Provider) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	opts := options.Find().SetProjection(bson.M{"_id": 1})
-	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter, opts)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index get all keys: %v", err)
-	}
-	defer cursor.Close(ctx)
-	var keys []string
-	for cursor.Next(ctx) {
-		var doc bson.M
-		if err := cursor.Decode(&doc); err != nil {
-			return nil, status.Errorf(codes.Internal, "decode key: %v", err)
-		}
-		keys = append(keys, fmt.Sprint(doc["_id"]))
+	keys := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		keys = append(keys, entry.primaryKey)
 	}
 	return &proto.KeysResponse{Keys: keys}, nil
 }
 
 func (p *Provider) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	count, err := s.db.Collection(req.GetStore()).CountDocuments(ctx, filter)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index count: %v", err)
-	}
-	return &proto.CountResponse{Count: count}, nil
+	return &proto.CountResponse{Count: int64(len(entries))}, nil
 }
 
 func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.db.Collection(req.GetStore()).DeleteMany(ctx, filter)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "index delete: %v", err)
+	var deleted int64
+	for _, entry := range entries {
+		if err := p.deleteByIDValue(ctx, req.GetStore(), entry.primaryKeyValue); err != nil {
+			return nil, mongoMapCursorWriteErr("index_delete", err)
+		}
+		deleted++
 	}
-	return &proto.DeleteResponse{Deleted: result.DeletedCount}, nil
+	return &proto.DeleteResponse{Deleted: deleted}, nil
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-func (s *Store) indexFilter(store, index string, values []*proto.TypedValue) (bson.M, error) {
+func (p *Provider) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]mongoCursorEntry, error) {
+	return p.queryIndexEntriesWithProjection(ctx, req, nil)
+}
+
+func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]mongoCursorEntry, error) {
+	s, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	meta, err := s.getIndexMeta(req.GetStore(), req.GetIndex())
+	if err != nil {
+		return nil, err
+	}
+	return p.queryIndexEntriesWithProjection(ctx, req, indexProjection(meta.keyPath))
+}
+
+func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *proto.IndexQueryRequest, projection bson.M) ([]mongoCursorEntry, error) {
+	s, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	meta, err := s.getIndexMeta(req.GetStore(), req.GetIndex())
+	if err != nil {
+		return nil, err
+	}
+
+	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	if err != nil {
+		return nil, err
+	}
+	findOpts := options.Find()
+	if len(projection) > 0 {
+		findOpts.SetProjection(projection)
+	}
+	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter, findOpts)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "index query: %v", err)
+	}
+	defer cursor.Close(ctx)
+
+	records, err := cursorToProtos(ctx, cursor)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "index query cursor: %v", err)
+	}
+
+	rangeCursor := &mongoCursor{indexCursor: true, index: &meta}
+	entries := make([]mongoCursorEntry, 0, len(records))
+	for _, record := range records {
+		entry, err := rangeCursor.entryFromRecord(record)
+		if err != nil {
+			if errors.Is(err, errMongoCursorFieldMissing) {
+				continue
+			}
+			return nil, status.Errorf(codes.Internal, "index query decode: %v", err)
+		}
+		entries = append(entries, entry)
+	}
+
+	entries, err = rangeCursor.applyRange(entries, req.GetRange())
+	if err != nil {
+		return nil, err
+	}
+	sortMongoIndexEntries(entries)
+	return entries, nil
+}
+
+func sortMongoIndexEntries(entries []mongoCursorEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if cmp := mongoCompareCursorValue(entries[i].key, entries[j].key); cmp != 0 {
+			return cmp < 0
+		}
+		return mongoCompareCursorValue(entries[i].primaryKeyValue, entries[j].primaryKeyValue) < 0
+	})
+}
+
+func indexProjection(keyPath []string) bson.M {
+	projection := bson.M{"_id": 1}
+	for _, field := range keyPath {
+		projection[field] = 1
+	}
+	return projection
+}
+
+func (s *Store) getIndexMeta(store, index string) (indexMeta, error) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	storeSchemas, ok := s.schemas[store]
-	s.mu.RUnlock()
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "object store %q has no registered schema", store)
+		return indexMeta{}, status.Errorf(codes.NotFound, "object store %q has no registered schema", store)
 	}
 	meta, ok := storeSchemas[index]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", index, store)
+		return indexMeta{}, status.Errorf(codes.NotFound, "index %q not found on store %q", index, store)
+	}
+	return meta, nil
+}
+
+func (s *Store) indexFilter(store, index string, values []*proto.TypedValue) (bson.M, error) {
+	meta, err := s.getIndexMeta(store, index)
+	if err != nil {
+		return nil, err
 	}
 
 	filter := bson.M{}
@@ -488,7 +581,7 @@ func docToProto(doc bson.M) (*proto.Record, error) {
 	m := make(map[string]any, len(doc))
 	for k, v := range doc {
 		if k == "_id" {
-			m["id"] = fmt.Sprint(v)
+			m["id"] = toGestaltCompatible(v)
 		} else {
 			m[k] = toGestaltCompatible(v)
 		}
