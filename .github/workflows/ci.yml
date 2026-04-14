@@ -8,6 +8,7 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'indexeddb/**'
+      - 'cache/**'
       - 'secrets/**'
       - 'web/**'
   push:
@@ -19,6 +20,7 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'indexeddb/**'
+      - 'cache/**'
       - 'secrets/**'
       - 'web/**'
 
@@ -62,17 +64,19 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "indexeddb", "secrets")
+          package_roots = ("plugins", "auth", "indexeddb", "cache", "secrets")
           gestalt_ref_by_root = {
               "plugins": os.environ["LEGACY_GESTALT_REF"],
               "auth": os.environ["PROVIDER_GESTALT_REF"],
               "indexeddb": os.environ["PROVIDER_GESTALT_REF"],
+              "cache": os.environ["PROVIDER_GESTALT_REF"],
               "secrets": os.environ["PROVIDER_GESTALT_REF"],
           }
           toolchain_by_root = {
               "plugins": "legacy",
               "auth": "provider",
               "indexeddb": "provider",
+              "cache": "provider",
               "secrets": "provider",
           }
           all_plugins = []
@@ -95,11 +99,9 @@ jobs:
                           "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
                   )
-          indexeddb_packages = {
-              plugin["dir"]
-              for plugin in all_plugins
-              if plugin["root"] == "indexeddb"
-          }
+          packages_by_root = {}
+          for plugin in all_plugins:
+              packages_by_root.setdefault(plugin["root"], set()).add(plugin["dir"])
           shared_prefixes = (".github/workflows/", ".github/scripts/")
 
           event_name = os.environ["EVENT_NAME"]
@@ -126,7 +128,14 @@ jobs:
                           run_all = True
                           break
                       if parts[1] == "internal":
-                          selected.update(indexeddb_packages)
+                          selected.update(packages_by_root.get("indexeddb", set()))
+                          continue
+                  if len(parts) >= 2 and parts[0] == "cache":
+                      if parts[1] == "internal":
+                          selected.update(packages_by_root.get("cache", set()))
+                          continue
+                      if len(parts) == 2:
+                          selected.update(packages_by_root.get("cache", set()))
                           continue
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
@@ -269,6 +278,7 @@ jobs:
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
             . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
+            . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
             (cd "$plugin_dir" && go test ./...)
           fi
 

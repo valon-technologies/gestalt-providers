@@ -3,6 +3,7 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/auth"
+      - "/cache"
       - "/indexeddb/dynamodb"
       - "/indexeddb/mongodb"
       - "/indexeddb/relationaldb"
