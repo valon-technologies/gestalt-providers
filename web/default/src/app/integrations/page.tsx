@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { getIntegrations, Integration } from "@/lib/api";
+import { filterIntegrations } from "@/lib/integrationSearch";
 import Nav from "@/components/Nav";
 import IntegrationCard from "@/components/IntegrationCard";
+import PluginSearchBar from "@/components/PluginSearchBar";
 import AuthGuard from "@/components/AuthGuard";
 
 export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [toast, setToast] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -17,6 +20,9 @@ export default function IntegrationsPage() {
     const connected = new URLSearchParams(window.location.search).get("connected");
     return connected ? `${connected} connected successfully.` : null;
   });
+  const deferredQuery = useDeferredValue(query);
+  const filteredIntegrations = filterIntegrations(integrations, deferredQuery);
+  const hasSearchQuery = query.trim().length > 0;
 
   useEffect(() => {
     if (toast) {
@@ -53,14 +59,24 @@ export default function IntegrationsPage() {
             </div>
           )}
 
-          <div className="animate-fade-in-up">
-            <span className="label-text">Catalog</span>
-            <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
-              Plugins
-            </h1>
-            <p className="mt-2 text-sm text-muted">
-              Browse and connect plugins.
-            </p>
+          <div className="animate-fade-in-up flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div>
+              <span className="label-text">Catalog</span>
+              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+                Plugins
+              </h1>
+              <p className="mt-2 text-sm text-muted">
+                Browse and connect plugins.
+              </p>
+            </div>
+            <div className="w-full md:w-auto">
+              <PluginSearchBar
+                integrations={integrations}
+                query={query}
+                onQueryChange={setQuery}
+                disabled={loading || !!error || integrations.length === 0}
+              />
+            </div>
           </div>
 
           {loading && (
@@ -75,9 +91,18 @@ export default function IntegrationsPage() {
             </p>
           )}
 
-          {!loading && !error && integrations.length > 0 && (
-            <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-fade-in-up [animation-delay:60ms]">
-              {integrations.map((integration) => (
+          {!loading && !error && integrations.length > 0 && filteredIntegrations.length === 0 && hasSearchQuery && (
+            <p className="mt-10 text-sm text-faint">
+              No plugins match <span>{`"${query.trim()}"`}</span>.
+            </p>
+          )}
+
+          {!loading && !error && filteredIntegrations.length > 0 && (
+            <div
+              className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-fade-in-up [animation-delay:60ms]"
+              data-testid="plugin-grid"
+            >
+              {filteredIntegrations.map((integration) => (
                 <IntegrationCard
                   key={integration.name}
                   integration={integration}
