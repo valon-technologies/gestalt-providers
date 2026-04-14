@@ -25,8 +25,8 @@ users, departments, reimbursements, receipts, limits, and spend programs. The
 MCP surface is configured as a passthrough to Ramp's hosted MCP server at
 `https://mcp.ramp.com/mcp`.
 
-The OpenAPI surface authenticates with Ramp OAuth 2.0. The MCP surface is
-exposed as a passive passthrough connection.
+The OpenAPI surface authenticates with Ramp OAuth 2.0. The MCP surface
+authenticates with Ramp MCP OAuth.
 
 ## Documentation
 

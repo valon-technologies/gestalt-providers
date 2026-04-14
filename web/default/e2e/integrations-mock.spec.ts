@@ -53,6 +53,23 @@ const MULTI_CONNECTION_MULTI_OAUTH_INTEGRATION: Integration = {
   ],
 };
 
+const MULTI_CONNECTION_OAUTH_ONLY_INTEGRATION: Integration = {
+  name: "dual-oauth-svc",
+  displayName: "Dual OAuth Service",
+  connections: [
+    {
+      name: "oauth",
+      displayName: "OAuth",
+      authTypes: ["oauth"],
+    },
+    {
+      name: "mcp",
+      displayName: "MCP",
+      authTypes: ["oauth"],
+    },
+  ],
+};
+
 const MCP_PASSTHROUGH_INTEGRATION: Integration = {
   name: "mcp-passthrough-svc",
   displayName: "MCP Passthrough Service",
@@ -261,6 +278,45 @@ test.describe("Integrations", () => {
     await expect(dialog.getByRole("button", { name: "Connect with workspace" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Use API Token for workspace" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Connect with personal" })).toBeVisible();
+  });
+
+  test("multi-connection oauth-only renders an action for MCP auth", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    let requestBody: {
+      integration: string;
+      connection?: string;
+      instance?: string;
+    } | undefined;
+
+    await mockIntegrations(page, [MULTI_CONNECTION_OAUTH_ONLY_INTEGRATION]);
+    await page.route("**/api/v1/auth/start-oauth", async (route) => {
+      requestBody = route.request().postDataJSON() as {
+        integration: string;
+        connection?: string;
+        instance?: string;
+      };
+      await route.fulfill({
+        json: { url: "about:blank", state: "state-123" },
+      });
+    });
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "Dual OAuth Service settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await expect(dialog.getByRole("button", { name: "Connect with OAuth" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Connect with MCP" })).toBeVisible();
+    await expect(dialog.getByText("MCP passthrough", { exact: true })).toHaveCount(0);
+
+    await dialog.getByRole("button", { name: "Connect with MCP" }).click();
+    await page.waitForURL("about:blank");
+
+    expect(requestBody).toMatchObject({
+      integration: "dual-oauth-svc",
+      connection: "mcp",
+    });
   });
 
   test("no-auth MCP connections are shown as passive passthroughs", async ({
