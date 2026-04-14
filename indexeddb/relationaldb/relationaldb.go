@@ -66,6 +66,9 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 	if d == dialectSQLite && options.Schema != "" {
 		return nil, fmt.Errorf("relationaldb: schema is not supported for sqlite")
 	}
+	if err := ensureRelationalTargetExists(dsn, options); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open(driver, connStr)
 	if err != nil {
 		return nil, fmt.Errorf("relationaldb: open: %w", err)
