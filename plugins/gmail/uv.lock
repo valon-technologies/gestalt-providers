@@ -14,7 +14,7 @@ wheels = [
 [[package]]
 name = "gestalt"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&tag=sdk%2Fpython%2Fv0.0.1-alpha.1#f6e932b40574d570c25eab1f72ccf3a3c06bd63f" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#c4bee1f6c9226f045ba404fdfd8c949427fee3dc" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
@@ -39,7 +39,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gestalt", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&tag=sdk%2Fpython%2Fv0.0.1-alpha.1" }]
+requires-dist = [{ name = "gestalt", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" }]
 
 [package.metadata.requires-dev]
 dev = [
