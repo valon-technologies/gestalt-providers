@@ -257,12 +257,33 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MOUNTED_UI_WITH_SETTINGS_INTEGRATION]);
     await mockTokens(page, []);
+    await page.route("**/mounted-settings-ui", async (route) => {
+      await route.fulfill({ status: 403, body: "forbidden" });
+    });
 
     await page.goto("/integrations");
     await page.getByRole("button", { name: "Mounted UI With Settings settings" }).click();
 
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page).toHaveURL(/\/integrations$/);
+  });
+
+  test("hides mounted ui cards the user cannot load when they have no settings affordance", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [MOUNTED_UI_INTEGRATION]);
+    await mockTokens(page, []);
+    await page.route("**/mounted-ui", async (route) => {
+      await route.fulfill({ status: 403, body: "forbidden" });
+    });
+    await page.route("**/api/v1/integrations/mounted-ui-svc/operations", async (route) => {
+      await route.fulfill({ status: 403, body: "forbidden" });
+    });
+
+    await page.goto("/integrations");
+
+    await expect(page.getByText("Loading...")).toHaveCount(0);
+    await expect(page.getByTestId("integration-card-mounted-ui-svc")).toHaveCount(0);
+    await expect(page.getByText("No plugins registered.")).toBeVisible();
   });
 
   test("filters plugins by display name", async ({ authenticatedPage }) => {
