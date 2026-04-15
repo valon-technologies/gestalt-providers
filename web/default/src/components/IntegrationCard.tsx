@@ -16,10 +16,15 @@ import IntegrationSettingsModal from "./IntegrationSettingsModal";
 
 function iconDataURL(svg: string): string | null {
   const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-  if (doc.documentElement.nodeName !== "svg") {
+  const root = doc.documentElement;
+  if (root.nodeName !== "svg") {
     return null;
   }
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  if (!root.getAttribute("xmlns")) {
+    root.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  }
+  const normalized = new XMLSerializer().serializeToString(root);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalized)}`;
 }
 
 function hasConnectionParams(integration: Integration): boolean {
