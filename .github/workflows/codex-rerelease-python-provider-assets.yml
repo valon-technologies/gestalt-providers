@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   rerelease-darwin-amd64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     timeout-minutes: 30
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
