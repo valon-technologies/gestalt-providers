@@ -72,7 +72,13 @@ export function GettingStartedDocsPage() {
           </a>{" "}
           to install it first.
         </p>
-        <CodeBlock code="brew install valon-technologies/gestalt/gestalt" />
+        <p className="doc-copy">
+          Tap the Gestalt Homebrew repository first, then install the CLI.
+        </p>
+        <CodeBlock
+          code={`brew tap valon-technologies/gestalt
+brew install valon-technologies/gestalt/gestalt`}
+        />
         <p className="doc-copy">
           If you prefer a direct download, use the{" "}
           <a
