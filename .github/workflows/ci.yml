@@ -312,6 +312,8 @@ jobs:
             exit 1
           fi
 
+          .github/scripts/release_policy.sh assert-ci-local "$plugin_dir" "${VALIDATION_VERSION}" "${OUTPUT_ROOT}/${plugin_name}"
+
   web-lint:
     name: Web UI Lint & Type Check
     runs-on: ubuntu-latest
@@ -416,6 +418,16 @@ jobs:
                 source: env
           EOF
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
+      - name: Validate web/default release artifact
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/web-default-dist
+        run: |
+          set -euo pipefail
+          rm -rf "${OUTPUT_DIR}"
+          mkdir -p "${OUTPUT_DIR}"
+          export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
+          (cd web/default && ${GITHUB_WORKSPACE}/../bin/gestaltd provider release --version "${VALIDATION_VERSION}" --output "${OUTPUT_DIR}")
+          .github/scripts/release_policy.sh assert-local web/default "${VALIDATION_VERSION}" "${OUTPUT_DIR}"
       - name: Start gestaltd
         run: |
           ${GITHUB_WORKSPACE}/../bin/gestaltd serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
