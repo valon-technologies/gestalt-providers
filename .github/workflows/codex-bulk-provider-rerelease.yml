@@ -1,0 +1,43 @@
+name: Codex Bulk Provider Rerelease
+
+on:
+  push:
+    branches:
+      - codex/providers-rerelease-alpha1-20260412
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select provider directories
+        id: matrix
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          include = [
+              {"plugin_dir": "plugins/slack"},
+              {"plugin_dir": "plugins/gmail"},
+          ]
+
+          print("matrix=" + json.dumps({"include": include}, separators=(",", ":")))
+          PY
+
+  rerelease:
+    needs: discover
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/release-plugin-reusable.yml
+    secrets: inherit
+    with:
+      plugin-dir: ${{ matrix.plugin_dir }}
+      version: 0.0.1-alpha.1
+      gestalt-ref: main
