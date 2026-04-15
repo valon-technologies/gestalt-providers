@@ -154,6 +154,21 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
   });
 
+  test("filters plugins by description text", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+
+    await page.goto("/integrations");
+    const search = page.getByRole("combobox", { name: "Search plugins" });
+    const grid = page.getByTestId("plugin-grid");
+
+    await search.fill("example oauth integration");
+
+    await expect(grid.getByText("OAuth Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("Manual Service", { exact: true })).toHaveCount(0);
+    await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
+  });
+
   test("shows a search empty state when no plugins match", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
@@ -183,6 +198,28 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("OAuth Service", { exact: true })).toBeVisible();
     await expect(grid.getByText("Manual Service", { exact: true })).toHaveCount(0);
     await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
+  });
+
+  test("clearing the search restores the full grid and keeps focus", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+
+    await page.goto("/integrations");
+    const search = page.getByRole("combobox", { name: "Search plugins" });
+    const clearButton = page.locator('button[aria-label="Clear plugin search"]');
+    const grid = page.getByTestId("plugin-grid");
+
+    await search.fill("manual");
+    await expect(grid.getByText("Manual Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("OAuth Service", { exact: true })).toHaveCount(0);
+
+    await clearButton.click();
+
+    await expect(search).toHaveValue("");
+    await expect(search).toBeFocused();
+    await expect(grid.getByText("OAuth Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("Manual Service", { exact: true })).toBeVisible();
+    await expect(grid.getByText("Another Service", { exact: true })).toBeVisible();
   });
 
   test("connected integration shows check icon and settings gear", async ({
