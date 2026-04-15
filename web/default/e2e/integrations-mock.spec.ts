@@ -2,7 +2,7 @@ import { test, expect, mockIntegrations, mockManualConnect, mockTokens } from ".
 import type { Integration } from "../src/lib/api";
 
 const OAUTH_INTEGRATION: Integration = {
-  name: "oauth-svc", displayName: "OAuth Service", description: "Example OAuth integration",
+  name: "oauth-svc", displayName: "OAuth Service", description: "Example OAuth integration", authTypes: ["oauth"],
 };
 
 const MANUAL_INTEGRATION: Integration = {
@@ -82,6 +82,21 @@ const MCP_PASSTHROUGH_INTEGRATION: Integration = {
   ],
 };
 
+const MOUNTED_UI_INTEGRATION: Integration = {
+  name: "mounted-ui-svc",
+  displayName: "Mounted UI Service",
+  description: "Example mounted plugin UI",
+  mountedPath: "/mounted-ui",
+};
+
+const MOUNTED_UI_WITH_SETTINGS_INTEGRATION: Integration = {
+  name: "mounted-ui-settings-svc",
+  displayName: "Mounted UI With Settings",
+  description: "Mounted UI with a connectable plugin entry",
+  mountedPath: "/mounted-settings-ui",
+  authTypes: ["oauth"],
+};
+
 const sampleIntegrations: Integration[] = [
   OAUTH_INTEGRATION,
   MANUAL_INTEGRATION,
@@ -141,7 +156,7 @@ test.describe("Integrations", () => {
     await expect(page.getByText(MANUAL_INTEGRATION.description!)).toBeVisible();
     await expect(page.getByRole("button", { name: "OAuth Service settings" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Manual Service settings" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Another Service settings" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Another Service settings" })).toHaveCount(0);
   });
 
   test("renders svg icons even when the payload omits xmlns", async ({ authenticatedPage }) => {
@@ -216,6 +231,38 @@ test.describe("Integrations", () => {
     await expect(
       page.getByText("No plugins registered."),
     ).toBeVisible();
+  });
+
+  test("mounted ui cards navigate to their mounted path", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [MOUNTED_UI_INTEGRATION]);
+    await mockTokens(page, []);
+    await page.route("**/mounted-ui", async (route) => {
+      await route.fulfill({
+        contentType: "text/html",
+        body: "<html><body><h1>Mounted UI</h1></body></html>",
+      });
+    });
+
+    await page.goto("/integrations");
+    await expect(page.getByRole("button", { name: "Mounted UI Service settings" })).toHaveCount(0);
+
+    await page.getByTestId("integration-card-mounted-ui-svc").click();
+
+    await page.waitForURL("**/mounted-ui");
+    await expect(page.getByRole("heading", { name: "Mounted UI" })).toBeVisible();
+  });
+
+  test("mounted ui settings button does not trigger navigation", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [MOUNTED_UI_WITH_SETTINGS_INTEGRATION]);
+    await mockTokens(page, []);
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "Mounted UI With Settings settings" }).click();
+
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page).toHaveURL(/\/integrations$/);
   });
 
   test("filters plugins by display name", async ({ authenticatedPage }) => {

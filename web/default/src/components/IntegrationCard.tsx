@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, useEffect, useId, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import {
   Integration,
   PENDING_CONNECTION_PATH,
@@ -204,6 +204,14 @@ function hasConnectionParams(integration: Integration): boolean {
   );
 }
 
+function hasSettingsControls(integration: Integration): boolean {
+  return (
+    !!integration.connected ||
+    (integration.authTypes?.length ?? 0) > 0 ||
+    (integration.connections?.length ?? 0) > 0
+  );
+}
+
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
@@ -238,6 +246,9 @@ export default function IntegrationCard({
     ? renderSafeIcon(integration.iconSvg, iconIDPrefix)
     : null;
   const needsParams = hasConnectionParams(integration);
+  const mountedPath = integration.mountedPath?.trim();
+  const settingsAvailable = hasSettingsControls(integration);
+  const cardNavigationEnabled = !!mountedPath && !settingsOpen && !showParamForm;
 
   useEffect(() => {
     if (!pendingSelection) return;
@@ -344,6 +355,27 @@ export default function IntegrationCard({
     setError(null);
   }
 
+  function navigateToMountedPath() {
+    if (!mountedPath) return;
+    window.location.assign(mountedPath);
+  }
+
+  function handleCardClick(e: MouseEvent<HTMLDivElement>) {
+    if (!cardNavigationEnabled) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, select, label, form")) {
+      return;
+    }
+    navigateToMountedPath();
+  }
+
+  function handleCardKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (!cardNavigationEnabled || e.target !== e.currentTarget) return;
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    navigateToMountedPath();
+  }
+
   function renderConnectionParamFields() {
     if (!integration.connectionParams) return null;
     return Object.entries(integration.connectionParams).map(([name, def]) => (
@@ -368,7 +400,23 @@ export default function IntegrationCard({
   }
 
   return (
-    <div className="rounded-lg border border-alpha bg-base-white p-6 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface">
+    <div
+      data-testid={`integration-card-${integration.name}`}
+      className={`rounded-lg border border-alpha bg-base-white p-6 transition-all duration-150 dark:bg-surface ${
+        cardNavigationEnabled
+          ? "cursor-pointer hover:border-alpha-strong hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-base-white dark:focus-visible:ring-offset-surface"
+          : "hover:border-alpha-strong hover:shadow-card"
+      }`}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      role={cardNavigationEnabled ? "link" : undefined}
+      tabIndex={cardNavigationEnabled ? 0 : undefined}
+      aria-label={
+        cardNavigationEnabled
+          ? `Open ${integration.displayName || integration.name}`
+          : undefined
+      }
+    >
       {pendingSelection && (
         <form
           ref={pendingSelectionFormRef}
@@ -403,13 +451,18 @@ export default function IntegrationCard({
           {integration.connected && (
             <CheckCircleIcon className="h-5 w-5 text-grove-500" />
           )}
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-faint transition-all duration-150 hover:bg-alpha-5 hover:text-muted"
-            aria-label={`${integration.displayName || integration.name} settings`}
-          >
-            <GearIcon className="h-4 w-4" />
-          </button>
+          {settingsAvailable && (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                setSettingsOpen(true);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-faint transition-all duration-150 hover:bg-alpha-5 hover:text-muted"
+              aria-label={`${integration.displayName || integration.name} settings`}
+            >
+              <GearIcon className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
       {error && !settingsOpen && (

@@ -30,6 +30,7 @@ export interface Integration {
   displayName?: string;
   description?: string;
   iconSvg?: string;
+  mountedPath?: string;
   connected?: boolean;
   instances?: InstanceInfo[];
   authTypes?: ("oauth" | "manual")[];
