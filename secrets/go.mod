@@ -3,7 +3,7 @@ module github.com/valon-technologies/gestalt-providers/secrets
 go 1.26
 
 require (
-	cloud.google.com/go/secretmanager v1.18.0
+	cloud.google.com/go/secretmanager v1.19.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.4.0
