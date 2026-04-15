@@ -34,9 +34,6 @@ env:
   LEGACY_GESTALT_REF: main
   PROVIDER_GESTALT_REF: main
   VALIDATION_VERSION: 0.0.1-alpha.1
-  GOPRIVATE: github.com/valon-technologies/*
-  GONOSUMDB: github.com/valon-technologies/*
-  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   UV_PYTHON: "3.14"
 
 jobs:
@@ -197,16 +194,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - name: Configure private Gestalt repository access
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          set -euo pipefail
-          .github/scripts/configure_private_github.sh
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN"
@@ -246,17 +236,8 @@ jobs:
       - name: Install Python
         if: matrix.plugin.has_python
         run: uv python install 3.14
-      - name: Configure private Gestalt repository access
-        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.has_rust
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          set -euo pipefail
-          .github/scripts/configure_private_github.sh
       - name: Prepare sibling Gestalt checkout for local Go replaces
         if: matrix.plugin.has_go
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
@@ -369,13 +350,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Configure private Gestalt repository access
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: .github/scripts/configure_private_github.sh
       - name: Build gestaltd and UI
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
           gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"

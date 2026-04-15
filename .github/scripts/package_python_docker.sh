@@ -5,7 +5,7 @@
 # Usage: package_python_docker.sh <docker-platform> <base-image> <gestaltd-binary> \
 #                                  <python-env-var> <release-platform> <plugin-dir> <version>
 #
-# Requires: PAT_TOKEN, UV_PYTHON, RUNNER_TEMP environment variables.
+# Requires: UV_PYTHON and RUNNER_TEMP environment variables.
 
 set -euo pipefail
 
@@ -17,7 +17,6 @@ release_platform="$5"
 plugin_dir="$6"
 version="$7"
 
-: "${PAT_TOKEN:?PAT_TOKEN is required}"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 
 case "$base_image" in
@@ -28,7 +27,6 @@ esac
 echo "=== Packaging ${release_platform} (${base_image}) ==="
 
 docker run --rm --platform "${docker_platform}" \
-  -e PAT_TOKEN \
   -e UV_PYTHON \
   -e PYTHON_ENV_VAR="${python_env_var}" \
   -e RELEASE_PLATFORM="${release_platform}" \
@@ -45,12 +43,6 @@ docker run --rm --platform "${docker_platform}" \
       curl -LsSf https://astral.sh/uv/install.sh | sh
       export PATH="${HOME}/.local/bin:${PATH}"
     fi
-
-    printf "machine github.com\n  login x-access-token\n  password %s\n" "${PAT_TOKEN}" > "${HOME}/.netrc"
-    chmod 600 "${HOME}/.netrc"
-
-    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-    git config --global url."https://github.com/".insteadOf "git@github.com:"
 
     rm -rf .venv
     uv sync

@@ -6,9 +6,7 @@ dest_dir="${1:?destination directory is required}"
 ref="${2:?gestalt ref is required}"
 
 : "${GESTALT_REPOSITORY:?GESTALT_REPOSITORY is required}"
-: "${PAT_TOKEN:?PAT_TOKEN is required}"
-
-toolchain_url="https://x-access-token:${PAT_TOKEN}@github.com/${GESTALT_REPOSITORY}.git"
+toolchain_url="https://github.com/${GESTALT_REPOSITORY}.git"
 
 rm -rf "$dest_dir"
 git clone "$toolchain_url" "$dest_dir"

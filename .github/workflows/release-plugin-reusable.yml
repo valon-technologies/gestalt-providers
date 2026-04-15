@@ -30,9 +30,6 @@ jobs:
       version: ${{ steps.version.outputs.release }}
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
-      GOPRIVATE: github.com/valon-technologies/*
-      GONOSUMDB: github.com/valon-technologies/*
-      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
@@ -91,11 +88,6 @@ jobs:
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm,arm64
-      - name: Configure private Gestalt repository access
-        if: steps.detect.outputs.has-go == 'true' || steps.detect.outputs.has-python == 'true' || steps.detect.outputs.has-rust == 'true'
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: .github/scripts/configure_private_github.sh
       - name: Install rcodesign
         run: |
           set -euo pipefail
@@ -105,7 +97,6 @@ jobs:
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
@@ -163,7 +154,6 @@ jobs:
       - name: Package Python artifact
         if: steps.detect.outputs.has-python == 'true'
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           .github/scripts/package_python_docker.sh "linux/amd64" ghcr.io/astral-sh/uv:python3.14-alpine gestaltd "GESTALT_PYTHON_LINUX_$(echo 'amd64' | tr '[:lower:]' '[:upper:]')" "linux/amd64" "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
@@ -184,7 +174,6 @@ jobs:
       - name: Package Python ARM64 artifact
         if: steps.detect.outputs.has-python == 'true'
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           .github/scripts/package_python_docker.sh linux/arm64 ghcr.io/astral-sh/uv:python3.14-alpine gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64/musl "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
@@ -217,7 +206,6 @@ jobs:
       - name: Package Python ARMv7 artifact
         if: steps.detect.outputs.has-python == 'true'
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           .github/scripts/package_python_docker.sh linux/arm/v7 python:3.14-slim gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
@@ -235,8 +223,6 @@ jobs:
     timeout-minutes: 30
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
-      GOPRIVATE: github.com/valon-technologies/*
-      GONOSUMDB: github.com/valon-technologies/*
       UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
@@ -246,14 +232,9 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       - name: Install Python
         run: uv python install 3.14
-      - name: Configure private Gestalt repository access
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: .github/scripts/configure_private_github.sh
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
