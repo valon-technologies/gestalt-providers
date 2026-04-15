@@ -88,6 +88,12 @@ const sampleIntegrations: Integration[] = [
   { name: "another-svc", displayName: "Another Service" },
 ];
 
+const SVG_WITHOUT_XMLNS_INTEGRATION: Integration = {
+  name: "svg-svc",
+  displayName: "SVG Service",
+  iconSvg: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>`,
+};
+
 test.describe("Integrations", () => {
   test("displays integration cards and actions", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
@@ -109,6 +115,34 @@ test.describe("Integrations", () => {
     await expect(page.getByRole("button", { name: "OAuth Service settings" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Manual Service settings" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Another Service settings" })).toBeVisible();
+  });
+
+  test("renders svg icons even when the payload omits xmlns", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [SVG_WITHOUT_XMLNS_INTEGRATION]);
+    await mockTokens(page, []);
+
+    await page.goto("/integrations");
+
+    const card = page
+      .getByTestId("plugin-grid")
+      .locator("div")
+      .filter({ has: page.getByText("SVG Service", { exact: true }) })
+      .first();
+    const icon = card.locator("img[aria-hidden='true']").first();
+
+    await expect(icon).toBeVisible();
+    const rendered = await icon.evaluate((node) => {
+      const img = node as HTMLImageElement;
+      return {
+        complete: img.complete,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+      };
+    });
+    expect(rendered.complete).toBe(true);
+    expect(rendered.naturalWidth).toBeGreaterThan(0);
+    expect(rendered.naturalHeight).toBeGreaterThan(0);
   });
 
   test("shows empty state when no integrations", async ({
