@@ -4,6 +4,7 @@ updates:
     directories:
       - "/auth"
       - "/cache"
+      - "/s3/s3"
       - "/indexeddb/dynamodb"
       - "/indexeddb/mongodb"
       - "/indexeddb/relationaldb"

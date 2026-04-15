@@ -5,6 +5,7 @@ on:
     tags:
       - 'plugins/*/v*'
       - 'auth/*/v*'
+      - 's3/*/v*'
       - 'indexeddb/*/v*'
       - 'cache/*/v*'
       - 'secrets/*/v*'
@@ -57,7 +58,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            plugins|auth|indexeddb|cache|secrets|web)
+            plugins|auth|s3|indexeddb|cache|secrets|web)
               GESTALT_REF="main"
               ;;
             *)

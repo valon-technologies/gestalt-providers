@@ -127,8 +127,16 @@ jobs:
       - name: Test Go plugin
         if: steps.detect.outputs.has-go == 'true'
         run: |
-          . .github/scripts/setup_go_indexeddb_test_env.sh "${{ inputs.plugin-dir }}"
-          . .github/scripts/setup_go_cache_test_env.sh "${{ inputs.plugin-dir }}"
+          case "${{ inputs.plugin-dir }}" in
+            indexeddb/*)
+              . .github/scripts/setup_go_indexeddb_test_env.sh "${{ inputs.plugin-dir }}"
+              ;;
+          esac
+          case "${{ inputs.plugin-dir }}" in
+            cache/*)
+              . .github/scripts/setup_go_cache_test_env.sh "${{ inputs.plugin-dir }}"
+              ;;
+          esac
           cd "${{ inputs.plugin-dir }}" && go test ./...
       - name: Test Rust plugin
         if: steps.detect.outputs.has-rust == 'true'
