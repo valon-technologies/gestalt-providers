@@ -248,8 +248,7 @@ export default function IntegrationCard({
   const needsParams = hasConnectionParams(integration);
   const mountedPath = integration.mountedPath?.trim();
   const settingsAvailable = hasSettingsControls(integration);
-  const mountedAccessible = mountedPath ? integration.mountedAccessible !== false : false;
-  const cardNavigationEnabled = !!mountedPath && mountedAccessible && !settingsOpen && !showParamForm;
+  const cardNavigationEnabled = !!mountedPath && !settingsOpen && !showParamForm;
 
   useEffect(() => {
     if (!pendingSelection) return;
