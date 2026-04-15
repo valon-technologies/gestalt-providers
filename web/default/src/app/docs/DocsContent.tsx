@@ -72,7 +72,20 @@ export function GettingStartedDocsPage() {
           </a>{" "}
           to install it first.
         </p>
-        <CodeBlock code="brew install valon-technologies/gestalt/gestalt" />
+        <p className="doc-copy">
+          Tap the main Gestalt repository first. Homebrew's default tap
+          shortcut looks for a separate repository named{" "}
+          <code className="font-mono text-sm text-primary">
+            homebrew-gestalt
+          </code>
+          , but Gestalt currently publishes its formula from the main{" "}
+          <code className="font-mono text-sm text-primary">gestalt</code>{" "}
+          repository.
+        </p>
+        <CodeBlock
+          code={`brew tap valon-technologies/gestalt https://github.com/valon-technologies/gestalt
+brew install valon-technologies/gestalt/gestalt`}
+        />
         <p className="doc-copy">
           If you prefer a direct download, use the{" "}
           <a
