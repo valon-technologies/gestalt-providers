@@ -27,6 +27,7 @@ jobs:
       plugin-tag: ${{ steps.plugin.outputs.tag }}
       prerelease: ${{ steps.plugin.outputs.prerelease }}
       has-python: ${{ steps.detect.outputs.has-python }}
+      package-mode: ${{ steps.policy.outputs.package-mode }}
       version: ${{ steps.version.outputs.release }}
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
@@ -60,6 +61,9 @@ jobs:
           [ -f "$d/pyproject.toml" ] && has_python=true
           [ -f "$d/Cargo.toml" ] && has_rust=true
           { echo "has-go=${has_go}"; echo "has-python=${has_python}"; echo "has-rust=${has_rust}"; } >> "$GITHUB_OUTPUT"
+      - name: Resolve release policy
+        id: policy
+        run: .github/scripts/release_policy.sh write-github-output "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}" "$GITHUB_OUTPUT"
 
       # -- Toolchain setup (shared across architectures) --
       - uses: actions/setup-go@v5
@@ -140,20 +144,26 @@ jobs:
         run: python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
 
       # -- Package native architecture --
-      - name: Package provider
+      - name: Package generic artifact
+        if: steps.policy.outputs.package-mode == 'generic'
         run: |
           if [ "${{ steps.plugin.outputs.root }}" = "web" ]; then
             export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
           fi
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}"
+      - name: Package Go linux/amd64 provider
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/amd64"
       - name: Package Rust artifact
-        if: steps.detect.outputs.has-rust == 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-rust == 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform "linux/amd64"
       - name: Package Python artifact
-        if: steps.detect.outputs.has-python == 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
@@ -162,19 +172,19 @@ jobs:
 
       # -- Package ARM64 cross-compiled artifacts (amd64 runner only) --
       - name: Package Go ARM64 provider
-        if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm64
       - name: Package Rust ARM64 artifact
-        if: steps.detect.outputs.has-rust == 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-rust == 'true'
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm64/musl
       - name: Package Python ARM64 artifact
-        if: steps.detect.outputs.has-python == 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
@@ -183,31 +193,31 @@ jobs:
 
       # -- Package Darwin cross-compiled artifacts (Go only) --
       - name: Package Go darwin/arm64 provider
-        if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform darwin/arm64
       - name: Package Go darwin/amd64 provider
-        if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform darwin/amd64
 
       # -- Package ARMv7 cross-compiled artifacts (amd64 runner only) --
       - name: Package Go ARMv7 provider
-        if: steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-go == 'true' && steps.detect.outputs.has-rust != 'true' && steps.detect.outputs.has-python != 'true'
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm
       - name: Package Rust ARMv7 artifact
-        if: steps.detect.outputs.has-rust == 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-rust == 'true'
         env:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
         run: |
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ steps.version.outputs.release }}" --platform linux/arm/musl
       - name: Package Python ARMv7 artifact
-        if: steps.detect.outputs.has-python == 'true'
+        if: steps.policy.outputs.package-mode == 'runtime' && steps.detect.outputs.has-python == 'true'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           RUNNER_TEMP: ${{ runner.temp }}
@@ -222,7 +232,7 @@ jobs:
 
   build-macos:
     needs: build
-    if: needs.build.outputs.has-python == 'true'
+    if: needs.build.outputs.has-python == 'true' && needs.build.outputs.package-mode == 'runtime'
     runs-on: macos-latest
     timeout-minutes: 30
     env:
@@ -282,6 +292,8 @@ jobs:
         with:
           name: dist-macos
           path: dist
+      - name: Assert packaged assets before release
+        run: .github/scripts/release_policy.sh assert-local "${{ inputs.plugin-dir }}" "${{ needs.build.outputs.version }}" dist
       - name: Write checksums and publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -295,3 +307,7 @@ jobs:
           fi
           args+=(dist/*)
           gh "${args[@]}"
+      - name: Assert published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release_policy.sh assert-release "${{ inputs.plugin-dir }}" "${{ needs.build.outputs.version }}" "${{ github.repository }}" "${{ needs.build.outputs.plugin-tag }}"
