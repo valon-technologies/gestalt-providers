@@ -42,6 +42,7 @@ interface IntegrationSettingsModalProps {
   disconnecting: boolean;
   submitting: boolean;
   error: string | null;
+  readOnly?: boolean;
 }
 
 function normalizeAuthTypes(authTypes?: AuthType[], fallbackToOAuth = true): AuthType[] {
@@ -146,6 +147,7 @@ export default function IntegrationSettingsModal({
   disconnecting,
   submitting,
   error,
+  readOnly = false,
 }: IntegrationSettingsModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [view, setView] = useState<ModalView>("default");
@@ -254,6 +256,9 @@ export default function IntegrationSettingsModal({
   }
 
   function renderConnectionButtons() {
+    if (readOnly) {
+      return null;
+    }
     return (
       <div className="mt-6 flex flex-col gap-2">
         {connectionActions.map((action) => (
@@ -417,16 +422,18 @@ export default function IntegrationSettingsModal({
                             )}
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setDisconnectTarget({ instance: inst.name, connection: inst.connection });
-                            setView("disconnect");
-                          }}
-                          disabled={disconnecting}
-                          className="text-xs text-ember-500 hover:text-ember-600 transition-colors duration-150"
-                        >
-                          Disconnect
-                        </button>
+                        {!readOnly ? (
+                          <button
+                            onClick={() => {
+                              setDisconnectTarget({ instance: inst.name, connection: inst.connection });
+                              setView("disconnect");
+                            }}
+                            disabled={disconnecting}
+                            className="text-xs text-ember-500 hover:text-ember-600 transition-colors duration-150"
+                          >
+                            Disconnect
+                          </button>
+                        ) : null}
                       </div>
                     ))}
                   </div>

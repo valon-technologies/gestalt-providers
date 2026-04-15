@@ -2,16 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getIntegrations, getTokens } from "@/lib/api";
+import { getAuthInfo, getIntegrations, getManagedIdentities, getTokens } from "@/lib/api";
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
 
 export default function DashboardPage() {
   const [data, setData] = useState<{
+    identitiesAvailable: boolean;
+    identities: number | null;
     integrations: number | null;
     tokens: number | null;
     error: string | null;
   }>({
+    identitiesAvailable: false,
+    identities: null,
     integrations: null,
     tokens: null,
     error: null,
@@ -20,30 +24,49 @@ export default function DashboardPage() {
   useEffect(() => {
     let active = true;
 
-    Promise.allSettled([getIntegrations(), getTokens()]).then(
-      ([integrationsResult, tokensResult]) => {
+    getAuthInfo()
+      .catch(() => ({
+        provider: "unknown",
+        displayName: "Unknown",
+        loginSupported: true,
+      }))
+      .then((authInfo) => {
         if (!active) return;
+        const identitiesAvailable = authInfo.provider !== "none";
+        return Promise.allSettled([
+          identitiesAvailable ? getManagedIdentities() : Promise.resolve(null),
+          getIntegrations(),
+          getTokens(),
+        ]).then(([identitiesResult, integrationsResult, tokensResult]) => {
+          if (!active) return;
 
-        const error =
-          integrationsResult.status === "rejected"
-            ? errorMessage(integrationsResult.reason)
-            : tokensResult.status === "rejected"
-              ? errorMessage(tokensResult.reason)
-              : null;
+          const error =
+            identitiesAvailable && identitiesResult.status === "rejected"
+              ? errorMessage(identitiesResult.reason)
+              : integrationsResult.status === "rejected"
+                ? errorMessage(integrationsResult.reason)
+                : tokensResult.status === "rejected"
+                  ? errorMessage(tokensResult.reason)
+                  : null;
 
-        setData({
-          integrations:
-            integrationsResult.status === "fulfilled"
-              ? integrationsResult.value.length
-              : null,
-          tokens:
-            tokensResult.status === "fulfilled"
-              ? tokensResult.value.length
-              : null,
-          error,
+          setData({
+            identitiesAvailable,
+            identities:
+              identitiesAvailable && identitiesResult.status === "fulfilled"
+                ? identitiesResult.value?.length ?? null
+                : null,
+            integrations:
+              integrationsResult.status === "fulfilled"
+                ? integrationsResult.value.length
+                : null,
+            tokens:
+              tokensResult.status === "fulfilled"
+                ? tokensResult.value.length
+                : null,
+            error,
+          });
         });
-      },
-    );
+      });
 
     return () => {
       active = false;
@@ -69,7 +92,24 @@ export default function DashboardPage() {
             <p className="mt-8 text-sm text-ember-500">{data.error}</p>
           )}
 
-          <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 animate-fade-in-up [animation-delay:60ms]">
+          <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 animate-fade-in-up [animation-delay:60ms]">
+            {data.identitiesAvailable ? (
+              <Link
+                href="/identities"
+                className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
+              >
+                <span className="label-text">Identities</span>
+                <p className="mt-3 text-3xl font-heading font-bold text-primary">
+                  {data.identities ?? "--"}
+                </p>
+                <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                  Manage identities
+                  <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
+                    &rarr;
+                  </span>
+                </p>
+              </Link>
+            ) : null}
             <Link
               href="/integrations"
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"

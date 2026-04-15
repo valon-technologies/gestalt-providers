@@ -1,5 +1,5 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
-import type { APIToken, Integration } from "../src/lib/api";
+import type { APIToken, Integration, ManagedIdentity } from "../src/lib/api";
 
 export async function mockIntegrations(
   page: Page,
@@ -37,6 +37,7 @@ export async function mockManualConnect(
         const body = request.postDataJSON() as {
           integration: string;
           credential: string;
+          returnPath?: string;
         };
         opts?.onConnect?.(body.integration, body.credential);
         await route.fulfill({ json: { status: "connected" } });
@@ -45,6 +46,19 @@ export async function mockManualConnect(
       }
     },
   );
+}
+
+export async function mockManagedIdentities(
+  page: Page,
+  identities: ManagedIdentity[],
+) {
+  await page.route("**/api/v1/identities", (route: Route, request) => {
+    if (request.method() === "GET") {
+      route.fulfill({ json: identities });
+    } else {
+      route.fallback();
+    }
+  });
 }
 
 export async function mockAuthInfo(
