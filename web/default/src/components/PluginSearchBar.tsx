@@ -1,6 +1,6 @@
 "use client";
 
-import { Combobox, ComboboxInput, ComboboxOption, ComboboxOptions } from "@headlessui/react";
+import { Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions } from "@headlessui/react";
 import { useRef, useState } from "react";
 import type { Integration } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
@@ -42,14 +42,14 @@ export default function PluginSearchBar({
 
   return (
     <div className="w-full max-w-sm">
-      <Combobox
-        value={selectedIntegration}
-        onChange={selectIntegration}
-        disabled={disabled}
-        immediate
-      >
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+      <div className="relative">
+        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+        <Combobox
+          value={selectedIntegration}
+          onChange={selectIntegration}
+          disabled={disabled}
+          immediate
+        >
           <ComboboxInput
             ref={inputRef}
             aria-label="Search plugins"
@@ -62,18 +62,21 @@ export default function PluginSearchBar({
             }}
             placeholder="Search plugins"
           />
-
           {trimmedQuery.length > 0 && !disabled && (
-            <button
-              type="button"
-              onClick={clearSearch}
-              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
+            <ComboboxButton
+              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
               aria-label="Clear plugin search"
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                clearSearch();
+              }}
             >
               <CloseIcon className="h-4 w-4" />
-            </button>
+            </ComboboxButton>
           )}
-
           {trimmedQuery.length > 0 && !disabled && (
             <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface">
               {matchingIntegrations.length > 0 ? (
@@ -108,8 +111,8 @@ export default function PluginSearchBar({
               )}
             </ComboboxOptions>
           )}
-        </div>
-      </Combobox>
+        </Combobox>
+      </div>
     </div>
   );
 }
