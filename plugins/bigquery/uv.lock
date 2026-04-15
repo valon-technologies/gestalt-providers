@@ -150,7 +150,7 @@ wheels = [
 [[package]]
 name = "gestalt"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#35f199b59d5a17309f82f40358b222e1b57d3e28" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#c4bee1f6c9226f045ba404fdfd8c949427fee3dc" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "gestalt-bigquery"
-version = "0.0.1a3"
+version = "0.0.1a1"
 source = { virtual = "." }
 dependencies = [
     { name = "gestalt" },
