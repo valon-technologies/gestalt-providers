@@ -275,7 +275,7 @@ jobs:
   build-macos-amd64:
     needs: build
     if: needs.build.outputs.has-python == 'true'
-    runs-on: macos-13
+    runs-on: macos-15-intel
     timeout-minutes: 30
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
