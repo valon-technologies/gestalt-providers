@@ -1,0 +1,88 @@
+name: Codex Rerelease Python Provider Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin-dir:
+        description: Provider directory, for example plugins/slack
+        required: true
+        type: string
+      version:
+        description: Existing release version to patch
+        required: true
+        type: string
+      gestalt-ref:
+        description: Pinned Gestalt git ref used to build gestaltd
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  rerelease-darwin-amd64:
+    runs-on: macos-13
+    timeout-minutes: 30
+    env:
+      GESTALT_REPOSITORY: valon-technologies/gestalt
+      GOPRIVATE: github.com/valon-technologies/*
+      GONOSUMDB: github.com/valon-technologies/*
+      UV_PYTHON: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          if [ ! -f "${{ inputs.plugin-dir }}/manifest.yaml" ]; then
+            echo "missing manifest for ${{ inputs.plugin-dir }}" >&2
+            exit 1
+          fi
+          if [ ! -f "${{ inputs.plugin-dir }}/pyproject.toml" ]; then
+            echo "${{ inputs.plugin-dir }} is not a Python provider" >&2
+            exit 1
+          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - name: Install Python
+        run: uv python install 3.14
+      - name: Configure private Gestalt repository access
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: .github/scripts/configure_private_github.sh
+      - name: Install gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - name: Build darwin/amd64 archive
+        run: |
+          set -euo pipefail
+          cd "${{ inputs.plugin-dir }}"
+          rm -rf dist .venv
+          uv sync
+          GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
+            gestaltd provider release --version "${{ inputs.version }}" --platform darwin/amd64
+      - name: Patch existing release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.plugin-dir }}/v${{ inputs.version }}"
+          patch_dir="${RUNNER_TEMP}/release-patch"
+          rm -rf "${patch_dir}"
+          mkdir -p "${patch_dir}"
+          gh release download "${tag}" --pattern '*.tar.gz' --dir "${patch_dir}"
+          cp "${{ inputs.plugin-dir }}/dist/"*_darwin_amd64.tar.gz "${patch_dir}/"
+          (
+            cd "${patch_dir}"
+            LC_ALL=C shasum -a 256 ./*.tar.gz > checksums.txt
+          )
+          gh release upload "${tag}" "${patch_dir}"/*_darwin_amd64.tar.gz "${patch_dir}/checksums.txt" --clobber
