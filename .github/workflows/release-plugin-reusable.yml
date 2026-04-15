@@ -216,7 +216,7 @@ jobs:
           path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
           if-no-files-found: ignore
 
-  build-macos:
+  build-macos-arm64:
     needs: build
     if: needs.build.outputs.has-python == 'true'
     runs-on: macos-latest
@@ -249,15 +249,60 @@ jobs:
             gestaltd provider release --version "${{ needs.build.outputs.version }}" --platform darwin/arm64
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-macos
+          name: dist-macos-arm64
+          path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
+          if-no-files-found: error
+
+  build-macos-amd64:
+    needs: build
+    if: needs.build.outputs.has-python == 'true'
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    env:
+      GESTALT_REPOSITORY: valon-technologies/gestalt
+      GOPRIVATE: github.com/valon-technologies/*
+      GONOSUMDB: github.com/valon-technologies/*
+      UV_PYTHON: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - name: Install Python
+        run: uv python install 3.14
+      - name: Configure private Gestalt repository access
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: .github/scripts/configure_private_github.sh
+      - name: Install gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - name: Package Python darwin/amd64 provider
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          uv sync
+          GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
+            gestaltd provider release --version "${{ needs.build.outputs.version }}" --platform darwin/amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-amd64
           path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
           if-no-files-found: error
 
   publish:
     needs:
       - build
-      - build-macos
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped') }}
+      - build-macos-arm64
+      - build-macos-amd64
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-macos-arm64.result == 'success' || needs.build-macos-arm64.result == 'skipped') && (needs.build-macos-amd64.result == 'success' || needs.build-macos-amd64.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -267,9 +312,14 @@ jobs:
           name: dist
           path: dist
       - uses: actions/download-artifact@v4
-        if: needs.build-macos.result == 'success'
+        if: needs.build-macos-arm64.result == 'success'
         with:
-          name: dist-macos
+          name: dist-macos-arm64
+          path: dist
+      - uses: actions/download-artifact@v4
+        if: needs.build-macos-amd64.result == 'success'
+        with:
+          name: dist-macos-amd64
           path: dist
       - name: Write checksums and publish release
         env:
