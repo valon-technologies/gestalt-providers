@@ -31,6 +31,7 @@ export interface Integration {
   description?: string;
   iconSvg?: string;
   mountedPath?: string;
+  mountedAccessible?: boolean;
   connected?: boolean;
   instances?: InstanceInfo[];
   authTypes?: ("oauth" | "manual")[];
@@ -147,8 +148,98 @@ export async function logout(): Promise<void> {
   await fetchAPI("/api/v1/auth/logout", { method: "POST" });
 }
 
+function hasSettingsControls(integration: Integration): boolean {
+  return (
+    !!integration.connected ||
+    (integration.authTypes?.length ?? 0) > 0 ||
+    (integration.connections?.length ?? 0) > 0
+  );
+}
+
+function handleUnauthorizedProbe(status: number): boolean {
+  if (status !== HTTP_UNAUTHORIZED) {
+    return false;
+  }
+  clearSession();
+  if (typeof window !== "undefined" && window.location.pathname !== LOGIN_PATH) {
+    window.location.href = LOGIN_PATH;
+  }
+  return true;
+}
+
+async function probeMountedPathAccess(path: string): Promise<boolean> {
+  const res = await fetch(resolveAPIPath(path), {
+    credentials: "include",
+  });
+  if (handleUnauthorizedProbe(res.status)) {
+    return false;
+  }
+  if (res.status === 403) {
+    return false;
+  }
+  return true;
+}
+
+async function probeVisibleOperations(name: string): Promise<boolean> {
+  const res = await fetch(
+    resolveAPIPath(`/api/v1/integrations/${encodeURIComponent(name)}/operations`),
+    {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
+  if (handleUnauthorizedProbe(res.status)) {
+    return false;
+  }
+  if (res.status === 403) {
+    return false;
+  }
+  if (!res.ok) {
+    return true;
+  }
+  const operations: unknown = await res.json();
+  return Array.isArray(operations) && operations.length > 0;
+}
+
 export async function getIntegrations(): Promise<Integration[]> {
-  return fetchAPI("/api/v1/integrations");
+  const integrations = await fetchAPI<Integration[]>("/api/v1/integrations");
+  const visible = await Promise.all(
+    integrations.map(async (integration) => {
+      const mountedPath = integration.mountedPath?.trim();
+      const settingsAvailable = hasSettingsControls(integration);
+      let mountedAccessible = false;
+
+      if (mountedPath) {
+        try {
+          mountedAccessible = await probeMountedPathAccess(mountedPath);
+        } catch {
+          mountedAccessible = true;
+        }
+      }
+
+      if (!settingsAvailable && !mountedAccessible) {
+        try {
+          const hasVisibleOperations = await probeVisibleOperations(integration.name);
+          if (!hasVisibleOperations) {
+            return null;
+          }
+        } catch {
+          // Fail open when the visibility probe itself errors.
+        }
+      }
+
+      if (!mountedPath) {
+        return integration;
+      }
+      return {
+        ...integration,
+        mountedAccessible,
+      };
+    }),
+  );
+  return visible.filter((integration): integration is Integration => integration !== null);
 }
 
 export async function startIntegrationOAuth(
