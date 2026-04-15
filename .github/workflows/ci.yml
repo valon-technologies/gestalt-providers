@@ -38,6 +38,7 @@ env:
   GONOSUMDB: github.com/valon-technologies/*
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   UV_PYTHON: "3.14"
+  UV_VERSION: "0.7.13"
 
 jobs:
   discover:
@@ -47,7 +48,7 @@ jobs:
       count: ${{ steps.discover.outputs.count }}
       scope: ${{ steps.discover.outputs.scope }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
       - name: Discover plugins to validate
@@ -193,8 +194,8 @@ jobs:
           - name: provider
             gestalt_ref: main
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.26'
       - name: Configure private Gestalt repository access
@@ -214,7 +215,7 @@ jobs:
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ matrix.toolchain.gestalt_ref }}"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd-${{ matrix.toolchain.name }}" ./cmd/gestaltd)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gestaltd-${{ matrix.toolchain.name }}
           path: ${{ runner.temp }}/bin/gestaltd-${{ matrix.toolchain.name }}
@@ -234,12 +235,14 @@ jobs:
         plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
     name: Validate ${{ matrix.plugin.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         if: matrix.plugin.has_python
-      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
         if: matrix.plugin.has_rust
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: matrix.plugin.has_go
         with:
           go-version: '1.26'
@@ -261,7 +264,7 @@ jobs:
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ matrix.plugin.gestalt_ref }}"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ matrix.plugin.gestaltd_artifact }}
           path: ${{ runner.temp }}/bin
@@ -320,8 +323,8 @@ jobs:
       run:
         working-directory: web/default
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -338,8 +341,8 @@ jobs:
       run:
         working-directory: web/default
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -350,7 +353,7 @@ jobs:
         run: npx playwright test mock
         env:
           CI: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ !cancelled() }}
         with:
           name: web-ui-playwright-report
@@ -362,11 +365,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.26'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
       - name: Configure private Gestalt repository access
@@ -418,8 +421,8 @@ jobs:
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
         run: |
-          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
-          for i in $(seq 1 120); do
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
+          for _ in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5
           done
@@ -436,7 +439,7 @@ jobs:
           npm ci
           npx playwright install chromium --with-deps
           npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ !cancelled() }}
         with:
           name: web-e2e-playwright-report
