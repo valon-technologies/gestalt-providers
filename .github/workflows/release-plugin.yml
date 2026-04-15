@@ -58,7 +58,7 @@ jobs:
 
           case "$PLUGIN_ROOT" in
             plugins|auth|indexeddb|cache|secrets|web)
-              GESTALT_REF="main"
+              GESTALT_REF="sdk/go/v0.0.1-alpha.1"
               ;;
             *)
               echo "ERROR: unsupported plugin root ${PLUGIN_ROOT}"
