@@ -1,0 +1,61 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/trunk
+version: 0.0.1-alpha.1
+displayName: Trunk
+description: Manage Trunk Merge Queue and Flaky Tests APIs with an API token.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  allowedOperations:
+    submitPullRequest:
+      alias: mergeQueue.submitPullRequest
+    cancelPullRequest:
+      alias: mergeQueue.cancelPullRequest
+    getSubmittedPullRequest:
+      alias: mergeQueue.getSubmittedPullRequest
+    restartTestsOnPullRequest:
+      alias: mergeQueue.restartTestsOnPullRequest
+    setImpactedTargets:
+      alias: mergeQueue.setImpactedTargets
+    getMergeQueueTestingDetails:
+      alias: mergeQueue.getTestingDetails
+    getMergeQueueMetrics:
+      alias: mergeQueue.getMetrics
+    createQueue:
+      alias: queues.create
+    deleteQueue:
+      alias: queues.delete
+    getQueue:
+      alias: queues.get
+    updateQueue:
+      alias: queues.update
+    getTestDetails:
+      alias: flakyTests.getTestDetails
+    linkTicketToTestCase:
+      alias: flakyTests.linkTicketToTestCase
+    listFailingTests:
+      alias: flakyTests.listFailingTests
+    listUnhealthyTests:
+      alias: flakyTests.listUnhealthyTests
+    listQuarantinedTests:
+      alias: flakyTests.listQuarantinedTests
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Token
+          description: Create a Trunk API token and use it as the `x-api-token` header. See [Trunk APIs](https://docs.trunk.io/setup-and-administration/apis).
+    identity:
+      mode: identity
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Token
+          description: Create a Trunk API token and use it as the `x-api-token` header. See [Trunk APIs](https://docs.trunk.io/setup-and-administration/apis).

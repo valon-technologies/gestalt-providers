@@ -1,0 +1,1064 @@
+openapi: 3.2.0
+info:
+  title: Trunk APIs
+  version: v1
+  description: >-
+    Vendored OpenAPI description for the public Trunk Merge Queue and Flaky
+    Tests APIs documented at docs.trunk.io.
+servers:
+  - url: https://api.trunk.io
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /v1/submitPullRequest:
+    post:
+      operationId: submitPullRequest
+      summary: Submit a pull request to a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitPullRequestRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/cancelPullRequest:
+    post:
+      operationId: cancelPullRequest
+      summary: Cancel a pull request in a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PullRequestQueueRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/getSubmittedPullRequest:
+    post:
+      operationId: getSubmittedPullRequest
+      summary: Get a submitted pull request from a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PullRequestQueueRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmittedPullRequest"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/restartTestsOnPullRequest:
+    post:
+      operationId: restartTestsOnPullRequest
+      summary: Restart tests on a pull request in a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PullRequestQueueRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/setImpactedTargets:
+    post:
+      operationId: setImpactedTargets
+      summary: Set impacted targets for a pull request
+      description: >-
+        This provider models the documented token-authenticated flow for
+        uploading impacted targets with `x-api-token`. Trunk also documents a
+        forked pull request workflow that uses `x-forked-workflow-run-id`
+        instead of an API token; that alternate auth path is not represented by
+        this plugin surface.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetImpactedTargetsRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/getMergeQueueTestingDetails:
+    post:
+      operationId: getMergeQueueTestingDetails
+      summary: Get details about testing that Merge Queue is performing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetMergeQueueTestingDetailsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergeQueueTestingDetails"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/getMergeQueueMetrics:
+    get:
+      operationId: getMergeQueueMetrics
+      summary: Get Prometheus metrics for Merge Queue
+      parameters:
+        - name: repo
+          in: query
+          schema:
+            type: string
+          description: >-
+            Repository in owner/name format. Must be provided together with
+            repoHost.
+        - name: repoHost
+          in: query
+          schema:
+            type: string
+          description: Repository host, required when repo is specified.
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/createQueue:
+    post:
+      operationId: createQueue
+      summary: Create a new merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQueueRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/deleteQueue:
+    post:
+      operationId: deleteQueue
+      summary: Delete a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueueRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/getQueue:
+    post:
+      operationId: getQueue
+      summary: Get a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueueRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergeQueue"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/updateQueue:
+    post:
+      operationId: updateQueue
+      summary: Update a merge queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQueueRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/flaky-tests/get-test-details:
+    post:
+      operationId: getTestDetails
+      summary: Get the details of a test case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetTestDetailsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetTestDetailsResponse"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/flaky-tests/link-ticket-to-test-case:
+    post:
+      operationId: linkTicketToTestCase
+      summary: Link a ticket to a test case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkTicketToTestCaseRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmptyObjectResponse"
+        "400":
+          $ref: "#/components/responses/PlainTextError"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+        "404":
+          $ref: "#/components/responses/PlainTextError"
+        "500":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/flaky-tests/list-failing-tests:
+    post:
+      operationId: listFailingTests
+      summary: Get a list of distinct tests that failed in the given time range
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListFailingTestsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTestsResponse"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/flaky-tests/list-unhealthy-tests:
+    post:
+      operationId: listUnhealthyTests
+      summary: Get a list of unhealthy tests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListUnhealthyTestsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListTestsResponse"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+
+  /v1/flaky-tests/list-quarantined-tests:
+    post:
+      operationId: listQuarantinedTests
+      summary: Get a list of quarantined tests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListQuarantinedTestsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListQuarantinedTestsResponse"
+        "401":
+          $ref: "#/components/responses/PlainTextError"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-token
+
+  responses:
+    EmptyObjectResponse:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+    PlainTextError:
+      description: Error
+      content:
+        text/plain:
+          schema:
+            type: string
+
+  schemas:
+    RepoRef:
+      type: object
+      required:
+        - host
+        - owner
+        - name
+      properties:
+        host:
+          type: string
+          description: Repository host such as github.com.
+        owner:
+          type: string
+          description: Repository owner or organization.
+        name:
+          type: string
+          description: Repository name.
+
+    PullRequestRef:
+      type: object
+      required:
+        - number
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: Pull request number.
+        sha:
+          type: string
+          description: Pull request head SHA, used by setImpactedTargets.
+
+    QueueRequest:
+      type: object
+      required:
+        - repo
+        - targetBranch
+      properties:
+        repo:
+          $ref: "#/components/schemas/RepoRef"
+        targetBranch:
+          type: string
+          description: Target branch name for the merge queue.
+
+    PullRequestQueueRequest:
+      type: object
+      required:
+        - repo
+        - pr
+        - targetBranch
+      properties:
+        repo:
+          $ref: "#/components/schemas/RepoRef"
+        pr:
+          $ref: "#/components/schemas/PullRequestRef"
+        targetBranch:
+          type: string
+
+    SubmitPullRequestRequest:
+      allOf:
+        - $ref: "#/components/schemas/PullRequestQueueRequest"
+        - type: object
+          properties:
+            priority:
+              description: Optional priority value or named priority.
+              oneOf:
+                - type: integer
+                  maximum: 4294967295
+                - type: string
+                - type: "null"
+            noBatch:
+              type: boolean
+              description: Prevent this PR from being included in a batch.
+
+    SetImpactedTargetsRequest:
+      type: object
+      required:
+        - repo
+        - pr
+        - targetBranch
+        - impactedTargets
+      properties:
+        repo:
+          $ref: "#/components/schemas/RepoRef"
+        pr:
+          $ref: "#/components/schemas/PullRequestRefWithSha"
+        targetBranch:
+          type: string
+        impactedTargets:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: string
+              enum:
+                - ALL
+
+    PullRequestRefWithSha:
+      type: object
+      required:
+        - number
+        - sha
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: Pull request number.
+        sha:
+          type: string
+          description: Pull request head SHA.
+
+    GetMergeQueueTestingDetailsRequest:
+      type: object
+      required:
+        - repo
+        - testRunId
+        - targetBranch
+      properties:
+        repo:
+          $ref: "#/components/schemas/RepoRef"
+        testRunId:
+          type: string
+        targetBranch:
+          type: string
+
+    CreateQueueRequest:
+      allOf:
+        - $ref: "#/components/schemas/QueueRequest"
+        - type: object
+          properties:
+            mode:
+              type: string
+              enum:
+                - single
+                - parallel
+            concurrency:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+
+    UpdateQueueRequest:
+      allOf:
+        - $ref: "#/components/schemas/QueueRequest"
+        - type: object
+          properties:
+            state:
+              type: string
+              enum:
+                - RUNNING
+                - PAUSED
+                - DRAINING
+            concurrency:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+            bisectionConcurrency:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+            testingTimeoutMinutes:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+            pendingFailureDepth:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+            canOptimisticallyMerge:
+              type: boolean
+            batch:
+              type: boolean
+            batchingMaxWaitTimeMinutes:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+            batchingMinSize:
+              type: integer
+              minimum: 1
+              maximum: 4294967295
+            mode:
+              type: string
+              enum:
+                - single
+                - parallel
+            commentsEnabled:
+              type: boolean
+            commandsEnabled:
+              type: boolean
+            createPrsForTestingBranches:
+              type: boolean
+            directMergeMode:
+              type: string
+              enum:
+                - OFF
+                - ALWAYS
+            optimizationMode:
+              type: string
+              enum:
+                - OFF
+                - BISECTION_SKIP_REDUNDANT_TESTS
+            mergeMethod:
+              type: string
+              enum:
+                - MERGE_COMMIT
+                - SQUASH
+                - REBASE
+            statusCheckEnabled:
+              type: boolean
+            requiredStatuses:
+              type: array
+              items:
+                type: string
+            deleteRequiredStatuses:
+              type: boolean
+
+    PullRequestReadiness:
+      type: object
+      properties:
+        hasImpactedTargets:
+          type: boolean
+        requiresImpactedTargets:
+          type: boolean
+        doesBaseBranchMatch:
+          type: boolean
+        gitHubMergeability:
+          type: string
+
+    SubmittedPullRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+          enum:
+            - NOT_READY
+            - PENDING
+            - TESTING
+            - TESTS_PASSED
+            - MERGED
+            - FAILED
+            - CANCELLED
+            - PENDING_FAILURE
+        readiness:
+          $ref: "#/components/schemas/PullRequestReadiness"
+        stateChangedAt:
+          type: string
+          format: date-time
+        priorityValue:
+          type: number
+        priorityName:
+          type: string
+        usedDefaultPriorityName:
+          type: string
+        skipTheLine:
+          type: boolean
+        isCurrentlySubmittedToQueue:
+          type: boolean
+        forceEnqueued:
+          type: boolean
+        noBatch:
+          type: boolean
+        prNumber:
+          type: integer
+        prTitle:
+          type: string
+        prSha:
+          type: string
+        prBaseBranch:
+          type: string
+        prAuthor:
+          type: string
+
+    CheckRun:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        status:
+          type: string
+        conclusion:
+          type: string
+
+    CheckSuite:
+      type: object
+      properties:
+        checkRuns:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckRun"
+
+    StatusCheck:
+      type: object
+      properties:
+        context:
+          type: string
+        url:
+          type: string
+        state:
+          type: string
+
+    TestedPullRequest:
+      type: object
+      properties:
+        prNumber:
+          type: integer
+        prUrl:
+          type: string
+        title:
+          type: string
+
+    MergeQueueTestingDetails:
+      type: object
+      required:
+        - requiredStatuses
+        - testBranch
+        - testBranchSha
+        - checkSuites
+        - statusChecks
+        - testedPullRequests
+      properties:
+        requiredStatuses:
+          type: array
+          items:
+            type: string
+        requiredStatusesSource:
+          type: string
+          enum:
+            - TRUNK_CONFIG
+            - REPO_PROVIDER_BRANCH_PROTECTION
+        testBranch:
+          type: string
+        testBranchSha:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+            - IN_PROGRESS
+            - FAILED
+            - CANCELLED
+            - SUCCEEDED
+        checkSuites:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckSuite"
+        statusChecks:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatusCheck"
+        testedPullRequests:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestedPullRequest"
+        impactedTargets:
+          type: array
+          items:
+            type: string
+        impactedTargetsForTestedPrs:
+          type: array
+          items:
+            type: string
+        dependentPrs:
+          type: array
+          items:
+            type: integer
+
+    MergeQueue:
+      type: object
+      required:
+        - branch
+        - concurrency
+        - enqueuedPullRequests
+      properties:
+        state:
+          type: string
+          enum:
+            - RUNNING
+            - PAUSED
+            - DRAINING
+            - SWITCHING_MODES
+        branch:
+          type: string
+        concurrency:
+          type: number
+        testingTimeoutMins:
+          type: integer
+        mode:
+          type: string
+        canOptimisticallyMerge:
+          type: boolean
+        pendingFailureDepth:
+          type: integer
+        isBatching:
+          type: boolean
+        batchingMaxWaitTimeMins:
+          type: integer
+        batchingMinSize:
+          type: integer
+        createPrsForTestingBranches:
+          type: boolean
+        enqueuedPullRequests:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubmittedPullRequest"
+
+    OrganizationScopedRequest:
+      type: object
+      required:
+        - repo
+        - org_url_slug
+      properties:
+        repo:
+          $ref: "#/components/schemas/RepoRef"
+        org_url_slug:
+          type: string
+          description: Trunk organization slug.
+
+    GetTestDetailsRequest:
+      allOf:
+        - $ref: "#/components/schemas/OrganizationScopedRequest"
+        - type: object
+          required:
+            - test_id
+          properties:
+            test_id:
+              type: string
+              format: uuid
+
+    LinkTicketToTestCaseRequest:
+      type: object
+      required:
+        - test_case_id
+        - external_ticket_id
+        - repo
+      properties:
+        test_case_id:
+          type: string
+          format: uuid
+        external_ticket_id:
+          type: string
+        repo:
+          $ref: "#/components/schemas/RepoRef"
+
+    PageQuery:
+      type: object
+      required:
+        - page_size
+        - page_token
+      properties:
+        page_size:
+          type: integer
+          minimum: 1
+        page_token:
+          type: string
+
+    PageInfo:
+      type: object
+      properties:
+        total_rows:
+          type: integer
+        total_pages:
+          type: integer
+        next_page_token:
+          type: string
+        prev_page_token:
+          type: string
+        last_page_token:
+          type: string
+        page_index:
+          type: integer
+
+    RepositoryLink:
+      type: object
+      properties:
+        html_url:
+          type: string
+
+    LinkedTicket:
+      type: object
+      properties:
+        html_url:
+          type: string
+
+    TestStatus:
+      type: object
+      properties:
+        value:
+          type: string
+        reason:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    TestFailureSummary:
+      type: object
+      properties:
+        summary:
+          type: string
+        occurrence_count:
+          type: integer
+        last_occurrence:
+          type: string
+          format: date-time
+
+    TestCase:
+      type: object
+      properties:
+        id:
+          type: string
+        repository:
+          $ref: "#/components/schemas/RepositoryLink"
+        html_url:
+          type: string
+        name:
+          type: string
+        variant:
+          type: string
+        status:
+          $ref: "#/components/schemas/TestStatus"
+        most_common_failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestFailureSummary"
+        failure_rate_last_7d:
+          type: number
+        failure_rate_last_24h:
+          type: number
+        file_path:
+          type: string
+        parent:
+          type: string
+        classname:
+          type: string
+        codeowners:
+          type: array
+          items:
+            type: string
+        pull_requests_impacted_last_7d:
+          type: integer
+        quarantined:
+          type: boolean
+        ticket:
+          $ref: "#/components/schemas/LinkedTicket"
+
+    GetTestDetailsResponse:
+      type: object
+      required:
+        - test
+      properties:
+        test:
+          $ref: "#/components/schemas/TestCase"
+
+    ListFailingTestsRequest:
+      allOf:
+        - $ref: "#/components/schemas/OrganizationScopedRequest"
+        - type: object
+          required:
+            - start_time
+            - end_time
+            - page_query
+          properties:
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+            page_query:
+              $ref: "#/components/schemas/PageQuery"
+
+    ListUnhealthyTestsRequest:
+      allOf:
+        - $ref: "#/components/schemas/OrganizationScopedRequest"
+        - type: object
+          required:
+            - page_query
+            - status
+          properties:
+            page_query:
+              $ref: "#/components/schemas/PageQuery"
+            status:
+              type: string
+              enum:
+                - FLAKY
+                - BROKEN
+
+    ListQuarantinedTestsRequest:
+      allOf:
+        - $ref: "#/components/schemas/OrganizationScopedRequest"
+        - type: object
+          required:
+            - page_query
+          properties:
+            page_query:
+              $ref: "#/components/schemas/PageQuery"
+
+    ListTestsResponse:
+      type: object
+      required:
+        - tests
+        - page
+      properties:
+        tests:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestCase"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+
+    QuarantinedTestCase:
+      type: object
+      properties:
+        name:
+          type: string
+        parent:
+          oneOf:
+            - type: string
+            - type: "null"
+        file:
+          oneOf:
+            - type: string
+            - type: "null"
+        classname:
+          oneOf:
+            - type: string
+            - type: "null"
+        status:
+          type: string
+        codeowners:
+          type: array
+          items:
+            type: string
+        quarantine_setting:
+          type: string
+        quarantined_at:
+          type: string
+          format: date-time
+        status_last_updated_at:
+          type: string
+          format: date-time
+        test_case_id:
+          type: string
+        variant:
+          type: string
+
+    ListQuarantinedTestsResponse:
+      type: object
+      required:
+        - quarantined_tests
+        - page
+      properties:
+        quarantined_tests:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuarantinedTestCase"
+        page:
+          $ref: "#/components/schemas/PageInfo"
