@@ -150,22 +150,64 @@ test.describe("Authentication", () => {
     await expect(await page.evaluate(() => localStorage.getItem("user_email"))).toBeNull();
   });
 
-  test("auth callback rejects mismatched OAuth state (CSRF protection)", async ({
+  test("auth callback redirects mismatched OAuth state back to login", async ({
     page,
   }) => {
     await seedOAuthState(page, "correct-state");
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+
+    let callbackCalled = false;
+    await page.route("**/api/v1/auth/login/callback?**", (route) => {
+      callbackCalled = true;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          email: "unexpected@gestalt.dev",
+          displayName: "Unexpected",
+        }),
+      });
+    });
 
     await page.goto("/auth/callback?code=test-code&state=wrong-state");
-    await expect(page.getByText(/Invalid OAuth state/)).toBeVisible();
-    await expect(page.getByText("Back to login")).toBeVisible();
+    await expect(page).toHaveURL(/\/login/);
+    await expect(
+      page.getByRole("button", { name: /Sign in with Test SSO/i }),
+    ).toBeVisible();
+    expect(callbackCalled).toBe(false);
   });
 
-  test("auth callback rejects when no OAuth state was saved (CSRF protection)", async ({
+  test("auth callback redirects missing OAuth state back to login", async ({
     page,
   }) => {
     await seedOAuthState(page);
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+
+    let callbackCalled = false;
+    await page.route("**/api/v1/auth/login/callback?**", (route) => {
+      callbackCalled = true;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          email: "unexpected@gestalt.dev",
+          displayName: "Unexpected",
+        }),
+      });
+    });
+
     await page.goto("/auth/callback?code=attacker-code&state=attacker-state");
-    await expect(page.getByText(/Invalid OAuth state/)).toBeVisible();
+    await expect(page).toHaveURL(/\/login/);
+    await expect(
+      page.getByRole("button", { name: /Sign in with Test SSO/i }),
+    ).toBeVisible();
+    expect(callbackCalled).toBe(false);
   });
 
   test("auth callback accepts wrapped host_state and completes login", async ({
