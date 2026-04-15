@@ -82,7 +82,8 @@ export default function AuthCallbackPage() {
     }
 
     if (!savedState || hostState !== savedState) {
-      setError("Invalid OAuth state — possible CSRF attack");
+      // Stale or unsolicited callback URLs should fall back to the normal app entrypoint.
+      window.location.replace("/");
       return;
     }
 
