@@ -94,6 +94,33 @@ const SVG_WITHOUT_XMLNS_INTEGRATION: Integration = {
   iconSvg: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>`,
 };
 
+const SVG_WITH_DEFS_AND_UNSAFE_CONTENT = `<svg viewBox="0 0 24 24" onload="window.__iconPwned = true">
+  <script>window.__iconPwned = true</script>
+  <foreignObject><div>bad</div></foreignObject>
+  <defs>
+    <clipPath id="clip-badge">
+      <circle cx="12" cy="12" r="10"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#clip-badge)">
+    <path fill="currentColor" d="M0 0h24v24H0z"/>
+  </g>
+  <image href="https://example.com/evil.png" width="24" height="24"/>
+</svg>`;
+
+const SVG_WITH_UNSAFE_CONTENT_INTEGRATIONS: Integration[] = [
+  {
+    name: "unsafe-svg-one",
+    displayName: "Unsafe SVG One",
+    iconSvg: SVG_WITH_DEFS_AND_UNSAFE_CONTENT,
+  },
+  {
+    name: "unsafe-svg-two",
+    displayName: "Unsafe SVG Two",
+    iconSvg: SVG_WITH_DEFS_AND_UNSAFE_CONTENT,
+  },
+];
+
 test.describe("Integrations", () => {
   test("displays integration cards and actions", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
@@ -129,20 +156,53 @@ test.describe("Integrations", () => {
       .locator("div")
       .filter({ has: page.getByText("SVG Service", { exact: true }) })
       .first();
-    const icon = card.locator("img[aria-hidden='true']").first();
+    const icon = card.locator("svg[aria-hidden='true']").first();
 
     await expect(icon).toBeVisible();
-    const rendered = await icon.evaluate((node) => {
-      const img = node as HTMLImageElement;
+    await expect(icon.locator("circle")).toHaveCount(1);
+  });
+
+  test("sanitizes inline svg content and rewrites duplicate ids", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, SVG_WITH_UNSAFE_CONTENT_INTEGRATIONS);
+    await mockTokens(page, []);
+
+    await page.goto("/integrations");
+    await expect(page.getByText("Unsafe SVG One")).toBeVisible();
+    await expect(page.getByText("Unsafe SVG Two")).toBeVisible();
+
+    const summary = await page.evaluate(() => {
+      const grid = document.querySelector("[data-testid='plugin-grid']");
+      if (!grid) {
+        return null;
+      }
+
+      const ids = Array.from(grid.querySelectorAll("svg [id]"))
+        .map((element) => element.getAttribute("id"))
+        .filter((value): value is string => !!value);
+      const clipPaths = Array.from(grid.querySelectorAll("svg [clip-path]"))
+        .map((element) => element.getAttribute("clip-path"))
+        .filter((value): value is string => !!value);
+
       return {
-        complete: img.complete,
-        naturalWidth: img.naturalWidth,
-        naturalHeight: img.naturalHeight,
+        html: grid.innerHTML,
+        ids,
+        clipPaths,
+        iconCount: grid.querySelectorAll("svg[aria-hidden='true']").length,
       };
     });
-    expect(rendered.complete).toBe(true);
-    expect(rendered.naturalWidth).toBeGreaterThan(0);
-    expect(rendered.naturalHeight).toBeGreaterThan(0);
+
+    expect(summary).not.toBeNull();
+    expect(summary!.iconCount).toBe(2);
+    expect(summary!.ids).toHaveLength(2);
+    expect(new Set(summary!.ids).size).toBe(summary!.ids.length);
+    expect(summary!.ids).not.toContain("clip-badge");
+    expect(summary!.clipPaths).toHaveLength(2);
+    expect(summary!.clipPaths.every((value) => value.startsWith("url(#provider-icon-"))).toBe(true);
+    expect(summary!.html).not.toContain("<script");
+    expect(summary!.html).not.toContain("foreignObject");
+    expect(summary!.html).not.toContain("onload=");
+    expect(summary!.html).not.toContain("https://example.com/evil.png");
   });
 
   test("shows empty state when no integrations", async ({
