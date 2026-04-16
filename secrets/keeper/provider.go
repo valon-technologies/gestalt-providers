@@ -23,9 +23,13 @@ type config struct {
 	Field  string `yaml:"field"`
 }
 
+type notationClient interface {
+	GetNotationResults(notation string) ([]string, error)
+}
+
 type Provider struct {
 	name   string
-	client *ksm.SecretsManager
+	client notationClient
 	field  string
 }
 
@@ -67,15 +71,40 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 	}
 }
 
-func (p *Provider) GetSecret(_ context.Context, name string) (string, error) {
+func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
 	if strings.Contains(name, "/") {
-		return p.resolveNotation(name)
+		return p.resolveNotation(ctx, name)
 	}
-	return p.resolveByUID(name)
+	return p.resolveByUID(ctx, name)
 }
 
-func (p *Provider) resolveNotation(notation string) (string, error) {
-	values, err := p.client.GetNotationResults(notation)
+func (p *Provider) resolveNotation(ctx context.Context, notation string) (string, error) {
+	type result struct {
+		values []string
+		err    error
+	}
+
+	resultCh := make(chan result, 1)
+	go func() {
+		values, err := p.client.GetNotationResults(notation)
+		resultCh <- result{values: values, err: err}
+	}()
+
+	var (
+		values []string
+		err    error
+	)
+	select {
+	case <-ctx.Done():
+		return "", fmt.Errorf("accessing secret %q: %w", notation, ctx.Err())
+	case res := <-resultCh:
+		values = res.values
+		err = res.err
+	}
+
 	if err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "no records match") || strings.Contains(msg, "has no fields matching") {
@@ -89,7 +118,7 @@ func (p *Provider) resolveNotation(notation string) (string, error) {
 	return values[0], nil
 }
 
-func (p *Provider) resolveByUID(uid string) (string, error) {
+func (p *Provider) resolveByUID(ctx context.Context, uid string) (string, error) {
 	notation := fmt.Sprintf("keeper://%s/field/%s", uid, p.field)
-	return p.resolveNotation(notation)
+	return p.resolveNotation(ctx, notation)
 }

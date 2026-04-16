@@ -22,6 +22,9 @@ This provider resolves secret references in your Gestalt configuration against
 a 1Password Connect Server. At runtime, `gestaltd` looks up items by name in
 the configured vault and extracts the specified field value. Secret names can
 include a field suffix (e.g. `my-item/password`) to override the default field.
+Set `host`, `token`, and `vault` in the provider config. The host must use
+HTTPS by default; `allowInsecureHttp: true` is only supported for localhost or
+loopback development endpoints.
 
 ## Documentation
 
