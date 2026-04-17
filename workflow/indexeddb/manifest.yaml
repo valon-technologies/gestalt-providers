@@ -1,0 +1,6 @@
+source: github.com/valon-technologies/gestalt-providers/workflow/indexeddb
+version: 0.0.1-alpha.1
+displayName: IndexedDB Workflow
+description: IndexedDB-backed workflow provider with single-worker polling semantics.
+kind: workflow
+spec: {}
