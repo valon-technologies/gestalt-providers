@@ -1,0 +1,48 @@
+name: hex
+operations:
+- id: project.export
+  method: POST
+  description: Export a Hex project as YAML via Hex's CLI-only API endpoint
+  parameters:
+  - name: project_id
+    type: string
+    description: Hex project ID
+    required: true
+  - name: version
+    type: object
+    description: 'Project version to export: "draft" or a published version number'
+    default: draft
+- id: project.import
+  method: POST
+  description: Import or update a Hex project from raw YAML via Hex's CLI-only API
+    endpoint
+  parameters:
+  - name: content
+    type: string
+    description: Raw Hex project YAML content
+    required: true
+- id: project.runDraft
+  method: POST
+  description: Run the draft notebook version of a Hex project via Hex's CLI-only
+    API endpoint
+  parameters:
+  - name: project_id
+    type: string
+    description: Hex project ID
+    required: true
+  - name: use_cached_sql_results
+    type: boolean
+    description: Reuse cached SQL results when supported
+    default: null
+- id: cell.run
+  method: POST
+  description: Run a Hex cell and its dependencies via Hex's CLI-only API endpoint
+  parameters:
+  - name: cell_id
+    type: string
+    description: Hex cell ID
+    required: true
+  - name: dry_run
+    type: boolean
+    description: Validate the request without executing the cell
+    default: false

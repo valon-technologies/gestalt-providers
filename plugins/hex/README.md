@@ -1,6 +1,6 @@
 # Hex
 
-Manage Hex projects, runs, and cells.
+Hex Public API plus draft notebook, YAML import/export, and cell run operations.
 
 ## Configuration
 
@@ -18,9 +18,17 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built on the Hex OpenAPI specification. Exposes operations
-for managing Hex projects, triggering and monitoring runs, and working with
-notebook cells.
+Hybrid provider built on Hex's published OpenAPI specification plus a small
+source-backed layer for CLI-parity operations. It exposes the full current Hex
+Public API surface, including embedding, projects, semantic projects, runs,
+groups, users, collections, guides, data connections, and notebook cells.
+
+Additional source-backed operations:
+
+- `project.export`: export a project as YAML
+- `project.import`: import or update a project from YAML
+- `project.runDraft`: run the draft notebook version of a project
+- `cell.run`: run a cell and its dependencies
 
 Authenticates with a manually provided API token.
 
