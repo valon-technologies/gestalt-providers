@@ -26,8 +26,6 @@ jobs:
     timeout-minutes: 30
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
-      GOPRIVATE: github.com/valon-technologies/*
-      GONOSUMDB: github.com/valon-technologies/*
       UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
@@ -62,14 +60,9 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       - name: Install Python
         run: uv python install 3.14
-      - name: Configure private Gestalt repository access
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: .github/scripts/configure_private_github.sh
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
