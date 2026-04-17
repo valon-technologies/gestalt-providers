@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 import json
 import os
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 HEX_API_BASE = "https://app.hex.tech/api/v1"
 HEX_API_VERSION = "1.0.0"
@@ -27,18 +25,45 @@ def encode_path_component(value: str) -> str:
     return quote(value, safe="")
 
 
+def get_json(path: str, token: str, query: dict[str, Any] | None = None) -> dict[str, Any]:
+    return request_json("GET", path, token, query=query)
+
+
 def post_json(path: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
+    return request_json("POST", path, token, payload=payload)
+
+
+def request_json(
+    method: str,
+    path: str,
+    token: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    url = f"{hex_api_base()}/{path.lstrip('/')}"
+    if query:
+        encoded_query = urlencode({key: value for key, value in query.items() if value is not None})
+        if encoded_query:
+            url = f"{url}?{encoded_query}"
+
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "api-version": HEX_API_VERSION,
+        "User-Agent": USER_AGENT,
+    }
+
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+
     request = urllib.request.Request(
-        url=f"{hex_api_base()}/{path.lstrip('/')}",
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "api-version": HEX_API_VERSION,
-            "User-Agent": USER_AGENT,
-        },
+        url=url,
+        data=data,
+        method=method,
+        headers=headers,
     )
     return _request_json(request)
 

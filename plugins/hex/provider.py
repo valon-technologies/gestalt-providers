@@ -1,11 +1,20 @@
-from __future__ import annotations
-
 from http import HTTPStatus
 from typing import Any, TypeAlias
 
 import gestalt
 
-from internals import HexAPIError, export_project, import_project, run_cell, run_draft
+from internals import (
+    HexAPIError,
+    create_context_version,
+    export_project,
+    get_suggestion,
+    import_project,
+    list_suggestions,
+    publish_context_version,
+    run_cell,
+    run_draft,
+    update_context_version,
+)
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, Any]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
@@ -13,7 +22,7 @@ OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 class ProjectExportInput(gestalt.Model):
     project_id: str = gestalt.field(description="Hex project ID")
-    version: str | int | float = gestalt.field(
+    version: str = gestalt.field(
         description='Project version to export: "draft" or a published version number',
         default="draft",
         required=False,
@@ -42,6 +51,63 @@ class CellRunInput(gestalt.Model):
     )
 
 
+class SuggestionsListInput(gestalt.Model):
+    limit: int = gestalt.field(description="Maximum number of suggestions to return", default=100, required=False)
+    after: str = gestalt.field(description="Pagination cursor to fetch results after", default="", required=False)
+    before: str = gestalt.field(description="Pagination cursor to fetch results before", default="", required=False)
+    sort_by: str = gestalt.field(
+        description="Optional sort field: CREATED_DATE, EVIDENCE_COUNT, or LAST_SOURCE_ADDED_DATE",
+        default="",
+        required=False,
+    )
+    sort_direction: str = gestalt.field(
+        description="Optional sort direction: ASC or DESC",
+        default="",
+        required=False,
+    )
+    status: str = gestalt.field(
+        description="Optional status filter: OPEN, IN_PROGRESS, or RESOLVED",
+        default="",
+        required=False,
+    )
+
+
+class SuggestionsGetInput(gestalt.Model):
+    suggestion_id: str = gestalt.field(description="Hex suggestion ID")
+
+
+class ContextVersionCreateInput(gestalt.Model):
+    external_source: dict[str, Any] = gestalt.field(
+        description="Hex externalSource payload for creating a context version",
+    )
+
+
+class ContextVersionUpdateInput(gestalt.Model):
+    context_version_id: str = gestalt.field(description="Hex context version ID")
+    operation: dict[str, Any] = gestalt.field(
+        description="Hex operation payload for updating a context version",
+    )
+
+
+class ContextVersionPublishInput(gestalt.Model):
+    context_version_id: str = gestalt.field(description="Hex context version ID")
+    update_latest_version: bool = gestalt.field(
+        description="Whether to update the latest context version with the draft changes",
+        default=False,
+        required=False,
+    )
+    title: str = gestalt.field(
+        description="Optional short human-readable title for the published version",
+        default="",
+        required=False,
+    )
+    description: str = gestalt.field(
+        description="Optional long human-readable description for the published version",
+        default="",
+        required=False,
+    )
+
+
 @gestalt.operation(
     id="project.export",
     method="POST",
@@ -52,16 +118,12 @@ def project_export(input: ProjectExportInput, req: gestalt.Request) -> Operation
     if token_error is not None:
         return token_error
 
-    project_id = input.project_id.strip()
-    if not project_id:
-        return _bad_request("project_id is required")
-
-    version = str(input.version).strip()
-    if not version:
-        return _bad_request("version must be 'draft' or a version number")
-
     try:
-        return export_project(req.token, project_id, version)
+        return export_project(
+            req.token,
+            _require_trimmed_text(input.project_id, "project_id"),
+            _require_trimmed_text(input.version, "version"),
+        )
     except ValueError as err:
         return _bad_request(str(err))
     except HexAPIError as err:
@@ -80,11 +142,10 @@ def project_import(input: ProjectImportInput, req: gestalt.Request) -> Operation
     if token_error is not None:
         return token_error
 
-    if not input.content.strip():
-        return _bad_request("content is required")
-
     try:
-        return import_project(req.token, input.content)
+        return import_project(req.token, _require_text(input.content, "content"))
+    except ValueError as err:
+        return _bad_request(str(err))
     except HexAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except RuntimeError as err:
@@ -101,12 +162,14 @@ def project_run_draft(input: ProjectRunDraftInput, req: gestalt.Request) -> Oper
     if token_error is not None:
         return token_error
 
-    project_id = input.project_id.strip()
-    if not project_id:
-        return _bad_request("project_id is required")
-
     try:
-        return run_draft(req.token, project_id, input.use_cached_sql_results)
+        return run_draft(
+            req.token,
+            _require_trimmed_text(input.project_id, "project_id"),
+            input.use_cached_sql_results,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
     except HexAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except RuntimeError as err:
@@ -123,12 +186,133 @@ def cell_run(input: CellRunInput, req: gestalt.Request) -> OperationResult:
     if token_error is not None:
         return token_error
 
-    cell_id = input.cell_id.strip()
-    if not cell_id:
-        return _bad_request("cell_id is required")
+    try:
+        return run_cell(req.token, _require_trimmed_text(input.cell_id, "cell_id"), input.dry_run)
+    except ValueError as err:
+        return _bad_request(str(err))
+    except HexAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="suggestions.list",
+    method="POST",
+    description="List Hex Context Studio suggestions via Hex's CLI-only API endpoint",
+)
+def suggestions_list(input: SuggestionsListInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
 
     try:
-        return run_cell(req.token, cell_id, input.dry_run)
+        if input.limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        return list_suggestions(
+            req.token,
+            limit=input.limit,
+            after=input.after.strip() or None,
+            before=input.before.strip() or None,
+            sort_by=_normalize_enum(
+                input.sort_by,
+                "sort_by",
+                {"CREATED_DATE", "EVIDENCE_COUNT", "LAST_SOURCE_ADDED_DATE"},
+            ),
+            sort_direction=_normalize_enum(input.sort_direction, "sort_direction", {"ASC", "DESC"}),
+            status=_normalize_enum(input.status, "status", {"OPEN", "IN_PROGRESS", "RESOLVED"}),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except HexAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="suggestions.get",
+    method="POST",
+    description="Get a Hex Context Studio suggestion via Hex's CLI-only API endpoint",
+)
+def suggestions_get(input: SuggestionsGetInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+
+    try:
+        return get_suggestion(req.token, _require_trimmed_text(input.suggestion_id, "suggestion_id"))
+    except ValueError as err:
+        return _bad_request(str(err))
+    except HexAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="contextVersion.create",
+    method="POST",
+    description="Create a Hex Context Studio context version via Hex's CLI-only API endpoint",
+)
+def context_version_create(input: ContextVersionCreateInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+
+    try:
+        return create_context_version(req.token, input.external_source)
+    except HexAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="contextVersion.update",
+    method="POST",
+    description="Update a Hex Context Studio context version via Hex's CLI-only API endpoint",
+)
+def context_version_update(input: ContextVersionUpdateInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+
+    try:
+        return update_context_version(
+            req.token,
+            _require_trimmed_text(input.context_version_id, "context_version_id"),
+            input.operation,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except HexAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="contextVersion.publish",
+    method="POST",
+    description="Publish a Hex Context Studio context version via Hex's CLI-only API endpoint",
+)
+def context_version_publish(input: ContextVersionPublishInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+
+    try:
+        return publish_context_version(
+            req.token,
+            _require_trimmed_text(input.context_version_id, "context_version_id"),
+            update_latest_version=input.update_latest_version,
+            title=input.title.strip() or None,
+            description=input.description.strip() or None,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
     except HexAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
     except RuntimeError as err:
@@ -147,3 +331,27 @@ def _bad_request(message: str) -> ErrorResponse:
 
 def _server_error(message: str) -> ErrorResponse:
     return gestalt.Response(status=HTTPStatus.INTERNAL_SERVER_ERROR, body={"error": message})
+
+
+def _require_text(value: str, field_name: str) -> str:
+    if not value.strip():
+        raise ValueError(f"{field_name} is required")
+    return value
+
+
+def _require_trimmed_text(value: str, field_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
+
+
+def _normalize_enum(value: str, field_name: str, allowed: set[str]) -> str | None:
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    normalized = normalized.upper()
+    if normalized not in allowed:
+        raise ValueError(f"{field_name} must be one of: {', '.join(sorted(allowed))}")
+    return normalized
