@@ -31,17 +31,31 @@ jobs:
       UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
-      - name: Validate inputs
+        with:
+          fetch-depth: 0
+      - name: Prepare tagged provider source
+        id: source
         run: |
           set -euo pipefail
-          if [ ! -f "${{ inputs.plugin-dir }}/manifest.yaml" ]; then
-            echo "missing manifest for ${{ inputs.plugin-dir }}" >&2
+          tag="${{ inputs.plugin-dir }}/v${{ inputs.version }}"
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+          source_root="${RUNNER_TEMP}/provider-source"
+          rm -rf "${source_root}"
+          mkdir -p "${source_root}"
+          git archive "${tag}" "${{ inputs.plugin-dir }}" | tar -x -C "${source_root}"
+          source_dir="${source_root}/${{ inputs.plugin-dir }}"
+          if [ ! -f "${source_dir}/manifest.yaml" ]; then
+            echo "missing manifest for ${tag}" >&2
             exit 1
           fi
-          if [ ! -f "${{ inputs.plugin-dir }}/pyproject.toml" ]; then
-            echo "${{ inputs.plugin-dir }} is not a Python provider" >&2
+          if [ ! -f "${source_dir}/pyproject.toml" ]; then
+            echo "${tag} is not a Python provider" >&2
             exit 1
           fi
+          {
+            echo "dir=${source_dir}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
@@ -65,7 +79,7 @@ jobs:
       - name: Build darwin/amd64 archive
         run: |
           set -euo pipefail
-          cd "${{ inputs.plugin-dir }}"
+          cd "${{ steps.source.outputs.dir }}"
           rm -rf dist .venv
           uv sync
           GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
@@ -75,14 +89,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="${{ inputs.plugin-dir }}/v${{ inputs.version }}"
+          tag="${{ steps.source.outputs.tag }}"
           patch_dir="${RUNNER_TEMP}/release-patch"
           rm -rf "${patch_dir}"
           mkdir -p "${patch_dir}"
           gh release download "${tag}" --pattern '*.tar.gz' --dir "${patch_dir}"
-          cp "${{ inputs.plugin-dir }}/dist/"*_darwin_amd64.tar.gz "${patch_dir}/"
+          asset_names="$(gh release view "${tag}" --json assets --jq '.assets[].name')"
+          if printf '%s\n' "${asset_names}" | grep -Fxq 'provider-release.yaml'; then
+            gh release download "${tag}" --pattern 'provider-release.yaml' --dir "${patch_dir}"
+            template_flag=(--template-metadata "${patch_dir}/provider-release.yaml")
+          else
+            template_flag=(--manifest "${{ steps.source.outputs.dir }}/manifest.yaml")
+          fi
+          cp "${{ steps.source.outputs.dir }}/dist/"*_darwin_amd64.tar.gz "${patch_dir}/"
+          python3 .github/scripts/write_provider_release_metadata.py \
+            "${template_flag[@]}" \
+            --output-dir "${patch_dir}" \
+            --version "${{ inputs.version }}"
           (
             cd "${patch_dir}"
             LC_ALL=C shasum -a 256 ./*.tar.gz > checksums.txt
           )
-          gh release upload "${tag}" "${patch_dir}"/*_darwin_amd64.tar.gz "${patch_dir}/checksums.txt" --clobber
+          gh release upload "${tag}" "${patch_dir}"/*_darwin_amd64.tar.gz "${patch_dir}/checksums.txt" "${patch_dir}/provider-release.yaml" --clobber

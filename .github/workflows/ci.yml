@@ -288,8 +288,23 @@ jobs:
           mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
           (cd "$plugin_dir" && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
 
+          if [ ! -f "${OUTPUT_ROOT}/${plugin_name}/provider-release.yaml" ]; then
+            echo "ERROR: ${plugin_name} did not produce provider-release.yaml"
+            exit 1
+          fi
+
+          python3 .github/scripts/write_provider_release_metadata.py \
+            --manifest "${plugin_dir}/manifest.yaml" \
+            --output-dir "${OUTPUT_ROOT}/${plugin_name}" \
+            --version "${VALIDATION_VERSION}" \
+            --metadata-path "${OUTPUT_ROOT}/${plugin_name}/provider-release.generated.yaml"
+
           if ! find "${OUTPUT_ROOT}/${plugin_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
             echo "ERROR: ${plugin_name} produced no packaged artifacts"
+            exit 1
+          fi
+          if [ ! -f "${OUTPUT_ROOT}/${plugin_name}/provider-release.generated.yaml" ]; then
+            echo "ERROR: ${plugin_name} did not regenerate provider-release metadata"
             exit 1
           fi
 
