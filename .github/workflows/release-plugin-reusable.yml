@@ -209,11 +209,20 @@ jobs:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           .github/scripts/package_python_docker.sh linux/arm/v7 python:3.14-slim gestaltd-armv7 GESTALT_PYTHON_LINUX_ARM linux/arm "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
+      - name: Refresh provider release metadata
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/write_provider_release_metadata.py \
+            --manifest "${{ inputs.plugin-dir }}/manifest.yaml" \
+            --output-dir "${{ inputs.plugin-dir }}/dist" \
+            --version "${{ steps.version.outputs.release }}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
+          path: |
+            ${{ inputs.plugin-dir }}/dist/*.tar.gz
+            ${{ inputs.plugin-dir }}/dist/provider-release.yaml
           if-no-files-found: ignore
 
   build-macos-arm64:
@@ -247,10 +256,19 @@ jobs:
           uv sync
           GESTALT_PYTHON_DARWIN_ARM64="$PWD/.venv/bin/python" \
             gestaltd provider release --version "${{ needs.build.outputs.version }}" --platform darwin/arm64
+      - name: Refresh provider release metadata
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/write_provider_release_metadata.py \
+            --manifest "${{ inputs.plugin-dir }}/manifest.yaml" \
+            --output-dir "${{ inputs.plugin-dir }}/dist" \
+            --version "${{ needs.build.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: dist-macos-arm64
-          path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
+          path: |
+            ${{ inputs.plugin-dir }}/dist/*.tar.gz
+            ${{ inputs.plugin-dir }}/dist/provider-release.yaml
           if-no-files-found: error
 
   build-macos-amd64:
@@ -291,10 +309,19 @@ jobs:
           uv sync
           GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
             gestaltd provider release --version "${{ needs.build.outputs.version }}" --platform darwin/amd64
+      - name: Refresh provider release metadata
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/write_provider_release_metadata.py \
+            --manifest "${{ inputs.plugin-dir }}/manifest.yaml" \
+            --output-dir "${{ inputs.plugin-dir }}/dist" \
+            --version "${{ needs.build.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: dist-macos-amd64
-          path: ${{ inputs.plugin-dir }}/dist/*.tar.gz
+          path: |
+            ${{ inputs.plugin-dir }}/dist/*.tar.gz
+            ${{ inputs.plugin-dir }}/dist/provider-release.yaml
           if-no-files-found: error
 
   publish:
@@ -321,6 +348,13 @@ jobs:
         with:
           name: dist-macos-amd64
           path: dist
+      - name: Generate provider release metadata
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/write_provider_release_metadata.py \
+            --template-metadata dist/provider-release.yaml \
+            --output-dir dist \
+            --version "${{ needs.build.outputs.version }}"
       - name: Write checksums and publish release
         env:
           GH_TOKEN: ${{ github.token }}
