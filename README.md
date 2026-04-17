@@ -32,6 +32,7 @@ Reference providers in your Gestalt configuration by source and version. See the
 ```
 plugins/<name>/       Integration plugin packages (Go, Python)
 auth/<name>/          Authentication providers (Go)
+authorization/<name>/ Authorization providers (Go)
 s3/<name>/            S3-compatible object-store providers (Go)
 indexeddb/<name>/     Datastore providers (Go, Rust)
 workflow/<name>/      Workflow providers (Go)

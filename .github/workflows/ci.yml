@@ -7,6 +7,7 @@ on:
       - '.github/scripts/**'
       - 'plugins/**'
       - 'auth/**'
+      - 'authorization/**'
       - 's3/**'
       - 'indexeddb/**'
       - 'cache/**'
@@ -20,6 +21,7 @@ on:
       - '.github/scripts/**'
       - 'plugins/**'
       - 'auth/**'
+      - 'authorization/**'
       - 's3/**'
       - 'indexeddb/**'
       - 'cache/**'
@@ -31,8 +33,6 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  LEGACY_GESTALT_REF: main
-  PROVIDER_GESTALT_REF: main
   VALIDATION_VERSION: 0.0.1-alpha.1
   UV_PYTHON: "3.14"
 
@@ -63,23 +63,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "s3", "indexeddb", "cache", "secrets")
-          gestalt_ref_by_root = {
-              "plugins": os.environ["LEGACY_GESTALT_REF"],
-              "auth": os.environ["PROVIDER_GESTALT_REF"],
-              "s3": os.environ["PROVIDER_GESTALT_REF"],
-              "indexeddb": os.environ["PROVIDER_GESTALT_REF"],
-              "cache": os.environ["PROVIDER_GESTALT_REF"],
-              "secrets": os.environ["PROVIDER_GESTALT_REF"],
-          }
-          toolchain_by_root = {
-              "plugins": "legacy",
-              "auth": "provider",
-              "s3": "provider",
-              "indexeddb": "provider",
-              "cache": "provider",
-              "secrets": "provider",
-          }
+          package_roots = ("plugins", "auth", "authorization", "s3", "indexeddb", "cache", "secrets")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -96,8 +80,6 @@ jobs:
                           "has_go": has_go,
                           "has_python": (package_dir / "pyproject.toml").is_file(),
                           "has_rust": (package_dir / "Cargo.toml").is_file(),
-                          "gestalt_ref": gestalt_ref_by_root[root_name],
-                          "gestaltd_artifact": f"gestaltd-{toolchain_by_root[root_name]}",
                       }
                   )
           packages_by_root = {}
@@ -181,14 +163,6 @@ jobs:
     if: needs.discover.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain:
-          - name: legacy
-            gestalt_ref: main
-          - name: provider
-            gestalt_ref: main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -202,12 +176,12 @@ jobs:
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ matrix.toolchain.gestalt_ref }}"
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd-${{ matrix.toolchain.name }}" ./cmd/gestaltd)
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
+          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - uses: actions/upload-artifact@v4
         with:
-          name: gestaltd-${{ matrix.toolchain.name }}
-          path: ${{ runner.temp }}/bin/gestaltd-${{ matrix.toolchain.name }}
+          name: gestaltd
+          path: ${{ runner.temp }}/bin/gestaltd
           if-no-files-found: error
 
   validate:
@@ -241,14 +215,13 @@ jobs:
         run: |
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ matrix.plugin.gestalt_ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.plugin.gestaltd_artifact }}
+          name: gestaltd
           path: ${{ runner.temp }}/bin
       - name: Add gestaltd to PATH
         run: |
-          mv "${RUNNER_TEMP}/bin/${{ matrix.plugin.gestaltd_artifact }}" "${RUNNER_TEMP}/bin/gestaltd"
           chmod +x "${RUNNER_TEMP}/bin/gestaltd"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
       - name: Validate plugin
