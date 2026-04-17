@@ -34,6 +34,7 @@ plugins/<name>/       Integration plugin packages (Go, Python)
 auth/<name>/          Authentication providers (Go)
 s3/<name>/            S3-compatible object-store providers (Go)
 indexeddb/<name>/     Datastore providers (Go, Rust)
+workflow/<name>/      Workflow providers (Go)
 cache/<name>/         Cache providers (Go)
 secrets/<name>/       Secrets providers (Go)
 web/<name>/           Web UI bundles
