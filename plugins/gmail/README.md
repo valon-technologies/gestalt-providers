@@ -18,10 +18,10 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Source-backed provider implemented in Python with an OpenAPI surface and an
-[MCP](https://modelcontextprotocol.io/) surface. Exposes Gmail API operations
-for listing, reading, updating, trashing, sending, and drafting messages;
-managing labels; reading threads; and retrieving the user's profile.
+Source-backed provider implemented in Python with an OpenAPI surface. Exposes
+Gmail API operations for listing, reading, updating, trashing, sending, and
+drafting messages; managing labels; reading threads; and retrieving the user's
+profile.
 
 Also includes source-backed operations for sending a message, creating a draft,
 replying to an existing message, and forwarding a message without requiring

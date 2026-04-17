@@ -5,7 +5,6 @@ description: Read, send, and manage Gmail messages, threads, drafts, and labels.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
-  mcp: true
   configSchemaPath: schemas/config.schema.yaml
   managedParameters:
   - in: path
@@ -20,7 +19,7 @@ spec:
     gmail.users.messages.get:
       alias: messages.get
     gmail.users.messages.send:
-      alias: messages.sendRaw
+      alias: messages.send
     gmail.users.messages.trash:
       alias: messages.trash
     gmail.users.messages.modify:
