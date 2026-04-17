@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/hex
 version: 0.0.1-alpha.1
 displayName: Hex
-description: Manage Hex projects, runs, and cells.
+description: Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations.
 iconFile: assets/icon.svg
 kind: plugin
 spec:

@@ -1,0 +1,127 @@
+name: hex
+operations:
+- id: project.export
+  method: POST
+  description: Export a Hex project as YAML via Hex's CLI-only API endpoint
+  parameters:
+  - name: project_id
+    type: string
+    description: Hex project ID
+    required: true
+  - name: version
+    type: string
+    description: 'Project version to export: "draft" or a published version number'
+    default: draft
+- id: project.import
+  method: POST
+  description: Import or update a Hex project from raw YAML via Hex's CLI-only API
+    endpoint
+  parameters:
+  - name: content
+    type: string
+    description: Raw Hex project YAML content
+    required: true
+- id: project.runDraft
+  method: POST
+  description: Run the draft notebook version of a Hex project via Hex's CLI-only
+    API endpoint
+  parameters:
+  - name: project_id
+    type: string
+    description: Hex project ID
+    required: true
+  - name: use_cached_sql_results
+    type: boolean
+    description: Reuse cached SQL results when supported
+    default: null
+- id: cell.run
+  method: POST
+  description: Run a Hex cell and its dependencies via Hex's CLI-only API endpoint
+  parameters:
+  - name: cell_id
+    type: string
+    description: Hex cell ID
+    required: true
+  - name: dry_run
+    type: boolean
+    description: Validate the request without executing the cell
+    default: false
+- id: suggestions.list
+  method: POST
+  description: List Hex Context Studio suggestions via Hex's CLI-only API endpoint
+  parameters:
+  - name: limit
+    type: integer
+    description: Maximum number of suggestions to return
+    default: 100.0
+  - name: after
+    type: string
+    description: Pagination cursor to fetch results after
+    default: ''
+  - name: before
+    type: string
+    description: Pagination cursor to fetch results before
+    default: ''
+  - name: sort_by
+    type: string
+    description: 'Optional sort field: CREATED_DATE, EVIDENCE_COUNT, or LAST_SOURCE_ADDED_DATE'
+    default: ''
+  - name: sort_direction
+    type: string
+    description: 'Optional sort direction: ASC or DESC'
+    default: ''
+  - name: status
+    type: string
+    description: 'Optional status filter: OPEN, IN_PROGRESS, or RESOLVED'
+    default: ''
+- id: suggestions.get
+  method: POST
+  description: Get a Hex Context Studio suggestion via Hex's CLI-only API endpoint
+  parameters:
+  - name: suggestion_id
+    type: string
+    description: Hex suggestion ID
+    required: true
+- id: contextVersion.create
+  method: POST
+  description: Create a Hex Context Studio context version via Hex's CLI-only API
+    endpoint
+  parameters:
+  - name: external_source
+    type: object
+    description: Hex externalSource payload for creating a context version
+    required: true
+- id: contextVersion.update
+  method: POST
+  description: Update a Hex Context Studio context version via Hex's CLI-only API
+    endpoint
+  parameters:
+  - name: context_version_id
+    type: string
+    description: Hex context version ID
+    required: true
+  - name: operation
+    type: object
+    description: Hex operation payload for updating a context version
+    required: true
+- id: contextVersion.publish
+  method: POST
+  description: Publish a Hex Context Studio context version via Hex's CLI-only API
+    endpoint
+  parameters:
+  - name: context_version_id
+    type: string
+    description: Hex context version ID
+    required: true
+  - name: update_latest_version
+    type: boolean
+    description: Whether to update the latest context version with the draft changes
+    default: false
+  - name: title
+    type: string
+    description: Optional short human-readable title for the published version
+    default: ''
+  - name: description
+    type: string
+    description: Optional long human-readable description for the published version
+    default: ''
