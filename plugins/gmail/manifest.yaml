@@ -18,8 +18,6 @@ spec:
       alias: messages.list
     gmail.users.messages.get:
       alias: messages.get
-    gmail.users.messages.send:
-      alias: messages.send
     gmail.users.messages.trash:
       alias: messages.trash
     gmail.users.messages.modify:
