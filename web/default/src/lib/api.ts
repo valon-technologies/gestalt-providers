@@ -39,10 +39,16 @@ export interface Integration {
   credentialFields?: CredentialFieldDef[];
 }
 
+export interface AccessPermission {
+  plugin: string;
+  operations?: string[];
+}
+
 export interface APIToken {
   id: string;
   name: string;
-  scopes: string;
+  scopes?: string;
+  permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;
 }
@@ -51,6 +57,31 @@ export interface CreateTokenResponse {
   id: string;
   name: string;
   token: string;
+  permissions?: AccessPermission[];
+  expiresAt?: string;
+}
+
+export interface ManagedIdentity {
+  id: string;
+  displayName: string;
+  role: "viewer" | "editor" | "admin";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedIdentityMember {
+  userId?: string;
+  email: string;
+  role: "viewer" | "editor" | "admin";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedIdentityGrant {
+  plugin: string;
+  operations?: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ConnectIntegrationResult {
@@ -157,6 +188,7 @@ export async function startIntegrationOAuth(
   connectionParams?: Record<string, string>,
   instance?: string,
   connection?: string,
+  returnPath?: string,
 ): Promise<{ url: string; state: string }> {
   return fetchAPI("/api/v1/auth/start-oauth", {
     method: "POST",
@@ -166,6 +198,7 @@ export async function startIntegrationOAuth(
       connection,
       scopes: scopes || [],
       connectionParams,
+      returnPath,
     }),
   });
 }
@@ -176,12 +209,14 @@ export async function connectManualIntegration(
   connectionParams?: Record<string, string>,
   instance?: string,
   connection?: string,
+  returnPath?: string,
 ): Promise<ConnectIntegrationResult> {
   const body: Record<string, unknown> = {
     integration,
     instance,
     connection,
     connectionParams,
+    returnPath,
   };
   if (typeof credential === "string") {
     body.credential = credential;
@@ -224,4 +259,170 @@ export async function createToken(name: string): Promise<CreateTokenResponse> {
 
 export async function revokeToken(id: string): Promise<void> {
   await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
+}
+
+export async function getManagedIdentities(): Promise<ManagedIdentity[]> {
+  return fetchAPI("/api/v1/identities");
+}
+
+export async function createManagedIdentity(displayName: string): Promise<ManagedIdentity> {
+  return fetchAPI("/api/v1/identities", {
+    method: "POST",
+    body: JSON.stringify({ displayName }),
+  });
+}
+
+export async function getManagedIdentity(id: string): Promise<ManagedIdentity> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}`);
+}
+
+export async function updateManagedIdentity(id: string, displayName: string): Promise<ManagedIdentity> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ displayName }),
+  });
+}
+
+export async function deleteManagedIdentity(id: string): Promise<void> {
+  await fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getManagedIdentityMembers(id: string): Promise<ManagedIdentityMember[]> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/members`);
+}
+
+export async function putManagedIdentityMember(
+  id: string,
+  email: string,
+  role: ManagedIdentityMember["role"],
+): Promise<ManagedIdentityMember> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/members`, {
+    method: "PUT",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export async function deleteManagedIdentityMember(id: string, email: string): Promise<void> {
+  await fetchAPI(
+    `/api/v1/identities/${encodeURIComponent(id)}/members/${encodeURIComponent(email)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getManagedIdentityGrants(id: string): Promise<ManagedIdentityGrant[]> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/grants`);
+}
+
+export async function putManagedIdentityGrant(
+  id: string,
+  plugin: string,
+  operations?: string[],
+): Promise<ManagedIdentityGrant> {
+  return fetchAPI(
+    `/api/v1/identities/${encodeURIComponent(id)}/grants/${encodeURIComponent(plugin)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ operations }),
+    },
+  );
+}
+
+export async function deleteManagedIdentityGrant(id: string, plugin: string): Promise<void> {
+  await fetchAPI(
+    `/api/v1/identities/${encodeURIComponent(id)}/grants/${encodeURIComponent(plugin)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getManagedIdentityTokens(id: string): Promise<APIToken[]> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/tokens`);
+}
+
+export async function createManagedIdentityToken(
+  id: string,
+  name: string,
+  permissions: AccessPermission[],
+): Promise<CreateTokenResponse> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/tokens`, {
+    method: "POST",
+    body: JSON.stringify({ name, permissions }),
+  });
+}
+
+export async function revokeManagedIdentityToken(id: string, tokenId: string): Promise<void> {
+  await fetchAPI(
+    `/api/v1/identities/${encodeURIComponent(id)}/tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getManagedIdentityIntegrations(id: string): Promise<Integration[]> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/integrations`);
+}
+
+export async function startManagedIdentityOAuth(
+  id: string,
+  integration: string,
+  scopes?: string[],
+  connectionParams?: Record<string, string>,
+  instance?: string,
+  connection?: string,
+  returnPath?: string,
+): Promise<{ url: string; state: string }> {
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/auth/start-oauth`, {
+    method: "POST",
+    body: JSON.stringify({
+      integration,
+      instance,
+      connection,
+      scopes: scopes || [],
+      connectionParams,
+      returnPath,
+    }),
+  });
+}
+
+export async function connectManagedIdentityManual(
+  id: string,
+  integration: string,
+  credential: string | Record<string, string>,
+  connectionParams?: Record<string, string>,
+  instance?: string,
+  connection?: string,
+  returnPath?: string,
+): Promise<ConnectIntegrationResult> {
+  const body: Record<string, unknown> = {
+    integration,
+    instance,
+    connection,
+    connectionParams,
+    returnPath,
+  };
+  if (typeof credential === "string") {
+    body.credential = credential;
+  } else {
+    body.credentials = credential;
+  }
+  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/auth/connect-manual`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function disconnectManagedIdentityIntegration(
+  id: string,
+  name: string,
+  instance?: string,
+  connection?: string,
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (instance) query.set("instance", instance);
+  if (connection) query.set("connection", connection);
+  const params = query.toString();
+  await fetchAPI(
+    `/api/v1/identities/${encodeURIComponent(id)}/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
+    { method: "DELETE" },
+  );
 }

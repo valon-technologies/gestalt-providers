@@ -1,4 +1,11 @@
-import { test, expect, mockAuthInfo, mockIntegrations, mockTokens } from "./fixtures";
+import {
+  test,
+  expect,
+  mockAuthInfo,
+  mockIntegrations,
+  mockManagedIdentities,
+  mockTokens,
+} from "./fixtures";
 
 test.describe("Navigation", () => {
   test.beforeEach(async ({ authenticatedPage }) => {
@@ -6,6 +13,7 @@ test.describe("Navigation", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockManagedIdentities(authenticatedPage, []);
     await mockIntegrations(authenticatedPage, [
       {
         name: "httpbin",
@@ -38,6 +46,13 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("identities page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/identities");
+    await expect(
+      page.getByRole("heading", { name: "Agent Identities" }),
+    ).toBeVisible();
+  });
+
   test("tokens page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/tokens");
     await expect(
@@ -64,6 +79,11 @@ test.describe("Navigation", () => {
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/integrations");
+    await page.getByRole("link", { name: "Identities" }).click();
+    await expect(page).toHaveURL(/identities/);
+    await expect(
+      page.getByRole("heading", { name: "Agent Identities" }),
+    ).toBeVisible();
     await page.getByRole("link", { name: "API Tokens" }).click();
     await expect(page).toHaveURL(/tokens/);
     await expect(

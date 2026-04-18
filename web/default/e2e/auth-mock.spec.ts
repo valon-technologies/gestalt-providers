@@ -3,6 +3,7 @@ import {
   expect,
   mockAuthInfo,
   mockIntegrations,
+  mockManagedIdentities,
   mockTokens,
 } from "./fixtures";
 
@@ -77,6 +78,9 @@ test.describe("Authentication", () => {
     await page.goto("/login");
     await expect(page).toHaveURL("/");
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Identities", exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
 
     await page.evaluate(() => {
@@ -88,7 +92,20 @@ test.describe("Authentication", () => {
     await page.goto("/");
     await expect(page).toHaveURL("/");
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Identities", exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
+
+    await page.goto("/identities");
+    await expect(
+      page.getByText("Managed identities require platform auth and are unavailable when auth is disabled."),
+    ).toBeVisible();
+
+    await page.goto("/identities?id=agent-1");
+    await expect(
+      page.getByText("Managed identities require platform auth and are unavailable when auth is disabled."),
+    ).toBeVisible();
   });
 
   test("authenticated user sees dashboard", async ({ authenticatedPage }) => {
@@ -96,6 +113,7 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/auth/info", (route) => {
       route.abort();
     });
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, [
       { name: "test-svc", displayName: "Test Service" },
     ]);
@@ -109,6 +127,9 @@ test.describe("Authentication", () => {
       page.getByRole("link", { name: "Plugins", exact: true }),
     ).toBeVisible();
     await expect(
+      page.getByRole("link", { name: "Identities", exact: true }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("link", { name: "API Tokens", exact: true }),
     ).toBeVisible();
     await expect(
@@ -120,6 +141,7 @@ test.describe("Authentication", () => {
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
 
@@ -132,6 +154,7 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
@@ -216,6 +239,7 @@ test.describe("Authentication", () => {
     const wrappedState = encodeWrappedState("correct-state");
 
     await seedOAuthState(page, "correct-state");
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
 

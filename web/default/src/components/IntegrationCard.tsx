@@ -222,14 +222,50 @@ type PendingSelection = {
   pendingToken: string;
 };
 
+type StartOAuthFn = (
+  integration: string,
+  scopes?: string[],
+  connectionParams?: Record<string, string>,
+  instance?: string,
+  connection?: string,
+  returnPath?: string,
+) => Promise<{ url: string; state: string }>;
+
+type ConnectManualFn = (
+  integration: string,
+  credential: string | Record<string, string>,
+  connectionParams?: Record<string, string>,
+  instance?: string,
+  connection?: string,
+  returnPath?: string,
+) => Promise<{ status: string; integration?: string; selectionUrl?: string; pendingToken?: string }>;
+
+type DisconnectFn = (
+  integration: string,
+  instance?: string,
+  connection?: string,
+) => Promise<void>;
+
 export default function IntegrationCard({
   integration,
   onConnected,
   onDisconnected,
+  startOAuth = startIntegrationOAuth,
+  connectManual = connectManualIntegration,
+  disconnect = disconnectIntegration,
+  returnPath,
+  readOnly = false,
+  disableNavigation = false,
 }: {
   integration: Integration;
   onConnected?: () => void;
   onDisconnected?: () => void;
+  startOAuth?: StartOAuthFn;
+  connectManual?: ConnectManualFn;
+  disconnect?: DisconnectFn;
+  returnPath?: string;
+  readOnly?: boolean;
+  disableNavigation?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -247,8 +283,14 @@ export default function IntegrationCard({
     : null;
   const needsParams = hasConnectionParams(integration);
   const mountedPath = integration.mountedPath?.trim();
-  const settingsAvailable = hasSettingsControls(integration);
-  const cardNavigationEnabled = !!mountedPath && !settingsOpen && !showParamForm;
+  const settingsAvailable = readOnly
+    ? !!integration.connected || (integration.instances?.length ?? 0) > 0
+    : hasSettingsControls(integration);
+  const cardNavigationEnabled =
+    !disableNavigation &&
+    !!mountedPath &&
+    !settingsOpen &&
+    !showParamForm;
 
   useEffect(() => {
     if (!pendingSelection) return;
@@ -271,12 +313,13 @@ export default function IntegrationCard({
     setLoading(true);
     setError(null);
     try {
-      const { url } = await startIntegrationOAuth(
+      const { url } = await startOAuth(
         integration.name,
         undefined,
         connectionParams,
         target.instance,
         target.connection,
+        returnPath,
       );
       window.location.href = url;
     } catch (err) {
@@ -301,8 +344,13 @@ export default function IntegrationCard({
     setSubmitting(true);
     setError(null);
     try {
-      const result = await connectManualIntegration(
-        integration.name, credential, connectionParams, instance, connection,
+      const result = await connectManual(
+        integration.name,
+        credential,
+        connectionParams,
+        instance,
+        connection,
+        returnPath,
       );
       if (result.status === "selection_required") {
         if (!result.pendingToken) {
@@ -340,7 +388,7 @@ export default function IntegrationCard({
     setDisconnecting(true);
     setError(null);
     try {
-      await disconnectIntegration(integration.name, instance, connection);
+      await disconnect(integration.name, instance, connection);
       onDisconnected?.();
       setSettingsOpen(false);
     } catch (err) {
@@ -497,6 +545,7 @@ export default function IntegrationCard({
           disconnecting={disconnecting}
           submitting={submitting}
           error={error}
+          readOnly={readOnly}
         />
       )}
     </div>
