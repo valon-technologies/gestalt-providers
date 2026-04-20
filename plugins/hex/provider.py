@@ -109,7 +109,7 @@ class ContextVersionPublishInput(gestalt.Model):
 
 
 @gestalt.operation(
-    id="project.export",
+    id="projects.export",
     method="POST",
     description="Export a Hex project as YAML via Hex's CLI-only API endpoint",
 )
@@ -133,7 +133,7 @@ def project_export(input: ProjectExportInput, req: gestalt.Request) -> Operation
 
 
 @gestalt.operation(
-    id="project.import",
+    id="projects.import",
     method="POST",
     description="Import or update a Hex project from raw YAML via Hex's CLI-only API endpoint",
 )
@@ -153,7 +153,7 @@ def project_import(input: ProjectImportInput, req: gestalt.Request) -> Operation
 
 
 @gestalt.operation(
-    id="project.runDraft",
+    id="projects.runDraft",
     method="POST",
     description="Run the draft notebook version of a Hex project via Hex's CLI-only API endpoint",
 )
@@ -177,7 +177,7 @@ def project_run_draft(input: ProjectRunDraftInput, req: gestalt.Request) -> Oper
 
 
 @gestalt.operation(
-    id="cell.run",
+    id="cells.run",
     method="POST",
     description="Run a Hex cell and its dependencies via Hex's CLI-only API endpoint",
 )
@@ -252,7 +252,7 @@ def suggestions_get(input: SuggestionsGetInput, req: gestalt.Request) -> Operati
 
 
 @gestalt.operation(
-    id="contextVersion.create",
+    id="contextVersions.create",
     method="POST",
     description="Create a Hex Context Studio context version via Hex's CLI-only API endpoint",
 )
@@ -270,7 +270,7 @@ def context_version_create(input: ContextVersionCreateInput, req: gestalt.Reques
 
 
 @gestalt.operation(
-    id="contextVersion.update",
+    id="contextVersions.update",
     method="POST",
     description="Update a Hex Context Studio context version via Hex's CLI-only API endpoint",
 )
@@ -294,7 +294,7 @@ def context_version_update(input: ContextVersionUpdateInput, req: gestalt.Reques
 
 
 @gestalt.operation(
-    id="contextVersion.publish",
+    id="contextVersions.publish",
     method="POST",
     description="Publish a Hex Context Studio context version via Hex's CLI-only API endpoint",
 )

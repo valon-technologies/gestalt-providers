@@ -1,6 +1,6 @@
 name: hex
 operations:
-- id: project.export
+- id: projects.export
   method: POST
   description: Export a Hex project as YAML via Hex's CLI-only API endpoint
   parameters:
@@ -12,7 +12,7 @@ operations:
     type: string
     description: 'Project version to export: "draft" or a published version number'
     default: draft
-- id: project.import
+- id: projects.import
   method: POST
   description: Import or update a Hex project from raw YAML via Hex's CLI-only API
     endpoint
@@ -21,7 +21,7 @@ operations:
     type: string
     description: Raw Hex project YAML content
     required: true
-- id: project.runDraft
+- id: projects.runDraft
   method: POST
   description: Run the draft notebook version of a Hex project via Hex's CLI-only
     API endpoint
@@ -34,7 +34,7 @@ operations:
     type: boolean
     description: Reuse cached SQL results when supported
     default: null
-- id: cell.run
+- id: cells.run
   method: POST
   description: Run a Hex cell and its dependencies via Hex's CLI-only API endpoint
   parameters:
@@ -82,7 +82,7 @@ operations:
     type: string
     description: Hex suggestion ID
     required: true
-- id: contextVersion.create
+- id: contextVersions.create
   method: POST
   description: Create a Hex Context Studio context version via Hex's CLI-only API
     endpoint
@@ -91,7 +91,7 @@ operations:
     type: object
     description: Hex externalSource payload for creating a context version
     required: true
-- id: contextVersion.update
+- id: contextVersions.update
   method: POST
   description: Update a Hex Context Studio context version via Hex's CLI-only API
     endpoint
@@ -104,7 +104,7 @@ operations:
     type: object
     description: Hex operation payload for updating a context version
     required: true
-- id: contextVersion.publish
+- id: contextVersions.publish
   method: POST
   description: Publish a Hex Context Studio context version via Hex's CLI-only API
     endpoint

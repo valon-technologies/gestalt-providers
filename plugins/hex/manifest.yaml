@@ -9,6 +9,95 @@ spec:
     openapi:
       connection: default
       document: https://static.hex.site/openapi.json
+  allowedOperations:
+    CancelRun:
+      alias: runs.cancel
+    CreateCell:
+      alias: cells.create
+    CreateCollection:
+      alias: collections.create
+    CreateDataConnection:
+      alias: dataConnections.create
+    CreateGroup:
+      alias: groups.create
+    CreatePresignedUrl:
+      alias: presignedUrls.create
+    CreateProject:
+      alias: projects.create
+    DeactivateUser:
+      alias: users.deactivate
+    DeleteCell:
+      alias: cells.delete
+    DeleteGroup:
+      alias: groups.delete
+    DeleteGuideDraft:
+      alias: guideDrafts.delete
+    EditCollection:
+      alias: collections.update
+    EditDataConnection:
+      alias: dataConnections.update
+    EditGroup:
+      alias: groups.update
+    EditProjectSharingCollections:
+      alias: projectSharing.collections.update
+    EditProjectSharingGroups:
+      alias: projectSharing.groups.update
+    EditProjectSharingOrgAndPublic:
+      alias: projectSharing.orgAndPublic.update
+    EditProjectSharingUsers:
+      alias: projectSharing.users.update
+    GetCell:
+      alias: cells.get
+    GetChartImageFromLogic:
+      alias: chartImages.getFromLogic
+    GetChartImageFromRun:
+      alias: chartImages.getFromRun
+    GetCollection:
+      alias: collections.get
+    GetDataConnection:
+      alias: dataConnections.get
+    GetGroup:
+      alias: groups.get
+    GetProject:
+      alias: projects.get
+    GetProjectRuns:
+      alias: runs.list
+    GetQueriedTables:
+      alias: projectQueriedTables.list
+    GetRunStatus:
+      alias: runs.get
+    IngestSemanticProject:
+      alias: semanticProjects.ingest
+    ListCells:
+      alias: cells.list
+    ListCollections:
+      alias: collections.list
+    ListDataConnections:
+      alias: dataConnections.list
+    ListDraftGuides:
+      alias: guideDrafts.list
+    ListGroups:
+      alias: groups.list
+    ListProjects:
+      alias: projects.list
+    ListUsers:
+      alias: users.list
+    Me:
+      alias: users.me
+    PublishGuideDrafts:
+      alias: guideDrafts.publish
+    RunProject:
+      alias: projects.run
+    UpdateCell:
+      alias: cells.update
+    UpdateDataConnectionSchema:
+      alias: dataConnections.updateSchema
+    UpdateProject:
+      alias: projects.update
+    UpdateSemanticProject:
+      alias: semanticProjects.update
+    UpsertGuideDraft:
+      alias: guideDrafts.upsert
   connections:
     default:
       auth:
