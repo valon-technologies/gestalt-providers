@@ -381,7 +381,8 @@ jobs:
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
         run: |
-          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
+          ${GITHUB_WORKSPACE}/../bin/gestaltd init --config "${GESTALTD_CONFIG}"
+          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --locked --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
           for i in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5
