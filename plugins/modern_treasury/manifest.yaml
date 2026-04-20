@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/modern_treasury
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Modern Treasury
 description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
 iconFile: assets/icon.svg
@@ -70,27 +70,6 @@ spec:
   connections:
     default:
       mode: user
-      auth:
-        type: manual
-        credentials:
-        - name: organization_id
-          label: Organization ID
-          description: Find this in Modern Treasury under Developers > API Keys.
-        - name: api_key
-          label: API Key
-          description: Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys).
-        authMapping:
-          basic:
-            username:
-              valueFrom:
-                credentialFieldRef:
-                  name: organization_id
-            password:
-              valueFrom:
-                credentialFieldRef:
-                  name: api_key
-    identity:
-      mode: identity
       auth:
         type: manual
         credentials:

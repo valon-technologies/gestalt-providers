@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/incident_io
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: incident.io
 description: Manage incidents, schedules, users, severities, and statuses.
 iconFile: assets/icon.svg
@@ -33,14 +33,6 @@ spec:
   connections:
     default:
       mode: user
-      auth:
-        type: manual
-        credentials:
-        - name: token
-          label: API Key
-          description: "Create one in [Settings \u2192 API Keys](https://app.incident.io/settings/api-keys)"
-    identity:
-      mode: identity
       auth:
         type: manual
         credentials:
