@@ -8,7 +8,7 @@ spec:
   surfaces:
     openapi:
       connection: default
-      document: https://app.launchdarkly.com/api/v2/openapi.json
+      document: https://api.apis.guru/v2/specs/launchdarkly.com/5.3.0/swagger.json
   connections:
     default:
       mode: user
