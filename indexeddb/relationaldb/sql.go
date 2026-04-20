@@ -270,3 +270,23 @@ func deleteByPK(d dialect, table, pkCol string) string {
 func deleteAll(d dialect, table string) string {
 	return fmt.Sprintf("DELETE FROM %s", quoteTableName(d, table))
 }
+
+func selectDocumentPayloadByPK(d dialect, table, pkCol string) string {
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
+		quoteIdent(d, documentPayloadColumn),
+		quoteTableName(d, table),
+		quoteIdent(d, pkCol),
+	)
+}
+
+func selectDocumentPayloadsWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
+	where, args, err := keyRangeWhere(d, m, kr)
+	if err != nil {
+		return "", nil, err
+	}
+	selectExpr := quoteIdent(d, documentPayloadColumn)
+	if where == "" {
+		return fmt.Sprintf("SELECT %s FROM %s", selectExpr, quoteTableName(d, m.table)), args, nil
+	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", selectExpr, quoteTableName(d, m.table), where), args, nil
+}

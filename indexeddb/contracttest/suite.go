@@ -663,9 +663,6 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 		Indexes: []*proto.IndexSchema{
 			{Name: "by_profile_name", KeyPath: []string{"profile.name"}},
 		},
-		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: typeString, PrimaryKey: true, NotNull: true},
-		},
 	})
 	mustAddRecord(t, sess.client, store, map[string]any{
 		"id":      "a",
@@ -765,11 +762,6 @@ func bulkItemsSchema() *proto.ObjectStoreSchema {
 		Indexes: []*proto.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
-		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: typeString, PrimaryKey: true, NotNull: true},
-			{Name: "name", Type: typeString},
-			{Name: "status", Type: typeString},
-		},
 	}
 }
 
@@ -791,11 +783,6 @@ func uniqueEmailSchema() *proto.ObjectStoreSchema {
 		Indexes: []*proto.IndexSchema{
 			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
 		},
-		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: typeString, PrimaryKey: true, NotNull: true},
-			{Name: "name", Type: typeString},
-			{Name: "email", Type: typeString},
-		},
 	}
 }
 
@@ -803,11 +790,6 @@ func numericIndexSchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
 		Indexes: []*proto.IndexSchema{
 			{Name: "by_rank", KeyPath: []string{"rank"}},
-		},
-		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: typeString, PrimaryKey: true, NotNull: true},
-			{Name: "name", Type: typeString},
-			{Name: "rank", Type: typeInt},
 		},
 	}
 }

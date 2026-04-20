@@ -63,6 +63,26 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorReq
 }
 
 func (s *Store) cursorRecords(ctx context.Context, cursor *relationalCursor, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
+	if isDocumentStore(cursor.meta) {
+		if req.GetIndex() == "" {
+			resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore(), Range: req.GetRange()})
+			if err != nil {
+				return nil, err
+			}
+			return resp.GetRecords(), nil
+		}
+		resp, err := s.IndexGetAll(ctx, &proto.IndexQueryRequest{
+			Store:  req.GetStore(),
+			Index:  req.GetIndex(),
+			Values: req.GetValues(),
+			Range:  req.GetRange(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return resp.GetRecords(), nil
+	}
+
 	if !cursor.KeysOnly {
 		if req.GetIndex() == "" {
 			resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore()})
@@ -159,21 +179,20 @@ func selectColumnsWithRange(d dialect, m *storeMeta, kr *proto.KeyRange, cols []
 }
 
 func (c *relationalCursor) entryFromRecord(record *proto.Record) (cursorutil.Entry, error) {
-	primaryKeyValue, err := cursorutil.DirectRecordField(record, c.meta.pkCol)
+	primaryKeyValue, err := recordFieldAny(record, c.meta.pkCol)
 	if err != nil {
 		return cursorutil.Entry{}, status.Errorf(codes.InvalidArgument, "record primary key: %v", err)
 	}
 	key := primaryKeyValue
 	if c.IndexCursor {
-		parts := make([]any, len(c.index.GetKeyPath()))
-		for i, field := range c.index.GetKeyPath() {
-			value, err := cursorutil.DirectRecordField(record, field)
-			if err != nil {
-				return cursorutil.Entry{}, status.Errorf(codes.InvalidArgument, "record index field %q: %v", field, err)
-			}
-			parts[i] = value
+		indexKey, ok, err := indexKeyFromRecord(record, c.index)
+		if err != nil {
+			return cursorutil.Entry{}, status.Errorf(codes.InvalidArgument, "record index key: %v", err)
 		}
-		key = parts
+		if !ok {
+			return cursorutil.Entry{}, status.Error(codes.InvalidArgument, "record index key is missing")
+		}
+		key = normalizeDocumentBound(indexKey)
 	}
 
 	return cursorutil.Entry{

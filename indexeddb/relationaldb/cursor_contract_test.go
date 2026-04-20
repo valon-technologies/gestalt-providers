@@ -59,6 +59,7 @@ func (h *relationalContractHarness) Name() string {
 func (h *relationalContractHarness) Capabilities() contracttest.Capabilities {
 	return contracttest.Capabilities{
 		TypedPrimaryKeys:     true,
+		NestedIndexPaths:     true,
 		UnreadablePayloadRow: h.unreadableRowCap,
 	}
 }

@@ -186,12 +186,13 @@ func (s *Store) physicalTableName(store string) string {
 }
 
 func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.ObjectStoreSchema) error {
-	ddl := createTableSQL(s.dialect, table, schema)
+	storage := storageSchema(schema)
+	ddl := createTableSQL(s.dialect, table, storage)
 	if _, err := s.db.ExecContext(ctx, s.q(ddl)); err != nil {
 		return status.Errorf(codes.Internal, "create table: %v", err)
 	}
-	for _, idx := range schema.GetIndexes() {
-		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, table, idx, schema))); err != nil && !isDuplicateErr(err) {
+	for _, idx := range storage.GetIndexes() {
+		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, table, idx, storage))); err != nil && !isDuplicateErr(err) {
 			return status.Errorf(codes.Internal, "create index: %v", err)
 		}
 	}
@@ -217,7 +218,7 @@ func (s *Store) tableColumns(ctx context.Context, table string) (map[string]stru
 }
 
 func schemaColumnsExist(existing map[string]struct{}, schema *proto.ObjectStoreSchema) bool {
-	for _, col := range schema.GetColumns() {
+	for _, col := range storageSchema(schema).GetColumns() {
 		if _, ok := existing[col.Name]; !ok {
 			return false
 		}
@@ -253,8 +254,9 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 		return nil
 	}
 
+	storage := storageSchema(schema)
 	sourceCols, err := s.tableColumns(ctx, sourceTable)
-	if err != nil || !schemaColumnsExist(sourceCols, schema) {
+	if err != nil || !schemaColumnsExist(sourceCols, storage) {
 		return nil
 	}
 
@@ -266,8 +268,8 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 		return nil
 	}
 
-	cols := make([]string, len(schema.GetColumns()))
-	for i, col := range schema.GetColumns() {
+	cols := make([]string, len(storage.GetColumns()))
+	for i, col := range storage.GetColumns() {
 		cols[i] = quoteIdent(s.dialect, col.Name)
 	}
 	colList := strings.Join(cols, ", ")
@@ -374,6 +376,18 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 	if err != nil {
 		return nil, err
 	}
+	if isDocumentStore(m) {
+		query := selectDocumentPayloadByPK(s.dialect, m.table, m.pkCol)
+		var payload []byte
+		if err := s.db.QueryRowContext(ctx, s.q(query), req.Id).Scan(&payload); err != nil {
+			return nil, mapSQLErr("get", err)
+		}
+		record, err := unmarshalRecordBlob(payload)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.RecordResponse{Record: record}, nil
+	}
 	row := s.db.QueryRowContext(ctx, s.q(selectByPK(s.dialect, m.table, m.pkCol, m.columns)), req.Id)
 	record, err := scanRow(row, m.columns)
 	if err != nil {
@@ -400,6 +414,24 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	if err != nil {
 		return nil, err
 	}
+	if isDocumentStore(m) {
+		record := req.GetRecord()
+		id, err := extractStringID(record)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkDocumentUniqueIndexConflicts(ctx, s, m, record, ""); err != nil {
+			return nil, err
+		}
+		payload, err := marshalRecordBlob(record)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.db.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, documentStorageColumns)), id, payload); err != nil {
+			return nil, mapSQLErr("add", err)
+		}
+		return &emptypb.Empty{}, nil
+	}
 	args, err := recordToArgs(req.GetRecord(), m.columns)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
@@ -414,6 +446,36 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if isDocumentStore(m) {
+		record := req.GetRecord()
+		id, err := extractStringID(record)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkDocumentUniqueIndexConflicts(ctx, s, m, record, id); err != nil {
+			return nil, err
+		}
+		payload, err := marshalRecordBlob(record)
+		if err != nil {
+			return nil, err
+		}
+
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "begin tx: %v", err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), id); err != nil {
+			return nil, status.Errorf(codes.Internal, "put delete: %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, documentStorageColumns)), id, payload); err != nil {
+			return nil, mapSQLErr("put insert", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, status.Errorf(codes.Internal, "commit: %v", err)
+		}
+		return &emptypb.Empty{}, nil
 	}
 	record := req.GetRecord()
 	id, err := extractPrimaryKeyValue(record, m.pkCol)
@@ -486,6 +548,13 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if isDocumentStore(m) {
+		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, dialect: s.dialect, bind: s.bind}, m, req.Range)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.RecordsResponse{Records: records}, nil
 	}
 	query, args, err := selectAllWithRange(s.dialect, m, req.Range)
 	if err != nil {
@@ -642,6 +711,47 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 	idx := findIndex(m, req.Index)
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
+	}
+	if isDocumentStore(m) {
+		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, dialect: s.dialect, bind: s.bind}, m, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		entries := make([]cursorutil.Entry, 0, len(records))
+		for _, record := range records {
+			key, ok, err := indexKeyFromRecord(record, idx)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !ok {
+				continue
+			}
+			primaryKeyValue, err := recordFieldAny(record, m.pkCol)
+			if err != nil {
+				return nil, nil, status.Errorf(codes.InvalidArgument, "record primary key: %v", err)
+			}
+			entries = append(entries, cursorutil.Entry{
+				Key:             key,
+				PrimaryKey:      fmt.Sprint(primaryKeyValue),
+				PrimaryKeyValue: primaryKeyValue,
+				Record:          record,
+			})
+		}
+		entries, err = filterEntriesByPrefix(entries, req.GetValues())
+		if err != nil {
+			return nil, nil, err
+		}
+		entries, err = applyKeyRangeToEntries(entries, req.GetRange(), true)
+		if err != nil {
+			return nil, nil, err
+		}
+		sortCursorEntries(entries)
+		if keyOnly {
+			for i := range entries {
+				entries[i].Record = nil
+			}
+		}
+		return m, entries, nil
 	}
 	cols := m.columns
 	if keyOnly {

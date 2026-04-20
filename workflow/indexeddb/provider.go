@@ -1279,75 +1279,20 @@ type storeSchemaDef struct {
 func workflowStoreSchemas() []storeSchemaDef {
 	return []storeSchemaDef{
 		{
-			name: storeSchedules,
-			schema: &proto.ObjectStoreSchema{
-				Columns: []*proto.ColumnDef{
-					{Name: "id", Type: columnTypeString, PrimaryKey: true, NotNull: true},
-					{Name: "plugin_name", Type: columnTypeString, NotNull: true},
-					{Name: "cron", Type: columnTypeString, NotNull: true},
-					{Name: "timezone", Type: columnTypeString, NotNull: true},
-					{Name: "operation", Type: columnTypeString, NotNull: true},
-					{Name: "input", Type: columnTypeJSON},
-					{Name: "paused", Type: columnTypeBool, NotNull: true},
-					{Name: "created_at", Type: columnTypeTime, NotNull: true},
-					{Name: "updated_at", Type: columnTypeTime, NotNull: true},
-					{Name: "next_run_at", Type: columnTypeTime},
-					{Name: "created_by", Type: columnTypeJSON},
-				},
-			},
+			name:   storeSchedules,
+			schema: &proto.ObjectStoreSchema{},
 		},
 		{
-			name: storeEventTriggers,
-			schema: &proto.ObjectStoreSchema{
-				Columns: []*proto.ColumnDef{
-					{Name: "id", Type: columnTypeString, PrimaryKey: true, NotNull: true},
-					{Name: "plugin_name", Type: columnTypeString, NotNull: true},
-					{Name: "match_type", Type: columnTypeString, NotNull: true},
-					{Name: "match_source", Type: columnTypeString},
-					{Name: "match_subject", Type: columnTypeString},
-					{Name: "operation", Type: columnTypeString, NotNull: true},
-					{Name: "input", Type: columnTypeJSON},
-					{Name: "paused", Type: columnTypeBool, NotNull: true},
-					{Name: "created_at", Type: columnTypeTime, NotNull: true},
-					{Name: "updated_at", Type: columnTypeTime, NotNull: true},
-					{Name: "created_by", Type: columnTypeJSON},
-				},
-			},
+			name:   storeEventTriggers,
+			schema: &proto.ObjectStoreSchema{},
 		},
 		{
-			name: storeRuns,
-			schema: &proto.ObjectStoreSchema{
-				Columns: []*proto.ColumnDef{
-					{Name: "id", Type: columnTypeString, PrimaryKey: true, NotNull: true},
-					{Name: "plugin_name", Type: columnTypeString, NotNull: true},
-					{Name: "status", Type: columnTypeInt, NotNull: true},
-					{Name: "operation", Type: columnTypeString, NotNull: true},
-					{Name: "input", Type: columnTypeJSON},
-					{Name: "trigger_kind", Type: columnTypeString, NotNull: true},
-					{Name: "trigger_schedule_id", Type: columnTypeString},
-					{Name: "trigger_scheduled_for", Type: columnTypeTime},
-					{Name: "trigger_event_trigger_id", Type: columnTypeString},
-					{Name: "trigger_event", Type: columnTypeJSON},
-					{Name: "created_at", Type: columnTypeTime, NotNull: true},
-					{Name: "started_at", Type: columnTypeTime},
-					{Name: "completed_at", Type: columnTypeTime},
-					{Name: "status_message", Type: columnTypeString},
-					{Name: "result_body", Type: columnTypeString},
-					{Name: "created_by", Type: columnTypeJSON},
-				},
-			},
+			name:   storeRuns,
+			schema: &proto.ObjectStoreSchema{},
 		},
 		{
-			name: storeIdempotency,
-			schema: &proto.ObjectStoreSchema{
-				Columns: []*proto.ColumnDef{
-					{Name: "id", Type: columnTypeString, PrimaryKey: true, NotNull: true},
-					{Name: "plugin_name", Type: columnTypeString, NotNull: true},
-					{Name: "idempotency_key", Type: columnTypeString, NotNull: true},
-					{Name: "run_id", Type: columnTypeString, NotNull: true},
-					{Name: "created_at", Type: columnTypeTime, NotNull: true},
-				},
-			},
+			name:   storeIdempotency,
+			schema: &proto.ObjectStoreSchema{},
 		},
 	}
 }
