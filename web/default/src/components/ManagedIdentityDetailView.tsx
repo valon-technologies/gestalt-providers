@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  APIError,
   type APIToken,
   deleteManagedIdentity,
   deleteManagedIdentityGrant,
@@ -40,6 +41,20 @@ function formatOperations(operations?: string[]): string {
   return operations?.length ? operations.join(", ") : "All operations";
 }
 
+function isManagedIdentityConnectionsUnavailable(err: unknown, identityID: string): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  if (err instanceof APIError && err.status === 404) {
+    return true;
+  }
+  return (
+    err instanceof APIError &&
+    err.message.includes(`/api/v1/identities/${identityID}/integrations`) &&
+    err.message.includes("Expected JSON response")
+  );
+}
+
 export default function ManagedIdentityDetailView({
   identityID,
 }: {
@@ -50,6 +65,7 @@ export default function ManagedIdentityDetailView({
   const [grants, setGrants] = useState<ManagedIdentityGrant[]>([]);
   const [tokens, setTokens] = useState<APIToken[]>([]);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [connectionsUnavailable, setConnectionsUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
@@ -64,20 +80,30 @@ export default function ManagedIdentityDetailView({
     loadRequestIdRef.current = requestID;
 
     try {
-      const [nextIdentity, nextMembers, nextGrants, nextTokens, nextIntegrations] =
-        await Promise.all([
-          getManagedIdentity(identityID),
-          getManagedIdentityMembers(identityID),
-          getManagedIdentityGrants(identityID),
-          getManagedIdentityTokens(identityID),
-          getManagedIdentityIntegrations(identityID),
-        ]);
+      const [nextIdentity, nextMembers, nextGrants, nextTokens] = await Promise.all([
+        getManagedIdentity(identityID),
+        getManagedIdentityMembers(identityID),
+        getManagedIdentityGrants(identityID),
+        getManagedIdentityTokens(identityID),
+      ]);
+      let nextIntegrations: Integration[] = [];
+      let nextConnectionsUnavailable = false;
+      try {
+        nextIntegrations = await getManagedIdentityIntegrations(identityID);
+      } catch (err) {
+        if (isManagedIdentityConnectionsUnavailable(err, identityID)) {
+          nextConnectionsUnavailable = true;
+        } else {
+          throw err;
+        }
+      }
       if (loadRequestIdRef.current !== requestID) return;
       setIdentity(nextIdentity);
       setMembers(nextMembers);
       setGrants(nextGrants);
       setTokens(nextTokens);
       setIntegrations(nextIntegrations);
+      setConnectionsUnavailable(nextConnectionsUnavailable);
       setError(null);
     } catch (err) {
       if (loadRequestIdRef.current !== requestID) return;
@@ -428,44 +454,50 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <span className="label-text">Connections</span>
             <h2 className="mt-2 text-lg font-heading font-bold text-primary">Plugin Connections</h2>
-            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {integrations.map((integration) => (
-                <IntegrationCard
-                  key={integration.name}
-                  integration={integration}
-                  onConnected={loadAll}
-                  onDisconnected={loadAll}
-                  startOAuth={(integrationName, scopes, connectionParams, instance, connection, nextReturnPath) =>
-                    startManagedIdentityOAuth(
-                      identityID,
-                      integrationName,
-                      scopes,
-                      connectionParams,
-                      instance,
-                      connection,
-                      nextReturnPath,
-                    )
-                  }
-                  connectManual={(integrationName, credential, connectionParams, instance, connection, nextReturnPath) =>
-                    connectManagedIdentityManual(
-                      identityID,
-                      integrationName,
-                      credential,
-                      connectionParams,
-                      instance,
-                      connection,
-                      nextReturnPath,
-                    )
-                  }
-                  disconnect={(integrationName, instance, connection) =>
-                    disconnectManagedIdentityIntegration(identityID, integrationName, instance, connection)
-                  }
-                  returnPath={returnPath}
-                  readOnly={!canEdit}
-                  disableNavigation
-                />
-              ))}
-            </div>
+            {connectionsUnavailable ? (
+              <p className="mt-6 text-sm text-muted">
+                Managed identity plugin connections are unavailable on this server.
+              </p>
+            ) : (
+              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {integrations.map((integration) => (
+                  <IntegrationCard
+                    key={integration.name}
+                    integration={integration}
+                    onConnected={loadAll}
+                    onDisconnected={loadAll}
+                    startOAuth={(integrationName, scopes, connectionParams, instance, connection, nextReturnPath) =>
+                      startManagedIdentityOAuth(
+                        identityID,
+                        integrationName,
+                        scopes,
+                        connectionParams,
+                        instance,
+                        connection,
+                        nextReturnPath,
+                      )
+                    }
+                    connectManual={(integrationName, credential, connectionParams, instance, connection, nextReturnPath) =>
+                      connectManagedIdentityManual(
+                        identityID,
+                        integrationName,
+                        credential,
+                        connectionParams,
+                        instance,
+                        connection,
+                        nextReturnPath,
+                      )
+                    }
+                    disconnect={(integrationName, instance, connection) =>
+                      disconnectManagedIdentityIntegration(identityID, integrationName, instance, connection)
+                    }
+                    returnPath={returnPath}
+                    readOnly={!canEdit}
+                    disableNavigation
+                  />
+                ))}
+              </div>
+            )}
           </section>
 
           <section className={SECTION_CARD}>
