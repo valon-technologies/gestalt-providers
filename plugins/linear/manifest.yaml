@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/linear
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Linear
 description: Manage issues, projects, and teams.
 iconFile: assets/icon.svg
@@ -20,3 +20,6 @@ spec:
         authorizationUrl: https://linear.app/oauth/authorize
         tokenUrl: https://api.linear.app/oauth/token
         acceptHeader: application/json
+        scopes:
+          - read
+          - write
