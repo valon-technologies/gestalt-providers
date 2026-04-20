@@ -145,6 +145,14 @@ export async function fetchAPI<T>(
     throw new APIError(res.status, message);
   }
 
+  const contentType = res.headers.get("content-type") || "";
+  if (!/\bapplication\/([a-z\d.+-]*\+)?json\b/i.test(contentType)) {
+    throw new APIError(
+      res.status,
+      `Expected JSON response from ${path}, received ${contentType || "unknown content type"}`,
+    );
+  }
+
   return res.json() as Promise<T>;
 }
 

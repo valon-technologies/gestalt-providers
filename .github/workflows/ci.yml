@@ -354,10 +354,17 @@ jobs:
           mkdir -p "${GITHUB_WORKSPACE}/../bin"
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
 
+          # Package local providers as release metadata to avoid local-source fingerprint churn
+          mkdir -p "${RUNNER_TEMP}/web-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release"
+          (cd web/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/web-default-release")
+          (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
+
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
+          apiVersion: gestaltd.config/v4
           server:
             public:
               port: 8080
+            artifactsDir: "${RUNNER_TEMP}/prepared-artifacts"
             encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
             providers:
               secrets: secrets
@@ -365,15 +372,13 @@ jobs:
           providers:
             indexeddb:
               main:
-                source:
-                  path: "${GITHUB_WORKSPACE}/indexeddb/relationaldb/manifest.yaml"
+                source: "${RUNNER_TEMP}/indexeddb-relationaldb-release/provider-release.yaml"
                 config:
                   dsn: "sqlite://${RUNNER_TEMP}/gestalt-web-e2e.db"
             ui:
               default:
                 path: /
-                source:
-                  path: "${GITHUB_WORKSPACE}/web/default/manifest.yaml"
+                source: "${RUNNER_TEMP}/web-default-release/provider-release.yaml"
             secrets:
               secrets:
                 source: env
@@ -381,7 +386,9 @@ jobs:
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
         run: |
-          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
+          mkdir -p "${RUNNER_TEMP}/prepared-artifacts"
+          ${GITHUB_WORKSPACE}/../bin/gestaltd init --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
+          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
           for i in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5

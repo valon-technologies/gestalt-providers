@@ -26,6 +26,7 @@ async function wireIdentityRoutes(
   opts?: {
     onStartOAuth?: (body: Record<string, unknown>) => void;
     onCreateToken?: (body: Record<string, unknown>) => void;
+    integrationsRouteMode?: "json" | "html-fallback";
   },
 ) {
   await page.route("**/api/v1/identities", async (route, request) => {
@@ -182,6 +183,13 @@ async function wireIdentityRoutes(
     }
 
     if (parts[4] === "integrations" && parts.length === 5 && request.method() === "GET") {
+      if (opts?.integrationsRouteMode === "html-fallback") {
+        await route.fulfill({
+          contentType: "text/html; charset=utf-8",
+          body: "<!DOCTYPE html><html><body><h1>fallback shell</h1></body></html>",
+        });
+        return;
+      }
       await route.fulfill({ json: state.integrationsByIdentityID[identityID] || [] });
       return;
     }
@@ -283,6 +291,21 @@ test.describe("Managed identities", () => {
 
     await expect(page).toHaveURL(/\/identities\?id=agent-2$/);
     await expect(page.getByRole("heading", { name: "Deploy Bot" })).toBeVisible();
+  });
+
+  test("creates an identity even when managed identity connection APIs are unavailable", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, { integrationsRouteMode: "html-fallback" });
+
+    await page.goto("/identities");
+    await page.getByLabel("Display name").fill("Deploy Bot");
+    await page.getByRole("button", { name: "Create Identity" }).click();
+
+    await expect(page).toHaveURL(/\/identities\?id=agent-2$/);
+    await expect(page.getByRole("heading", { name: "Deploy Bot" })).toBeVisible();
+    await expect(page.getByText("Managed identity plugin connections are unavailable on this server.")).toBeVisible();
+    await expect(page.getByText("Unexpected token '<'")).toHaveCount(0);
   });
 
   test("renders a viewer detail page as read-only except for token creation", async ({ authenticatedPage: page }) => {
