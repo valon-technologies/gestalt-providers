@@ -10,6 +10,7 @@ on:
       - 'authorization/**'
       - 's3/**'
       - 'indexeddb/**'
+      - 'workflow/**'
       - 'cache/**'
       - 'secrets/**'
       - 'web/**'
@@ -24,6 +25,7 @@ on:
       - 'authorization/**'
       - 's3/**'
       - 'indexeddb/**'
+      - 'workflow/**'
       - 'cache/**'
       - 'secrets/**'
       - 'web/**'
@@ -63,7 +65,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "authorization", "s3", "indexeddb", "cache", "secrets")
+          package_roots = ("plugins", "auth", "authorization", "s3", "indexeddb", "workflow", "cache", "secrets")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -119,6 +121,13 @@ jobs:
                           continue
                       if len(parts) == 2:
                           selected.update(packages_by_root.get("cache", set()))
+                          continue
+                  if len(parts) >= 2 and parts[0] == "workflow":
+                      if parts[1] == "internal":
+                          selected.update(packages_by_root.get("workflow", set()))
+                          continue
+                      if len(parts) == 2:
+                          selected.update(packages_by_root.get("workflow", set()))
                           continue
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
@@ -243,6 +252,11 @@ jobs:
             case "$plugin_dir" in
               cache/*)
                 . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
+                ;;
+            esac
+            case "$plugin_dir" in
+              workflow/*)
+                . .github/scripts/setup_go_workflow_test_env.sh "$plugin_dir"
                 ;;
             esac
             (cd "$plugin_dir" && go test ./...)

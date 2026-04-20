@@ -128,6 +128,11 @@ jobs:
               . .github/scripts/setup_go_cache_test_env.sh "${{ inputs.plugin-dir }}"
               ;;
           esac
+          case "${{ inputs.plugin-dir }}" in
+            workflow/*)
+              . .github/scripts/setup_go_workflow_test_env.sh "${{ inputs.plugin-dir }}"
+              ;;
+          esac
           cd "${{ inputs.plugin-dir }}" && go test ./...
       - name: Test Rust plugin
         if: steps.detect.outputs.has-rust == 'true'
