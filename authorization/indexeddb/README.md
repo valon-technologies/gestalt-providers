@@ -13,13 +13,13 @@ providers:
     default:
       source:
         ref: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
-        version: 0.0.1-alpha.1
+        version: 0.0.1-alpha.2
 
   authorization:
     indexeddb:
       source:
         ref: github.com/valon-technologies/gestalt-providers/authorization/indexeddb
-        version: 0.0.1-alpha.1
+        version: 0.0.1-alpha.2
       config:
         indexeddb: default
 

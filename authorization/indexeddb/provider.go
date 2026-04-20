@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const providerVersion = "0.0.1-alpha.1"
+const providerVersion = "0.0.1-alpha.2"
 
 type Provider struct {
 	mu    sync.RWMutex
