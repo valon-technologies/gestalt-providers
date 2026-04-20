@@ -28,7 +28,7 @@ operations:
     type: string
     description: HTML body (sent as alternative to plain text)
     default: ''
-- id: messages.createDraft
+- id: drafts.create
   method: POST
   description: Create an email draft
   parameters:
@@ -56,6 +56,46 @@ operations:
     type: string
     description: HTML body
     default: ''
+- id: drafts.update
+  method: PUT
+  description: Update an email draft
+  parameters:
+  - name: id
+    type: string
+    description: Draft ID
+    required: true
+  - name: to
+    type: string
+    description: Recipient email address
+    required: true
+  - name: subject
+    type: string
+    description: Email subject
+    required: true
+  - name: body
+    type: string
+    description: Plain text body
+    required: true
+  - name: cc
+    type: string
+    description: CC recipients (comma-separated)
+    default: ''
+  - name: bcc
+    type: string
+    description: BCC recipients (comma-separated)
+    default: ''
+  - name: html_body
+    type: string
+    description: HTML body
+    default: ''
+- id: drafts.send
+  method: POST
+  description: Send an existing email draft
+  parameters:
+  - name: id
+    type: string
+    description: Draft ID
+    required: true
 - id: messages.reply
   method: POST
   description: Reply to an existing message

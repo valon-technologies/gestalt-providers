@@ -23,9 +23,9 @@ Gmail API operations for listing, reading, updating, trashing, sending, and
 drafting messages; managing labels; reading threads; and retrieving the user's
 profile.
 
-Also includes source-backed operations for sending a message, creating a draft,
-replying to an existing message, and forwarding a message without requiring
-callers to build raw Gmail MIME payloads.
+Also includes source-backed operations for sending a message; creating,
+updating, and sending drafts; replying to an existing message; and forwarding a
+message without requiring callers to build raw Gmail MIME payloads.
 
 Authenticates with Google OAuth 2.0.
 

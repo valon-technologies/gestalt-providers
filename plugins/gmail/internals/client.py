@@ -36,6 +36,19 @@ def post_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
     return _request_json(request)
 
 
+def put_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url=url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="PUT",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    return _request_json(request)
+
+
 def _request_json(request: urllib.request.Request) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -75,3 +88,7 @@ def metadata_message_url(message_id: str) -> str:
 
 def full_message_url(message_id: str) -> str:
     return f"{gmail_base_url()}/messages/{quote(message_id, safe='')}?format=full"
+
+
+def draft_url(draft_id: str) -> str:
+    return f"{gmail_base_url()}/drafts/{quote(draft_id, safe='')}"

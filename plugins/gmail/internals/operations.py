@@ -1,6 +1,6 @@
 from typing import Any
 
-from .client import full_message_url, get_json, gmail_base_url, metadata_message_url, post_json
+from .client import draft_url, full_message_url, get_json, gmail_base_url, metadata_message_url, post_json, put_json
 from .mime import (
     MIMEParams,
     build_mime,
@@ -44,6 +44,34 @@ def create_draft(token: str, to: str, subject: str, body: str, cc: str, bcc: str
         token,
     )
     return {"data": {"draft": draft}}
+
+
+def update_draft(token: str, draft_id: str, to: str, subject: str, body: str, cc: str, bcc: str, html_body: str) -> dict[str, Any]:
+    raw = build_mime(
+        MIMEParams(
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            bcc=bcc,
+            html_body=html_body,
+        )
+    )
+    draft = put_json(
+        draft_url(draft_id),
+        {"id": draft_id, "message": {"raw": raw}},
+        token,
+    )
+    return {"data": {"draft": draft}}
+
+
+def send_draft(token: str, draft_id: str) -> dict[str, Any]:
+    message = post_json(
+        f"{gmail_base_url()}/drafts/send",
+        {"id": draft_id},
+        token,
+    )
+    return {"data": {"message": message}}
 
 
 def reply_message(token: str, message_id: str, body: str, cc: str, reply_all: bool, html_body: str) -> dict[str, Any]:

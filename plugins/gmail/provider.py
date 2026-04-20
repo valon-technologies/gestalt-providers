@@ -5,7 +5,7 @@ from typing import Any, TypeAlias
 
 import gestalt
 
-from internals import create_draft, forward_message, reply_message, send_message
+from internals import create_draft, forward_message, reply_message, send_draft, send_message, update_draft
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
@@ -31,6 +31,20 @@ class CreateDraftInput(gestalt.Model):
     cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
     bcc: str = gestalt.field(description="BCC recipients (comma-separated)", default="", required=False)
     html_body: str = gestalt.field(description="HTML body", default="", required=False)
+
+
+class UpdateDraftInput(gestalt.Model):
+    id: str = gestalt.field(description="Draft ID")
+    to: str = gestalt.field(description="Recipient email address")
+    subject: str = gestalt.field(description="Email subject")
+    body: str = gestalt.field(description="Plain text body")
+    cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
+    bcc: str = gestalt.field(description="BCC recipients (comma-separated)", default="", required=False)
+    html_body: str = gestalt.field(description="HTML body", default="", required=False)
+
+
+class SendDraftInput(gestalt.Model):
+    id: str = gestalt.field(description="Draft ID")
 
 
 class ReplyMessageInput(gestalt.Model):
@@ -71,11 +85,11 @@ def messages_send(input: SendMessageInput, req: gestalt.Request) -> OperationRes
 
 
 @gestalt.operation(
-    id="messages.createDraft",
+    id="drafts.create",
     method="POST",
     description="Create an email draft",
 )
-def messages_create_draft(input: CreateDraftInput, req: gestalt.Request) -> OperationResult:
+def drafts_create(input: CreateDraftInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
     if token_error is not None:
         return token_error
@@ -84,6 +98,42 @@ def messages_create_draft(input: CreateDraftInput, req: gestalt.Request) -> Oper
 
     try:
         return create_draft(req.token, input.to, input.subject, input.body, input.cc, input.bcc, input.html_body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="drafts.update",
+    method="PUT",
+    description="Update an email draft",
+)
+def drafts_update(input: UpdateDraftInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+    if not input.id or not input.to or not input.subject or not input.body:
+        return _bad_request("id, to, subject, and body are required")
+
+    try:
+        return update_draft(req.token, input.id, input.to, input.subject, input.body, input.cc, input.bcc, input.html_body)
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
+    id="drafts.send",
+    method="POST",
+    description="Send an existing email draft",
+)
+def drafts_send(input: SendDraftInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+    if not input.id:
+        return _bad_request("id is required")
+
+    try:
+        return send_draft(req.token, input.id)
     except RuntimeError as err:
         return _server_error(str(err))
 

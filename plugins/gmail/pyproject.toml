@@ -23,7 +23,9 @@ plugin = "provider"
 [tool.gestalt.ci]
 vulture-ignore-names = [
   "messages_send",
-  "messages_create_draft",
+  "drafts_create",
+  "drafts_update",
+  "drafts_send",
   "messages_reply",
   "messages_forward",
 ]
