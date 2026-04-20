@@ -2,6 +2,7 @@ import { expect, mockAuthInfo, test } from "./fixtures";
 import type {
   APIToken,
   Integration,
+  IntegrationOperation,
   ManagedIdentity,
   ManagedIdentityGrant,
   ManagedIdentityMember,
@@ -13,6 +14,8 @@ type IdentityState = {
   grantsByIdentityID: Record<string, ManagedIdentityGrant[]>;
   tokensByIdentityID: Record<string, APIToken[]>;
   integrationsByIdentityID: Record<string, Integration[]>;
+  visibleIntegrations: Integration[];
+  operationsByIntegrationName: Record<string, IntegrationOperation[]>;
 };
 
 function isoDate(days: number): string {
@@ -29,6 +32,25 @@ async function wireIdentityRoutes(
     integrationsRouteMode?: "json" | "html-fallback";
   },
 ) {
+  await page.route("**/api/v1/integrations", async (route, request) => {
+    if (request.method() === "GET") {
+      await route.fulfill({ json: state.visibleIntegrations });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route("**/api/v1/integrations/**", async (route, request) => {
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length === 5 && parts[4] === "operations" && request.method() === "GET") {
+      const integration = decodeURIComponent(parts[3]);
+      await route.fulfill({ json: state.operationsByIntegrationName[integration] || [] });
+      return;
+    }
+    await route.fallback();
+  });
+
   await page.route("**/api/v1/identities", async (route, request) => {
     if (request.method() === "GET") {
       await route.fulfill({ json: state.identities });
@@ -273,6 +295,28 @@ function createBaseState(role: ManagedIdentity["role"]): IdentityState {
         },
       ],
     },
+    visibleIntegrations: [
+      {
+        name: "github",
+        displayName: "GitHub",
+        description: "Repository and workflow operations",
+      },
+      {
+        name: "slack",
+        displayName: "Slack",
+        description: "Workspace chat integration",
+      },
+    ],
+    operationsByIntegrationName: {
+      github: [
+        { id: "issues.read", title: "List issues" },
+        { id: "repos.read", title: "Read repository metadata" },
+      ],
+      slack: [
+        { id: "channels.read", title: "List channels" },
+        { id: "users.read", title: "List users" },
+      ],
+    },
   };
 }
 
@@ -368,8 +412,14 @@ test.describe("Managed identities", () => {
     await page.getByRole("button", { name: "Add or Update Member" }).click();
     await expect(page.getByText("viewer@example.test")).toBeVisible();
 
-    await page.getByLabel("Plugin").fill("github");
-    await page.getByLabel("Operations").fill("repos.read, issues.read");
+    await expect(page.getByLabel("Operations")).toBeDisabled();
+    await page.getByLabel("Plugin").fill("git");
+    await page.getByRole("option", { name: /GitHub/ }).click();
+    await expect(page.getByLabel("Operations")).toBeEnabled();
+    await page.getByLabel("Operations").click();
+    await page.getByLabel("Filter operations").fill("read");
+    await page.getByLabel("repos.read").check();
+    await page.getByLabel("issues.read").check();
     await page.getByRole("button", { name: "Set Grant" }).click();
     await expect(page.getByRole("cell", { name: "github" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "issues.read, repos.read" })).toBeVisible();
