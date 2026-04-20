@@ -39,6 +39,15 @@ export interface Integration {
   credentialFields?: CredentialFieldDef[];
 }
 
+export interface IntegrationOperation {
+  id: string;
+  title?: string;
+  description?: string;
+  readOnly?: boolean;
+  visible?: boolean;
+  tags?: string[];
+}
+
 export interface AccessPermission {
   plugin: string;
   operations?: string[];
@@ -188,6 +197,14 @@ export async function logout(): Promise<void> {
 
 export async function getIntegrations(): Promise<Integration[]> {
   return fetchAPI<Integration[]>("/api/v1/integrations");
+}
+
+export async function getIntegrationOperations(
+  integration: string,
+): Promise<IntegrationOperation[]> {
+  return fetchAPI<IntegrationOperation[]>(
+    `/api/v1/integrations/${encodeURIComponent(integration)}/operations`,
+  );
 }
 
 export async function startIntegrationOAuth(
