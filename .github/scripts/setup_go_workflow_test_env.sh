@@ -51,7 +51,7 @@ start_temporal_dev_server() {
   local grpc_port="${GESTALT_TEST_TEMPORAL_PORT:-57233}"
   local ui_port="${GESTALT_TEST_TEMPORAL_UI_PORT:-58233}"
   local namespace="${GESTALT_TEST_TEMPORAL_NAMESPACE:-default}"
-  local temporal_image="${GESTALT_TEST_TEMPORAL_IMAGE:-temporalio/temporal:latest}"
+  local temporal_image="${GESTALT_TEST_TEMPORAL_IMAGE:-temporalio/temporal:1.30.2}"
 
   docker run -d --rm \
     --name "$container_name" \
