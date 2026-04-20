@@ -1,12 +1,16 @@
 package indexeddb
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 type compiledModel struct {
@@ -23,168 +27,180 @@ type compiledRelation struct {
 	SubjectTypes map[string]struct{}
 }
 
-type modelDocument struct {
-	Version       int                             `yaml:"version"`
-	ResourceTypes map[string]resourceTypeDocument `yaml:"resource_types"`
-}
-
-type resourceTypeDocument struct {
-	Relations map[string]any `yaml:"relations"`
-	Actions   map[string]any `yaml:"actions"`
-}
-
-func parseModelSchema(schema string) (*compiledModel, error) {
-	var doc modelDocument
-	if err := yaml.Unmarshal([]byte(schema), &doc); err != nil {
-		return nil, fmt.Errorf("parse schema: %w", err)
+func compileAuthorizationModel(raw *gestalt.AuthorizationModel) (*compiledModel, *gestalt.AuthorizationModel, error) {
+	if raw == nil {
+		return nil, nil, fmt.Errorf("model is required")
 	}
 
-	version := doc.Version
+	version := raw.GetVersion()
 	if version == 0 {
 		version = 1
 	}
 	if version != 1 {
-		return nil, fmt.Errorf("unsupported schema version %d", version)
+		return nil, nil, fmt.Errorf("unsupported model version %d", version)
 	}
-	if len(doc.ResourceTypes) == 0 {
-		return nil, fmt.Errorf("schema must define at least one resource type")
+	if len(raw.GetResourceTypes()) == 0 {
+		return nil, nil, fmt.Errorf("model must define at least one resource type")
 	}
 
 	model := &compiledModel{
-		Version:       strconv.Itoa(version),
-		ResourceTypes: make(map[string]compiledResourceType, len(doc.ResourceTypes)),
+		Version:       strconv.Itoa(int(version)),
+		ResourceTypes: make(map[string]compiledResourceType, len(raw.GetResourceTypes())),
 	}
-	for rawResourceType, rawResource := range doc.ResourceTypes {
-		resourceType := strings.TrimSpace(rawResourceType)
+	normalized := &gestalt.AuthorizationModel{Version: version}
+	seenResourceTypes := make(map[string]struct{}, len(raw.GetResourceTypes()))
+	for _, rawResource := range raw.GetResourceTypes() {
+		resourceType := strings.TrimSpace(rawResource.GetName())
 		if resourceType == "" {
-			return nil, fmt.Errorf("resource type names must be non-empty")
+			return nil, nil, fmt.Errorf("resource type names must be non-empty")
 		}
-		resource, err := compileResourceType(resourceType, rawResource)
+		if _, exists := seenResourceTypes[resourceType]; exists {
+			return nil, nil, fmt.Errorf("resource type %q is defined more than once", resourceType)
+		}
+		seenResourceTypes[resourceType] = struct{}{}
+
+		resource, normalizedResource, err := compileAuthorizationResourceType(resourceType, rawResource)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		model.ResourceTypes[resourceType] = resource
+		normalized.ResourceTypes = append(normalized.ResourceTypes, normalizedResource)
 	}
-	return model, nil
+	slices.SortFunc(normalized.ResourceTypes, func(left, right *gestalt.AuthorizationModelResourceType) int {
+		return strings.Compare(left.GetName(), right.GetName())
+	})
+	return model, normalized, nil
 }
 
-func compileResourceType(resourceType string, raw resourceTypeDocument) (compiledResourceType, error) {
-	if len(raw.Relations) == 0 {
-		return compiledResourceType{}, fmt.Errorf("resource type %q must define at least one relation", resourceType)
+func compileAuthorizationResourceType(resourceType string, raw *gestalt.AuthorizationModelResourceType) (compiledResourceType, *gestalt.AuthorizationModelResourceType, error) {
+	if raw == nil {
+		return compiledResourceType{}, nil, fmt.Errorf("resource type %q is nil", resourceType)
+	}
+	if len(raw.GetRelations()) == 0 {
+		return compiledResourceType{}, nil, fmt.Errorf("resource type %q must define at least one relation", resourceType)
 	}
 
 	compiled := compiledResourceType{
-		Relations: make(map[string]compiledRelation, len(raw.Relations)),
-		Actions:   make(map[string][]string, len(raw.Actions)),
+		Relations: make(map[string]compiledRelation, len(raw.GetRelations())),
+		Actions:   make(map[string][]string, len(raw.GetActions())),
 	}
-	for rawRelation, rawValue := range raw.Relations {
-		relation := strings.TrimSpace(rawRelation)
+	normalized := &gestalt.AuthorizationModelResourceType{Name: resourceType}
+	seenRelations := make(map[string]struct{}, len(raw.GetRelations()))
+	for _, rawRelation := range raw.GetRelations() {
+		relation := strings.TrimSpace(rawRelation.GetName())
 		if relation == "" {
-			return compiledResourceType{}, fmt.Errorf("resource type %q has an empty relation name", resourceType)
+			return compiledResourceType{}, nil, fmt.Errorf("resource type %q has an empty relation name", resourceType)
 		}
-		subjectTypes, err := subjectTypesFromValue(rawValue)
+		if _, exists := seenRelations[relation]; exists {
+			return compiledResourceType{}, nil, fmt.Errorf("resource type %q relation %q is defined more than once", resourceType, relation)
+		}
+		seenRelations[relation] = struct{}{}
+
+		subjectTypes, err := normalizeStringList(rawRelation.GetSubjectTypes(), "subject types")
 		if err != nil {
-			return compiledResourceType{}, fmt.Errorf("resource type %q relation %q: %w", resourceType, relation, err)
+			return compiledResourceType{}, nil, fmt.Errorf("resource type %q relation %q: %w", resourceType, relation, err)
 		}
 		allowed := make(map[string]struct{}, len(subjectTypes))
 		for _, subjectType := range subjectTypes {
 			allowed[subjectType] = struct{}{}
 		}
 		compiled.Relations[relation] = compiledRelation{SubjectTypes: allowed}
+		normalized.Relations = append(normalized.Relations, &gestalt.AuthorizationModelRelation{
+			Name:         relation,
+			SubjectTypes: subjectTypes,
+		})
 	}
+	slices.SortFunc(normalized.Relations, func(left, right *gestalt.AuthorizationModelRelation) int {
+		return strings.Compare(left.GetName(), right.GetName())
+	})
 
-	for rawAction, rawValue := range raw.Actions {
-		action := strings.TrimSpace(rawAction)
+	seenActions := make(map[string]struct{}, len(raw.GetActions()))
+	for _, rawAction := range raw.GetActions() {
+		action := strings.TrimSpace(rawAction.GetName())
 		if action == "" {
-			return compiledResourceType{}, fmt.Errorf("resource type %q has an empty action name", resourceType)
+			return compiledResourceType{}, nil, fmt.Errorf("resource type %q has an empty action name", resourceType)
 		}
-		relations, err := relationsFromValue(rawValue)
+		if _, exists := seenActions[action]; exists {
+			return compiledResourceType{}, nil, fmt.Errorf("resource type %q action %q is defined more than once", resourceType, action)
+		}
+		seenActions[action] = struct{}{}
+
+		relations, err := normalizeStringList(rawAction.GetRelations(), "relations")
 		if err != nil {
-			return compiledResourceType{}, fmt.Errorf("resource type %q action %q: %w", resourceType, action, err)
+			return compiledResourceType{}, nil, fmt.Errorf("resource type %q action %q: %w", resourceType, action, err)
 		}
 		for _, relation := range relations {
 			if _, ok := compiled.Relations[relation]; !ok {
-				return compiledResourceType{}, fmt.Errorf("resource type %q action %q references unknown relation %q", resourceType, action, relation)
+				return compiledResourceType{}, nil, fmt.Errorf("resource type %q action %q references unknown relation %q", resourceType, action, relation)
 			}
 		}
 		compiled.Actions[action] = relations
+		normalized.Actions = append(normalized.Actions, &gestalt.AuthorizationModelAction{
+			Name:      action,
+			Relations: relations,
+		})
 	}
-	return compiled, nil
+	slices.SortFunc(normalized.Actions, func(left, right *gestalt.AuthorizationModelAction) int {
+		return strings.Compare(left.GetName(), right.GetName())
+	})
+
+	return compiled, normalized, nil
 }
 
-func subjectTypesFromValue(raw any) ([]string, error) {
-	switch value := raw.(type) {
-	case map[string]any:
-		subjectTypes, ok := value["subject_types"]
-		if !ok {
-			return nil, fmt.Errorf(`expected "subject_types"`)
-		}
-		return normalizedStringList(subjectTypes)
-	default:
-		return normalizedStringList(raw)
+func normalizeStringList(values []string, field string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%s must not be empty", field)
 	}
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return nil, fmt.Errorf("%s must not contain empty values", field)
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	slices.Sort(normalized)
+	return normalized, nil
 }
 
-func relationsFromValue(raw any) ([]string, error) {
-	switch value := raw.(type) {
-	case map[string]any:
-		relations, ok := value["relations"]
-		if !ok {
-			return nil, fmt.Errorf(`expected "relations"`)
-		}
-		return normalizedStringList(relations)
-	default:
-		return normalizedStringList(raw)
+func modelIDForDefinition(model *gestalt.AuthorizationModel) (string, error) {
+	bytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(model)
+	if err != nil {
+		return "", fmt.Errorf("marshal model: %w", err)
 	}
+	sum := sha256.Sum256(bytes)
+	return "model-" + hex.EncodeToString(sum[:]), nil
 }
 
-func normalizedStringList(raw any) ([]string, error) {
-	switch value := raw.(type) {
-	case string:
-		item := strings.TrimSpace(value)
-		if item == "" {
-			return nil, fmt.Errorf("values must be non-empty")
-		}
-		return []string{item}, nil
-	case []string:
-		items := make([]string, 0, len(value))
-		seen := make(map[string]struct{}, len(value))
-		for _, item := range value {
-			trimmed := strings.TrimSpace(item)
-			if trimmed == "" {
-				return nil, fmt.Errorf("values must be non-empty")
-			}
-			if _, ok := seen[trimmed]; ok {
-				continue
-			}
-			seen[trimmed] = struct{}{}
-			items = append(items, trimmed)
-		}
-		sort.Strings(items)
-		return items, nil
-	case []any:
-		items := make([]string, 0, len(value))
-		seen := make(map[string]struct{}, len(value))
-		for _, item := range value {
-			str, ok := item.(string)
-			if !ok {
-				return nil, fmt.Errorf("values must be strings")
-			}
-			trimmed := strings.TrimSpace(str)
-			if trimmed == "" {
-				return nil, fmt.Errorf("values must be non-empty")
-			}
-			if _, ok := seen[trimmed]; ok {
-				continue
-			}
-			seen[trimmed] = struct{}{}
-			items = append(items, trimmed)
-		}
-		sort.Strings(items)
-		return items, nil
-	default:
-		return nil, fmt.Errorf("expected a string or list of strings")
+func marshalStoredModel(model *gestalt.AuthorizationModel) (string, error) {
+	bytes, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(model)
+	if err != nil {
+		return "", fmt.Errorf("marshal stored model: %w", err)
 	}
+	return string(bytes), nil
+}
+
+func unmarshalStoredModel(raw string) (*gestalt.AuthorizationModel, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("stored model is empty")
+	}
+	var model gestalt.AuthorizationModel
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal([]byte(raw), &model); err != nil {
+		return nil, fmt.Errorf("parse stored model: %w", err)
+	}
+	return &model, nil
+}
+
+func modelVersionString(model *gestalt.AuthorizationModel) string {
+	if model == nil || model.GetVersion() == 0 {
+		return "1"
+	}
+	return strconv.Itoa(int(model.GetVersion()))
 }
 
 func (m *compiledModel) actionRelations(resourceType, action string) []string {

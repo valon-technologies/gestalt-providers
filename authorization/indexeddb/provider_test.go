@@ -37,7 +37,7 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 		"indexeddb": "test",
 	})
 
-	modelRef, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Schema: roundTripModelSchema})
+	modelRef, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: roundTripModel()})
 	if err != nil {
 		t.Fatalf("WriteModel: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 		t.Fatalf("ListModels = %#v", models.GetModels())
 	}
 
-	rotatedModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Schema: rotatedModelSchema})
+	rotatedModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: rotatedModel()})
 	if err != nil {
 		t.Fatalf("WriteModel(rotated): %v", err)
 	}
@@ -246,11 +246,11 @@ func TestAuthorizationProviderValidationAndPagination(t *testing.T) {
 		"indexeddb": "test",
 	})
 
-	firstModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Schema: roundTripModelSchema})
+	firstModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: roundTripModel()})
 	if err != nil {
 		t.Fatalf("WriteModel(first): %v", err)
 	}
-	secondModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Schema: expandedModelSchema})
+	secondModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: expandedModel()})
 	if err != nil {
 		t.Fatalf("WriteModel(second): %v", err)
 	}
@@ -357,6 +357,36 @@ func TestAuthorizationProviderValidationAndPagination(t *testing.T) {
 	}
 	if got := relationshipPairs(atomicRead.GetRelationships()); !reflect.DeepEqual(got, []string{"viewer:document/doc-1", "editor:document/doc-2"}) {
 		t.Fatalf("ReadRelationships after failed batch = %#v", got)
+	}
+}
+
+func TestAuthorizationProviderWriteModelIsIdempotent(t *testing.T) {
+	sess := newProviderSession(t)
+	sess.configure(t, map[string]any{
+		"indexeddb": "test",
+	})
+
+	firstModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: roundTripModel()})
+	if err != nil {
+		t.Fatalf("WriteModel(first): %v", err)
+	}
+	secondModel, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: roundTripModel()})
+	if err != nil {
+		t.Fatalf("WriteModel(second): %v", err)
+	}
+	if firstModel.GetId() != secondModel.GetId() {
+		t.Fatalf("WriteModel id mismatch: first=%q second=%q", firstModel.GetId(), secondModel.GetId())
+	}
+	if !firstModel.GetCreatedAt().AsTime().Equal(secondModel.GetCreatedAt().AsTime()) {
+		t.Fatalf("WriteModel created_at mismatch: first=%v second=%v", firstModel.GetCreatedAt(), secondModel.GetCreatedAt())
+	}
+
+	models, err := sess.client.ListModels(sess.ctx, &proto.ListModelsRequest{})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models.GetModels()) != 1 {
+		t.Fatalf("ListModels count = %d, want 1", len(models.GetModels()))
 	}
 }
 
@@ -521,43 +551,58 @@ func relationshipPairs(relationships []*proto.Relationship) []string {
 	return out
 }
 
-const roundTripModelSchema = `
-version: 1
-resource_types:
-  document:
-    relations:
-      viewer: [user]
-      editor: [user]
-    actions:
-      read: [viewer, editor]
-      write: [editor]
-`
+func roundTripModel() *proto.AuthorizationModel {
+	return &proto.AuthorizationModel{
+		Version: 1,
+		ResourceTypes: []*proto.AuthorizationModelResourceType{{
+			Name: "document",
+			Relations: []*proto.AuthorizationModelRelation{
+				{Name: "viewer", SubjectTypes: []string{"user"}},
+				{Name: "editor", SubjectTypes: []string{"user"}},
+			},
+			Actions: []*proto.AuthorizationModelAction{
+				{Name: "read", Relations: []string{"viewer", "editor"}},
+				{Name: "write", Relations: []string{"editor"}},
+			},
+		}},
+	}
+}
 
-const expandedModelSchema = `
-version: 1
-resource_types:
-  document:
-    relations:
-      viewer: [user]
-      editor: [user]
-      owner: [user]
-    actions:
-      read: [viewer, editor, owner]
-      write: [editor, owner]
-      admin: owner
-`
+func expandedModel() *proto.AuthorizationModel {
+	return &proto.AuthorizationModel{
+		Version: 1,
+		ResourceTypes: []*proto.AuthorizationModelResourceType{{
+			Name: "document",
+			Relations: []*proto.AuthorizationModelRelation{
+				{Name: "viewer", SubjectTypes: []string{"user"}},
+				{Name: "editor", SubjectTypes: []string{"user"}},
+				{Name: "owner", SubjectTypes: []string{"user"}},
+			},
+			Actions: []*proto.AuthorizationModelAction{
+				{Name: "read", Relations: []string{"viewer", "editor", "owner"}},
+				{Name: "write", Relations: []string{"editor", "owner"}},
+				{Name: "admin", Relations: []string{"owner"}},
+			},
+		}},
+	}
+}
 
-const rotatedModelSchema = `
-version: 1
-resource_types:
-  document:
-    relations:
-      viewer: [user]
-      editor: [group]
-    actions:
-      read: [viewer, editor]
-      write: [editor]
-`
+func rotatedModel() *proto.AuthorizationModel {
+	return &proto.AuthorizationModel{
+		Version: 1,
+		ResourceTypes: []*proto.AuthorizationModelResourceType{{
+			Name: "document",
+			Relations: []*proto.AuthorizationModelRelation{
+				{Name: "viewer", SubjectTypes: []string{"user"}},
+				{Name: "editor", SubjectTypes: []string{"group"}},
+			},
+			Actions: []*proto.AuthorizationModelAction{
+				{Name: "read", Relations: []string{"viewer", "editor"}},
+				{Name: "write", Relations: []string{"editor"}},
+			},
+		}},
+	}
+}
 
 type testIndexedDBProvider struct {
 	proto.UnimplementedIndexedDBServer

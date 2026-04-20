@@ -34,11 +34,11 @@ Configuration fields:
 - `indexeddb`: Optional named host IndexedDB provider to connect to. Omit it to
   use the default IndexedDB socket.
 
-## Model Schema
+## Authorization Model
 
-`WriteModel` accepts YAML or JSON with one top-level `resource_types` map.
-This v1 provider supports only direct relationships and action-to-relation
-mapping.
+`WriteModel` now accepts a typed `AuthorizationModel`. This provider supports
+only direct relationships and action-to-relation mapping. The logical model
+shape is:
 
 ```yaml
 version: 1
@@ -54,13 +54,21 @@ resource_types:
       write: [editor]
 ```
 
-Relation definitions may use either the explicit `subject_types` form shown
-above or the shorthand list form:
+The typed equivalent is:
 
-```yaml
-relations:
-  viewer: [user]
+```go
+&proto.AuthorizationModel{
+  Version: 1,
+  ResourceTypes: []*proto.AuthorizationModelResourceType{{
+    Name: "document",
+    Relations: []*proto.AuthorizationModelRelation{
+      {Name: "viewer", SubjectTypes: []string{"user"}},
+      {Name: "editor", SubjectTypes: []string{"user"}},
+    },
+    Actions: []*proto.AuthorizationModelAction{
+      {Name: "read", Relations: []string{"viewer", "editor"}},
+      {Name: "write", Relations: []string{"editor"}},
+    },
+  }},
+}
 ```
-
-Action definitions accept a single relation, a list of relations, or an
-explicit `relations` field.

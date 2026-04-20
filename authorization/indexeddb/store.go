@@ -41,7 +41,7 @@ type store struct {
 
 type storedModel struct {
 	ref      *gestalt.AuthorizationModelRef
-	schema   string
+	model    *gestalt.AuthorizationModel
 	compiled *compiledModel
 }
 
@@ -127,7 +127,7 @@ func (s *store) setActiveModelID(ctx context.Context, modelID string) error {
 	})
 }
 
-func (s *store) writeModel(ctx context.Context, ref *gestalt.AuthorizationModelRef, schema string) error {
+func (s *store) writeModel(ctx context.Context, ref *gestalt.AuthorizationModelRef, modelJSON string) error {
 	if ref == nil {
 		return status.Error(codes.InvalidArgument, "model ref is required")
 	}
@@ -135,7 +135,7 @@ func (s *store) writeModel(ctx context.Context, ref *gestalt.AuthorizationModelR
 		"id":         ref.GetId(),
 		"version":    ref.GetVersion(),
 		"created_at": ref.GetCreatedAt().AsTime().UTC(),
-		"schema":     schema,
+		"model_json": modelJSON,
 	}
 	if err := s.models.Put(ctx, record); err != nil {
 		return err
@@ -184,14 +184,21 @@ func modelFromRecord(record gestalt.Record) (*storedModel, error) {
 		return nil, status.Error(codes.Internal, "stored model is missing id")
 	}
 	version, _ := record["version"].(string)
-	schema, _ := record["schema"].(string)
+	modelJSON, _ := record["model_json"].(string)
 	createdAt, err := recordTime(record["created_at"])
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "stored model %q has invalid created_at: %v", id, err)
 	}
-	compiled, err := parseModelSchema(schema)
+	model, err := unmarshalStoredModel(modelJSON)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "stored model %q is invalid: %v", id, err)
+	}
+	compiled, normalized, err := compileAuthorizationModel(model)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "stored model %q is invalid: %v", id, err)
+	}
+	if strings.TrimSpace(version) == "" {
+		version = modelVersionString(normalized)
 	}
 	return &storedModel{
 		ref: &gestalt.AuthorizationModelRef{
@@ -199,7 +206,7 @@ func modelFromRecord(record gestalt.Record) (*storedModel, error) {
 			Version:   version,
 			CreatedAt: timestamppb.New(createdAt.UTC()),
 		},
-		schema:   schema,
+		model:    normalized,
 		compiled: compiled,
 	}, nil
 }

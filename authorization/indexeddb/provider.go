@@ -138,24 +138,32 @@ func (p *Provider) WriteModel(ctx context.Context, req *gestalt.WriteModelReques
 	if err != nil {
 		return nil, err
 	}
-	schema := strings.TrimSpace(req.GetSchema())
-	if schema == "" {
-		return nil, status.Error(codes.InvalidArgument, "schema is required")
-	}
-	model, err := parseModelSchema(schema)
+	model, normalized, err := compileAuthorizationModel(req.GetModel())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid model schema: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "invalid authorization model: %v", err)
 	}
-	modelID, err := newModelID()
+	modelID, err := modelIDForDefinition(normalized)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "create model id: %v", err)
+		return nil, status.Errorf(codes.Internal, "build model id: %v", err)
+	}
+	if existing, err := st.loadModel(ctx, modelID); err == nil {
+		if err := st.setActiveModelID(ctx, existing.ref.GetId()); err != nil {
+			return nil, err
+		}
+		return existing.ref, nil
+	} else if status.Code(err) != codes.NotFound {
+		return nil, err
+	}
+	modelJSON, err := marshalStoredModel(normalized)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "marshal authorization model: %v", err)
 	}
 	ref := &gestalt.AuthorizationModelRef{
 		Id:        modelID,
 		Version:   model.Version,
 		CreatedAt: timestamppb.New(p.now().UTC()),
 	}
-	if err := st.writeModel(ctx, ref, schema); err != nil {
+	if err := st.writeModel(ctx, ref, modelJSON); err != nil {
 		return nil, err
 	}
 	return ref, nil
