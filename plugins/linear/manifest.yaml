@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/linear
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Linear
 description: Manage issues, projects, and teams.
 iconFile: assets/icon.svg
@@ -9,6 +9,8 @@ spec:
     graphql:
       connection: OAuth
       url: https://api.linear.app/graphql
+      operationSelections:
+        issueCreate: "success lastSyncId issue { id identifier title url createdAt updatedAt }"
     mcp:
       connection: OAuth
       url: https://mcp.linear.app/mcp
