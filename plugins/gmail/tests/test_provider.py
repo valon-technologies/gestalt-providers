@@ -62,7 +62,7 @@ class GmailProviderTests(unittest.TestCase):
 
     def test_create_draft_wraps_gmail_response(self) -> None:
         with mock.patch.object(operations_module, "post_json", return_value={"id": "draft-1", "message": {"id": "msg-1"}}) as post_json:
-            result = provider_module.messages_create_draft(
+            result = provider_module.drafts_create(
                 provider_module.CreateDraftInput(
                     to="bob@example.com",
                     subject="Draft",
@@ -74,6 +74,34 @@ class GmailProviderTests(unittest.TestCase):
         self.assertEqual(result["data"]["draft"]["id"], "draft-1")
         self.assertTrue(post_json.call_args.args[0].endswith("/drafts"))
         self.assertIn("message", post_json.call_args.args[1])
+
+    def test_update_draft_wraps_gmail_response(self) -> None:
+        with mock.patch.object(operations_module, "put_json", return_value={"id": "draft-1", "message": {"id": "msg-1"}}) as put_json:
+            result = provider_module.drafts_update(
+                provider_module.UpdateDraftInput(
+                    id="draft-1",
+                    to="bob@example.com",
+                    subject="Updated draft",
+                    body="Updated body",
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertEqual(result["data"]["draft"]["id"], "draft-1")
+        self.assertTrue(put_json.call_args.args[0].endswith("/drafts/draft-1"))
+        self.assertEqual(put_json.call_args.args[1]["id"], "draft-1")
+        self.assertIn("message", put_json.call_args.args[1])
+
+    def test_send_draft_wraps_gmail_response(self) -> None:
+        with mock.patch.object(operations_module, "post_json", return_value={"id": "msg-sent", "threadId": "t-1"}) as post_json:
+            result = provider_module.drafts_send(
+                provider_module.SendDraftInput(id="draft-1"),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertEqual(result["data"]["message"]["id"], "msg-sent")
+        self.assertTrue(post_json.call_args.args[0].endswith("/drafts/send"))
+        self.assertEqual(post_json.call_args.args[1], {"id": "draft-1"})
 
     def test_reply_uses_original_thread_headers(self) -> None:
         original = {
