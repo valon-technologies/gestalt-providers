@@ -358,6 +358,7 @@ jobs:
           server:
             public:
               port: 8080
+            artifactsDir: "${RUNNER_TEMP}/prepared-artifacts"
             encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
             providers:
               secrets: secrets
@@ -381,8 +382,9 @@ jobs:
           echo "GESTALTD_CONFIG=${RUNNER_TEMP}/gestaltd-web-e2e.yaml" >>"${GITHUB_ENV}"
       - name: Start gestaltd
         run: |
-          ${GITHUB_WORKSPACE}/../bin/gestaltd init --config "${GESTALTD_CONFIG}"
-          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --locked --config "${GESTALTD_CONFIG}" >/tmp/gestaltd.log 2>&1 &
+          mkdir -p "${RUNNER_TEMP}/prepared-artifacts"
+          ${GITHUB_WORKSPACE}/../bin/gestaltd init --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
+          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
           for i in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5
