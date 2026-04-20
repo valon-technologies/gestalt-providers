@@ -25,15 +25,15 @@ groups, users, collections, guides, data connections, and notebook cells.
 
 Additional source-backed operations:
 
-- `project.export`: export a project as YAML
-- `project.import`: import or update a project from YAML
-- `project.runDraft`: run the draft notebook version of a project
-- `cell.run`: run a cell and its dependencies
+- `projects.export`: export a project as YAML
+- `projects.import`: import or update a project from YAML
+- `projects.runDraft`: run the draft notebook version of a project
+- `cells.run`: run a cell and its dependencies
 - `suggestions.list`: list Context Studio suggestions
 - `suggestions.get`: fetch a single Context Studio suggestion
-- `contextVersion.create`: create a Context Studio context version
-- `contextVersion.update`: update a Context Studio context version
-- `contextVersion.publish`: publish a Context Studio context version
+- `contextVersions.create`: create a Context Studio context version
+- `contextVersions.update`: update a Context Studio context version
+- `contextVersions.publish`: publish a Context Studio context version
 
 Authenticates with a manually provided API token.
 
