@@ -354,7 +354,13 @@ jobs:
           mkdir -p "${GITHUB_WORKSPACE}/../bin"
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
 
+          # Package local providers as release metadata to avoid local-source fingerprint churn
+          mkdir -p "${RUNNER_TEMP}/web-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release"
+          (cd web/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/web-default-release")
+          (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
+
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
+          apiVersion: gestaltd.config/v4
           server:
             public:
               port: 8080
@@ -366,15 +372,13 @@ jobs:
           providers:
             indexeddb:
               main:
-                source:
-                  path: "${GITHUB_WORKSPACE}/indexeddb/relationaldb/manifest.yaml"
+                source: "${RUNNER_TEMP}/indexeddb-relationaldb-release/provider-release.yaml"
                 config:
                   dsn: "sqlite://${RUNNER_TEMP}/gestalt-web-e2e.db"
             ui:
               default:
                 path: /
-                source:
-                  path: "${GITHUB_WORKSPACE}/web/default/manifest.yaml"
+                source: "${RUNNER_TEMP}/web-default-release/provider-release.yaml"
             secrets:
               secrets:
                 source: env
