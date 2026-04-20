@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/trunk
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Trunk
 description: Manage Trunk Merge Queue and Flaky Tests APIs with an API token.
 iconFile: assets/icon.svg
@@ -45,14 +45,6 @@ spec:
   connections:
     default:
       mode: user
-      auth:
-        type: manual
-        credentials:
-        - name: token
-          label: API Token
-          description: Create a Trunk API token and use it as the `x-api-token` header. See [Trunk APIs](https://docs.trunk.io/setup-and-administration/apis).
-    identity:
-      mode: identity
       auth:
         type: manual
         credentials:

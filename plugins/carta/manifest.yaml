@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/carta
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Carta
 description: Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs.
 iconFile: assets/icon.svg
@@ -51,11 +51,3 @@ spec:
         - readwrite_issuer_draftsecurities
         - readwrite_issuer_securities
         - readwrite_opencaptables
-    identity:
-      mode: identity
-      auth:
-        type: bearer
-        credentials:
-        - name: token
-          label: OAuth Access Token
-          description: Paste a Carta OAuth access token with the scopes needed for the Launch, Investor, Issuer, Portfolio, or related API Platform endpoints you plan to call.

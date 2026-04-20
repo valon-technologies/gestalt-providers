@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/rippling
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Rippling
 description: Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API.
 iconFile: assets/icon.svg
@@ -12,14 +12,6 @@ spec:
   connections:
     default:
       mode: user
-      auth:
-        type: bearer
-        credentials:
-        - name: token
-          label: API Token
-          description: Create one in [Rippling API Tokens](https://app.rippling.com/developer/api-tokens)
-    identity:
-      mode: identity
       auth:
         type: bearer
         credentials:

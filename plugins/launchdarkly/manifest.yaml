@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/launchdarkly
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: LaunchDarkly
 description: Manage feature flags and targeting rules.
 iconFile: assets/icon.svg
@@ -12,14 +12,6 @@ spec:
   connections:
     default:
       mode: user
-      auth:
-        type: manual
-        credentials:
-        - name: token
-          label: API Access Token
-          description: See [Authorization](https://app.launchdarkly.com/settings/authorization) to create an access token
-    identity:
-      mode: identity
       auth:
         type: manual
         credentials:
