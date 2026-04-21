@@ -1,5 +1,5 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
-import type { APIToken, Integration, ManagedIdentity } from "../src/lib/api";
+import type { APIToken, Integration, ManagedIdentity, WorkflowRun } from "../src/lib/api";
 
 export async function mockIntegrations(
   page: Page,
@@ -77,6 +77,31 @@ export async function mockTokens(page: Page, tokens: APIToken[]) {
     } else {
       route.fallback();
     }
+  });
+}
+
+export async function mockWorkflowRuns(page: Page, runs: WorkflowRun[]) {
+  await page.route("**/api/v1/workflow/runs", (route: Route, request) => {
+    if (request.method() === "GET") {
+      route.fulfill({ json: runs });
+    } else {
+      route.fallback();
+    }
+  });
+
+  await page.route("**/api/v1/workflow/runs/*", (route: Route, request) => {
+    if (request.method() !== "GET") {
+      route.fallback();
+      return;
+    }
+    const url = new URL(request.url());
+    const id = url.pathname.split("/").pop() || "";
+    const run = runs.find((item) => item.id === id);
+    if (!run) {
+      route.fulfill({ status: 404, json: { error: "not found" } });
+      return;
+    }
+    route.fulfill({ json: run });
   });
 }
 

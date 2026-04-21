@@ -5,6 +5,7 @@ import {
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
+  mockWorkflowRuns,
 } from "./fixtures";
 
 test.describe("Navigation", () => {
@@ -27,6 +28,16 @@ test.describe("Navigation", () => {
         id: "tok_123",
         name: "Default token",
         scopes: "api",
+        createdAt: "2026-04-13T00:00:00Z",
+      },
+    ]);
+    await mockWorkflowRuns(authenticatedPage, [
+      {
+        id: "run_123",
+        provider: "basic",
+        status: "succeeded",
+        target: { plugin: "httpbin", operation: "get" },
+        trigger: { kind: "schedule", scheduleId: "sched_123" },
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
@@ -60,6 +71,13 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("workflows page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/workflows");
+    await expect(
+      page.getByRole("heading", { name: "Workflow Runs" }),
+    ).toBeVisible();
+  });
+
   test("docs page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/docs");
     await expect(page.getByRole("heading", { name: "Getting Started" })).toBeVisible();
@@ -88,6 +106,11 @@ test.describe("Navigation", () => {
     await expect(page).toHaveURL(/tokens/);
     await expect(
       page.getByRole("heading", { name: "API Tokens" }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Workflows" }).click();
+    await expect(page).toHaveURL(/workflows/);
+    await expect(
+      page.getByRole("heading", { name: "Workflow Runs" }),
     ).toBeVisible();
   });
 
