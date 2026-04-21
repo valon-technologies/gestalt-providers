@@ -292,7 +292,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	target, err := normalizeScopedTarget(req.GetPluginName(), req.GetTarget())
+	target, err := normalizeScopedTarget("", req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -396,10 +396,10 @@ func (p *Provider) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRun
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 	runID := strings.TrimSpace(req.GetRunId())
-	if pluginName == "" || runID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and run_id are required")
+	if runID == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
 
 	p.mu.Lock()
@@ -427,10 +427,7 @@ func (p *Provider) ListRuns(ctx context.Context, req *proto.ListWorkflowProvider
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
-	if pluginName == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name is required")
-	}
+	pluginName := ""
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -458,10 +455,10 @@ func (p *Provider) CancelRun(ctx context.Context, req *proto.CancelWorkflowProvi
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 	runID := strings.TrimSpace(req.GetRunId())
-	if pluginName == "" || runID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and run_id are required")
+	if runID == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
 	reason := strings.TrimSpace(req.GetReason())
 	if reason == "" {
@@ -507,7 +504,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeScopedTarget(req.GetPluginName(), req.GetTarget())
+	target, err := normalizeScopedTarget("", req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -592,7 +589,7 @@ func (p *Provider) GetSchedule(ctx context.Context, req *proto.GetWorkflowProvid
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 	scheduleID := strings.TrimSpace(req.GetScheduleId())
 	if scheduleID == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
@@ -623,7 +620,7 @@ func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowPro
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -651,7 +648,7 @@ func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflow
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 	scheduleID := strings.TrimSpace(req.GetScheduleId())
 	if scheduleID == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
@@ -684,21 +681,21 @@ func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowPr
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	return p.updateSchedulePaused(ctx, strings.TrimSpace(req.GetPluginName()), strings.TrimSpace(req.GetScheduleId()), true)
+	return p.updateSchedulePaused(ctx, "", strings.TrimSpace(req.GetScheduleId()), true)
 }
 
 func (p *Provider) ResumeSchedule(ctx context.Context, req *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	return p.updateSchedulePaused(ctx, strings.TrimSpace(req.GetPluginName()), strings.TrimSpace(req.GetScheduleId()), false)
+	return p.updateSchedulePaused(ctx, "", strings.TrimSpace(req.GetScheduleId()), false)
 }
 
 func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeScopedTarget(req.GetPluginName(), req.GetTarget())
+	target, err := normalizeScopedTarget("", req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -770,7 +767,7 @@ func (p *Provider) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowPr
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 	triggerID := strings.TrimSpace(req.GetTriggerId())
 	if triggerID == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
@@ -801,7 +798,7 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflo
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -829,7 +826,7 @@ func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWork
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
+	pluginName := ""
 	triggerID := strings.TrimSpace(req.GetTriggerId())
 	if triggerID == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
@@ -862,14 +859,14 @@ func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	return p.updateEventTriggerPaused(ctx, strings.TrimSpace(req.GetPluginName()), strings.TrimSpace(req.GetTriggerId()), true)
+	return p.updateEventTriggerPaused(ctx, "", strings.TrimSpace(req.GetTriggerId()), true)
 }
 
 func (p *Provider) ResumeEventTrigger(ctx context.Context, req *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	return p.updateEventTriggerPaused(ctx, strings.TrimSpace(req.GetPluginName()), strings.TrimSpace(req.GetTriggerId()), false)
+	return p.updateEventTriggerPaused(ctx, "", strings.TrimSpace(req.GetTriggerId()), false)
 }
 
 func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
