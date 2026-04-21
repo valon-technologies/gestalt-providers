@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/slack
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Slack
 description: Read public and private conversations, DMs, and group DMs; send messages; and manage channels.
 iconFile: assets/icon.svg
@@ -263,5 +263,30 @@ spec:
         - chat:write
         - reactions:write
         - channels:write
+        - groups:write
+        - canvases:write
+    bot:
+      displayName: Bot
+      mode: user
+      auth:
+        type: oauth2
+        authorizationUrl: https://slack.com/oauth/v2/authorize
+        tokenUrl: https://slack.com/api/oauth.v2.access
+        accessTokenPath: access_token
+        scopeParam: scope
+        scopeSeparator: ','
+        scopes:
+        - channels:read
+        - channels:history
+        - groups:read
+        - groups:history
+        - im:read
+        - im:history
+        - mpim:read
+        - mpim:history
+        - users:read
+        - chat:write
+        - reactions:write
+        - channels:manage
         - groups:write
         - canvases:write
