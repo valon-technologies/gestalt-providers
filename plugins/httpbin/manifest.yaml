@@ -4,7 +4,9 @@ displayName: HTTPBin
 description: Development/testing-only HTTP request and response service. Do not use with production or sensitive data.
 kind: plugin
 spec:
-  connectionMode: none
+  connections:
+    default:
+      mode: none
   mcp: true
   surfaces:
     rest:
