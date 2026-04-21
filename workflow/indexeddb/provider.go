@@ -83,6 +83,8 @@ type workflowScheduleRecord struct {
 	Cron         string
 	Timezone     string
 	Operation    string
+	Connection   string
+	Instance     string
 	Input        map[string]any
 	Paused       bool
 	CreatedAt    time.Time
@@ -99,6 +101,8 @@ type workflowEventTriggerRecord struct {
 	MatchSource  string
 	MatchSubject string
 	Operation    string
+	Connection   string
+	Instance     string
 	Input        map[string]any
 	Paused       bool
 	CreatedAt    time.Time
@@ -111,6 +115,8 @@ type workflowRunRecord struct {
 	PluginName            string
 	Status                proto.WorkflowRunStatus
 	Operation             string
+	Connection            string
+	Instance              string
 	Input                 map[string]any
 	TriggerKind           string
 	TriggerScheduleID     string
@@ -137,6 +143,8 @@ type workflowIdempotencyRecord struct {
 type scopedTarget struct {
 	PluginName string
 	Operation  string
+	Connection string
+	Instance   string
 	Input      map[string]any
 }
 
@@ -357,6 +365,8 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		PluginName:   target.PluginName,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Operation:    target.Operation,
+		Connection:   target.Connection,
+		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
 		TriggerKind:  triggerKindManual,
 		CreatedAt:    now,
@@ -559,6 +569,8 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 		Cron:         cronSpec,
 		Timezone:     timezone,
 		Operation:    target.Operation,
+		Connection:   target.Connection,
+		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
 		Paused:       req.GetPaused(),
 		CreatedAt:    now,
@@ -745,6 +757,8 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 		MatchSource:  matchSource,
 		MatchSubject: matchSubject,
 		Operation:    target.Operation,
+		Connection:   target.Connection,
+		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
 		Paused:       req.GetPaused(),
 		CreatedAt:    now,
@@ -912,6 +926,8 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			PluginName:            pluginName,
 			Status:                proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Operation:             trigger.Operation,
+			Connection:            trigger.Connection,
+			Instance:              trigger.Instance,
 			Input:                 cloneMap(trigger.Input),
 			TriggerKind:           triggerKindEvent,
 			TriggerEventTriggerID: trigger.ID,
@@ -1087,6 +1103,8 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			PluginName:          schedule.PluginName,
 			Status:              proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Operation:           schedule.Operation,
+			Connection:          schedule.Connection,
+			Instance:            schedule.Instance,
 			Input:               cloneMap(schedule.Input),
 			TriggerKind:         triggerKindSchedule,
 			TriggerScheduleID:   schedule.ID,
@@ -1338,6 +1356,8 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	return scopedTarget{
 		PluginName: pluginName,
 		Operation:  operation,
+		Connection: strings.TrimSpace(target.GetConnection()),
+		Instance:   strings.TrimSpace(target.GetInstance()),
 		Input:      cloneStructMap(target.GetInput()),
 	}, nil
 }
@@ -1887,6 +1907,8 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"cron":          r.Cron,
 		"timezone":      r.Timezone,
 		"operation":     r.Operation,
+		"connection":    r.Connection,
+		"instance":      r.Instance,
 		"input":         cloneMap(r.Input),
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
@@ -1910,6 +1932,8 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		Cron:         stringField(value, "cron"),
 		Timezone:     stringField(value, "timezone"),
 		Operation:    stringField(value, "operation"),
+		Connection:   stringField(value, "connection"),
+		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
@@ -1933,6 +1957,8 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 		Target: &proto.BoundWorkflowTarget{
 			PluginName: r.PluginName,
 			Operation:  r.Operation,
+			Connection: r.Connection,
+			Instance:   r.Instance,
 			Input:      structFromAny(r.Input),
 		},
 		Paused:       r.Paused,
@@ -1952,6 +1978,8 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 		"match_source":  r.MatchSource,
 		"match_subject": r.MatchSubject,
 		"operation":     r.Operation,
+		"connection":    r.Connection,
+		"instance":      r.Instance,
 		"input":         cloneMap(r.Input),
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
@@ -1969,6 +1997,8 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		MatchSource:  stringField(value, "match_source"),
 		MatchSubject: stringField(value, "match_subject"),
 		Operation:    stringField(value, "operation"),
+		Connection:   stringField(value, "connection"),
+		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
@@ -1993,6 +2023,8 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 		Target: &proto.BoundWorkflowTarget{
 			PluginName: r.PluginName,
 			Operation:  r.Operation,
+			Connection: r.Connection,
+			Instance:   r.Instance,
 			Input:      structFromAny(r.Input),
 		},
 		Paused:    r.Paused,
@@ -2008,6 +2040,8 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"plugin_name":              r.PluginName,
 		"status":                   int64(r.Status),
 		"operation":                r.Operation,
+		"connection":               r.Connection,
+		"instance":                 r.Instance,
 		"input":                    cloneMap(r.Input),
 		"trigger_kind":             r.TriggerKind,
 		"trigger_schedule_id":      r.TriggerScheduleID,
@@ -2044,6 +2078,8 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		PluginName:            stringField(value, "plugin_name"),
 		Status:                proto.WorkflowRunStatus(intField(value, "status")),
 		Operation:             stringField(value, "operation"),
+		Connection:            stringField(value, "connection"),
+		Instance:              stringField(value, "instance"),
 		Input:                 anyMap(value["input"]),
 		TriggerKind:           stringField(value, "trigger_kind"),
 		TriggerScheduleID:     stringField(value, "trigger_schedule_id"),
@@ -2083,6 +2119,8 @@ func (r workflowRunRecord) targetProto() *proto.BoundWorkflowTarget {
 	return &proto.BoundWorkflowTarget{
 		PluginName: r.PluginName,
 		Operation:  r.Operation,
+		Connection: r.Connection,
+		Instance:   r.Instance,
 		Input:      structFromAny(r.Input),
 	}
 }
