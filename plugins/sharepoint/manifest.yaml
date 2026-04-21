@@ -1,0 +1,24 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/sharepoint
+version: 0.0.1-alpha.1
+displayName: Microsoft SharePoint
+description: Browse SharePoint sites, document libraries, lists, pages, and file content through Microsoft Graph.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  connections:
+    default:
+      mode: user
+      auth:
+        type: oauth2
+        authorizationUrl: https://login.microsoftonline.com/common/oauth2/v2.0/authorize
+        tokenUrl: https://login.microsoftonline.com/common/oauth2/v2.0/token
+        acceptHeader: application/json
+        scopes:
+        - offline_access
+        - Sites.ReadWrite.All
+        - Files.ReadWrite.All

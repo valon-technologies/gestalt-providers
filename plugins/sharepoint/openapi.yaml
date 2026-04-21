@@ -1,0 +1,648 @@
+openapi: 3.0.3
+info:
+  title: Microsoft SharePoint via Microsoft Graph
+  version: v1.0
+  description: >-
+    Curated Microsoft Graph operations for SharePoint Online site discovery,
+    document libraries, lists, pages, and file content.
+servers:
+  - url: https://graph.microsoft.com/v1.0
+security:
+  - bearerAuth: []
+paths:
+  /sites:
+    get:
+      operationId: list_sites
+      summary: List sites
+      description: List SharePoint sites accessible to the authorized identity.
+      tags: [Sites]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/site-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Skip'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Count'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}:
+    get:
+      operationId: get_site
+      summary: Get site
+      description: Retrieve a SharePoint site by ID.
+      tags: [Sites]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/site-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/drive:
+    get:
+      operationId: get_site_default_drive
+      summary: Get default document library
+      description: Retrieve the default document library for a site.
+      tags: [Drives]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/drive-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/drives:
+    get:
+      operationId: list_site_drives
+      summary: List document libraries
+      description: List document libraries under a site.
+      tags: [Drives]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/drive-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Skip'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Count'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /drives/{drive-id}/items/{driveItem-id}:
+    get:
+      operationId: get_drive_item
+      summary: Get drive item
+      description: Retrieve metadata for a file or folder in a document library.
+      tags: [DriveItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/driveitem-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/DriveId'
+        - $ref: '#/components/parameters/DriveItemId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /drives/{drive-id}/items/{driveItem-id}/children:
+    get:
+      operationId: list_drive_item_children
+      summary: List folder children
+      description: List items directly under a folder in a document library.
+      tags: [DriveItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/driveitem-list-children?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/DriveId'
+        - $ref: '#/components/parameters/DriveItemId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Skip'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Count'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /drives/{drive-id}/items/{driveItem-id}/content:
+    get:
+      operationId: download_drive_item_content
+      summary: Download file content
+      description: Download the binary content of a file.
+      tags: [DriveItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/driveitem-get-content?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/DriveId'
+        - $ref: '#/components/parameters/DriveItemId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Binary'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: overwrite_drive_item_content
+      summary: Overwrite file content
+      description: Replace the binary content of an existing file.
+      tags: [DriveItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/driveitem-put-content?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/DriveId'
+        - $ref: '#/components/parameters/DriveItemId'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/lists:
+    get:
+      operationId: list_site_lists
+      summary: List lists
+      description: List SharePoint lists for a site.
+      tags: [Lists]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/list-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Skip'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Count'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/lists/{list-id}:
+    get:
+      operationId: get_site_list
+      summary: Get list
+      description: Retrieve metadata for a SharePoint list.
+      tags: [Lists]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/list-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/lists/{list-id}/items:
+    get:
+      operationId: list_list_items
+      summary: List list items
+      description: List items in a SharePoint list.
+      tags: [ListItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/listitem-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Skip'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Count'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: create_list_item
+      summary: Create list item
+      description: Create a new item in a SharePoint list.
+      tags: [ListItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/listitem-create?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/ListId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListItemWriteRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/lists/{list-id}/items/{listItem-id}:
+    get:
+      operationId: get_list_item
+      summary: Get list item
+      description: Retrieve a SharePoint list item.
+      tags: [ListItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/listitem-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/ListItemId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: update_list_item
+      summary: Update list item
+      description: Update an existing SharePoint list item.
+      tags: [ListItems]
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/ListItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListItemWriteRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: delete_list_item
+      summary: Delete list item
+      description: Delete an item from a SharePoint list.
+      tags: [ListItems]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/listitem-delete?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/ListId'
+        - $ref: '#/components/parameters/ListItemId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/pages:
+    get:
+      operationId: list_site_pages
+      summary: List pages
+      description: List pages from the site pages library.
+      tags: [Pages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/basesitepage-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Skip'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Count'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: create_site_page
+      summary: Create page
+      description: Create a new site page in the site pages library.
+      tags: [Pages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/sitepage-create?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SitePageWriteRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        '201':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /sites/{site-id}/pages/{baseSitePage-id}:
+    get:
+      operationId: get_site_page
+      summary: Get page
+      description: Retrieve metadata for a SharePoint site page.
+      tags: [Pages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/basesitepage-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/BaseSitePageId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: update_site_page
+      summary: Update page
+      description: Update an existing SharePoint site page.
+      tags: [Pages]
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/BaseSitePageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SitePageWriteRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: delete_site_page
+      summary: Delete page
+      description: Delete a SharePoint site page.
+      tags: [Pages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/graph/api/basesitepage-delete?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/BaseSitePageId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        default:
+          $ref: '#/components/responses/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    SiteId:
+      name: site-id
+      in: path
+      required: true
+      description: The SharePoint site identifier.
+      schema:
+        type: string
+    DriveId:
+      name: drive-id
+      in: path
+      required: true
+      description: The document library drive identifier.
+      schema:
+        type: string
+    DriveItemId:
+      name: driveItem-id
+      in: path
+      required: true
+      description: The drive item identifier for a file or folder.
+      schema:
+        type: string
+    ListId:
+      name: list-id
+      in: path
+      required: true
+      description: The SharePoint list identifier.
+      schema:
+        type: string
+    ListItemId:
+      name: listItem-id
+      in: path
+      required: true
+      description: The SharePoint list item identifier.
+      schema:
+        type: string
+    BaseSitePageId:
+      name: baseSitePage-id
+      in: path
+      required: true
+      description: The site page identifier.
+      schema:
+        type: string
+    Top:
+      name: $top
+      in: query
+      description: Maximum number of results to return.
+      schema:
+        type: integer
+        minimum: 1
+    Skip:
+      name: $skip
+      in: query
+      description: Number of results to skip.
+      schema:
+        type: integer
+        minimum: 0
+    Search:
+      name: $search
+      in: query
+      description: Search expression when supported by the endpoint.
+      schema:
+        type: string
+    Filter:
+      name: $filter
+      in: query
+      description: OData filter expression.
+      schema:
+        type: string
+    Count:
+      name: $count
+      in: query
+      description: Include a count of matching records when supported.
+      schema:
+        type: boolean
+    OrderBy:
+      name: $orderby
+      in: query
+      description: OData order expression.
+      schema:
+        type: string
+    Select:
+      name: $select
+      in: query
+      description: Comma-separated list of properties to return.
+      schema:
+        type: string
+    Expand:
+      name: $expand
+      in: query
+      description: Comma-separated related entities to expand.
+      schema:
+        type: string
+    IfMatch:
+      name: If-Match
+      in: header
+      description: ETag for conditional delete operations.
+      schema:
+        type: string
+
+  responses:
+    Object:
+      description: Generic Microsoft Graph object response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Object'
+    ObjectArray:
+      description: Generic Microsoft Graph collection response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ObjectArrayResponse'
+    Binary:
+      description: Binary file content.
+      content:
+        application/octet-stream:
+          schema:
+            type: string
+            format: binary
+    NoContent:
+      description: Success with no response body.
+    Error:
+      description: Error response from Microsoft Graph.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Object:
+      type: object
+      additionalProperties: true
+      description: Generic Microsoft Graph resource object.
+    ObjectArrayResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        value:
+          type: array
+          items:
+            $ref: '#/components/schemas/Object'
+        '@odata.nextLink':
+          type: string
+          description: Link to the next page of results.
+        '@odata.count':
+          type: integer
+          description: Total result count when requested.
+    Error:
+      type: object
+      additionalProperties: true
+      properties:
+        error:
+          type: object
+          additionalProperties: true
+    ListItemWriteRequest:
+      type: object
+      additionalProperties: true
+      description: >-
+        Microsoft Graph list item payload. In practice this usually includes a
+        `fields` object whose properties map to the target list columns.
+      properties:
+        fields:
+          type: object
+          additionalProperties: true
+          description: SharePoint list column values keyed by internal field name.
+      required:
+        - fields
+    SitePageWriteRequest:
+      type: object
+      additionalProperties: true
+      description: >-
+        Site page payload for Microsoft Graph. Creation commonly uses
+        `@odata.type` set to `#microsoft.graph.sitePage` plus page metadata and
+        optional canvas layout data.
+      properties:
+        '@odata.type':
+          type: string
+          example: '#microsoft.graph.sitePage'
+        name:
+          type: string
+          description: File name for the page, for example `my-page.aspx`.
+        title:
+          type: string
+        description:
+          type: string
+        pageLayout:
+          type: string
+        promotionKind:
+          type: string
+        showComments:
+          type: boolean
+        showRecommendedPages:
+          type: boolean
+        canvasLayout:
+          type: object
+          additionalProperties: true
