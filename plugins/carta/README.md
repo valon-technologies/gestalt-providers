@@ -38,9 +38,8 @@ Covered interface groups include:
 - Corporation, compensation benchmarking, file upload, open cap table, and
   current-user endpoints
 
-The default connection uses Carta's OAuth2 authorization-code flow. An identity
-fallback is also available for pre-minted bearer tokens. In either case, the
-token must carry the scopes required by the endpoints you invoke.
+The default connection uses Carta's OAuth2 authorization-code flow. The token
+must carry the scopes required by the endpoints you invoke.
 
 ## Documentation
 

@@ -29,9 +29,9 @@ keys for Business and Enterprise workspaces, plus enterprise-scoped keys for
 workspace admins.
 
 Use the default user connection with a personal key for user-scoped note
-access. For shared deployments, prefer the identity connection with an
-enterprise admin key so the plugin can access Team-space notes across the
-workspace.
+access. For automation or shared deployments, connect a workload or managed
+identity under its own subject with an enterprise admin key so the plugin can
+access Team-space notes across the workspace.
 
 The MCP surface uses Granola's OAuth-protected hosted endpoint at
 `https://mcp.granola.ai/mcp`, so MCP clients authenticate in-browser rather
