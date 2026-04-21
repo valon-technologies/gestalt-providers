@@ -332,6 +332,16 @@ export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
   return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}`);
 }
 
+export async function cancelWorkflowRun(
+  id: string,
+  reason?: string,
+): Promise<WorkflowRun> {
+  return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+}
+
 export async function createToken(name: string): Promise<CreateTokenResponse> {
   return fetchAPI("/api/v1/tokens", {
     method: "POST",

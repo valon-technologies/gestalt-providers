@@ -5,7 +5,15 @@ import {
   mockTokens,
 } from "./fixtures";
 
+const hasBackend =
+  !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
+
 test.describe("Theme", () => {
+  test.skip(
+    hasBackend,
+    "Theme mock tests use mocked routes and do not apply when running against a real server",
+  );
+
   test("toggle enables dark mode and persists the selection", async ({
     authenticatedPage,
   }) => {

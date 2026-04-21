@@ -1,6 +1,18 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
 import type { APIToken, Integration, ManagedIdentity, WorkflowRun } from "../src/lib/api";
 
+type MockWorkflowRunsOptions = {
+  onCancel?: (
+    run: WorkflowRun,
+    body: { reason?: string } | null,
+  ) => { status: number; json: unknown } | undefined;
+};
+
+type MockWorkflowRunsController = {
+  setRuns: (runs: WorkflowRun[]) => void;
+  getRuns: () => WorkflowRun[];
+};
+
 export async function mockIntegrations(
   page: Page,
   integrations: Integration[],
@@ -80,29 +92,76 @@ export async function mockTokens(page: Page, tokens: APIToken[]) {
   });
 }
 
-export async function mockWorkflowRuns(page: Page, runs: WorkflowRun[]) {
+export async function mockWorkflowRuns(
+  page: Page,
+  runs: WorkflowRun[],
+  opts?: MockWorkflowRunsOptions,
+): Promise<MockWorkflowRunsController> {
+  let currentRuns = runs.map((run) => structuredClone(run));
+
   await page.route("**/api/v1/workflow/runs", (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({ json: runs });
+      route.fulfill({ json: currentRuns });
     } else {
       route.fallback();
     }
   });
 
-  await page.route("**/api/v1/workflow/runs/*", (route: Route, request) => {
+  await page.route("**/api/v1/workflow/runs/**", (route: Route, request) => {
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/");
+    const id = parts[parts.length - 2] === "runs"
+      ? parts[parts.length - 1]
+      : parts[parts.length - 2];
+
+    if (request.method() === "POST" && parts[parts.length - 1] === "cancel") {
+      const run = currentRuns.find((item) => item.id === id);
+      if (!run) {
+        route.fulfill({ status: 404, json: { error: "not found" } });
+        return;
+      }
+      const body = (request.postDataJSON() as { reason?: string } | null) ?? null;
+      const override = opts?.onCancel?.(structuredClone(run), body);
+      if (override) {
+        route.fulfill({ status: override.status, json: override.json });
+        return;
+      }
+      if (run.status !== "pending") {
+        route.fulfill({
+          status: 412,
+          json: { error: "workflow run cannot be canceled once it has started" },
+        });
+        return;
+      }
+      run.status = "canceled";
+      run.completedAt = new Date().toISOString();
+      if (body?.reason) {
+        run.statusMessage = body.reason;
+      }
+      route.fulfill({ json: run });
+      return;
+    }
+
     if (request.method() !== "GET") {
       route.fallback();
       return;
     }
-    const url = new URL(request.url());
-    const id = url.pathname.split("/").pop() || "";
-    const run = runs.find((item) => item.id === id);
+    const run = currentRuns.find((item) => item.id === id);
     if (!run) {
       route.fulfill({ status: 404, json: { error: "not found" } });
       return;
     }
     route.fulfill({ json: run });
   });
+
+  return {
+    setRuns(nextRuns) {
+      currentRuns = nextRuns.map((run) => structuredClone(run));
+    },
+    getRuns() {
+      return currentRuns.map((run) => structuredClone(run));
+    },
+  };
 }
 
 type CustomFixtures = {
