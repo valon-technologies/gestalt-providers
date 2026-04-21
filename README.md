@@ -31,6 +31,7 @@ Reference providers in your Gestalt configuration by source and version. See the
 
 ```
 plugins/<name>/       Integration plugin packages (Go, Python)
+runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)
 authorization/<name>/ Authorization providers (Go)
 s3/<name>/            S3-compatible object-store providers (Go)
@@ -50,6 +51,10 @@ Go, Python, or Rust. See the
 writing custom operations.
 
 All providers are built and packaged with `gestaltd provider release`.
+
+Hosted runtime backends under `runtime/` are the current exception: they are
+compiled into `gestaltd` through the hosted-runtime Go interface and are not
+yet manifest-driven runtime-loaded artifacts.
 
 ## Releasing
 
