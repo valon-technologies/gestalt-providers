@@ -1,0 +1,12 @@
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <mask id="sharepoint-mask" maskUnits="userSpaceOnUse" x="0" y="1" width="24" height="22">
+    <rect width="24" height="24" fill="black"/>
+    <circle cx="10.5" cy="6.6" r="4.6" fill="white"/>
+    <circle cx="18.2" cy="12" r="4.3" fill="white"/>
+    <circle cx="10.8" cy="17.3" r="4.1" fill="white"/>
+    <rect x="6.25" y="7.3" width="6.1" height="9.1" rx="1.35" fill="white"/>
+    <rect x="0.7" y="5.05" width="10.9" height="11.9" rx="1.4" fill="white"/>
+    <path d="M130 95C130 82.8497 139.85 73 152 73H184.5C192.508 73 199 79.4919 199 87.5C199 95.5081 192.508 102 184.5 102H152C148.134 102 145 105.134 145 109C145 112.866 148.134 116 152 116H171.5C188.897 116 203 130.103 203 147.5C203 164.897 188.897 179 171.5 179H137C124.85 179 115 169.15 115 157V154H145V157C145 160.866 148.134 164 152 164H171.5C180.613 164 188 156.613 188 147.5C188 138.387 180.613 131 171.5 131H152C139.85 131 130 121.15 130 109V95Z" transform="matrix(0.08 0 0 0.08 -7 1.35)" fill="black"/>
+  </mask>
+  <rect width="24" height="24" fill="currentColor" mask="url(#sharepoint-mask)"/>
+</svg>

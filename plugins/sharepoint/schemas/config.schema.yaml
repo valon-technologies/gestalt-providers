@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: Microsoft Entra OAuth client ID for the SharePoint integration.
+  clientSecret:
+    type: string
+    description: Microsoft Entra OAuth client secret for the SharePoint integration.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false
