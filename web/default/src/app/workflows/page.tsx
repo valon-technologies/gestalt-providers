@@ -2,24 +2,34 @@
 
 import { useDeferredValue, useEffect, useState } from "react";
 import type { WorkflowRun } from "@/lib/api";
-import { getWorkflowRun, getWorkflowRuns } from "@/lib/api";
+import { cancelWorkflowRun, getWorkflowRun, getWorkflowRuns } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
 
 export default function WorkflowsPage() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
     let active = true;
+    const initialLoad = refreshNonce === 0;
+    if (initialLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     getWorkflowRuns()
       .then((nextRuns) => {
         if (!active) return;
@@ -37,19 +47,24 @@ export default function WorkflowsPage() {
       })
       .finally(() => {
         if (active) {
-          setLoading(false);
+          if (initialLoad) {
+            setLoading(false);
+          } else {
+            setRefreshing(false);
+          }
         }
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshNonce]);
 
   useEffect(() => {
     if (!selectedRunID) {
       setSelectedRun(null);
       setDetailError(null);
+      setActionError(null);
       return;
     }
 
@@ -57,6 +72,7 @@ export default function WorkflowsPage() {
     if (cached) {
       setSelectedRun(cached);
     }
+    setActionError(null);
 
     let active = true;
     setDetailLoading(true);
@@ -97,6 +113,29 @@ export default function WorkflowsPage() {
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(trimmedQuery));
   });
+  const totalRuns = runs.length;
+  const inFlightRuns = runs.filter((run) => run.status === "pending" || run.status === "running").length;
+  const failedRuns = runs.filter((run) => run.status === "failed").length;
+  const succeededRuns = runs.filter((run) => run.status === "succeeded").length;
+  const selectedRunCancelable = selectedRun?.status === "pending";
+
+  async function handleCancelSelectedRun() {
+    if (!selectedRunID || !selectedRunCancelable) return;
+    setCanceling(true);
+    setActionError(null);
+    try {
+      const updated = await cancelWorkflowRun(selectedRunID, "Run canceled.");
+      setSelectedRun(updated);
+      setRuns((current) =>
+        current.map((run) => (run.id === updated.id ? updated : run)),
+      );
+      setRefreshNonce((value) => value + 1);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to cancel workflow run");
+    } finally {
+      setCanceling(false);
+    }
+  }
 
   return (
     <AuthGuard>
@@ -114,6 +153,13 @@ export default function WorkflowsPage() {
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setRefreshNonce((value) => value + 1)}
+                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
+              >
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
@@ -139,91 +185,120 @@ export default function WorkflowsPage() {
 
           {loading ? (
             <p className="mt-10 text-sm text-faint">Loading...</p>
-          ) : !error && runs.length === 0 ? (
-            <div className="mt-10 rounded-lg border border-alpha bg-base-100 p-8 text-sm text-faint dark:bg-surface">
-              No workflow runs yet.
-            </div>
-          ) : !error ? (
-            <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] animate-fade-in-up [animation-delay:60ms]">
-              <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
-                <div className="border-b border-alpha px-5 py-4">
-                  <h2 className="text-sm font-medium text-primary">
-                    Recent Runs
-                  </h2>
-                  <p className="mt-1 text-xs text-faint">
-                    {filteredRuns.length} shown
-                  </p>
-                </div>
-                <div className="divide-y divide-alpha">
-                  {filteredRuns.length === 0 ? (
-                    <div className="px-5 py-8 text-sm text-faint">
-                      No runs match the current filters.
-                    </div>
-                  ) : (
-                    filteredRuns.map((run) => {
-                      const isActive = run.id === selectedRunID;
-                      return (
-                        <button
-                          key={run.id}
-                          type="button"
-                          onClick={() => setSelectedRunID(run.id)}
-                          className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 ${
-                            isActive
-                              ? "bg-alpha-5"
-                              : "hover:bg-alpha-5"
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-medium text-primary">
-                                {run.target.plugin}.{run.target.operation}
-                              </span>
-                              <span className={statusClassName(run.status)}>
-                                {run.status || "unknown"}
-                              </span>
-                            </div>
-                            <p className="mt-1 truncate text-xs text-faint">
-                              {run.id}
-                            </p>
-                            <p className="mt-2 text-xs text-muted">
-                              {triggerLabel(run)} · {run.provider}
-                            </p>
-                          </div>
-                          <div className="shrink-0 text-right text-xs text-faint">
-                            {formatDate(run.startedAt || run.completedAt || run.createdAt)}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+          ) : runs.length === 0 ? (
+            error ? null : (
+              <div className="mt-10 rounded-lg border border-alpha bg-base-100 p-8 text-sm text-faint dark:bg-surface">
+                No workflow runs yet.
+              </div>
+            )
+          ) : (
+            <div className="mt-10 space-y-6 animate-fade-in-up [animation-delay:60ms]">
+              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <SummaryCard label="Total runs" value={String(totalRuns)} tone="default" />
+                <SummaryCard label="In flight" value={String(inFlightRuns)} tone="sky" />
+                <SummaryCard label="Succeeded" value={String(succeededRuns)} tone="grove" />
+                <SummaryCard label="Failed" value={String(failedRuns)} tone="ember" />
               </section>
 
-              <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
+                <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
+                  <div className="border-b border-alpha px-5 py-4">
                     <h2 className="text-sm font-medium text-primary">
-                      Run Details
+                      Recent Runs
                     </h2>
                     <p className="mt-1 text-xs text-faint">
-                      {selectedRun?.id || "Select a run"}
+                      {filteredRuns.length} shown
                     </p>
                   </div>
-                  {selectedRun?.status ? (
-                    <span className={statusClassName(selectedRun.status)}>
-                      {selectedRun.status}
-                    </span>
+                  <div className="divide-y divide-alpha">
+                    {filteredRuns.length === 0 ? (
+                      <div className="px-5 py-8 text-sm text-faint">
+                        No runs match the current filters.
+                      </div>
+                    ) : (
+                      filteredRuns.map((run) => {
+                        const isActive = run.id === selectedRunID;
+                        return (
+                          <button
+                            key={run.id}
+                            type="button"
+                            onClick={() => setSelectedRunID(run.id)}
+                            className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 ${
+                              isActive
+                                ? "bg-alpha-5"
+                                : "hover:bg-alpha-5"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-medium text-primary">
+                                  {run.target.plugin}.{run.target.operation}
+                                </span>
+                                <span className={statusClassName(run.status)}>
+                                  {run.status || "unknown"}
+                                </span>
+                              </div>
+                              <p className="mt-1 truncate text-xs text-faint">
+                                {run.id}
+                              </p>
+                              <p className="mt-2 text-xs text-muted">
+                                {triggerLabel(run)} · {run.provider}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right text-xs text-faint">
+                              {formatDate(run.startedAt || run.completedAt || run.createdAt)}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </section>
+
+                <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-sm font-medium text-primary">
+                        Run Details
+                      </h2>
+                      <p className="mt-1 text-xs text-faint">
+                        {selectedRun?.id || "Select a run"}
+                      </p>
+                    </div>
+                    {selectedRun?.status ? (
+                      <span className={statusClassName(selectedRun.status)}>
+                        {selectedRun.status}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {selectedRunCancelable ? (
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-alpha bg-background/65 px-4 py-3 dark:bg-background/20">
+                      <p className="text-sm text-muted">
+                        Canceling a run asks the workflow provider to stop it as soon as possible.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelSelectedRun()}
+                        disabled={canceling}
+                        className="shrink-0 rounded-md bg-ember-500 px-3 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {canceling ? "Canceling..." : "Cancel run"}
+                      </button>
+                    </div>
                   ) : null}
-                </div>
 
-                {detailError && (
-                  <p className="mt-4 text-sm text-ember-500">{detailError}</p>
-                )}
+                  {detailError && (
+                    <p className="mt-4 text-sm text-ember-500">{detailError}</p>
+                  )}
+                  {actionError && (
+                    <p className="mt-4 text-sm text-ember-500">{actionError}</p>
+                  )}
 
-                {detailLoading && !selectedRun ? (
-                  <p className="mt-6 text-sm text-faint">Loading details...</p>
-                ) : selectedRun ? (
-                  <div className="mt-6 space-y-6">
+                  {detailLoading && !selectedRun ? (
+                    <p className="mt-6 text-sm text-faint">Loading details...</p>
+                  ) : selectedRun ? (
+                    <div className="mt-6 space-y-6">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <DetailItem label="Provider" value={selectedRun.provider} />
                       <DetailItem
@@ -291,15 +366,16 @@ export default function WorkflowsPage() {
                         )}
                       </div>
                     </section>
-                  </div>
-                ) : (
-                  <p className="mt-6 text-sm text-faint">
-                    Select a workflow run to inspect it.
-                  </p>
-                )}
-              </section>
+                    </div>
+                  ) : (
+                    <p className="mt-6 text-sm text-faint">
+                      Select a workflow run to inspect it.
+                    </p>
+                  )}
+                </section>
+              </div>
             </div>
-          ) : null}
+          )}
         </main>
       </div>
     </AuthGuard>
@@ -311,6 +387,32 @@ function DetailItem({ label, value }: { label: string; value: string }) {
     <div className="rounded-md border border-alpha bg-background/65 px-4 py-3 dark:bg-background/20">
       <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
       <p className="mt-2 text-sm text-primary">{value || "-"}</p>
+    </div>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "default" | "sky" | "grove" | "ember";
+}) {
+  const toneClassName = {
+    default: "text-primary",
+    sky: "text-sky-700 dark:text-sky-200",
+    grove: "text-grove-700 dark:text-grove-200",
+    ember: "text-ember-700 dark:text-ember-200",
+  }[tone];
+
+  return (
+    <div className="rounded-lg border border-alpha bg-base-100 px-5 py-4 dark:bg-surface">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
+      <p className={`mt-3 text-2xl font-heading font-bold ${toneClassName}`}>
+        {value}
+      </p>
     </div>
   );
 }
