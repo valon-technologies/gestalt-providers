@@ -32,7 +32,6 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	first, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		PluginName:     "roadmap",
 		IdempotencyKey: "manual-sync",
 		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 		CreatedBy:      &proto.WorkflowActor{SubjectId: "user:123", SubjectKind: "user", DisplayName: "Ada"},
@@ -41,7 +40,6 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 		t.Fatalf("StartRun(first): %v", err)
 	}
 	second, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		PluginName:     "roadmap",
 		IdempotencyKey: "manual-sync",
 		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 	})
@@ -56,9 +54,6 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	if call.GetPluginName() != "roadmap" {
-		t.Fatalf("plugin_name = %q, want roadmap", call.GetPluginName())
-	}
 	if call.GetTarget().GetPluginName() != "roadmap" || call.GetTarget().GetOperation() != "sync" {
 		t.Fatalf("target = %#v", call.GetTarget())
 	}
@@ -71,13 +66,12 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 
 	waitForCondition(t, time.Second, func() bool {
 		run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
-			PluginName: "roadmap",
 			RunId:      first.GetId(),
 		})
 		return err == nil && run.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
 	})
 
-	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{PluginName: "roadmap"})
+	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -117,7 +111,6 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	}
 
 	first, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		PluginName:     "roadmap",
 		IdempotencyKey: "manual-sync",
 		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 	})
@@ -125,7 +118,6 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 		t.Fatalf("StartRun(first): %v", err)
 	}
 	second, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		PluginName:     "roadmap",
 		IdempotencyKey: "manual-sync",
 		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 	})
@@ -183,7 +175,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 	}
 
 	canceled, err := provider.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{
-		PluginName: "roadmap",
 		RunId:      "pending-run",
 		Reason:     "skip this run",
 	})
@@ -207,7 +198,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 		t.Fatalf("Put(running): %v", err)
 	}
 	if _, err := provider.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{
-		PluginName: "roadmap",
 		RunId:      "running-run",
 	}); err == nil {
 		t.Fatal("CancelRun(running) succeeded, want error")
@@ -230,7 +220,6 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		PluginName: "roadmap",
 		TriggerId:  "refresh-trigger",
 		Match:      &proto.WorkflowEventMatch{Type: "task.updated", Source: "roadmap"},
 		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
@@ -258,7 +247,6 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 
 	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		PluginName: "roadmap",
 		ScheduleId: "nightly-sync",
 		Cron:       "*/5 * * * *",
 		Timezone:   "UTC",
@@ -287,7 +275,6 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 
 	updated, err := provider.GetSchedule(ctx, &proto.GetWorkflowProviderScheduleRequest{
-		PluginName: "roadmap",
 		ScheduleId: "nightly-sync",
 	})
 	if err != nil {
@@ -299,7 +286,7 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 
 	waitForCondition(t, time.Second, func() bool {
-		runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{PluginName: "roadmap"})
+		runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 		if err != nil || len(runs.GetRuns()) != 2 {
 			return false
 		}
@@ -325,7 +312,6 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		PluginName: "roadmap",
 		TriggerId:  "refresh-trigger",
 		Match:      &proto.WorkflowEventMatch{Type: "task.updated"},
 		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
@@ -368,7 +354,7 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	}
 
 	waitForCondition(t, time.Second, func() bool {
-		runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{PluginName: "roadmap"})
+		runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 		if err != nil {
 			return false
 		}
@@ -392,7 +378,6 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 	stopProviderWorker(t, provider)
 
 	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		PluginName: "roadmap",
 		ScheduleId: "nightly-sync",
 		Cron:       "*/5 * * * *",
 		Timezone:   "UTC",
@@ -422,7 +407,7 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 		t.Fatalf("enqueueDueSchedules: %v", err)
 	}
 
-	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{PluginName: "roadmap"})
+	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -430,7 +415,6 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 		t.Fatalf("runs len = %d, want 1", len(runs.GetRuns()))
 	}
 	updated, err := provider.GetSchedule(ctx, &proto.GetWorkflowProviderScheduleRequest{
-		PluginName: "roadmap",
 		ScheduleId: schedule.GetId(),
 	})
 	if err != nil {
@@ -454,7 +438,6 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		PluginName: "roadmap",
 		ScheduleId: "shared-id",
 		Cron:       "*/5 * * * *",
 		Timezone:   "UTC",
@@ -463,7 +446,6 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 		t.Fatalf("UpsertSchedule(roadmap): %v", err)
 	}
 	if _, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		PluginName: "billing",
 		ScheduleId: "shared-id",
 		Cron:       "*/5 * * * *",
 		Timezone:   "UTC",
@@ -473,7 +455,6 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 	}
 
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		PluginName: "roadmap",
 		TriggerId:  "shared-trigger",
 		Match:      &proto.WorkflowEventMatch{Type: "task.updated"},
 		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
@@ -481,7 +462,6 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 		t.Fatalf("UpsertEventTrigger(roadmap): %v", err)
 	}
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		PluginName: "billing",
 		TriggerId:  "shared-trigger",
 		Match:      &proto.WorkflowEventMatch{Type: "invoice.updated"},
 		Target:     protoBoundTarget(t, "billing", "sync", map[string]any{"kind": "event"}),
@@ -523,7 +503,6 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	t.Cleanup(func() { _ = second.Close() })
 
 	stale, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
-		PluginName: "roadmap",
 		RunId:      "stale-run",
 	})
 	if err != nil {

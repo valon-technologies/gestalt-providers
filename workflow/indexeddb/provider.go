@@ -1137,11 +1137,10 @@ func (p *Provider) processNextPendingRun(ctx context.Context) (bool, error) {
 	p.mu.Unlock()
 
 	resp, invokeErr := host.InvokeOperation(ctx, &proto.InvokeWorkflowOperationRequest{
-		Target:     pending.targetProto(),
-		RunId:      pending.ID,
-		Trigger:    pending.triggerProto(),
-		PluginName: pending.PluginName,
-		CreatedBy:  cloneActor(pending.CreatedBy),
+		Target:    pending.targetProto(),
+		RunId:     pending.ID,
+		Trigger:   pending.triggerProto(),
+		CreatedBy: cloneActor(pending.CreatedBy),
 	})
 
 	p.mu.Lock()
