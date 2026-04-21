@@ -594,8 +594,8 @@ func (p *Provider) GetSchedule(ctx context.Context, req *proto.GetWorkflowProvid
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
 	scheduleID := strings.TrimSpace(req.GetScheduleId())
-	if pluginName == "" || scheduleID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and schedule_id are required")
+	if scheduleID == "" {
+		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 
 	p.mu.Lock()
@@ -624,9 +624,6 @@ func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowPro
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
-	if pluginName == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name is required")
-	}
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -656,8 +653,8 @@ func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflow
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
 	scheduleID := strings.TrimSpace(req.GetScheduleId())
-	if pluginName == "" || scheduleID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and schedule_id are required")
+	if scheduleID == "" {
+		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 
 	p.mu.Lock()
@@ -775,8 +772,8 @@ func (p *Provider) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowPr
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
 	triggerID := strings.TrimSpace(req.GetTriggerId())
-	if pluginName == "" || triggerID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and trigger_id are required")
+	if triggerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
 
 	p.mu.Lock()
@@ -805,9 +802,6 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflo
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
-	if pluginName == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name is required")
-	}
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -837,8 +831,8 @@ func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWork
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
 	triggerID := strings.TrimSpace(req.GetTriggerId())
-	if pluginName == "" || triggerID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and trigger_id are required")
+	if triggerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
 
 	p.mu.Lock()
@@ -941,8 +935,8 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 }
 
 func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, scheduleID string, paused bool) (*proto.BoundWorkflowSchedule, error) {
-	if pluginName == "" || scheduleID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and schedule_id are required")
+	if scheduleID == "" {
+		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 
 	p.mu.Lock()
@@ -989,8 +983,8 @@ func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, schedul
 }
 
 func (p *Provider) updateEventTriggerPaused(ctx context.Context, pluginName, triggerID string, paused bool) (*proto.BoundWorkflowEventTrigger, error) {
-	if pluginName == "" || triggerID == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name and trigger_id are required")
+	if triggerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
 
 	p.mu.Lock()
@@ -1321,18 +1315,18 @@ func markStaleRunningRunsFailed(ctx context.Context, store *gestalt.ObjectStoreC
 }
 
 func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget) (scopedTarget, error) {
-	pluginName = strings.TrimSpace(pluginName)
-	if pluginName == "" {
-		return scopedTarget{}, errors.New("plugin_name is required")
-	}
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
+	pluginName = strings.TrimSpace(pluginName)
 	targetPlugin := strings.TrimSpace(target.GetPluginName())
-	if targetPlugin == "" {
-		targetPlugin = pluginName
+	if pluginName == "" {
+		pluginName = targetPlugin
 	}
-	if targetPlugin != pluginName {
+	if pluginName == "" {
+		return scopedTarget{}, errors.New("plugin_name is required")
+	}
+	if targetPlugin != "" && targetPlugin != pluginName {
 		return scopedTarget{}, fmt.Errorf("target.plugin_name %q is outside scoped plugin %q", targetPlugin, pluginName)
 	}
 	operation := strings.TrimSpace(target.GetOperation())
