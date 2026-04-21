@@ -70,6 +70,55 @@ export interface CreateTokenResponse {
   expiresAt?: string;
 }
 
+export interface WorkflowTarget {
+  plugin: string;
+  operation: string;
+  connection?: string;
+  instance?: string;
+  input?: Record<string, unknown>;
+}
+
+export interface WorkflowEvent {
+  id?: string;
+  source?: string;
+  specVersion?: string;
+  type?: string;
+  subject?: string;
+  time?: string;
+  dataContentType?: string;
+  data?: Record<string, unknown>;
+  extensions?: Record<string, unknown>;
+}
+
+export interface WorkflowRunTrigger {
+  kind?: string;
+  scheduleId?: string;
+  scheduledFor?: string;
+  triggerId?: string;
+  event?: WorkflowEvent;
+}
+
+export interface WorkflowActor {
+  subjectId?: string;
+  subjectKind?: string;
+  displayName?: string;
+  authSource?: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  provider: string;
+  status?: string;
+  target: WorkflowTarget;
+  trigger?: WorkflowRunTrigger;
+  createdBy?: WorkflowActor;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  statusMessage?: string;
+  resultBody?: string;
+}
+
 export interface ManagedIdentity {
   id: string;
   displayName: string;
@@ -273,6 +322,14 @@ export async function disconnectIntegration(
 
 export async function getTokens(): Promise<APIToken[]> {
   return fetchAPI("/api/v1/tokens");
+}
+
+export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
+  return fetchAPI("/api/v1/workflow/runs");
+}
+
+export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
+  return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}`);
 }
 
 export async function createToken(name: string): Promise<CreateTokenResponse> {

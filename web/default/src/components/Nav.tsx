@@ -11,6 +11,7 @@ import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
 
 const links = [
   { href: "/", label: "Dashboard" },
+  { href: "/workflows", label: "Workflows" },
   { href: "/identities", label: "Identities" },
   { href: "/integrations", label: "Plugins" },
   { href: "/tokens", label: "API Tokens" },

@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getAuthInfo, getIntegrations, getManagedIdentities, getTokens } from "@/lib/api";
+import {
+  getAuthInfo,
+  getIntegrations,
+  getManagedIdentities,
+  getTokens,
+  getWorkflowRuns,
+} from "@/lib/api";
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
 
@@ -12,12 +18,14 @@ export default function DashboardPage() {
     identities: number | null;
     integrations: number | null;
     tokens: number | null;
+    workflowRuns: number | null;
     error: string | null;
   }>({
     identitiesAvailable: false,
     identities: null,
     integrations: null,
     tokens: null,
+    workflowRuns: null,
     error: null,
   });
 
@@ -37,7 +45,8 @@ export default function DashboardPage() {
           identitiesAvailable ? getManagedIdentities() : Promise.resolve(null),
           getIntegrations(),
           getTokens(),
-        ]).then(([identitiesResult, integrationsResult, tokensResult]) => {
+          getWorkflowRuns(),
+        ]).then(([identitiesResult, integrationsResult, tokensResult, workflowRunsResult]) => {
           if (!active) return;
 
           const error =
@@ -47,6 +56,8 @@ export default function DashboardPage() {
                 ? errorMessage(integrationsResult.reason)
                 : tokensResult.status === "rejected"
                   ? errorMessage(tokensResult.reason)
+                  : workflowRunsResult.status === "rejected"
+                    ? errorMessage(workflowRunsResult.reason)
                   : null;
 
           setData({
@@ -62,6 +73,10 @@ export default function DashboardPage() {
             tokens:
               tokensResult.status === "fulfilled"
                 ? tokensResult.value.length
+                : null,
+            workflowRuns:
+              workflowRunsResult.status === "fulfilled"
+                ? workflowRunsResult.value.length
                 : null,
             error,
           });
@@ -120,6 +135,21 @@ export default function DashboardPage() {
               </p>
               <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
                 Manage plugins
+                <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
+                  &rarr;
+                </span>
+              </p>
+            </Link>
+            <Link
+              href="/workflows"
+              className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
+            >
+              <span className="label-text">Workflows</span>
+              <p className="mt-3 text-3xl font-heading font-bold text-primary">
+                {data.workflowRuns ?? "--"}
+              </p>
+              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                Inspect workflow runs
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>
