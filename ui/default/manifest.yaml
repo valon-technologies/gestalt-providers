@@ -1,0 +1,12 @@
+source: github.com/valon-technologies/gestalt-providers/ui/default
+version: 0.0.1-alpha.1
+displayName: Default UI
+description: Default Gestalt UI bundle served at /.
+kind: ui
+release:
+  build:
+    command:
+    - sh
+    - ./build.sh
+spec:
+  assetRoot: out

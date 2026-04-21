@@ -12,7 +12,7 @@ SCHEMA_VERSION = 1
 GENERIC_TARGET = "generic"
 RUNTIME_EXECUTABLE = "executable"
 RUNTIME_DECLARATIVE = "declarative"
-RUNTIME_WEBUI = "webui"
+RUNTIME_UI = "ui"
 
 ARCHIVE_PATTERN = re.compile(
     r"^(?P<prefix>.+)_v(?P<version>[^_]+?)(?:_(?P<platform>.+))?\.tar\.gz$"
@@ -151,8 +151,8 @@ def merge_artifacts(output_dir: pathlib.Path, version: str) -> dict[str, dict[st
 
 
 def release_runtime(kind: str, artifacts: dict[str, dict[str, str]]) -> str:
-    if kind == "webui":
-        return RUNTIME_WEBUI
+    if kind == "ui":
+        return RUNTIME_UI
     if kind == "plugin":
         if any(target != GENERIC_TARGET for target in artifacts):
             return RUNTIME_EXECUTABLE
