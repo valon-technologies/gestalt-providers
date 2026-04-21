@@ -14,8 +14,8 @@ cross-platform artifact that `gestaltd` resolves at runtime.
 ## Documentation
 
 - [Getting Started](https://gestaltd.ai/getting-started): run Gestalt in five minutes
-- [Configuration](https://gestaltd.ai/configuration): config model, plugin setup, and auth
-- [Provider Development](https://gestaltd.ai/providers): writing plugins, auth backends, S3 object stores, datastores, and secrets engines
+- [Configuration](https://gestaltd.ai/configuration): config model, plugin setup, and authentication
+- [Provider Development](https://gestaltd.ai/providers): writing plugins, authentication providers, S3 object stores, datastores, and secrets engines
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests): manifest format and schema
 - [Releasing](https://gestaltd.ai/providers/releasing): publishing provider packages
 

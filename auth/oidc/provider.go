@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	providerVersion             = "0.0.1-alpha.1"
+	providerVersion             = "0.0.1-alpha.2"
 	defaultSessionTTL           = 24 * time.Hour
 	defaultDisplayName          = "SSO"
 	defaultHTTPTimeout          = 10 * time.Second
@@ -122,7 +122,7 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		displayName = defaultDisplayName
 	}
 	return gestalt.ProviderMetadata{
-		Kind:        gestalt.ProviderKindAuth,
+		Kind:        gestalt.ProviderKindAuthentication,
 		Name:        "oidc",
 		DisplayName: displayName,
 		Description: "Authenticate users with an OpenID Connect provider.",
