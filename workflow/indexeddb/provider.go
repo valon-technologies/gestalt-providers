@@ -78,17 +78,18 @@ type Provider struct {
 }
 
 type workflowScheduleRecord struct {
-	ID         string
-	PluginName string
-	Cron       string
-	Timezone   string
-	Operation  string
-	Input      map[string]any
-	Paused     bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	NextRunAt  *time.Time
-	CreatedBy  *proto.WorkflowActor
+	ID           string
+	PluginName   string
+	Cron         string
+	Timezone     string
+	Operation    string
+	Input        map[string]any
+	Paused       bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	NextRunAt    *time.Time
+	CreatedBy    *proto.WorkflowActor
+	ExecutionRef string
 }
 
 type workflowEventTriggerRecord struct {
@@ -122,6 +123,7 @@ type workflowRunRecord struct {
 	StatusMessage         string
 	ResultBody            string
 	CreatedBy             *proto.WorkflowActor
+	ExecutionRef          string
 }
 
 type workflowIdempotencyRecord struct {
@@ -351,14 +353,15 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		}
 	}
 	run := workflowRunRecord{
-		ID:          runID,
-		PluginName:  target.PluginName,
-		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Operation:   target.Operation,
-		Input:       cloneMap(target.Input),
-		TriggerKind: triggerKindManual,
-		CreatedAt:   now,
-		CreatedBy:   actor,
+		ID:           runID,
+		PluginName:   target.PluginName,
+		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Operation:    target.Operation,
+		Input:        cloneMap(target.Input),
+		TriggerKind:  triggerKindManual,
+		CreatedAt:    now,
+		CreatedBy:    actor,
+		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	}
 	if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 		if key != "" && errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -551,16 +554,17 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 
 	now := p.clock().UTC()
 	record := workflowScheduleRecord{
-		ID:         scheduleID,
-		PluginName: target.PluginName,
-		Cron:       cronSpec,
-		Timezone:   timezone,
-		Operation:  target.Operation,
-		Input:      cloneMap(target.Input),
-		Paused:     req.GetPaused(),
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		CreatedBy:  requestedBy,
+		ID:           scheduleID,
+		PluginName:   target.PluginName,
+		Cron:         cronSpec,
+		Timezone:     timezone,
+		Operation:    target.Operation,
+		Input:        cloneMap(target.Input),
+		Paused:       req.GetPaused(),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		CreatedBy:    requestedBy,
+		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
@@ -1089,6 +1093,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			TriggerScheduledFor: timePtr(latestDue),
 			CreatedAt:           now,
 			CreatedBy:           cloneActor(schedule.CreatedBy),
+			ExecutionRef:        schedule.ExecutionRef,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if !errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -1137,10 +1142,11 @@ func (p *Provider) processNextPendingRun(ctx context.Context) (bool, error) {
 	p.mu.Unlock()
 
 	resp, invokeErr := host.InvokeOperation(ctx, &proto.InvokeWorkflowOperationRequest{
-		Target:    pending.targetProto(),
-		RunId:     pending.ID,
-		Trigger:   pending.triggerProto(),
-		CreatedBy: cloneActor(pending.CreatedBy),
+		Target:       pending.targetProto(),
+		RunId:        pending.ID,
+		Trigger:      pending.triggerProto(),
+		CreatedBy:    cloneActor(pending.CreatedBy),
+		ExecutionRef: pending.ExecutionRef,
 	})
 
 	p.mu.Lock()
@@ -1876,16 +1882,17 @@ func timeField(value map[string]any, key string) *time.Time {
 
 func (r workflowScheduleRecord) toRecord() gestalt.Record {
 	record := gestalt.Record{
-		"id":          r.ID,
-		"plugin_name": r.PluginName,
-		"cron":        r.Cron,
-		"timezone":    r.Timezone,
-		"operation":   r.Operation,
-		"input":       cloneMap(r.Input),
-		"paused":      r.Paused,
-		"created_at":  r.CreatedAt.UTC(),
-		"updated_at":  r.UpdatedAt.UTC(),
-		"created_by":  actorToMap(r.CreatedBy),
+		"id":            r.ID,
+		"plugin_name":   r.PluginName,
+		"cron":          r.Cron,
+		"timezone":      r.Timezone,
+		"operation":     r.Operation,
+		"input":         cloneMap(r.Input),
+		"paused":        r.Paused,
+		"created_at":    r.CreatedAt.UTC(),
+		"updated_at":    r.UpdatedAt.UTC(),
+		"created_by":    actorToMap(r.CreatedBy),
+		"execution_ref": r.ExecutionRef,
 	}
 	if r.NextRunAt != nil {
 		record["next_run_at"] = r.NextRunAt.UTC()
@@ -1898,14 +1905,15 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, error) {
 	value := map[string]any(record)
 	out := workflowScheduleRecord{
-		ID:         stringField(value, "id"),
-		PluginName: stringField(value, "plugin_name"),
-		Cron:       stringField(value, "cron"),
-		Timezone:   stringField(value, "timezone"),
-		Operation:  stringField(value, "operation"),
-		Input:      anyMap(value["input"]),
-		Paused:     boolField(value, "paused"),
-		CreatedBy:  actorFromAny(value["created_by"]),
+		ID:           stringField(value, "id"),
+		PluginName:   stringField(value, "plugin_name"),
+		Cron:         stringField(value, "cron"),
+		Timezone:     stringField(value, "timezone"),
+		Operation:    stringField(value, "operation"),
+		Input:        anyMap(value["input"]),
+		Paused:       boolField(value, "paused"),
+		CreatedBy:    actorFromAny(value["created_by"]),
+		ExecutionRef: stringField(value, "execution_ref"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -1927,11 +1935,12 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 			Operation:  r.Operation,
 			Input:      structFromAny(r.Input),
 		},
-		Paused:    r.Paused,
-		CreatedAt: timestamppb.New(r.CreatedAt),
-		UpdatedAt: timestamppb.New(r.UpdatedAt),
-		NextRunAt: timeToProto(r.NextRunAt),
-		CreatedBy: cloneActor(r.CreatedBy),
+		Paused:       r.Paused,
+		CreatedAt:    timestamppb.New(r.CreatedAt),
+		UpdatedAt:    timestamppb.New(r.UpdatedAt),
+		NextRunAt:    timeToProto(r.NextRunAt),
+		CreatedBy:    cloneActor(r.CreatedBy),
+		ExecutionRef: r.ExecutionRef,
 	}, nil
 }
 
@@ -2008,6 +2017,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"status_message":           r.StatusMessage,
 		"result_body":              r.ResultBody,
 		"created_by":               actorToMap(r.CreatedBy),
+		"execution_ref":            r.ExecutionRef,
 	}
 	if r.TriggerScheduledFor != nil {
 		record["trigger_scheduled_for"] = r.TriggerScheduledFor.UTC()
@@ -2042,6 +2052,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		StatusMessage:         stringField(value, "status_message"),
 		ResultBody:            stringField(value, "result_body"),
 		CreatedBy:             actorFromAny(value["created_by"]),
+		ExecutionRef:          stringField(value, "execution_ref"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -2064,6 +2075,7 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 		StatusMessage: r.StatusMessage,
 		ResultBody:    r.ResultBody,
 		CreatedBy:     cloneActor(r.CreatedBy),
+		ExecutionRef:  r.ExecutionRef,
 	}, nil
 }
 
