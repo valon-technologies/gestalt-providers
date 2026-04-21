@@ -1,11 +1,8 @@
-# Hosted Runtime Backends
+# Runtime Providers
 
-Hosted runtime backends for Gestalt executable plugins.
+Runtime providers for Gestalt hosted executable plugins.
 
-Unlike the installable provider packages under `plugins/`, `auth/`, `workflow/`,
-and the other runtime-managed kinds, these backends are currently linked into
-`gestaltd` builds through the public hosted-runtime Go interface exposed by
-`github.com/valon-technologies/gestalt/server/pluginruntime`.
-
-That means this directory is the implementation home for runtime backends, but
-not yet a separately released manifest-driven provider kind.
+Packages under this directory are first-class manifest-driven `kind: runtime`
+providers. `gestaltd` prepares and launches them the same way it handles other
+source-backed provider kinds, while plugins can select them through
+`plugins.<name>.runtime.provider`.

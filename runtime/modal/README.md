@@ -1,11 +1,11 @@
-# Modal Hosted Runtime Backend
+# Modal Runtime Provider
 
-Hosted runtime backend for running executable Gestalt plugins in
+Runtime provider for running executable Gestalt plugins in
 [Modal](https://modal.com/).
 
-This backend implements the public hosted-runtime contract from
-`github.com/valon-technologies/gestalt/server/pluginruntime` and is consumed by
-`gestaltd` when a plugin selects a runtime with `driver: modal`.
+This package is a manifest-driven `kind: runtime` provider implemented against
+the public Gestalt SDK runtime-provider surface in
+`github.com/valon-technologies/gestalt/sdk/go`.
 
 ## Configuration
 
@@ -13,7 +13,8 @@ This backend implements the public hosted-runtime contract from
 runtime:
   providers:
     modal:
-      driver: modal
+      source:
+        path: ./runtime/modal/manifest.yaml
       config:
         app: gestalt-runtime
         environment: main
@@ -29,7 +30,7 @@ plugins:
       image: ghcr.io/valon-technologies/github-plugin-runtime:latest
 ```
 
-`config.app` is required. The current backend also requires
+`config.app` is required. The runtime also requires
 `plugins.<name>.runtime.image` so Modal can create a sandbox from a concrete
 runtime image.
 
