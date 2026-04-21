@@ -38,7 +38,7 @@ indexeddb/<name>/     Datastore providers (Go, Rust)
 workflow/<name>/      Workflow providers (Go)
 cache/<name>/         Cache providers (Go)
 secrets/<name>/       Secrets providers (Go)
-web/<name>/           Web UI bundles
+ui/<name>/            UI bundles
 ```
 
 Every provider requires a

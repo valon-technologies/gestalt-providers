@@ -200,7 +200,7 @@ export function ConnectDocsPage() {
       <DocsPageBody>
         <p className="doc-copy">
           Plugins available in this workspace appear in both the CLI and the
-          web UI. Use either surface to start the underlying OAuth or manual
+          UI. Use either surface to start the underlying OAuth or manual
           credential flow.
         </p>
         <CodeBlock

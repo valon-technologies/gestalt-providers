@@ -12,7 +12,7 @@ on:
       - 'indexeddb/**'
       - 'cache/**'
       - 'secrets/**'
-      - 'web/**'
+      - 'ui/**'
   push:
     branches:
       - main
@@ -26,7 +26,7 @@ on:
       - 'indexeddb/**'
       - 'cache/**'
       - 'secrets/**'
-      - 'web/**'
+      - 'ui/**'
 
 permissions:
   contents: read
@@ -281,38 +281,38 @@ jobs:
             exit 1
           fi
 
-  web-lint:
-    name: Web UI Lint & Type Check
+  ui-lint:
+    name: UI Lint & Type Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: web/default
+        working-directory: ui/default
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: web/default/package-lock.json
+          cache-dependency-path: ui/default/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
 
-  web-ui-tests:
-    name: Web UI Tests
+  ui-tests:
+    name: UI Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: web/default
+        working-directory: ui/default
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: web/default/package-lock.json
+          cache-dependency-path: ui/default/package-lock.json
       - run: npm ci && npm run build
       - run: npx playwright install chromium --with-deps
       - name: Run UI tests (mock specs only)
@@ -322,12 +322,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: web-ui-playwright-report
-          path: web/default/playwright-report/
+          name: ui-playwright-report
+          path: ui/default/playwright-report/
           retention-days: 7
 
-  web-e2e:
-    name: Web E2E Tests
+  ui-e2e:
+    name: UI E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -345,7 +345,7 @@ jobs:
           .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "main"
 
           # Build UI from this repo
-          (cd web/default && npm ci && npm run build)
+          (cd ui/default && npm ci && npm run build)
 
           # Fix IndexedDB provider SDK replace path
           sed -i "s|../../../gestalt/sdk/go|$gestalt_dir/sdk/go|" indexeddb/relationaldb/go.mod
@@ -355,8 +355,8 @@ jobs:
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
 
           # Package local providers as release metadata to avoid local-source fingerprint churn
-          mkdir -p "${RUNNER_TEMP}/web-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release"
-          (cd web/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/web-default-release")
+          mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release"
+          (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
           (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
@@ -378,7 +378,7 @@ jobs:
             ui:
               default:
                 path: /
-                source: "${RUNNER_TEMP}/web-default-release/provider-release.yaml"
+                source: "${RUNNER_TEMP}/ui-default-release/provider-release.yaml"
             secrets:
               secrets:
                 source: env
@@ -399,7 +399,7 @@ jobs:
             exit 1
           fi
       - name: Run E2E tests
-        working-directory: web/default
+        working-directory: ui/default
         env:
           GESTALT_BASE_URL: http://localhost:8080
         run: |
@@ -409,6 +409,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: web-e2e-playwright-report
-          path: web/default/playwright-report/
+          name: ui-e2e-playwright-report
+          path: ui/default/playwright-report/
           retention-days: 7

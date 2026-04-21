@@ -1,16 +1,17 @@
-# Default Web UI
+# Default UI
 
-Default Gestalt web UI bundle served at /.
+Default Gestalt UI bundle served at /.
 
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
 
 ```yaml
-web:
-  default:
-    source: github.com/valon-technologies/gestalt-providers/web/default
-    version: ...
+providers:
+  ui:
+    default:
+      source: github.com/valon-technologies/gestalt-providers/ui/default
+      version: ...
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and
@@ -21,7 +22,7 @@ If you serve this static bundle behind a Content Security Policy, allow
 
 ## Build
 
-This package publishes the default Gestalt web UI as a `webui` bundle.
+This package publishes the default Gestalt UI as a `ui` bundle.
 
 `gestaltd provider release` runs the package's `release.build` recipe, which
 builds the assets from `gestalt/gestaltd/ui` and materializes `out/` before

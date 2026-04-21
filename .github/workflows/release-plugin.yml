@@ -11,7 +11,7 @@ on:
       - 'workflow/*/v*'
       - 'cache/*/v*'
       - 'secrets/*/v*'
-      - 'web/*/v*'
+      - 'ui/*/v*'
 
 permissions:
   contents: write
@@ -60,7 +60,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            plugins|auth|authorization|s3|indexeddb|workflow|cache|secrets|web)
+            plugins|auth|authorization|s3|indexeddb|workflow|cache|secrets|ui)
               GESTALT_REF="main"
               ;;
             *)
