@@ -119,6 +119,49 @@ export interface WorkflowRun {
   resultBody?: string;
 }
 
+export interface WorkflowSchedule {
+  id: string;
+  provider: string;
+  cron: string;
+  timezone?: string;
+  target: WorkflowTarget;
+  paused: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  nextRunAt?: string;
+}
+
+export interface WorkflowEventTriggerMatch {
+  type: string;
+  source?: string;
+  subject?: string;
+}
+
+export interface WorkflowEventTrigger {
+  id: string;
+  provider: string;
+  match: WorkflowEventTriggerMatch;
+  target: WorkflowTarget;
+  paused: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface WorkflowScheduleUpsert {
+  provider?: string;
+  cron: string;
+  timezone?: string;
+  target: WorkflowTarget;
+  paused?: boolean;
+}
+
+export interface WorkflowEventTriggerUpsert {
+  provider?: string;
+  match: WorkflowEventTriggerMatch;
+  target: WorkflowTarget;
+  paused?: boolean;
+}
+
 export interface ManagedIdentity {
   id: string;
   displayName: string;
@@ -330,6 +373,102 @@ export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
 
 export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
   return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}`);
+}
+
+export async function getWorkflowSchedules(): Promise<WorkflowSchedule[]> {
+  return fetchAPI("/api/v1/workflow/schedules");
+}
+
+export async function getWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
+  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}`);
+}
+
+export async function createWorkflowSchedule(
+  body: WorkflowScheduleUpsert,
+): Promise<WorkflowSchedule> {
+  return fetchAPI("/api/v1/workflow/schedules", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateWorkflowSchedule(
+  id: string,
+  body: WorkflowScheduleUpsert,
+): Promise<WorkflowSchedule> {
+  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteWorkflowSchedule(id: string): Promise<void> {
+  await fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function pauseWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
+  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}/pause`, {
+    method: "POST",
+  });
+}
+
+export async function resumeWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
+  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}/resume`, {
+    method: "POST",
+  });
+}
+
+export async function getWorkflowEventTriggers(): Promise<WorkflowEventTrigger[]> {
+  return fetchAPI("/api/v1/workflow/event-triggers");
+}
+
+export async function getWorkflowEventTrigger(
+  id: string,
+): Promise<WorkflowEventTrigger> {
+  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`);
+}
+
+export async function createWorkflowEventTrigger(
+  body: WorkflowEventTriggerUpsert,
+): Promise<WorkflowEventTrigger> {
+  return fetchAPI("/api/v1/workflow/event-triggers", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateWorkflowEventTrigger(
+  id: string,
+  body: WorkflowEventTriggerUpsert,
+): Promise<WorkflowEventTrigger> {
+  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteWorkflowEventTrigger(id: string): Promise<void> {
+  await fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function pauseWorkflowEventTrigger(
+  id: string,
+): Promise<WorkflowEventTrigger> {
+  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/pause`, {
+    method: "POST",
+  });
+}
+
+export async function resumeWorkflowEventTrigger(
+  id: string,
+): Promise<WorkflowEventTrigger> {
+  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/resume`, {
+    method: "POST",
+  });
 }
 
 export async function cancelWorkflowRun(

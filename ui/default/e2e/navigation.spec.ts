@@ -2,10 +2,12 @@ import {
   test,
   expect,
   mockAuthInfo,
+  mockWorkflowEventTriggers,
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
   mockWorkflowRuns,
+  mockWorkflowSchedules,
 } from "./fixtures";
 
 test.describe("Navigation", () => {
@@ -41,6 +43,8 @@ test.describe("Navigation", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
+    await mockWorkflowSchedules(authenticatedPage, []);
+    await mockWorkflowEventTriggers(authenticatedPage, []);
   });
 
   test("dashboard page renders", async ({ authenticatedPage: page }) => {
@@ -74,7 +78,7 @@ test.describe("Navigation", () => {
   test("workflows page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/workflows");
     await expect(
-      page.getByRole("heading", { name: "Workflow Runs" }),
+      page.getByRole("heading", { name: "Workflows" }),
     ).toBeVisible();
   });
 
@@ -110,7 +114,7 @@ test.describe("Navigation", () => {
     await page.getByRole("link", { name: "Workflows" }).click();
     await expect(page).toHaveURL(/workflows/);
     await expect(
-      page.getByRole("heading", { name: "Workflow Runs" }),
+      page.getByRole("heading", { name: "Workflows" }),
     ).toBeVisible();
   });
 
