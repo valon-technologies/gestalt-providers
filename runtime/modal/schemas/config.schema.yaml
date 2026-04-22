@@ -1,0 +1,37 @@
+type: object
+properties:
+  app:
+    type: string
+    description: Modal app name used to create or reuse sandboxes.
+  environment:
+    type: string
+    description: Modal environment name.
+  cpu:
+    type: number
+    minimum: 0
+    description: Requested CPU allocation for each sandbox.
+  memoryMiB:
+    type: integer
+    minimum: 0
+    description: Requested memory allocation in MiB.
+  memoryLimitMiB:
+    type: integer
+    minimum: 0
+    description: Hard memory limit in MiB.
+  timeout:
+    type: string
+    description: Maximum sandbox lifetime as a Go duration string.
+  idleTimeout:
+    type: string
+    description: Idle sandbox timeout as a Go duration string.
+  cloud:
+    type: string
+    description: Modal cloud selector.
+  regions:
+    type: array
+    items:
+      type: string
+    description: Preferred Modal regions.
+required:
+  - app
+additionalProperties: false
