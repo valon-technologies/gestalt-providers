@@ -1,5 +1,12 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
-import type { APIToken, Integration, ManagedIdentity, WorkflowRun } from "../src/lib/api";
+import type {
+  APIToken,
+  Integration,
+  ManagedIdentity,
+  WorkflowEventTrigger,
+  WorkflowRun,
+  WorkflowSchedule,
+} from "../src/lib/api";
 
 type MockWorkflowRunsOptions = {
   onCancel?: (
@@ -11,6 +18,36 @@ type MockWorkflowRunsOptions = {
 type MockWorkflowRunsController = {
   setRuns: (runs: WorkflowRun[]) => void;
   getRuns: () => WorkflowRun[];
+};
+
+type MockWorkflowSchedulesOptions = {
+  onCreate?: (
+    body: Partial<WorkflowSchedule> & Record<string, unknown>,
+  ) => WorkflowSchedule | { status: number; json: unknown };
+  onUpdate?: (
+    current: WorkflowSchedule,
+    body: Partial<WorkflowSchedule> & Record<string, unknown>,
+  ) => WorkflowSchedule | { status: number; json: unknown };
+};
+
+type MockWorkflowSchedulesController = {
+  setSchedules: (schedules: WorkflowSchedule[]) => void;
+  getSchedules: () => WorkflowSchedule[];
+};
+
+type MockWorkflowEventTriggersOptions = {
+  onCreate?: (
+    body: Partial<WorkflowEventTrigger> & Record<string, unknown>,
+  ) => WorkflowEventTrigger | { status: number; json: unknown };
+  onUpdate?: (
+    current: WorkflowEventTrigger,
+    body: Partial<WorkflowEventTrigger> & Record<string, unknown>,
+  ) => WorkflowEventTrigger | { status: number; json: unknown };
+};
+
+type MockWorkflowEventTriggersController = {
+  setTriggers: (triggers: WorkflowEventTrigger[]) => void;
+  getTriggers: () => WorkflowEventTrigger[];
 };
 
 export async function mockIntegrations(
@@ -160,6 +197,248 @@ export async function mockWorkflowRuns(
     },
     getRuns() {
       return currentRuns.map((run) => structuredClone(run));
+    },
+  };
+}
+
+export async function mockWorkflowSchedules(
+  page: Page,
+  schedules: WorkflowSchedule[],
+  opts?: MockWorkflowSchedulesOptions,
+): Promise<MockWorkflowSchedulesController> {
+  let currentSchedules = schedules.map((schedule) => structuredClone(schedule));
+
+  await page.route("**/api/v1/workflow/schedules", async (route: Route, request) => {
+    if (request.method() === "GET") {
+      await route.fulfill({ json: currentSchedules });
+      return;
+    }
+
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+
+    const body = (request.postDataJSON() as Partial<WorkflowSchedule> & Record<string, unknown>) ?? {};
+    const created =
+      opts?.onCreate?.(body) ??
+      ({
+        id: `sched_${currentSchedules.length + 1}`,
+        provider: typeof body.provider === "string" ? body.provider : "basic",
+        cron: typeof body.cron === "string" ? body.cron : "* * * * *",
+        timezone: typeof body.timezone === "string" ? body.timezone : undefined,
+        target: (body.target as WorkflowSchedule["target"]) ?? {
+          plugin: "github",
+          operation: "issues.create",
+        },
+        paused: Boolean(body.paused),
+        createdAt: "2026-04-21T00:00:00Z",
+        updatedAt: "2026-04-21T00:00:00Z",
+      } satisfies WorkflowSchedule);
+
+    if ("status" in created) {
+      await route.fulfill({ status: created.status, json: created.json });
+      return;
+    }
+
+    currentSchedules = [structuredClone(created), ...currentSchedules];
+    await route.fulfill({ json: created });
+  });
+
+  await page.route("**/api/v1/workflow/schedules/**", async (route: Route, request) => {
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/");
+    const scheduleID = parts[parts.length - 2] === "schedules"
+      ? parts[parts.length - 1]
+      : parts[parts.length - 2];
+    const current = currentSchedules.find((schedule) => schedule.id === scheduleID);
+
+    if (!current) {
+      await route.fulfill({ status: 404, json: { error: "not found" } });
+      return;
+    }
+
+    if (request.method() === "GET") {
+      await route.fulfill({ json: current });
+      return;
+    }
+
+    if (request.method() === "DELETE") {
+      currentSchedules = currentSchedules.filter((schedule) => schedule.id !== scheduleID);
+      await route.fulfill({ json: { status: "deleted" } });
+      return;
+    }
+
+    if (request.method() === "POST") {
+      if (parts[parts.length - 1] === "pause") {
+        current.paused = true;
+        current.updatedAt = new Date().toISOString();
+        await route.fulfill({ json: current });
+        return;
+      }
+      if (parts[parts.length - 1] === "resume") {
+        current.paused = false;
+        current.updatedAt = new Date().toISOString();
+        await route.fulfill({ json: current });
+        return;
+      }
+    }
+
+    if (request.method() !== "PUT") {
+      await route.fallback();
+      return;
+    }
+
+    const body = (request.postDataJSON() as Partial<WorkflowSchedule> & Record<string, unknown>) ?? {};
+    const updated =
+      opts?.onUpdate?.(structuredClone(current), body) ??
+      ({
+        ...current,
+        provider: typeof body.provider === "string" && body.provider ? body.provider : current.provider,
+        cron: typeof body.cron === "string" ? body.cron : current.cron,
+        timezone: typeof body.timezone === "string" ? body.timezone : current.timezone,
+        target: (body.target as WorkflowSchedule["target"]) ?? current.target,
+        paused: typeof body.paused === "boolean" ? body.paused : current.paused,
+        updatedAt: "2026-04-21T01:00:00Z",
+      } satisfies WorkflowSchedule);
+
+    if ("status" in updated) {
+      await route.fulfill({ status: updated.status, json: updated.json });
+      return;
+    }
+
+    currentSchedules = currentSchedules.map((schedule) =>
+      schedule.id === scheduleID ? structuredClone(updated) : schedule,
+    );
+    await route.fulfill({ json: updated });
+  });
+
+  return {
+    setSchedules(nextSchedules) {
+      currentSchedules = nextSchedules.map((schedule) => structuredClone(schedule));
+    },
+    getSchedules() {
+      return currentSchedules.map((schedule) => structuredClone(schedule));
+    },
+  };
+}
+
+export async function mockWorkflowEventTriggers(
+  page: Page,
+  triggers: WorkflowEventTrigger[],
+  opts?: MockWorkflowEventTriggersOptions,
+): Promise<MockWorkflowEventTriggersController> {
+  let currentTriggers = triggers.map((trigger) => structuredClone(trigger));
+
+  await page.route("**/api/v1/workflow/event-triggers", async (route: Route, request) => {
+    if (request.method() === "GET") {
+      await route.fulfill({ json: currentTriggers });
+      return;
+    }
+
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+
+    const body = (request.postDataJSON() as Partial<WorkflowEventTrigger> & Record<string, unknown>) ?? {};
+    const created =
+      opts?.onCreate?.(body) ??
+      ({
+        id: `trg_${currentTriggers.length + 1}`,
+        provider: typeof body.provider === "string" ? body.provider : "basic",
+        match: (body.match as WorkflowEventTrigger["match"]) ?? { type: "task.updated" },
+        target: (body.target as WorkflowEventTrigger["target"]) ?? {
+          plugin: "github",
+          operation: "issues.create",
+        },
+        paused: Boolean(body.paused),
+        createdAt: "2026-04-21T00:00:00Z",
+        updatedAt: "2026-04-21T00:00:00Z",
+      } satisfies WorkflowEventTrigger);
+
+    if ("status" in created) {
+      await route.fulfill({ status: created.status, json: created.json });
+      return;
+    }
+
+    currentTriggers = [structuredClone(created), ...currentTriggers];
+    await route.fulfill({ json: created });
+  });
+
+  await page.route("**/api/v1/workflow/event-triggers/**", async (route: Route, request) => {
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/");
+    const triggerID = parts[parts.length - 2] === "event-triggers"
+      ? parts[parts.length - 1]
+      : parts[parts.length - 2];
+    const current = currentTriggers.find((trigger) => trigger.id === triggerID);
+
+    if (!current) {
+      await route.fulfill({ status: 404, json: { error: "not found" } });
+      return;
+    }
+
+    if (request.method() === "GET") {
+      await route.fulfill({ json: current });
+      return;
+    }
+
+    if (request.method() === "DELETE") {
+      currentTriggers = currentTriggers.filter((trigger) => trigger.id !== triggerID);
+      await route.fulfill({ json: { status: "deleted" } });
+      return;
+    }
+
+    if (request.method() === "POST") {
+      if (parts[parts.length - 1] === "pause") {
+        current.paused = true;
+        current.updatedAt = new Date().toISOString();
+        await route.fulfill({ json: current });
+        return;
+      }
+      if (parts[parts.length - 1] === "resume") {
+        current.paused = false;
+        current.updatedAt = new Date().toISOString();
+        await route.fulfill({ json: current });
+        return;
+      }
+    }
+
+    if (request.method() !== "PUT") {
+      await route.fallback();
+      return;
+    }
+
+    const body = (request.postDataJSON() as Partial<WorkflowEventTrigger> & Record<string, unknown>) ?? {};
+    const updated =
+      opts?.onUpdate?.(structuredClone(current), body) ??
+      ({
+        ...current,
+        provider: typeof body.provider === "string" && body.provider ? body.provider : current.provider,
+        match: (body.match as WorkflowEventTrigger["match"]) ?? current.match,
+        target: (body.target as WorkflowEventTrigger["target"]) ?? current.target,
+        paused: typeof body.paused === "boolean" ? body.paused : current.paused,
+        updatedAt: "2026-04-21T01:00:00Z",
+      } satisfies WorkflowEventTrigger);
+
+    if ("status" in updated) {
+      await route.fulfill({ status: updated.status, json: updated.json });
+      return;
+    }
+
+    currentTriggers = currentTriggers.map((trigger) =>
+      trigger.id === triggerID ? structuredClone(updated) : trigger,
+    );
+    await route.fulfill({ json: updated });
+  });
+
+  return {
+    setTriggers(nextTriggers) {
+      currentTriggers = nextTriggers.map((trigger) => structuredClone(trigger));
+    },
+    getTriggers() {
+      return currentTriggers.map((trigger) => structuredClone(trigger));
     },
   };
 }

@@ -149,7 +149,7 @@ export default function DashboardPage() {
                 {data.workflowRuns ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                Inspect workflow runs
+                Manage schedules, triggers, and runs
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>
