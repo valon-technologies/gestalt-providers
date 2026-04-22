@@ -34,12 +34,8 @@ github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0
 github.com/pelletier/go-toml/v2 v2.2.4/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260421221515-73c73620867a h1:WzyEMLD6uX4H6Q0iPimfzFmN46Z2kg1AwEkqNpQ1x6g=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260421221515-73c73620867a/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260422002429-b22e8166f930 h1:BOi9APNgf+xr8ot+6EWif/Nr8TD2Z7fnTa+I1DXlpys=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260422002429-b22e8166f930/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260422005639-57396c178e59 h1:5tT3daf8Cplw+nMwkL2tOSGfxL+B+NLeYExBK244wlc=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260422005639-57396c178e59/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260422131544-686ef1a51eef h1:Zrun2zWwB9whoIWCPZgN22sgpNLrOTgpkQVmyQxhOZE=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260422131544-686ef1a51eef/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

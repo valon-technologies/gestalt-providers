@@ -70,6 +70,7 @@ type session struct {
 	id       string
 	state    string
 	metadata map[string]string
+	bindings map[string]string
 	sandbox  *modalclient.Sandbox
 	tunnel   *modalclient.Tunnel
 	plugin   *plugin
@@ -269,8 +270,44 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) BindHostService(context.Context, *proto.BindPluginRuntimeHostServiceRequest) (*proto.PluginRuntimeHostServiceBinding, error) {
-	return nil, status.Error(codes.Unimplemented, "modal runtime does not support host service tunnels")
+func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRuntimeHostServiceRequest) (*proto.PluginRuntimeHostServiceBinding, error) {
+	if strings.TrimSpace(req.GetEnvVar()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "host service env var is required")
+	}
+	if !isIndexedDBSocketEnv(req.GetEnvVar()) {
+		return nil, status.Errorf(codes.Unimplemented, "modal runtime only supports relay-backed IndexedDB host services, got %q", req.GetEnvVar())
+	}
+
+	relay := req.GetRelay()
+	dialTarget := ""
+	switch {
+	case relay != nil && strings.TrimSpace(relay.GetDialTarget()) != "":
+		dialTarget = strings.TrimSpace(relay.GetDialTarget())
+	default:
+		return nil, status.Error(codes.Unimplemented, "modal runtime requires relay.dial_target for host services")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, err := p.sessionLocked(req.GetSessionId())
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	if session.plugin != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
+	}
+	if session.bindings == nil {
+		session.bindings = map[string]string{}
+	}
+	session.bindings[req.GetEnvVar()] = dialTarget
+
+	return &proto.PluginRuntimeHostServiceBinding{
+		Id:         p.newID("binding"),
+		SessionId:  session.id,
+		EnvVar:     req.GetEnvVar(),
+		SocketPath: req.GetHostSocketPath(),
+		Relay:      relay,
+	}, nil
 }
 
 func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPluginRequest) (*proto.HostedPlugin, error) {
@@ -293,6 +330,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}
 	sandbox := session.sandbox
 	tunnel := session.tunnel
+	bindings := cloneStringMap(session.bindings)
 	p.mu.Unlock()
 
 	if sandbox == nil || tunnel == nil {
@@ -314,6 +352,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	env := cloneStringMap(req.GetEnv())
 	if env == nil {
 		env = map[string]string{}
+	}
+	for key, value := range bindings {
+		env[key] = value
 	}
 	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort)
 
@@ -653,6 +694,11 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[key] = value
 	}
 	return dst
+}
+
+func isIndexedDBSocketEnv(envVar string) bool {
+	envVar = strings.TrimSpace(envVar)
+	return envVar == gestalt.EnvIndexedDBSocket || strings.HasPrefix(envVar, gestalt.EnvIndexedDBSocket+"_")
 }
 
 func slicesOrNil[T any](in []T) []T {

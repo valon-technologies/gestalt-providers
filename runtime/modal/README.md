@@ -36,5 +36,6 @@ runtime image.
 
 ## Current Limitations
 
-- no host-service tunnels
+- no generic host-service tunnels
+- relay-backed IndexedDB env bindings are accepted, which is enough for the host-side IndexedDB relay path
 - no hostname-based egress proxy support
