@@ -5,9 +5,11 @@ description: Read public and private conversations, DMs, and group DMs; send mes
 iconFile: assets/icon.svg
 kind: plugin
 spec:
+  defaultConnection: default
   mcp: true
   surfaces:
     rest:
+      connection: default
       baseUrl: https://slack.com
       operations:
       - name: conversations.list
