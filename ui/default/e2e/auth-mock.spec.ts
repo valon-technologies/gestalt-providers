@@ -5,6 +5,9 @@ import {
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
+  mockWorkflowEventTriggers,
+  mockWorkflowRuns,
+  mockWorkflowSchedules,
 } from "./fixtures";
 
 const hasBackend =
@@ -74,13 +77,16 @@ test.describe("Authentication", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     await page.goto("/login");
     await expect(page).toHaveURL("/");
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Identities", exact: true }),
-    ).toHaveCount(0);
+      page.getByRole("link", { name: "Authorization", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
 
     await page.evaluate(() => {
@@ -93,8 +99,8 @@ test.describe("Authentication", () => {
     await expect(page).toHaveURL("/");
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Identities", exact: true }),
-    ).toHaveCount(0);
+      page.getByRole("link", { name: "Authorization", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
 
     await page.goto("/identities");
@@ -118,6 +124,9 @@ test.describe("Authentication", () => {
       { name: "test-svc", displayName: "Test Service" },
     ]);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     await page.goto("/");
     await expect(
@@ -127,10 +136,7 @@ test.describe("Authentication", () => {
       page.getByRole("link", { name: "Plugins", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Identities", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "API Tokens", exact: true }),
+      page.getByRole("link", { name: "Authorization", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Logout/i }),
@@ -144,6 +150,9 @@ test.describe("Authentication", () => {
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     await page.goto("/login");
     await expect(page).toHaveURL("/");
@@ -157,6 +166,9 @@ test.describe("Authentication", () => {
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
       route.fulfill({ json: { status: "ok" } });
     });
@@ -242,6 +254,9 @@ test.describe("Authentication", () => {
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     let callbackState: string | null = null;
     await page.route("**/api/v1/auth/login/callback?**", (route, request) => {
@@ -312,6 +327,15 @@ test.describe("Authentication", () => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
     await page.route("**/api/v1/tokens", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
+    await page.route("**/api/v1/workflow/schedules", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
+    await page.route("**/api/v1/workflow/event-triggers", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
+    await page.route("**/api/v1/workflow/runs", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 

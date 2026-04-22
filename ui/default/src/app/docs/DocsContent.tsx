@@ -184,6 +184,30 @@ brew install valon-technologies/gestalt/gestalt`}
         />
         <p className="doc-copy">Then verify access:</p>
         <CodeBlock code="gestalt plugins list" />
+
+        <Subheading id="workflows" title="Inspect workflows" />
+        <p className="doc-copy">
+          After your workspace URL and auth are set, use{" "}
+          <code className="font-mono text-sm text-primary">gestalt workflows</code>{" "}
+          to inspect schedules, event triggers, and recent runs from the CLI.
+        </p>
+        <CodeBlock
+          code={`gestalt workflows --help
+gestalt workflows schedules list
+gestalt workflows triggers list
+gestalt workflows runs list`}
+        />
+        <p className="doc-copy">
+          For a deeper walkthrough, open{" "}
+          <Link href="/docs/workflows" className="doc-link">
+            Workflows
+          </Link>
+          . If you prefer the browser, the same workflow surfaces are also available on{" "}
+          <Link href="/workflows" className="doc-link">
+            Workflows
+          </Link>
+          .
+        </p>
       </DocsPageBody>
     </>
   );
@@ -253,11 +277,115 @@ gestalt tokens revoke <token-id>`}
         />
         <p className="doc-copy">
           Tokens can also be created from{" "}
-          <Link href="/tokens" className="doc-link">
-            API Tokens
+          <Link href="/authorization" className="doc-link">
+            Authorization
           </Link>
           . The raw token value is shown once, so store it immediately in your
           secret manager or shell environment.
+        </p>
+      </DocsPageBody>
+    </>
+  );
+}
+
+export function WorkflowsDocsPage() {
+  return (
+    <>
+      <DocsPageHeader
+        eyebrow="Workflows"
+        title="Manage Workflows"
+        description="Use the workflow CLI to inspect scheduled work, manage event-driven automation, and review run history without leaving the terminal."
+      />
+      <DocsPageBody>
+        <p className="doc-copy">
+          Start by checking the commands exposed by the CLI installed on your machine.
+          Different builds may expose different workflow subcommands, so{" "}
+          <code className="font-mono text-sm text-primary">--help</code> is the
+          fastest source of truth.
+        </p>
+
+        <Subheading id="wf-help" title="Start with help" />
+        <CodeBlock code="gestalt workflows --help" />
+        <p className="doc-copy">
+          In this workspace, the main entry points are schedules for delayed
+          execution, triggers for event-driven execution, and runs for reviewing
+          recent execution history.
+        </p>
+
+        <Subheading id="wf-schedules" title="Manage schedules" />
+        <p className="doc-copy">
+          Workflow schedules invoke a plugin operation later on a cron. Use the same
+          parameter syntax as{" "}
+          <code className="font-mono text-sm text-primary">gestalt plugins invoke</code>
+          : plain strings with{" "}
+          <code className="font-mono text-sm text-primary">key=value</code> or JSON
+          with{" "}
+          <code className="font-mono text-sm text-primary">key:=json</code>.
+        </p>
+        <CodeBlock
+          code={`gestalt workflows schedules list
+gestalt workflows schedules list --plugin <plugin>
+gestalt workflows schedules get <schedule-id>
+
+gestalt workflows schedules create \\
+  --cron "0 */5 * * *" \\
+  --timezone "UTC" \\
+  --plugin <plugin> \\
+  --operation <operation> \\
+  -p key=value
+
+gestalt workflows schedules pause <schedule-id>
+gestalt workflows schedules resume <schedule-id>
+gestalt workflows schedules delete <schedule-id>`}
+        />
+        <p className="doc-copy">
+          Use{" "}
+          <code className="font-mono text-sm text-primary">--format json</code>{" "}
+          when you want to script against the output.
+        </p>
+
+        <Subheading id="wf-triggers" title="Manage event triggers" />
+        <p className="doc-copy">
+          Event triggers run a plugin operation when an incoming event matches
+          a type, source, or subject filter. Use them when a webhook or other
+          event stream should start the workflow immediately instead of on a cron.
+        </p>
+        <CodeBlock
+          code={`gestalt workflows triggers list
+gestalt workflows triggers list --plugin <plugin>
+gestalt workflows triggers list --type <event-type>
+gestalt workflows triggers get <trigger-id>
+
+gestalt workflows triggers create \\
+  --type <event-type> \\
+  --source <event-source> \\
+  --subject <event-subject> \\
+  --plugin <plugin> \\
+  --operation <operation> \\
+  -p key=value
+
+gestalt workflows triggers pause <trigger-id>
+gestalt workflows triggers resume <trigger-id>
+gestalt workflows triggers delete <trigger-id>`}
+        />
+
+        <Subheading id="wf-runs" title="Inspect runs" />
+        <p className="doc-copy">
+          Run history tells you whether scheduled or event-driven work actually
+          executed, what plugin and operation ran, and whether the run succeeded
+          or failed.
+        </p>
+        <CodeBlock
+          code={`gestalt workflows runs list
+gestalt workflows runs list --plugin <plugin>
+gestalt workflows runs get <run-id>`}
+        />
+        <p className="doc-copy">
+          The browser surface at{" "}
+          <Link href="/workflows" className="doc-link">
+            Workflows
+          </Link>{" "}
+          shows schedules, event triggers, and recent runs if you want a UI for inspection.
         </p>
       </DocsPageBody>
     </>

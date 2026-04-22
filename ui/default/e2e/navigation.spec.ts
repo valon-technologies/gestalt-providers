@@ -5,6 +5,7 @@ import {
   mockWorkflowEventTriggers,
   mockIntegrations,
   mockManagedIdentities,
+  mockWorkflowSchedules,
   mockTokens,
   mockWorkflowRuns,
   mockWorkflowSchedules,
@@ -33,6 +34,8 @@ test.describe("Navigation", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
+    await mockWorkflowSchedules(authenticatedPage, []);
+    await mockWorkflowEventTriggers(authenticatedPage, []);
     await mockWorkflowRuns(authenticatedPage, [
       {
         id: "run_123",
@@ -68,10 +71,10 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("tokens page renders", async ({ authenticatedPage: page }) => {
-    await page.goto("/tokens");
+  test("authorization page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/authorization");
     await expect(
-      page.getByRole("heading", { name: "API Tokens" }),
+      page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
   });
 
@@ -93,6 +96,11 @@ test.describe("Navigation", () => {
       page.getByRole("heading", { name: "Getting Started" }),
     ).toBeVisible();
 
+    await page.goto("/docs/workflows");
+    await expect(
+      page.getByRole("heading", { name: "Manage Workflows" }),
+    ).toBeVisible();
+
     await page.goto("/docs/mcp");
     await expect(
       page.getByRole("heading", { name: "Use With MCP" }),
@@ -101,15 +109,10 @@ test.describe("Navigation", () => {
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/integrations");
-    await page.getByRole("link", { name: "Identities" }).click();
-    await expect(page).toHaveURL(/identities/);
+    await page.getByRole("link", { name: "Authorization" }).click();
+    await expect(page).toHaveURL(/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Agent Identities" }),
-    ).toBeVisible();
-    await page.getByRole("link", { name: "API Tokens" }).click();
-    await expect(page).toHaveURL(/tokens/);
-    await expect(
-      page.getByRole("heading", { name: "API Tokens" }),
+      page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Workflows" }).click();
     await expect(page).toHaveURL(/workflows/);

@@ -597,7 +597,7 @@ export default function WorkflowsPage() {
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-6xl px-6 py-12">
+        <main className="mx-auto max-w-5xl px-6 py-12">
           <div className="animate-fade-in-up flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <span className="label-text">Automation</span>

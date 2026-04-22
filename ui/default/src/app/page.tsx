@@ -7,7 +7,9 @@ import {
   getIntegrations,
   getManagedIdentities,
   getTokens,
+  getWorkflowEventTriggers,
   getWorkflowRuns,
+  getWorkflowSchedules,
 } from "@/lib/api";
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
@@ -18,14 +20,14 @@ export default function DashboardPage() {
     identities: number | null;
     integrations: number | null;
     tokens: number | null;
-    workflowRuns: number | null;
+    workflowResources: number | null;
     error: string | null;
   }>({
     identitiesAvailable: false,
     identities: null,
     integrations: null,
     tokens: null,
-    workflowRuns: null,
+    workflowResources: null,
     error: null,
   });
 
@@ -45,8 +47,17 @@ export default function DashboardPage() {
           identitiesAvailable ? getManagedIdentities() : Promise.resolve(null),
           getIntegrations(),
           getTokens(),
+          getWorkflowSchedules(),
+          getWorkflowEventTriggers(),
           getWorkflowRuns(),
-        ]).then(([identitiesResult, integrationsResult, tokensResult, workflowRunsResult]) => {
+        ]).then(([
+          identitiesResult,
+          integrationsResult,
+          tokensResult,
+          workflowSchedulesResult,
+          workflowTriggersResult,
+          workflowRunsResult,
+        ]) => {
           if (!active) return;
 
           const error =
@@ -56,9 +67,16 @@ export default function DashboardPage() {
                 ? errorMessage(integrationsResult.reason)
                 : tokensResult.status === "rejected"
                   ? errorMessage(tokensResult.reason)
-                  : workflowRunsResult.status === "rejected"
-                    ? errorMessage(workflowRunsResult.reason)
                   : null;
+
+          const workflowResources =
+            workflowSchedulesResult.status === "fulfilled" &&
+            workflowTriggersResult.status === "fulfilled" &&
+            workflowRunsResult.status === "fulfilled"
+              ? workflowSchedulesResult.value.length +
+                workflowTriggersResult.value.length +
+                workflowRunsResult.value.length
+              : null;
 
           setData({
             identitiesAvailable,
@@ -74,10 +92,7 @@ export default function DashboardPage() {
               tokensResult.status === "fulfilled"
                 ? tokensResult.value.length
                 : null,
-            workflowRuns:
-              workflowRunsResult.status === "fulfilled"
-                ? workflowRunsResult.value.length
-                : null,
+            workflowResources,
             error,
           });
         });
@@ -108,23 +123,36 @@ export default function DashboardPage() {
           )}
 
           <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 animate-fade-in-up [animation-delay:60ms]">
-            {data.identitiesAvailable ? (
-              <Link
-                href="/identities"
-                className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
-              >
-                <span className="label-text">Identities</span>
-                <p className="mt-3 text-3xl font-heading font-bold text-primary">
-                  {data.identities ?? "--"}
-                </p>
-                <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                  Manage identities
-                  <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
-                    &rarr;
-                  </span>
-                </p>
-              </Link>
-            ) : null}
+            <Link
+              href="/authorization"
+              className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
+            >
+              <span className="label-text">Authorization</span>
+              <div className="mt-4 grid grid-cols-2 gap-5">
+                <div>
+                  <p className="text-3xl font-heading font-bold text-primary">
+                    {data.tokens ?? "--"}
+                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.14em] text-faint">
+                    Tokens
+                  </p>
+                </div>
+                <div>
+                  <p className="text-3xl font-heading font-bold text-primary">
+                    {data.identitiesAvailable ? (data.identities ?? "--") : "Off"}
+                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.14em] text-faint">
+                    {data.identitiesAvailable ? "Identities" : "Auth Disabled"}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                Manage personal access and shared automation
+                <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
+                  &rarr;
+                </span>
+              </p>
+            </Link>
             <Link
               href="/integrations"
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
@@ -146,25 +174,10 @@ export default function DashboardPage() {
             >
               <span className="label-text">Workflows</span>
               <p className="mt-3 text-3xl font-heading font-bold text-primary">
-                {data.workflowRuns ?? "--"}
+                {data.workflowResources ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
                 Manage schedules, triggers, and runs
-                <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
-                  &rarr;
-                </span>
-              </p>
-            </Link>
-            <Link
-              href="/tokens"
-              className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
-            >
-              <span className="label-text">API Tokens</span>
-              <p className="mt-3 text-3xl font-heading font-bold text-primary">
-                {data.tokens ?? "--"}
-              </p>
-              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                Manage tokens
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>

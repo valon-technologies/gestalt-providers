@@ -87,6 +87,14 @@ test.describe("Docs page", () => {
       page.getByText("/api/v1/integrations").first(),
     ).toBeVisible();
 
+    await leftNav.getByRole("link", { name: "Manage Workflows" }).click();
+    await expect(page).toHaveURL(/\/docs\/workflows/);
+    await expect(
+      page.getByRole("heading", { name: "Manage Workflows" }),
+    ).toBeVisible();
+    await expect(page.locator("article")).toContainText("gestalt workflows triggers list");
+    await expect(page.locator("article")).toContainText("gestalt workflows runs list");
+
     await leftNav.getByRole("link", { name: "Use With MCP" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp/);
     await expect(
