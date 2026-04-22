@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/vercel
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Vercel
-description: Deploy, manage, and monitor Vercel projects and deployments.
+description: Manage Vercel projects and deployments, and read or write Vercel Blob storage.
 iconFile: assets/icon.svg
 kind: plugin
 spec:

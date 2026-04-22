@@ -1,6 +1,7 @@
 # Vercel
 
-Deploy, manage, and monitor Vercel projects and deployments.
+Deploy, manage, and monitor Vercel projects and deployments, and read or write
+Vercel Blob storage.
 
 ## Configuration
 
@@ -11,6 +12,10 @@ plugins:
   vercel:
     source: github.com/valon-technologies/gestalt-providers/plugins/vercel
     version: ...
+    config:
+      clientId: ${VERCEL_CLIENT_ID}
+      clientSecret: ${VERCEL_CLIENT_SECRET}
+      blobReadWriteToken: ${VERCEL_BLOB_READ_WRITE_TOKEN} # optional, only needed for blob.* operations
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and
@@ -18,11 +23,40 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built on the Vercel OpenAPI specification. Exposes
-operations for managing projects, deployments, domains, and environment
-variables.
+Hybrid provider:
+- OpenAPI-backed operations for the Vercel platform API
+- Executable `blob.*` operations that mirror the Vercel Blob SDK methods
 
-Authenticates with Vercel OAuth 2.0.
+Blob operations currently include:
+- `blob.put`
+- `blob.get`
+- `blob.head`
+- `blob.list`
+- `blob.delete`
+- `blob.copy`
+
+The OpenAPI surface authenticates with Vercel OAuth 2.0. The executable
+`blob.*` operations use the configured `blobReadWriteToken`.
+
+Example Blob write:
+
+```yaml
+plugins:
+  roadmapPublisher:
+    invokes:
+      - plugin: vercel
+        operation: blob.put
+```
+
+```ts
+await invoker.invoke("vercel", "blob.put", {
+  pathname: "roadmaps/newrez.json",
+  access: "private",
+  body: JSON.stringify(payload),
+  content_type: "application/json",
+  overwrite: true,
+});
+```
 
 ## Documentation
 
