@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +38,8 @@ const (
 	sessionStateRunning = "running"
 	sessionStateStopped = "stopped"
 	sessionStateFailed  = "failed"
+
+	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
 )
 
 var sandboxNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -71,6 +75,7 @@ type session struct {
 	state    string
 	metadata map[string]string
 	bindings map[string]string
+	image    string
 	sandbox  *modalclient.Sandbox
 	tunnel   *modalclient.Tunnel
 	plugin   *plugin
@@ -148,6 +153,7 @@ func (p *Provider) GetCapabilities(context.Context, *emptypb.Empty) (*proto.GetP
 		Capabilities: &proto.PluginRuntimeCapabilities{
 			HostedPluginRuntime: true,
 			ProviderGrpcTunnel:  true,
+			HostnameProxyEgress: true,
 			CidrEgress:          true,
 			ExecutionGoos:       "linux",
 			ExecutionGoarch:     "amd64",
@@ -155,57 +161,21 @@ func (p *Provider) GetCapabilities(context.Context, *emptypb.Empty) (*proto.GetP
 	}, nil
 }
 
-func (p *Provider) StartSession(ctx context.Context, req *proto.StartPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
-	client, cfg, err := p.configured()
+func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
+	_, _, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if strings.TrimSpace(req.GetImage()) == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the modal runtime", req.GetPluginName())
 	}
-
-	app, err := client.Apps.FromName(ctx, cfg.App, &modalclient.AppFromNameParams{
-		Environment:     cfg.Environment,
-		CreateIfMissing: true,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "lookup modal app %q: %v", cfg.App, err)
-	}
-
-	image := client.Images.FromRegistry(req.GetImage(), nil)
 	sessionID := p.newID("session")
-	sandbox, err := client.Sandboxes.Create(ctx, app, image, &modalclient.SandboxCreateParams{
-		CPU:            cfg.CPU,
-		MemoryMiB:      cfg.MemoryMiB,
-		MemoryLimitMiB: cfg.MemoryLimitMiB,
-		Timeout:        cfg.Timeout,
-		IdleTimeout:    cfg.IdleTimeout,
-		Cloud:          cfg.Cloud,
-		Regions:        slicesOrNil(cfg.Regions),
-		H2Ports:        []int{pluginGRPCPort},
-		Name:           sandboxName(req.GetPluginName(), sessionID),
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "create modal sandbox: %v", err)
-	}
-
-	tunnels, err := sandbox.Tunnels(ctx, tunnelLookupTimeout)
-	if err != nil {
-		_, _ = sandbox.Terminate(context.Background(), nil)
-		return nil, status.Errorf(codes.Internal, "lookup modal sandbox tunnel: %v", err)
-	}
-	tunnel, ok := tunnels[pluginGRPCPort]
-	if !ok || tunnel == nil {
-		_, _ = sandbox.Terminate(context.Background(), nil)
-		return nil, status.Errorf(codes.Internal, "modal sandbox tunnel for port %d is unavailable", pluginGRPCPort)
-	}
 
 	session := &session{
 		id:       sessionID,
 		state:    sessionStateReady,
 		metadata: cloneStringMap(req.GetMetadata()),
-		sandbox:  sandbox,
-		tunnel:   tunnel,
+		image:    strings.TrimSpace(req.GetImage()),
 	}
 	if session.metadata == nil {
 		session.metadata = map[string]string{}
@@ -214,7 +184,6 @@ func (p *Provider) StartSession(ctx context.Context, req *proto.StartPluginRunti
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
-		_, _ = sandbox.Terminate(context.Background(), nil)
 		return nil, status.Error(codes.FailedPrecondition, "modal runtime is closed")
 	}
 	p.sessions[sessionID] = session
@@ -274,8 +243,8 @@ func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRunti
 	if strings.TrimSpace(req.GetEnvVar()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "host service env var is required")
 	}
-	if !isIndexedDBSocketEnv(req.GetEnvVar()) {
-		return nil, status.Errorf(codes.Unimplemented, "modal runtime only supports relay-backed IndexedDB host services, got %q", req.GetEnvVar())
+	if !isRelayHostServiceEnv(req.GetEnvVar()) {
+		return nil, status.Errorf(codes.Unimplemented, "modal runtime only supports relay-backed public host services, got %q", req.GetEnvVar())
 	}
 
 	relay := req.GetRelay()
@@ -314,8 +283,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	if strings.TrimSpace(req.GetCommand()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "plugin command is required")
 	}
-	if req.GetDefaultAction() == "deny" || len(req.GetAllowedHosts()) > 0 {
-		return nil, status.Error(codes.Unimplemented, "modal runtime does not support hostname-based egress controls")
+	client, cfg, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
 	p.mu.Lock()
@@ -328,14 +298,21 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
 	}
-	sandbox := session.sandbox
-	tunnel := session.tunnel
 	bindings := cloneStringMap(session.bindings)
 	p.mu.Unlock()
 
-	if sandbox == nil || tunnel == nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q is not ready", req.GetSessionId())
+	sandbox, tunnel, err := p.ensureSessionSandbox(ctx, client, cfg, req)
+	if err != nil {
+		return nil, err
 	}
+	launchOK := false
+	defer func() {
+		if launchOK {
+			return
+		}
+		p.resetSessionSandbox(req.GetSessionId(), sandbox)
+		_, _ = sandbox.Terminate(context.Background(), nil)
+	}()
 
 	command := req.GetCommand()
 	if req.GetBundleDir() != "" {
@@ -393,6 +370,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	session.plugin = plugin
 	session.state = sessionStateRunning
 	go p.watchPluginProcess(req.GetSessionId(), process)
+	launchOK = true
 
 	return &proto.HostedPlugin{
 		Id:         plugin.id,
@@ -443,6 +421,165 @@ func (p *Provider) configured() (*modalclient.Client, Config, error) {
 		return nil, Config{}, fmt.Errorf("modal runtime app is required")
 	}
 	return p.client, p.cfg, nil
+}
+
+func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient.Client, cfg Config, req *proto.StartHostedPluginRequest) (*modalclient.Sandbox, *modalclient.Tunnel, error) {
+	p.mu.Lock()
+	session, err := p.sessionLocked(req.GetSessionId())
+	if err != nil {
+		p.mu.Unlock()
+		return nil, nil, status.Error(codes.NotFound, err.Error())
+	}
+	if session.sandbox != nil && session.tunnel != nil {
+		sandbox := session.sandbox
+		tunnel := session.tunnel
+		p.mu.Unlock()
+		return sandbox, tunnel, nil
+	}
+	imageRef := strings.TrimSpace(session.image)
+	sessionID := session.id
+	p.mu.Unlock()
+
+	if imageRef == "" {
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q is missing a runtime image", req.GetSessionId())
+	}
+	createParams, err := buildSandboxCreateParams(ctx, cfg, req, sessionID)
+	if err != nil {
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "configure modal sandbox egress: %v", err)
+	}
+
+	app, err := client.Apps.FromName(ctx, cfg.App, &modalclient.AppFromNameParams{
+		Environment:     cfg.Environment,
+		CreateIfMissing: true,
+	})
+	if err != nil {
+		return nil, nil, status.Errorf(codes.Internal, "lookup modal app %q: %v", cfg.App, err)
+	}
+
+	sandbox, err := client.Sandboxes.Create(ctx, app, client.Images.FromRegistry(imageRef, nil), createParams)
+	if err != nil {
+		return nil, nil, status.Errorf(codes.Internal, "create modal sandbox: %v", err)
+	}
+	tunnels, err := sandbox.Tunnels(ctx, tunnelLookupTimeout)
+	if err != nil {
+		_, _ = sandbox.Terminate(context.Background(), nil)
+		return nil, nil, status.Errorf(codes.Internal, "lookup modal sandbox tunnel: %v", err)
+	}
+	tunnel, ok := tunnels[pluginGRPCPort]
+	if !ok || tunnel == nil {
+		_, _ = sandbox.Terminate(context.Background(), nil)
+		return nil, nil, status.Errorf(codes.Internal, "modal sandbox tunnel for port %d is unavailable", pluginGRPCPort)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, err = p.sessionLocked(req.GetSessionId())
+	if err != nil {
+		_, _ = sandbox.Terminate(context.Background(), nil)
+		return nil, nil, status.Error(codes.NotFound, err.Error())
+	}
+	if session.sandbox != nil && session.tunnel != nil {
+		_, _ = sandbox.Terminate(context.Background(), nil)
+		return session.sandbox, session.tunnel, nil
+	}
+	session.sandbox = sandbox
+	session.tunnel = tunnel
+	session.state = sessionStateReady
+	return sandbox, tunnel, nil
+}
+
+func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartHostedPluginRequest, sessionID string) (*modalclient.SandboxCreateParams, error) {
+	params := &modalclient.SandboxCreateParams{
+		CPU:            cfg.CPU,
+		MemoryMiB:      cfg.MemoryMiB,
+		MemoryLimitMiB: cfg.MemoryLimitMiB,
+		Timeout:        cfg.Timeout,
+		IdleTimeout:    cfg.IdleTimeout,
+		Cloud:          cfg.Cloud,
+		Regions:        slicesOrNil(cfg.Regions),
+		H2Ports:        []int{pluginGRPCPort},
+		Name:           sandboxName(req.GetPluginName(), sessionID),
+	}
+	if !requiresHostnameProxy(req) {
+		return params, nil
+	}
+	cidrs, err := egressProxyCIDRAllowlist(ctx, req.GetEnv())
+	if err != nil {
+		return nil, err
+	}
+	params.CIDRAllowlist = cidrs
+	return params, nil
+}
+
+func egressProxyCIDRAllowlist(ctx context.Context, env map[string]string) ([]string, error) {
+	proxyURL := strings.TrimSpace(env["HTTPS_PROXY"])
+	if proxyURL == "" {
+		proxyURL = strings.TrimSpace(env["HTTP_PROXY"])
+	}
+	if proxyURL == "" {
+		return nil, fmt.Errorf("HTTP_PROXY or HTTPS_PROXY is required when hostname-based egress controls are enabled")
+	}
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse proxy URL %q: %w", proxyURL, err)
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return nil, fmt.Errorf("proxy URL %q is missing a hostname", proxyURL)
+	}
+	ipAddrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve proxy host %q: %w", host, err)
+	}
+	if len(ipAddrs) == 0 {
+		return nil, fmt.Errorf("proxy host %q did not resolve to any IPs", host)
+	}
+	seen := map[string]struct{}{}
+	cidrs := make([]string, 0, len(ipAddrs))
+	for _, ipAddr := range ipAddrs {
+		ip := ipAddr.IP
+		if ip == nil {
+			continue
+		}
+		cidr := ip.String() + "/128"
+		if ip.To4() != nil {
+			cidr = ip.String() + "/32"
+		}
+		if _, ok := seen[cidr]; ok {
+			continue
+		}
+		seen[cidr] = struct{}{}
+		cidrs = append(cidrs, cidr)
+	}
+	if len(cidrs) == 0 {
+		return nil, fmt.Errorf("proxy host %q did not resolve to any usable IPs", host)
+	}
+	sort.Strings(cidrs)
+	return cidrs, nil
+}
+
+func requiresHostnameProxy(req *proto.StartHostedPluginRequest) bool {
+	return strings.EqualFold(strings.TrimSpace(req.GetDefaultAction()), "deny") || len(req.GetAllowedHosts()) > 0
+}
+
+func (p *Provider) resetSessionSandbox(sessionID string, sandbox *modalclient.Sandbox) {
+	if sandbox == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	session, ok := p.sessions[strings.TrimSpace(sessionID)]
+	if !ok || session == nil {
+		return
+	}
+	if session.sandbox != sandbox {
+		return
+	}
+	session.sandbox = nil
+	session.tunnel = nil
+	if session.plugin == nil {
+		session.state = sessionStateReady
+	}
 }
 
 func (p *Provider) watchPluginProcess(sessionID string, process *modalclient.ContainerProcess) {
@@ -699,6 +836,26 @@ func cloneStringMap(src map[string]string) map[string]string {
 func isIndexedDBSocketEnv(envVar string) bool {
 	envVar = strings.TrimSpace(envVar)
 	return envVar == gestalt.EnvIndexedDBSocket || strings.HasPrefix(envVar, gestalt.EnvIndexedDBSocket+"_")
+}
+
+func isRelayHostServiceEnv(envVar string) bool {
+	envVar = strings.TrimSpace(envVar)
+	switch {
+	case isIndexedDBSocketEnv(envVar):
+		return true
+	case envVar == gestalt.EnvCacheSocket || strings.HasPrefix(envVar, gestalt.EnvCacheSocket+"_"):
+		return true
+	case envVar == gestalt.EnvS3Socket || strings.HasPrefix(envVar, gestalt.EnvS3Socket+"_"):
+		return true
+	case envVar == authorizationSocketEnv:
+		return true
+	case envVar == proto.EnvPluginInvokerSocket:
+		return true
+	case envVar == proto.EnvWorkflowManagerSocket:
+		return true
+	default:
+		return false
+	}
 }
 
 func slicesOrNil[T any](in []T) []T {
