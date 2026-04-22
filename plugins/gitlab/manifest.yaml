@@ -5,8 +5,21 @@ description: Repository, issue, merge request, and pipeline operations.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
+  defaultConnection: default
   surfaces:
     openapi:
+      connection: default
       document: openapi.yaml
     graphql:
+      connection: default
       url: https://gitlab.com/api/graphql
+  connections:
+    default:
+      mode: user
+      auth:
+        type: oauth2
+        authorizationUrl: https://gitlab.com/oauth/authorize
+        tokenUrl: https://gitlab.com/oauth/token
+        pkce: true
+        authorizationParams:
+          scope: api
