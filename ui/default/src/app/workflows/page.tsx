@@ -48,6 +48,7 @@ interface ScheduleFormState {
   hour: string;
   weekday: string;
   monthDay: string;
+  cronDefinition: string;
   timezoneMode: TimezoneMode;
   paused: boolean;
 }
@@ -774,6 +775,36 @@ function SchedulesPanel({
   const operationsLoading = form.plugin ? Boolean(operationsLoadingByPlugin[form.plugin]) : false;
   const operationsError = form.plugin ? operationErrorsByPlugin[form.plugin] ?? null : null;
 
+  function updatePresetControls(
+    recipe: (current: ScheduleFormState) => Omit<ScheduleFormState, "cronDefinition">,
+  ) {
+    setForm((current) => {
+      const next = recipe(current);
+      return {
+        ...next,
+        cronDefinition: cronFromSchedulePreset(next),
+      };
+    });
+    setPresetWarning(null);
+  }
+
+  function handleCronDefinitionChange(value: string) {
+    const preset = presetFromCron(value);
+    setForm((current) => ({
+      ...current,
+      cadence: preset.supported ? preset.cadence : current.cadence,
+      hour: preset.supported ? preset.hour : current.hour,
+      weekday: preset.supported ? preset.weekday : current.weekday,
+      monthDay: preset.supported ? preset.monthDay : current.monthDay,
+      cronDefinition: value,
+    }));
+    setPresetWarning(
+      preset.supported
+        ? null
+        : "This is a custom cron expression. The cadence controls are optional helpers, and changing them will replace the cron definition.",
+    );
+  }
+
   useEffect(() => {
     if (!formMode) return;
     if (!form.plugin && integrations[0]) {
@@ -1032,7 +1063,7 @@ function SchedulesPanel({
                 <select
                   value={form.cadence}
                   onChange={(event) =>
-                    setForm((current) => ({
+                    updatePresetControls((current) => ({
                       ...current,
                       cadence: event.target.value as ScheduleCadence,
                     }))
@@ -1070,7 +1101,10 @@ function SchedulesPanel({
                   <select
                     value={form.hour}
                     onChange={(event) =>
-                      setForm((current) => ({ ...current, hour: event.target.value }))
+                      updatePresetControls((current) => ({
+                        ...current,
+                        hour: event.target.value,
+                      }))
                     }
                     className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
                   >
@@ -1089,7 +1123,10 @@ function SchedulesPanel({
                   <select
                     value={form.weekday}
                     onChange={(event) =>
-                      setForm((current) => ({ ...current, weekday: event.target.value }))
+                      updatePresetControls((current) => ({
+                        ...current,
+                        weekday: event.target.value,
+                      }))
                     }
                     className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
                   >
@@ -1108,7 +1145,10 @@ function SchedulesPanel({
                   <select
                     value={form.monthDay}
                     onChange={(event) =>
-                      setForm((current) => ({ ...current, monthDay: event.target.value }))
+                      updatePresetControls((current) => ({
+                        ...current,
+                        monthDay: event.target.value,
+                      }))
                     }
                     className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
                   >
@@ -1122,10 +1162,21 @@ function SchedulesPanel({
               ) : null}
             </div>
 
-            <div className="rounded-md border border-alpha bg-background/65 px-4 py-3 text-sm dark:bg-background/20">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-faint">Cron preview</p>
-              <p className="mt-2 font-mono text-primary">{cronFromScheduleForm(form)}</p>
-            </div>
+            <label className="block rounded-md border border-alpha bg-background/65 px-4 py-3 text-sm dark:bg-background/20">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-faint">
+                Cron Definition
+              </span>
+              <textarea
+                value={form.cronDefinition}
+                onChange={(event) => handleCronDefinitionChange(event.target.value)}
+                rows={2}
+                spellCheck={false}
+                className="mt-2 w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+              />
+              <p className="mt-2 text-xs text-muted">
+                The cadence controls above can generate a cron expression for you, but you can override it here if needed.
+              </p>
+            </label>
 
             <WorkflowTargetEditor
               integrations={integrations}
@@ -2001,7 +2052,7 @@ function pausedStateClassName(paused?: boolean): string {
 
 function defaultScheduleForm(browserTimezone: string, plugin = ""): ScheduleFormState {
   const timezoneMode: TimezoneMode = browserTimezone === "UTC" ? "utc" : "local";
-  return {
+  const form: ScheduleFormState = {
     plugin,
     operation: "",
     connection: "",
@@ -2011,8 +2062,13 @@ function defaultScheduleForm(browserTimezone: string, plugin = ""): ScheduleForm
     hour: "9",
     weekday: "1",
     monthDay: "1",
+    cronDefinition: "",
     timezoneMode,
     paused: false,
+  };
+  return {
+    ...form,
+    cronDefinition: cronFromSchedulePreset(form),
   };
 }
 
@@ -2046,12 +2102,13 @@ function scheduleFormFromSchedule(
       hour: preset.hour,
       weekday: preset.weekday,
       monthDay: preset.monthDay,
+      cronDefinition: schedule.cron,
       timezoneMode: normalizeTimezoneMode(schedule.timezone, browserTimezone),
       paused: schedule.paused,
     },
     warning: preset.supported
       ? null
-      : "This schedule uses a custom cron expression. Editing it here will replace it with one of the preset cadence options.",
+      : "This schedule uses a custom cron expression. The cadence controls are optional helpers, and changing them will replace the cron definition.",
   };
 }
 
@@ -2074,9 +2131,13 @@ function scheduleFormToUpsert(
   browserTimezone: string,
   provider?: string,
 ): WorkflowScheduleUpsert {
+  const cron = form.cronDefinition.trim();
+  if (!cron) {
+    throw new Error("Cron definition is required.");
+  }
   return {
     provider: provider || undefined,
-    cron: cronFromScheduleForm(form),
+    cron,
     timezone: form.timezoneMode === "utc" ? "UTC" : browserTimezone,
     target: {
       plugin: form.plugin.trim(),
@@ -2111,7 +2172,7 @@ function triggerFormToUpsert(
   };
 }
 
-function cronFromScheduleForm(form: ScheduleFormState): string {
+function cronFromSchedulePreset(form: Pick<ScheduleFormState, "cadence" | "hour" | "weekday" | "monthDay">): string {
   switch (form.cadence) {
     case "hourly":
       return "0 * * * *";
