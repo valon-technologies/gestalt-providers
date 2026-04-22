@@ -122,7 +122,7 @@ test.describe("Workflows", () => {
 
     await page.getByRole("button", { name: /github\.issues\.create/i }).click();
     await expect(detailPanel.getByText("run_456")).toBeVisible();
-    await expect(detailPanel.getByText("event:evt_456")).toBeVisible();
+    await expect(detailPanel.getByText("trigger:evt_456")).toBeVisible();
     await expect(detailPanel.getByText("github.issues.create")).toBeVisible();
   });
 
@@ -260,7 +260,7 @@ test.describe("Workflows", () => {
 
     await page.getByRole("button", { name: /github\.issues\.create/i }).click();
     await expect(detailPanel.getByText("sched_456")).toBeVisible();
-    await expect(detailPanel.getByText(/^paused$/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
   });
 
   test("shows event trigger details in the triggers tab", async ({ authenticatedPage: page }) => {
@@ -298,10 +298,10 @@ test.describe("Workflows", () => {
     ]);
 
     await page.goto("/workflows");
-    await page.getByRole("tab", { name: "Event Triggers" }).click();
+    await page.getByRole("tab", { name: "Triggers" }).click();
 
     const detailPanel = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Event Trigger Details" }),
+      has: page.getByRole("heading", { name: "Trigger Details" }),
     });
 
     await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
@@ -315,6 +315,6 @@ test.describe("Workflows", () => {
 
     await page.getByRole("button", { name: /github\.issues\.create/i }).click();
     await expect(detailPanel.getByText("evt_456")).toBeVisible();
-    await expect(detailPanel.getByText(/^paused$/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
   });
 });
