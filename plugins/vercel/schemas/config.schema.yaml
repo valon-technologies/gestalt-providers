@@ -6,6 +6,9 @@ properties:
   clientSecret:
     type: string
     description: Vercel OAuth client secret.
+  blobReadWriteToken:
+    type: string
+    description: Optional Vercel Blob read-write token used by the executable `blob.*` operations.
 required:
   - clientId
   - clientSecret

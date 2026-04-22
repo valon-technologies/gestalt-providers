@@ -1,0 +1,28 @@
+[project]
+name = "gestalt-vercel"
+version = "0.0.1a2"
+requires-python = "==3.14.*"
+dependencies = ["gestalt-sdk==0.0.1a8"]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "ty==0.0.29",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+
+[tool.gestalt]
+plugin = "provider"
+
+[tool.gestalt.ci]
+vulture-ignore-names = [
+  "blob_put",
+  "blob_get",
+  "blob_head",
+  "blob_list",
+  "blob_delete",
+  "blob_copy",
+]
