@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: Microsoft Entra OAuth client ID for the Microsoft Teams integration.
+  clientSecret:
+    type: string
+    description: Microsoft Entra OAuth client secret for the Microsoft Teams integration.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false

@@ -1,0 +1,28 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/teams
+version: 0.0.1-alpha.1
+displayName: Microsoft Teams
+description: Browse Microsoft Teams teams, channels, chats, members, and messages through Microsoft Graph.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  connections:
+    default:
+      mode: user
+      auth:
+        type: oauth2
+        authorizationUrl: https://login.microsoftonline.com/common/oauth2/v2.0/authorize
+        tokenUrl: https://login.microsoftonline.com/common/oauth2/v2.0/token
+        acceptHeader: application/json
+        scopes:
+        - offline_access
+        - Team.ReadBasic.All
+        - TeamMember.Read.All
+        - Channel.ReadBasic.All
+        - ChannelMember.Read.All
+        - ChannelMessage.Read.All
+        - Chat.Read

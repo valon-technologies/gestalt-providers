@@ -1,0 +1,11 @@
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <mask id="teams-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+    <rect width="24" height="24" fill="black"/>
+    <circle cx="17.6" cy="8.1" r="2.55" fill="white"/>
+    <circle cx="19.1" cy="15.7" r="3.15" fill="white"/>
+    <rect x="11.8" y="6.2" width="7.7" height="11.1" rx="2.2" fill="white"/>
+    <rect x="4.2" y="4.1" width="10.8" height="12.8" rx="2.05" fill="white"/>
+    <path d="M7.35 8.05H12.95V9.95H11.12V15.1H9.18V9.95H7.35V8.05Z" fill="black"/>
+  </mask>
+  <rect width="24" height="24" fill="currentColor" mask="url(#teams-mask)"/>
+</svg>
