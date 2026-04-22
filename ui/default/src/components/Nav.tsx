@@ -11,10 +11,9 @@ import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
 
 const links = [
   { href: "/", label: "Dashboard" },
-  { href: "/workflows", label: "Workflows" },
-  { href: "/identities", label: "Identities" },
+  { href: "/authorization", label: "Authorization" },
   { href: "/integrations", label: "Plugins" },
-  { href: "/tokens", label: "API Tokens" },
+  { href: "/workflows", label: "Workflows" },
   { href: DOCS_PATH, label: "Docs" },
 ];
 
@@ -22,7 +21,6 @@ export default function Nav() {
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
   const [loginSupported, setLoginSupported] = useState(false);
-  const [identitiesAvailable, setIdentitiesAvailable] = useState(false);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -41,13 +39,11 @@ export default function Nav() {
       .then((info) => {
         if (active) {
           setLoginSupported(info.loginSupported);
-          setIdentitiesAvailable(info.provider !== "none");
         }
       })
       .catch(() => {
         if (active) {
           setLoginSupported(true);
-          setIdentitiesAvailable(true);
         }
       });
 
@@ -70,11 +66,10 @@ export default function Nav() {
             Gestalt
           </Link>
           <div className="flex gap-5">
-            {links
-              .filter((link) => identitiesAvailable || link.href !== "/identities")
-              .map((link) => {
+            {links.map((link) => {
               const isActive =
                 pathname === link.href ||
+                (link.href === "/authorization" && pathname === "/tokens") ||
                 (link.href !== "/" && pathname.startsWith(link.href + "/"));
               const className = `text-sm transition-colors duration-150 ${
                 isActive

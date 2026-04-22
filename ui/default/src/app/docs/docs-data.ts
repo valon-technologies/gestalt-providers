@@ -19,10 +19,22 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "install", label: "Install" },
       { id: "point-cli", label: "Point the CLI" },
       { id: "authenticate", label: "Authenticate" },
+      { id: "workflows", label: "Inspect workflows" },
     ],
   },
   { id: "connect", href: "/docs/connect", label: "Connect Plugins", subsections: [] },
   { id: "invoke", href: "/docs/invoke", label: "Invoke Operations", subsections: [] },
+  {
+    id: "workflows",
+    href: "/docs/workflows",
+    label: "Manage Workflows",
+    subsections: [
+      { id: "wf-help", label: "Start with help" },
+      { id: "wf-schedules", label: "Manage schedules" },
+      { id: "wf-triggers", label: "Manage event triggers" },
+      { id: "wf-runs", label: "Inspect runs" },
+    ],
+  },
   { id: "tokens", href: "/docs/tokens", label: "Manage API Tokens", subsections: [] },
   { id: "mcp", href: "/docs/mcp", label: "Use With MCP", subsections: [] },
   {

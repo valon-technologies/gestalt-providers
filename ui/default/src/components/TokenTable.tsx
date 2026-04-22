@@ -28,9 +28,9 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
 
   if (tokens.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-faint">
-        No API tokens yet.
-      </p>
+      <div className="rounded-lg border border-dashed border-alpha p-8">
+        <p className="text-center text-sm text-faint">No API tokens yet.</p>
+      </div>
     );
   }
 

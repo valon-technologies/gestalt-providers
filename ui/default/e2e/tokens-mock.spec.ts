@@ -28,9 +28,9 @@ test.describe("Token Management", () => {
     await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
 
-    await page.goto("/tokens");
+    await page.goto("/authorization");
     await expect(
-      page.getByRole("heading", { name: "API Tokens" }),
+      page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
     await expect(page.getByText("ci-pipeline")).toBeVisible();
     await expect(page.getByText("deploy-key")).toBeVisible();
@@ -41,7 +41,7 @@ test.describe("Token Management", () => {
     await mockTokens(page, []);
     await mockIntegrations(page, []);
 
-    await page.goto("/tokens");
+    await page.goto("/authorization");
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
   });
 
@@ -73,7 +73,7 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/tokens");
+    await page.goto("/authorization");
     await page.getByLabel("Token name").fill("my-new-token");
     await page.getByRole("button", { name: "Create Token" }).click();
 
@@ -125,7 +125,7 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/tokens");
+    await page.goto("/authorization");
     await page.getByLabel("Token name").fill("race-token");
     await page.getByRole("button", { name: "Create Token" }).click();
 
@@ -154,7 +154,7 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/tokens");
+    await page.goto("/authorization");
     await expect(page.getByText("ci-pipeline")).toBeVisible();
 
     // Click the first Revoke button.

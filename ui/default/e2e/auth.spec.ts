@@ -28,9 +28,9 @@ test.describe("Authentication", () => {
     await page.waitForURL((url) => url.pathname !== "/login", {
       timeout: 10000,
     });
-    await page.goto("/tokens");
+    await page.goto("/authorization");
     await expect(
-      page.getByRole("heading", { name: "API Tokens" }),
+      page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
   });
 });

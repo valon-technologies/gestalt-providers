@@ -6,25 +6,6 @@ import {
   mockWorkflowRuns,
   mockWorkflowSchedules,
 } from "./fixtures";
-import type { WorkflowEventTrigger, WorkflowRun, WorkflowSchedule } from "../src/lib/api";
-
-async function mockWorkflowState(
-  page: Parameters<typeof mockWorkflowRuns>[0],
-  {
-    runs = [],
-    schedules = [],
-    triggers = [],
-  }: {
-    runs?: WorkflowRun[];
-    schedules?: WorkflowSchedule[];
-    triggers?: WorkflowEventTrigger[];
-  },
-) {
-  const runController = await mockWorkflowRuns(page, runs);
-  const scheduleController = await mockWorkflowSchedules(page, schedules);
-  const triggerController = await mockWorkflowEventTriggers(page, triggers);
-  return { runController, scheduleController, triggerController };
-}
 
 test.describe("Workflows", () => {
   test.beforeEach(async ({ authenticatedPage }) => {
@@ -32,43 +13,38 @@ test.describe("Workflows", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockWorkflowSchedules(authenticatedPage, []);
+    await mockWorkflowEventTriggers(authenticatedPage, []);
   });
 
-  test("shows an empty runs state when no workflow activity exists", async ({
-    authenticatedPage: page,
-  }) => {
-    await mockWorkflowState(page, {});
+  test("shows an empty state when no runs exist", async ({ authenticatedPage: page }) => {
+    await mockWorkflowRuns(page, []);
     await page.goto("/workflows");
-    await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
     await expect(page.getByText("No workflow runs yet.")).toBeVisible();
   });
 
-  test("refreshes the run list without clearing the selected surface", async ({
-    authenticatedPage: page,
-  }) => {
-    const { runController } = await mockWorkflowState(page, {
-      runs: [
-        {
-          id: "run_initial",
-          provider: "basic",
-          status: "succeeded",
-          target: {
-            plugin: "slack",
-            operation: "chat.postMessage",
-          },
-          trigger: {
-            kind: "manual",
-          },
-          createdAt: "2026-04-20T00:00:00Z",
-          completedAt: "2026-04-20T00:02:00Z",
+  test("refreshes the list without clearing the current page state", async ({ authenticatedPage: page }) => {
+    const workflowRuns = await mockWorkflowRuns(page, [
+      {
+        id: "run_initial",
+        provider: "basic",
+        status: "succeeded",
+        target: {
+          plugin: "slack",
+          operation: "chat.postMessage",
         },
-      ],
-    });
+        trigger: {
+          kind: "manual",
+        },
+        createdAt: "2026-04-20T00:00:00Z",
+        completedAt: "2026-04-20T00:02:00Z",
+      },
+    ]);
 
     await page.goto("/workflows");
     await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
 
-    runController.setRuns([
+    workflowRuns.setRuns([
       {
         id: "run_refreshed",
         provider: "basic",
@@ -90,193 +66,83 @@ test.describe("Workflows", () => {
     await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toHaveCount(0);
   });
 
-  test("links a run back to its originating schedule or trigger", async ({
-    authenticatedPage: page,
-  }) => {
-    await mockWorkflowState(page, {
-      runs: [
-        {
-          id: "run_123",
-          provider: "basic",
-          status: "succeeded",
-          target: {
-            plugin: "slack",
-            operation: "chat.postMessage",
-            connection: "workspace",
-            input: { channel: "C123", text: "hello" },
-          },
-          trigger: {
-            kind: "schedule",
-            scheduleId: "sched_123",
-          },
-          createdBy: {
-            subjectId: "user:123",
-            displayName: "Ada",
-          },
-          createdAt: "2026-04-20T00:00:00Z",
-          startedAt: "2026-04-20T00:01:00Z",
-          completedAt: "2026-04-20T00:02:00Z",
-          statusMessage: "completed",
-          resultBody: "{\"ok\":true}",
+  test("shows run details for the selected run", async ({ authenticatedPage: page }) => {
+    await mockWorkflowRuns(page, [
+      {
+        id: "run_123",
+        provider: "basic",
+        status: "succeeded",
+        target: {
+          plugin: "slack",
+          operation: "chat.postMessage",
+          connection: "workspace",
+          input: { channel: "C123", text: "hello" },
         },
-        {
-          id: "run_456",
-          provider: "advanced",
-          status: "failed",
-          target: {
-            plugin: "github",
-            operation: "issues.create",
-          },
-          trigger: {
-            kind: "event",
-            triggerId: "evt_456",
-          },
-          createdAt: "2026-04-19T00:00:00Z",
+        trigger: {
+          kind: "schedule",
+          scheduleId: "sched_123",
         },
-      ],
-      schedules: [
-        {
-          id: "sched_123",
-          provider: "basic",
-          cron: "0 9 * * 1-5",
-          timezone: "America/New_York",
-          paused: false,
-          target: {
-            plugin: "slack",
-            operation: "chat.postMessage",
-          },
-          createdAt: "2026-04-19T00:00:00Z",
-          updatedAt: "2026-04-20T00:00:00Z",
-          nextRunAt: "2026-04-22T13:00:00Z",
+        createdBy: {
+          subjectId: "user:123",
+          displayName: "Ada",
         },
-      ],
-      triggers: [
-        {
-          id: "evt_456",
-          provider: "basic",
-          paused: false,
-          match: {
-            type: "task.updated",
-            source: "roadmap",
-          },
-          target: {
-            plugin: "github",
-            operation: "issues.create",
-          },
-          createdAt: "2026-04-19T00:00:00Z",
-          updatedAt: "2026-04-20T00:00:00Z",
+        createdAt: "2026-04-20T00:00:00Z",
+        startedAt: "2026-04-20T00:01:00Z",
+        completedAt: "2026-04-20T00:02:00Z",
+        statusMessage: "completed",
+        resultBody: "{\"ok\":true}",
+      },
+      {
+        id: "run_456",
+        provider: "advanced",
+        status: "failed",
+        target: {
+          plugin: "github",
+          operation: "issues.create",
         },
-      ],
-    });
+        trigger: {
+          kind: "event",
+          triggerId: "evt_456",
+        },
+        createdAt: "2026-04-19T00:00:00Z",
+      },
+    ]);
 
     await page.goto("/workflows");
-
-    const runDetailPanel = page.locator("section").filter({
+    const detailPanel = page.locator("section").filter({
       has: page.getByRole("heading", { name: "Run Details" }),
     });
-    await expect(runDetailPanel.getByText("schedule:sched_123")).toBeVisible();
-    await page.getByRole("button", { name: "Open schedule" }).click();
-
-    const scheduleDetailPanel = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Schedule Details" }),
-    });
-    await expect(scheduleDetailPanel.getByText("sched_123")).toBeVisible();
-    await expect(page.getByLabel("Cron")).toHaveValue("0 9 * * 1-5");
-
-    await page.getByRole("button", { name: /Runs/i }).click();
-    await page.getByRole("button", { name: /github\.issues\.create/i }).click();
-    await page.getByRole("button", { name: "Open event trigger" }).click();
-
-    const triggerDetailPanel = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Event Trigger Details" }),
-    });
-    await expect(triggerDetailPanel.getByText("evt_456")).toBeVisible();
-    await expect(page.getByLabel("Event type")).toHaveValue("task.updated");
-  });
-
-  test("creates, pauses, resumes, and deletes a schedule", async ({
-    authenticatedPage: page,
-  }) => {
-    await mockWorkflowState(page, {});
-
-    await page.goto("/workflows");
-    await page.getByRole("button", { name: /Schedules/i }).click();
-    await page.getByRole("button", { name: "New schedule" }).click();
-
-    await page.getByLabel("Cron").fill("0 9 * * 1-5");
-    await page.getByLabel("Target plugin").fill("slack");
-    await page.getByLabel("Target operation").fill("chat.postMessage");
-    await page.getByLabel("Connection").fill("workspace");
-    await page.getByLabel("Input JSON").fill('{"channel":"C123","text":"hello"}');
-    await page.getByRole("button", { name: "Create schedule" }).click();
-
-    await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
     await expect(
-      page
-        .locator("section")
-        .filter({ has: page.getByRole("heading", { name: "Schedule Details" }) })
-        .getByText("sched_1"),
+      page.getByRole("button", { name: /slack\.chat\.postMessage/i }),
     ).toBeVisible();
+    await expect(detailPanel.getByText(/^completed$/)).toBeVisible();
+    await expect(detailPanel.getByText("schedule:sched_123")).toBeVisible();
+    await expect(detailPanel.getByText("slack.chat.postMessage")).toBeVisible();
 
-    await page.getByRole("button", { name: "Pause schedule" }).click();
-    await expect(page.getByRole("button", { name: "Resume schedule" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Resume schedule" }).click();
-    await expect(page.getByRole("button", { name: "Pause schedule" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Delete schedule" }).click();
-    await expect(page.getByText("No workflow schedules yet.")).toBeVisible();
-  });
-
-  test("creates, updates, pauses, and deletes an event trigger", async ({
-    authenticatedPage: page,
-  }) => {
-    await mockWorkflowState(page, {});
-
-    await page.goto("/workflows");
-    await page.getByRole("button", { name: /Event Triggers/i }).click();
-    await page.getByRole("button", { name: "New event trigger" }).click();
-
-    await page.getByLabel("Event type").fill("task.updated");
-    await page.getByLabel("Source").fill("roadmap");
-    await page.getByLabel("Target plugin").fill("github");
-    await page.getByLabel("Target operation").fill("issues.create");
-    await page.getByLabel("Input JSON").fill('{"title":"Follow up"}');
-    await page.getByRole("button", { name: "Create event trigger" }).click();
-
-    await expect(page.getByRole("button", { name: /task\.updated/i })).toBeVisible();
-    await expect(page.getByLabel("Event type")).toHaveValue("task.updated");
-
-    await page.getByLabel("Source").fill("roadmap-sync");
-    await page.getByRole("button", { name: "Save event trigger" }).click();
-    await expect(page.getByLabel("Source")).toHaveValue("roadmap-sync");
-
-    await page.getByRole("button", { name: "Pause event trigger" }).click();
-    await expect(page.getByRole("button", { name: "Resume event trigger" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Delete event trigger" }).click();
-    await expect(page.getByText("No workflow event triggers yet.")).toBeVisible();
+    await page.getByRole("button", { name: /github\.issues\.create/i }).click();
+    await expect(detailPanel.getByText("run_456")).toBeVisible();
+    await expect(detailPanel.getByText("event:evt_456")).toBeVisible();
+    await expect(detailPanel.getByText("github.issues.create")).toBeVisible();
   });
 
   test("cancels an in-flight run from the detail panel", async ({ authenticatedPage: page }) => {
-    await mockWorkflowState(page, {
-      runs: [
-        {
-          id: "run_inflight",
-          provider: "basic",
-          status: "pending",
-          target: {
-            plugin: "slack",
-            operation: "chat.postMessage",
-          },
-          trigger: {
-            kind: "manual",
-          },
-          createdAt: "2026-04-20T00:00:00Z",
-          startedAt: "2026-04-20T00:01:00Z",
+    await mockWorkflowRuns(page, [
+      {
+        id: "run_inflight",
+        provider: "basic",
+        status: "pending",
+        target: {
+          plugin: "slack",
+          operation: "chat.postMessage",
         },
-      ],
-    });
+        trigger: {
+          kind: "manual",
+        },
+        createdAt: "2026-04-20T00:00:00Z",
+        startedAt: "2026-04-20T00:01:00Z",
+      },
+    ]);
 
     await page.goto("/workflows");
     const detailPanel = page.locator("section").filter({
@@ -287,5 +153,168 @@ test.describe("Workflows", () => {
     await expect(detailPanel.getByText(/^canceled$/i)).toBeVisible();
     await expect(detailPanel.getByText("Run canceled.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
+  });
+
+  test("shows cancel errors without clearing the selected run", async ({ authenticatedPage: page }) => {
+    await mockWorkflowRuns(
+      page,
+      [
+        {
+          id: "run_pending",
+          provider: "basic",
+          status: "pending",
+          target: {
+            plugin: "slack",
+            operation: "chat.postMessage",
+          },
+          trigger: {
+            kind: "manual",
+          },
+          createdAt: "2026-04-20T00:00:00Z",
+        },
+      ],
+      {
+        onCancel() {
+          return {
+            status: 412,
+            json: { error: "workflow run cannot be canceled once it has started" },
+          };
+        },
+      },
+    );
+
+    await page.goto("/workflows");
+    const detailPanel = page.locator("section").filter({
+      has: page.getByRole("heading", { name: "Run Details" }),
+    });
+
+    await page.getByRole("button", { name: "Cancel run" }).click();
+    await expect(detailPanel.getByText("workflow run cannot be canceled once it has started")).toBeVisible();
+    await expect(detailPanel.getByText("run_pending")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cancel run" })).toBeVisible();
+  });
+
+  test("does not offer cancel for a running run", async ({ authenticatedPage: page }) => {
+    await mockWorkflowRuns(page, [
+      {
+        id: "run_running",
+        provider: "basic",
+        status: "running",
+        target: {
+          plugin: "slack",
+          operation: "chat.postMessage",
+        },
+        trigger: {
+          kind: "manual",
+        },
+        createdAt: "2026-04-20T00:00:00Z",
+        startedAt: "2026-04-20T00:01:00Z",
+      },
+    ]);
+
+    await page.goto("/workflows");
+    await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
+  });
+
+  test("shows schedule details in the schedules tab", async ({ authenticatedPage: page }) => {
+    await mockWorkflowRuns(page, []);
+    await mockWorkflowSchedules(page, [
+      {
+        id: "sched_123",
+        provider: "basic",
+        cron: "0 */5 * * *",
+        timezone: "UTC",
+        target: {
+          plugin: "slack",
+          operation: "chat.postMessage",
+          connection: "workspace",
+        },
+        nextRunAt: "2026-04-21T00:05:00Z",
+        createdAt: "2026-04-20T00:00:00Z",
+        updatedAt: "2026-04-20T01:00:00Z",
+      },
+      {
+        id: "sched_456",
+        provider: "advanced",
+        cron: "0 9 * * 1-5",
+        paused: true,
+        target: {
+          plugin: "github",
+          operation: "issues.create",
+        },
+        createdAt: "2026-04-19T00:00:00Z",
+      },
+    ]);
+
+    await page.goto("/workflows");
+    await page.getByRole("tab", { name: "Schedules" }).click();
+
+    const detailPanel = page.locator("section").filter({
+      has: page.getByRole("heading", { name: "Schedule Details" }),
+    });
+
+    await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
+    await expect(detailPanel.getByText("sched_123")).toBeVisible();
+    await expect(detailPanel.getByText("0 */5 * * *")).toBeVisible();
+    await expect(detailPanel.getByText("UTC")).toBeVisible();
+
+    await page.getByRole("button", { name: /github\.issues\.create/i }).click();
+    await expect(detailPanel.getByText("sched_456")).toBeVisible();
+    await expect(detailPanel.getByText(/^paused$/i)).toBeVisible();
+  });
+
+  test("shows event trigger details in the triggers tab", async ({ authenticatedPage: page }) => {
+    await mockWorkflowRuns(page, []);
+    await mockWorkflowEventTriggers(page, [
+      {
+        id: "evt_123",
+        provider: "basic",
+        match: {
+          type: "github.pull_request.opened",
+          source: "github",
+          subject: "repo:valon/gestalt",
+        },
+        target: {
+          plugin: "slack",
+          operation: "chat.postMessage",
+          connection: "workspace",
+        },
+        createdAt: "2026-04-20T00:00:00Z",
+        updatedAt: "2026-04-20T01:00:00Z",
+      },
+      {
+        id: "evt_456",
+        provider: "advanced",
+        paused: true,
+        match: {
+          type: "linear.issue.created",
+        },
+        target: {
+          plugin: "github",
+          operation: "issues.create",
+        },
+        createdAt: "2026-04-19T00:00:00Z",
+      },
+    ]);
+
+    await page.goto("/workflows");
+    await page.getByRole("tab", { name: "Event Triggers" }).click();
+
+    const detailPanel = page.locator("section").filter({
+      has: page.getByRole("heading", { name: "Event Trigger Details" }),
+    });
+
+    await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
+    await expect(detailPanel.getByText("evt_123")).toBeVisible();
+    await expect(
+      detailPanel.getByText("github.pull_request.opened").first(),
+    ).toBeVisible();
+    await expect(
+      detailPanel.getByText("Source: github · Subject: repo:valon/gestalt"),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: /github\.issues\.create/i }).click();
+    await expect(detailPanel.getByText("evt_456")).toBeVisible();
+    await expect(detailPanel.getByText(/^paused$/i)).toBeVisible();
   });
 });

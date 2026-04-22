@@ -38,8 +38,8 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="mt-8 flex items-end gap-3">
-        <div>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="flex-1">
           <label
             htmlFor="token-name"
             className="label-text block"
@@ -52,10 +52,10 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             type="text"
             required
             placeholder="e.g. ci-pipeline"
-            className={`mt-2 ${INPUT_CLASSES}`}
+            className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
         </div>
-        <Button type="submit" disabled={creating}>
+        <Button type="submit" disabled={creating} className="sm:shrink-0">
           {creating ? "Creating..." : "Create Token"}
         </Button>
       </form>
