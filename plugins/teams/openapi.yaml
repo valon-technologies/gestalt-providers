@@ -1,0 +1,418 @@
+openapi: 3.0.3
+info:
+  title: Microsoft Teams via Microsoft Graph
+  version: v1.0
+  description: >-
+    Curated Microsoft Graph operations for Microsoft Teams team discovery,
+    channels, memberships, chats, and read-only message access.
+servers:
+  - url: https://graph.microsoft.com/v1.0
+security:
+  - bearerAuth: []
+paths:
+  /me/joinedTeams:
+    get:
+      operationId: list_joined_teams
+      summary: List joined teams
+      description: List the Microsoft Teams teams that the signed-in user is a direct member of.
+      tags: [Teams]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/user-list-joinedteams?view=graph-rest-1.0
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}:
+    get:
+      operationId: get_team
+      summary: Get team
+      description: Retrieve a Microsoft Teams team by ID.
+      tags: [Teams]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/team-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/Select'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/members:
+    get:
+      operationId: list_team_members
+      summary: List team members
+      description: List conversation members for a Microsoft Teams team.
+      tags: [Members]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/team-list-members?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Select'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels:
+    get:
+      operationId: list_team_channels
+      summary: List channels
+      description: List channels visible to the signed-in user in a team.
+      tags: [Channels]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/channel-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Select'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels/{channel-id}:
+    get:
+      operationId: get_channel
+      summary: Get channel
+      description: Retrieve a channel by ID.
+      tags: [Channels]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/channel-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/ChannelId'
+        - $ref: '#/components/parameters/Select'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels/{channel-id}/allMembers:
+    get:
+      operationId: list_channel_members
+      summary: List channel members
+      description: List direct and indirect members for a standard, private, or shared channel.
+      tags: [Members]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/channel-list-allmembers?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/ChannelId'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/Select'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels/{channel-id}/messages:
+    get:
+      operationId: list_channel_messages
+      summary: List channel root posts
+      description: >-
+        List root channel messages. This endpoint does not return replies unless
+        requested via `$expand`; use the replies operation for full threads.
+      tags: [ChannelMessages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/ChannelId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels/{channel-id}/messages/{chatMessage-id}:
+    get:
+      operationId: get_channel_message
+      summary: Get channel message
+      description: Retrieve a single root channel message.
+      tags: [ChannelMessages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chatmessage-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/ChannelId'
+        - $ref: '#/components/parameters/ChatMessageId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels/{channel-id}/messages/{chatMessage-id}/replies:
+    get:
+      operationId: list_channel_message_replies
+      summary: List channel message replies
+      description: List replies for a channel message thread.
+      tags: [ChannelMessages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chatmessage-list-replies?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/ChannelId'
+        - $ref: '#/components/parameters/ChatMessageId'
+        - $ref: '#/components/parameters/Top'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /teams/{team-id}/channels/{channel-id}/messages/{chatMessage-id}/replies/{reply-id}:
+    get:
+      operationId: get_channel_message_reply
+      summary: Get channel message reply
+      description: Retrieve a single reply in a channel message thread.
+      tags: [ChannelMessages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chatmessage-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/ChannelId'
+        - $ref: '#/components/parameters/ChatMessageId'
+        - $ref: '#/components/parameters/ReplyId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /chats:
+    get:
+      operationId: list_chats
+      summary: List chats
+      description: List chats accessible to the signed-in user.
+      tags: [Chats]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chat-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/OrderBy'
+        - $ref: '#/components/parameters/Expand'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /chats/{chat-id}:
+    get:
+      operationId: get_chat
+      summary: Get chat
+      description: Retrieve a chat without its messages.
+      tags: [Chats]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chat-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/ChatId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /chats/{chat-id}/members:
+    get:
+      operationId: list_chat_members
+      summary: List chat members
+      description: List members of a chat.
+      tags: [Members]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/conversationmember-list?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/ChatId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /chats/{chat-id}/messages:
+    get:
+      operationId: list_chat_messages
+      summary: List chat messages
+      description: List messages in a chat.
+      tags: [ChatMessages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chat-list-messages?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/ChatId'
+        - $ref: '#/components/parameters/Top'
+        - $ref: '#/components/parameters/Filter'
+        - $ref: '#/components/parameters/OrderBy'
+      responses:
+        '200':
+          $ref: '#/components/responses/ObjectArray'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /chats/{chat-id}/messages/{chatMessage-id}:
+    get:
+      operationId: get_chat_message
+      summary: Get chat message
+      description: Retrieve a single chat message.
+      tags: [ChatMessages]
+      externalDocs:
+        description: Official docs
+        url: https://learn.microsoft.com/en-us/graph/api/chatmessage-get?view=graph-rest-1.0
+      parameters:
+        - $ref: '#/components/parameters/ChatId'
+        - $ref: '#/components/parameters/ChatMessageId'
+      responses:
+        '200':
+          $ref: '#/components/responses/Object'
+        default:
+          $ref: '#/components/responses/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    TeamId:
+      name: team-id
+      in: path
+      required: true
+      description: The Microsoft Teams team identifier.
+      schema:
+        type: string
+    ChannelId:
+      name: channel-id
+      in: path
+      required: true
+      description: The Microsoft Teams channel identifier.
+      schema:
+        type: string
+    ChatId:
+      name: chat-id
+      in: path
+      required: true
+      description: The Microsoft Teams chat identifier.
+      schema:
+        type: string
+    ChatMessageId:
+      name: chatMessage-id
+      in: path
+      required: true
+      description: The chat message identifier.
+      schema:
+        type: string
+    ReplyId:
+      name: reply-id
+      in: path
+      required: true
+      description: The channel reply identifier.
+      schema:
+        type: string
+    Top:
+      name: $top
+      in: query
+      description: Maximum number of results to return.
+      schema:
+        type: integer
+        minimum: 1
+    Filter:
+      name: $filter
+      in: query
+      description: OData filter expression.
+      schema:
+        type: string
+    Select:
+      name: $select
+      in: query
+      description: Comma-separated list of properties to return.
+      schema:
+        type: string
+    Expand:
+      name: $expand
+      in: query
+      description: Comma-separated related entities to expand.
+      schema:
+        type: string
+    OrderBy:
+      name: $orderby
+      in: query
+      description: OData order expression.
+      schema:
+        type: string
+
+  responses:
+    Object:
+      description: Generic Microsoft Graph object response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Object'
+    ObjectArray:
+      description: Generic Microsoft Graph collection response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ObjectArrayResponse'
+    Error:
+      description: Error response from Microsoft Graph.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Object:
+      type: object
+      additionalProperties: true
+      description: Generic Microsoft Graph resource object.
+    ObjectArrayResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        value:
+          type: array
+          items:
+            $ref: '#/components/schemas/Object'
+        '@odata.nextLink':
+          type: string
+          description: Link to the next page of results.
+        '@odata.count':
+          type: integer
+          description: Total result count when returned.
+    Error:
+      type: object
+      additionalProperties: true
+      properties:
+        error:
+          type: object
+          additionalProperties: true
