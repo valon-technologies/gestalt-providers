@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/authorization/indexeddb
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: IndexedDB Authorization
 description: Authorization provider backed by the host IndexedDB service.
 kind: authorization
