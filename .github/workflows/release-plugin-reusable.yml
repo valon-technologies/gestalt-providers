@@ -31,6 +31,7 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
       UV_PYTHON: "3.14"
+      GESTALT_GRAPHQL_INTROSPECTION_TOKEN: ${{ inputs.plugin-dir == 'plugins/github' && github.token || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Normalize version
@@ -233,6 +234,7 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
       UV_PYTHON: "3.14"
+      GESTALT_GRAPHQL_INTROSPECTION_TOKEN: ${{ inputs.plugin-dir == 'plugins/github' && github.token || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -279,6 +281,7 @@ jobs:
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
       UV_PYTHON: "3.14"
+      GESTALT_GRAPHQL_INTROSPECTION_TOKEN: ${{ inputs.plugin-dir == 'plugins/github' && github.token || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

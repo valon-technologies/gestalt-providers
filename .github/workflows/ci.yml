@@ -259,6 +259,9 @@ jobs:
 
           rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
           mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
+          if [ "$plugin_dir" = "plugins/github" ]; then
+            export GESTALT_GRAPHQL_INTROSPECTION_TOKEN="${{ github.token }}"
+          fi
           (cd "$plugin_dir" && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
 
           if [ ! -f "${OUTPUT_ROOT}/${plugin_name}/provider-release.yaml" ]; then
