@@ -1,11 +1,7 @@
-<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <mask id="teams-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
-    <rect width="24" height="24" fill="black"/>
-    <circle cx="17.6" cy="8.1" r="2.55" fill="white"/>
-    <circle cx="19.1" cy="15.7" r="3.15" fill="white"/>
-    <rect x="11.8" y="6.2" width="7.7" height="11.1" rx="2.2" fill="white"/>
-    <rect x="4.2" y="4.1" width="10.8" height="12.8" rx="2.05" fill="white"/>
-    <path d="M7.35 8.05H12.95V9.95H11.12V15.1H9.18V9.95H7.35V8.05Z" fill="black"/>
-  </mask>
-  <rect width="24" height="24" fill="currentColor" mask="url(#teams-mask)"/>
+<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="14" cy="3" r="2"/>
+  <circle cx="9" cy="3" r="3" opacity="0.9"/>
+  <path d="M4.82 6H12.18A0.82 0.82 0 0 1 13 6.82V11.5A4.5 4.5 0 0 1 8.5 16A4.5 4.5 0 0 1 4 11.5V6.82A0.82 0.82 0 0 1 4.82 6Z" opacity="0.8"/>
+  <path d="M15.122 6.003L12.18 6L10.476 6.822V10.887A2.733 2.733 0 1 0 15.942 10.887V6.822A0.82 0.82 0 0 0 15.122 6.003Z" opacity="0.8"/>
+  <path fill-rule="evenodd" d="M1 3H9A1 1 0 0 1 10 4V12A1 1 0 0 1 9 13H1A1 1 0 0 1 0 12V4A1 1 0 0 1 1 3ZM8 5H3V6H5V11H6V6H8V5Z"/>
 </svg>
