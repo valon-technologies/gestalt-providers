@@ -2,7 +2,7 @@
 name = "gestalt-gmail"
 version = "0.0.1a1"
 requires-python = "==3.14.*"
-dependencies = ["gestalt"]
+dependencies = ["gestalt-sdk"]
 
 [dependency-groups]
 dev = [
