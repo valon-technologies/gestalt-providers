@@ -220,7 +220,7 @@ def _request_json(
     path: str = "",
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-    body: bytes | None = None,
+    body: str | bytes | None = None,
     decode_json: bool = True,
 ) -> dict[str, Any]:
     query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
