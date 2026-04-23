@@ -845,6 +845,8 @@ func isRelayHostServiceEnv(envVar string) bool {
 	switch {
 	case isIndexedDBSocketEnv(envVar):
 		return true
+	case envVar == gestalt.EnvAgentHostSocket:
+		return true
 	case envVar == gestalt.EnvCacheSocket || strings.HasPrefix(envVar, gestalt.EnvCacheSocket+"_"):
 		return true
 	case envVar == gestalt.EnvS3Socket || strings.HasPrefix(envVar, gestalt.EnvS3Socket+"_"):
