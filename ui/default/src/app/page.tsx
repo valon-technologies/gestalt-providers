@@ -11,6 +11,7 @@ import {
   getWorkflowEventTriggers,
   getWorkflowRuns,
   getWorkflowSchedules,
+  isAPIErrorStatus,
 } from "@/lib/api";
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
@@ -22,6 +23,7 @@ export default function DashboardPage() {
     integrations: number | null;
     tokens: number | null;
     workflowResources: number | null;
+    agentAvailable: boolean;
     agentRuns: number | null;
     error: string | null;
   }>({
@@ -30,6 +32,7 @@ export default function DashboardPage() {
     integrations: null,
     tokens: null,
     workflowResources: null,
+    agentAvailable: false,
     agentRuns: null,
     error: null,
   });
@@ -42,10 +45,12 @@ export default function DashboardPage() {
         provider: "unknown",
         displayName: "Unknown",
         loginSupported: true,
+        features: undefined,
       }))
       .then((authInfo) => {
         if (!active) return;
         const identitiesAvailable = authInfo.provider !== "none";
+        const agentFeature = authInfo.features?.agent;
         return Promise.allSettled([
           identitiesAvailable ? getManagedIdentities() : Promise.resolve(null),
           getIntegrations(),
@@ -53,7 +58,7 @@ export default function DashboardPage() {
           getWorkflowSchedules(),
           getWorkflowEventTriggers(),
           getWorkflowRuns(),
-          getAgentRuns(),
+          agentFeature === false ? Promise.resolve(null) : getAgentRuns(),
         ]).then(([
           identitiesResult,
           integrationsResult,
@@ -82,6 +87,13 @@ export default function DashboardPage() {
                 workflowTriggersResult.value.length +
                 workflowRunsResult.value.length
               : null;
+          const agentAvailable =
+            typeof agentFeature === "boolean"
+              ? agentFeature
+              : !(
+                  agentRunsResult.status === "rejected" &&
+                  isAPIErrorStatus(agentRunsResult.reason, 412)
+                );
 
           setData({
             identitiesAvailable,
@@ -98,8 +110,11 @@ export default function DashboardPage() {
                 ? tokensResult.value.length
                 : null,
             workflowResources,
+            agentAvailable,
             agentRuns:
-              agentRunsResult.status === "fulfilled"
+              agentAvailable &&
+              agentRunsResult.status === "fulfilled" &&
+              agentRunsResult.value
                 ? agentRunsResult.value.length
                 : null,
             error,
@@ -192,21 +207,23 @@ export default function DashboardPage() {
                 </span>
               </p>
             </Link>
-            <Link
-              href="/agents"
-              className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
-            >
-              <span className="label-text">Agents</span>
-              <p className="mt-3 text-3xl font-heading font-bold text-primary">
-                {data.agentRuns ?? "--"}
-              </p>
-              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                Start and inspect agent runs
-                <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
-                  &rarr;
-                </span>
-              </p>
-            </Link>
+            {data.agentAvailable && (
+              <Link
+                href="/agents"
+                className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
+              >
+                <span className="label-text">Agents</span>
+                <p className="mt-3 text-3xl font-heading font-bold text-primary">
+                  {data.agentRuns ?? "--"}
+                </p>
+                <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                  Start and inspect agent runs
+                  <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
+                    &rarr;
+                  </span>
+                </p>
+              </Link>
+            )}
           </div>
         </main>
       </div>

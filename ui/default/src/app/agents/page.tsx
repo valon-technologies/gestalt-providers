@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useEffectEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   AgentRun,
   AgentRunCreate,
@@ -15,6 +16,7 @@ import {
   getAgentRuns,
   getIntegrationOperations,
   getIntegrations,
+  isAPIErrorStatus,
 } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
@@ -48,6 +50,7 @@ interface AgentRunFormState {
 const EMPTY_OPERATIONS: IntegrationOperation[] = [];
 
 export default function AgentsPage() {
+  const router = useRouter();
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
 
@@ -122,6 +125,10 @@ export default function AgentsPage() {
       })
       .catch((err) => {
         if (!active) return;
+        if (isAPIErrorStatus(err, 412)) {
+          router.replace("/");
+          return;
+        }
         setRunsError(errorMessage(err, "Failed to load agent runs"));
       })
       .finally(() => {
@@ -136,7 +143,7 @@ export default function AgentsPage() {
     return () => {
       active = false;
     };
-  }, [refreshNonce]);
+  }, [refreshNonce, router]);
 
   useEffect(() => {
     setSelectedRunID((current) =>

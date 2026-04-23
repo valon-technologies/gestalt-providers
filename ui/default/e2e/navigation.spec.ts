@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  mockAgentNotConfigured,
   mockAgentRuns,
   mockAuthInfo,
   mockWorkflowEventTriggers,
@@ -146,5 +147,28 @@ test.describe("Navigation", () => {
     await page.getByRole("link", { name: "Plugins", exact: true }).click();
     await expect(page).toHaveURL(/\/integrations/);
     await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+  });
+});
+
+test.describe("Agent availability", () => {
+  test("hides agent navigation when no agent provider is configured", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockManagedIdentities(page, []);
+    await mockIntegrations(page, []);
+    await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
+    await mockAgentNotConfigured(page);
+
+    await page.goto("/");
+
+    await expect(page.getByRole("link", { name: "Agents" })).toHaveCount(0);
+    await expect(page.getByText("Start and inspect agent runs")).toHaveCount(0);
   });
 });

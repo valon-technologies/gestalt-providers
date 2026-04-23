@@ -254,6 +254,10 @@ export class APIError extends Error {
   }
 }
 
+export function isAPIErrorStatus(error: unknown, status: number): boolean {
+  return error instanceof APIError && error.status === status;
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
@@ -312,6 +316,9 @@ export interface AuthInfo {
   provider: string;
   displayName: string;
   loginSupported: boolean;
+  features?: {
+    agent?: boolean;
+  };
 }
 
 export async function getAuthInfo(): Promise<AuthInfo> {
