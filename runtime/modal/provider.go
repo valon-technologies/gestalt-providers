@@ -150,13 +150,15 @@ func (p *Provider) HealthCheck(context.Context) error {
 
 func (p *Provider) GetCapabilities(context.Context, *emptypb.Empty) (*proto.GetPluginRuntimeCapabilitiesResponse, error) {
 	return &proto.GetPluginRuntimeCapabilitiesResponse{
-		Capabilities: &proto.PluginRuntimeCapabilities{
-			HostedPluginRuntime: true,
-			ProviderGrpcTunnel:  true,
-			HostnameProxyEgress: true,
-			CidrEgress:          true,
-			ExecutionGoos:       "linux",
-			ExecutionGoarch:     "amd64",
+		Support: &proto.PluginRuntimeSupport{
+			CanHostPlugins:    true,
+			HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
+			EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME,
+			LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
+			ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
+				Goos:   "linux",
+				Goarch: "amd64",
+			},
 		},
 	}, nil
 }
