@@ -2,7 +2,7 @@
 name = "gestalt-vercel"
 version = "0.0.1a2"
 requires-python = "==3.14.*"
-dependencies = ["gestalt-sdk==0.0.1a8"]
+dependencies = ["gestalt-sdk==0.0.1a10"]
 
 [dependency-groups]
 dev = [
