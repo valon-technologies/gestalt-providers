@@ -62,6 +62,7 @@ plugin = gestalt.Plugin(
         "event": {
             "path": "/event",
             "method": "POST",
+            "credentialMode": "none",
             "security": "slack",
             "target": SLACK_EVENT_OPERATION,
             "requestBody": {
