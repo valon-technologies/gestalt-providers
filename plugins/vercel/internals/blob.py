@@ -279,14 +279,14 @@ def _blob_error_from_http_error(err: urllib.error.HTTPError) -> VercelBlobAPIErr
     return VercelBlobAPIError(err.code, f"Vercel Blob: {message}")
 
 
-def _payload(*, body: str, body_base64: str) -> str | bytes:
+def _payload(*, body: str, body_base64: str) -> bytes:
     if body and body_base64:
         raise ValueError("provide either body or body_base64, not both")
     if body_base64:
         return base64.b64decode(body_base64, validate=True)
     if not body:
         raise ValueError("body or body_base64 is required")
-    return body
+    return body.encode("utf-8")
 
 
 def _put_result(result: dict[str, Any]) -> dict[str, Any]:
