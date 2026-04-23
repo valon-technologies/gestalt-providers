@@ -146,7 +146,12 @@ export async function mockManagedIdentities(
 
 export async function mockAuthInfo(
   page: Page,
-  info: { provider: string; displayName: string; loginSupported?: boolean },
+  info: {
+    provider: string;
+    displayName: string;
+    loginSupported?: boolean;
+    features?: { agent?: boolean };
+  },
 ) {
   await page.route("**/api/v1/auth/info", (route: Route) => {
     route.fulfill({ json: { loginSupported: true, ...info } });
@@ -271,6 +276,21 @@ export async function mockAgentRuns(
       return currentRuns.map((run) => structuredClone(run));
     },
   };
+}
+
+export async function mockAgentNotConfigured(page: Page) {
+  await page.route("**/api/v1/agent/runs", async (route: Route) => {
+    await route.fulfill({
+      status: 412,
+      json: { error: "agent is not configured" },
+    });
+  });
+  await page.route("**/api/v1/agent/runs/**", async (route: Route) => {
+    await route.fulfill({
+      status: 412,
+      json: { error: "agent is not configured" },
+    });
+  });
 }
 
 export async function mockWorkflowRuns(

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clearSession, getUserEmail } from "@/lib/auth";
-import { getAuthInfo, logout } from "@/lib/api";
+import { getAgentRuns, getAuthInfo, isAPIErrorStatus, logout } from "@/lib/api";
 import { DOCS_PATH, LOGIN_PATH } from "@/lib/constants";
 import { useTheme } from "@/hooks/use-theme";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
@@ -22,6 +22,7 @@ export default function Nav() {
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
   const [loginSupported, setLoginSupported] = useState(false);
+  const [agentAvailable, setAgentAvailable] = useState(false);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -32,19 +33,37 @@ export default function Nav() {
   useEffect(() => {
     if (!email) {
       setLoginSupported(false);
+      setAgentAvailable(false);
       return;
     }
 
     let active = true;
     getAuthInfo()
-      .then((info) => {
+      .then(async (info) => {
         if (active) {
           setLoginSupported(info.loginSupported);
+        }
+        if (typeof info.features?.agent === "boolean") {
+          if (active) {
+            setAgentAvailable(info.features.agent);
+          }
+          return;
+        }
+        try {
+          await getAgentRuns();
+          if (active) {
+            setAgentAvailable(true);
+          }
+        } catch (err) {
+          if (active) {
+            setAgentAvailable(!isAPIErrorStatus(err, 412));
+          }
         }
       })
       .catch(() => {
         if (active) {
           setLoginSupported(true);
+          setAgentAvailable(true);
         }
       });
 
@@ -67,7 +86,7 @@ export default function Nav() {
             Gestalt
           </Link>
           <div className="flex gap-5">
-            {links.map((link) => {
+            {links.filter((link) => link.href !== "/agents" || agentAvailable).map((link) => {
               const isActive =
                 pathname === link.href ||
                 (link.href === "/authorization" && pathname === "/tokens") ||
