@@ -45,15 +45,15 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 
 	ctx := context.Background()
 	pluginName := "github_plugin.with-a-very-long-name-that-preserves-session-suffix"
-	capabilities, err := client.GetCapabilities(ctx, &emptypb.Empty{})
+	support, err := client.GetSupport(ctx, &emptypb.Empty{})
 	if err != nil {
-		t.Fatalf("GetCapabilities: %v", err)
+		t.Fatalf("GetSupport: %v", err)
 	}
-	if !capabilities.GetSupport().GetCanHostPlugins() {
-		t.Fatalf("GetCapabilities CanHostPlugins = false")
+	if !support.GetCanHostPlugins() {
+		t.Fatalf("GetSupport CanHostPlugins = false")
 	}
-	if got, want := capabilities.GetSupport().GetEgressMode(), proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE; got != want {
-		t.Fatalf("GetCapabilities EgressMode = %v, want %v", got, want)
+	if got, want := support.GetEgressMode(), proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE; got != want {
+		t.Fatalf("GetSupport EgressMode = %v, want %v", got, want)
 	}
 
 	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
