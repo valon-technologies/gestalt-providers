@@ -3,7 +3,7 @@ module github.com/valon-technologies/gestalt-providers/runtime/gkeagentsandbox
 go 1.26.2
 
 require (
-	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423013354-07bcefa8d483
+	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af2bbc9e1add
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1

@@ -124,17 +124,15 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	return runtime.HealthCheck(ctx)
 }
 
-func (p *Provider) GetCapabilities(context.Context, *emptypb.Empty) (*proto.GetPluginRuntimeCapabilitiesResponse, error) {
-	return &proto.GetPluginRuntimeCapabilitiesResponse{
-		Support: &proto.PluginRuntimeSupport{
-			CanHostPlugins:    true,
-			HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
-			EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE,
-			LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
-			ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
-				Goos:   "linux",
-				Goarch: "amd64",
-			},
+func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRuntimeSupport, error) {
+	return &proto.PluginRuntimeSupport{
+		CanHostPlugins:    true,
+		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
+		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE,
+		LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
+		ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
+			Goos:   "linux",
+			Goarch: "amd64",
 		},
 	}, nil
 }
