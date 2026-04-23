@@ -1,0 +1,60 @@
+type: object
+additionalProperties: false
+properties:
+  namespace:
+    type: string
+    description: Kubernetes namespace where SandboxClaims or Sandboxes are created.
+  template:
+    type: string
+    description: Default SandboxTemplate used for claim-backed sessions.
+  container:
+    type: string
+    description: Container name inside the sandbox pod.
+  kubeconfig:
+    type: string
+    description: Optional kubeconfig path. Defaults to in-cluster config, then default kubeconfig.
+  context:
+    type: string
+    description: Optional kubeconfig context.
+  pluginPort:
+    type: integer
+    minimum: 1
+    maximum: 65535
+    description: TCP port exposed by the hosted plugin gRPC server inside the sandbox.
+  sandboxReadyTimeout:
+    type: string
+    description: Go duration to wait for Sandbox readiness.
+  pluginReadyTimeout:
+    type: string
+    description: Go duration to wait for the plugin gRPC endpoint.
+  execTimeout:
+    type: string
+    description: Go duration for bundle staging and launch exec calls.
+  cleanupTimeout:
+    type: string
+    description: Go duration for best-effort cleanup calls.
+  direct:
+    type: object
+    additionalProperties: false
+    description: Direct Sandbox creation defaults used when no SandboxTemplate is selected.
+    properties:
+      runtimeClassName:
+        type: string
+      command:
+        type: array
+        items:
+          type: string
+      args:
+        type: array
+        items:
+          type: string
+      cpuRequest:
+        type: string
+      memoryRequest:
+        type: string
+      cpuLimit:
+        type: string
+      memoryLimit:
+        type: string
+      runAsUser:
+        type: integer

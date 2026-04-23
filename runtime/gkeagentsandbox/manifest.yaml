@@ -1,0 +1,7 @@
+source: github.com/valon-technologies/gestalt-providers/runtime/gkeagentsandbox
+version: 0.0.1-alpha.1
+displayName: GKE Agent Sandbox Runtime
+description: Hosted executable-plugin runtime backed by GKE Agent Sandbox.
+kind: runtime
+spec:
+  configSchemaPath: schemas/config.schema.yaml
