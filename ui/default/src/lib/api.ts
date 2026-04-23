@@ -162,6 +162,57 @@ export interface WorkflowEventTriggerUpsert {
   paused?: boolean;
 }
 
+export interface AgentMessage {
+  role: string;
+  text: string;
+}
+
+export interface AgentActor {
+  subjectId?: string;
+  subjectKind?: string;
+  displayName?: string;
+  authSource?: string;
+}
+
+export interface AgentToolRef {
+  pluginName: string;
+  operation: string;
+  connection?: string;
+  instance?: string;
+  title?: string;
+  description?: string;
+}
+
+export interface AgentRun {
+  id: string;
+  provider: string;
+  model?: string;
+  status?: string;
+  messages?: AgentMessage[];
+  outputText?: string;
+  structuredOutput?: Record<string, unknown>;
+  statusMessage?: string;
+  sessionRef?: string;
+  createdBy?: AgentActor;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  executionRef?: string;
+}
+
+export interface AgentRunCreate {
+  provider?: string;
+  model?: string;
+  messages: AgentMessage[];
+  toolRefs?: AgentToolRef[];
+  toolSource?: "explicit" | "inherit_invokes";
+  responseSchema?: Record<string, unknown>;
+  sessionRef?: string;
+  metadata?: Record<string, unknown>;
+  providerOptions?: Record<string, unknown>;
+  idempotencyKey?: string;
+}
+
 export interface ManagedIdentity {
   id: string;
   displayName: string;
@@ -476,6 +527,38 @@ export async function cancelWorkflowRun(
   reason?: string,
 ): Promise<WorkflowRun> {
   return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+}
+
+export async function getAgentRuns(opts?: {
+  provider?: string;
+  status?: string;
+}): Promise<AgentRun[]> {
+  const query = new URLSearchParams();
+  if (opts?.provider) query.set("provider", opts.provider);
+  if (opts?.status && opts.status !== "all") query.set("status", opts.status);
+  const params = query.toString();
+  return fetchAPI(`/api/v1/agent/runs${params ? `?${params}` : ""}`);
+}
+
+export async function getAgentRun(id: string): Promise<AgentRun> {
+  return fetchAPI(`/api/v1/agent/runs/${encodeURIComponent(id)}`);
+}
+
+export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
+  return fetchAPI("/api/v1/agent/runs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function cancelAgentRun(
+  id: string,
+  reason?: string,
+): Promise<AgentRun> {
+  return fetchAPI(`/api/v1/agent/runs/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
     body: JSON.stringify(reason ? { reason } : {}),
   });

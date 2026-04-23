@@ -1,12 +1,29 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
 import type {
+  AgentRun,
   APIToken,
   Integration,
+  IntegrationOperation,
   ManagedIdentity,
   WorkflowEventTrigger,
   WorkflowRun,
   WorkflowSchedule,
 } from "../src/lib/api";
+
+type MockAgentRunsOptions = {
+  onCreate?: (
+    body: Partial<AgentRun> & Record<string, unknown>,
+  ) => AgentRun | { status: number; json: unknown };
+  onCancel?: (
+    run: AgentRun,
+    body: { reason?: string } | null,
+  ) => { status: number; json: unknown } | undefined;
+};
+
+type MockAgentRunsController = {
+  setRuns: (runs: AgentRun[]) => void;
+  getRuns: () => AgentRun[];
+};
 
 type MockWorkflowRunsOptions = {
   onCancel?: (
@@ -75,6 +92,23 @@ export async function mockIntegrations(
   });
 }
 
+export async function mockIntegrationOperations(
+  page: Page,
+  operationsByIntegrationName: Record<string, IntegrationOperation[]>,
+) {
+  await page.route("**/api/v1/integrations/*/operations", async (route: Route, request) => {
+    if (request.method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/");
+    const integration = parts[parts.length - 2] || "";
+    await route.fulfill({ json: operationsByIntegrationName[integration] || [] });
+  });
+}
+
 export async function mockManualConnect(
   page: Page,
   opts?: { onConnect?: (integration: string, credential: string) => void },
@@ -127,6 +161,116 @@ export async function mockTokens(page: Page, tokens: APIToken[]) {
       route.fallback();
     }
   });
+}
+
+export async function mockAgentRuns(
+  page: Page,
+  runs: AgentRun[],
+  opts?: MockAgentRunsOptions,
+): Promise<MockAgentRunsController> {
+  let currentRuns = runs.map((run) => structuredClone(run));
+
+  await page.route("**/api/v1/agent/runs", async (route: Route, request) => {
+    if (request.method() === "GET") {
+      const url = new URL(request.url());
+      const provider = url.searchParams.get("provider") || "";
+      const status = url.searchParams.get("status") || "";
+      const filtered = currentRuns.filter((run) => {
+        if (provider && run.provider !== provider) return false;
+        if (status && run.status !== status) return false;
+        return true;
+      });
+      await route.fulfill({ json: filtered });
+      return;
+    }
+
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+
+    const body = (request.postDataJSON() as Partial<AgentRun> & Record<string, unknown>) ?? {};
+    const created =
+      opts?.onCreate?.(body) ??
+      ({
+        id: `agent_run_${currentRuns.length + 1}`,
+        provider: typeof body.provider === "string" ? body.provider : "simple",
+        model: typeof body.model === "string" ? body.model : "fast",
+        status: "running",
+        messages: Array.isArray(body.messages)
+          ? (body.messages as AgentRun["messages"])
+          : [],
+        createdAt: "2026-04-23T00:00:00Z",
+        startedAt: "2026-04-23T00:00:00Z",
+        executionRef: `agent_run_${currentRuns.length + 1}`,
+      } satisfies AgentRun);
+
+    if (typeof (created as { status?: unknown }).status === "number") {
+      const override = created as { status: number; json: unknown };
+      await route.fulfill({ status: override.status, json: override.json });
+      return;
+    }
+
+    currentRuns = [structuredClone(created), ...currentRuns];
+    await route.fulfill({ status: 201, json: created });
+  });
+
+  await page.route("**/api/v1/agent/runs/**", async (route: Route, request) => {
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/");
+    const id = parts[parts.length - 2] === "runs"
+      ? parts[parts.length - 1]
+      : parts[parts.length - 2];
+
+    if (request.method() === "POST" && parts[parts.length - 1] === "cancel") {
+      const run = currentRuns.find((item) => item.id === id);
+      if (!run) {
+        await route.fulfill({ status: 404, json: { error: "not found" } });
+        return;
+      }
+      const body = (request.postDataJSON() as { reason?: string } | null) ?? null;
+      const override = opts?.onCancel?.(structuredClone(run), body);
+      if (override) {
+        await route.fulfill({ status: override.status, json: override.json });
+        return;
+      }
+      if (run.status !== "pending" && run.status !== "running") {
+        await route.fulfill({
+          status: 412,
+          json: { error: "agent run is no longer active" },
+        });
+        return;
+      }
+      run.status = "canceled";
+      run.completedAt = new Date().toISOString();
+      if (body?.reason) {
+        run.statusMessage = body.reason;
+      }
+      await route.fulfill({ json: run });
+      return;
+    }
+
+    if (request.method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+
+    const run = currentRuns.find((item) => item.id === id);
+    if (!run) {
+      await route.fulfill({ status: 404, json: { error: "not found" } });
+      return;
+    }
+    await route.fulfill({ json: run });
+  });
+
+  return {
+    setRuns(nextRuns) {
+      currentRuns = nextRuns.map((run) => structuredClone(run));
+    },
+    getRuns() {
+      return currentRuns.map((run) => structuredClone(run));
+    },
+  };
 }
 
 export async function mockWorkflowRuns(

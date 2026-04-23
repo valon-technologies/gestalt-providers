@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   getAuthInfo,
+  getAgentRuns,
   getIntegrations,
   getManagedIdentities,
   getTokens,
@@ -21,6 +22,7 @@ export default function DashboardPage() {
     integrations: number | null;
     tokens: number | null;
     workflowResources: number | null;
+    agentRuns: number | null;
     error: string | null;
   }>({
     identitiesAvailable: false,
@@ -28,6 +30,7 @@ export default function DashboardPage() {
     integrations: null,
     tokens: null,
     workflowResources: null,
+    agentRuns: null,
     error: null,
   });
 
@@ -50,6 +53,7 @@ export default function DashboardPage() {
           getWorkflowSchedules(),
           getWorkflowEventTriggers(),
           getWorkflowRuns(),
+          getAgentRuns(),
         ]).then(([
           identitiesResult,
           integrationsResult,
@@ -57,6 +61,7 @@ export default function DashboardPage() {
           workflowSchedulesResult,
           workflowTriggersResult,
           workflowRunsResult,
+          agentRunsResult,
         ]) => {
           if (!active) return;
 
@@ -93,6 +98,10 @@ export default function DashboardPage() {
                 ? tokensResult.value.length
                 : null,
             workflowResources,
+            agentRuns:
+              agentRunsResult.status === "fulfilled"
+                ? agentRunsResult.value.length
+                : null,
             error,
           });
         });
@@ -122,7 +131,7 @@ export default function DashboardPage() {
             <p className="mt-8 text-sm text-ember-500">{data.error}</p>
           )}
 
-          <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 animate-fade-in-up [animation-delay:60ms]">
+          <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4 animate-fade-in-up [animation-delay:60ms]">
             <Link
               href="/authorization"
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
@@ -178,6 +187,21 @@ export default function DashboardPage() {
               </p>
               <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
                 Manage schedules, triggers, and runs
+                <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
+                  &rarr;
+                </span>
+              </p>
+            </Link>
+            <Link
+              href="/agents"
+              className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
+            >
+              <span className="label-text">Agents</span>
+              <p className="mt-3 text-3xl font-heading font-bold text-primary">
+                {data.agentRuns ?? "--"}
+              </p>
+              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                Start and inspect agent runs
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>
