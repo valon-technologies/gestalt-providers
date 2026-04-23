@@ -119,7 +119,7 @@ func loadDocumentStoreRecords(ctx context.Context, db *sqlStoreView, m *storeMet
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.db.QueryContext(ctx, db.q(query), args...)
+	rows, err := db.query(ctx, query, args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "document query: %v", err)
 	}
@@ -204,7 +204,7 @@ func applyKeyRangeToEntries(entries []cursorutil.Entry, keyRange *proto.KeyRange
 }
 
 func checkDocumentUniqueIndexConflicts(ctx context.Context, s *Store, m *storeMeta, record *proto.Record, ignoreID string) error {
-	records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, dialect: s.dialect, bind: s.bind}, m, nil)
+	records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind}, m, nil)
 	if err != nil {
 		return err
 	}
@@ -252,15 +252,16 @@ func normalizeDocumentBound(value any) []any {
 }
 
 type sqlStoreView struct {
-	db      sqlQueryer
+	db      *sql.DB
+	conn    connectionOptions
 	dialect dialect
 	bind    bindStyle
 }
 
-type sqlQueryer interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
-
 func (v *sqlStoreView) q(query string) string {
 	return rebind(v.bind, query)
+}
+
+func (v *sqlStoreView) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return queryWithRetry(ctx, v.db, v.conn, v.q(query), args...)
 }

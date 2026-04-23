@@ -40,6 +40,7 @@ const (
 type storeOptions struct {
 	TablePrefix string
 	Schema      string
+	Connection  connectionOptions
 }
 
 type Store struct {
@@ -49,6 +50,7 @@ type Store struct {
 	dialect     dialect
 	schemaName  string
 	tablePrefix string
+	conn        connectionOptions
 	mu          sync.RWMutex
 	meta        map[string]*storeMeta
 }
@@ -69,11 +71,11 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 	if err := ensureRelationalTargetExists(dsn, options); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(driver, connStr)
+	db, err := openConfiguredDB(driver, connStr, options.Connection)
 	if err != nil {
 		return nil, fmt.Errorf("relationaldb: open: %w", err)
 	}
-	if err := db.Ping(); err != nil {
+	if err := pingDatabase(context.Background(), db, options.Connection); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("relationaldb: ping: %w", err)
 	}
@@ -84,15 +86,16 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		dialect:     d,
 		schemaName:  options.Schema,
 		tablePrefix: options.TablePrefix,
+		conn:        options.Connection,
 		meta:        make(map[string]*storeMeta),
 	}
 
-	if _, err := db.Exec(s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
+	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
 	}
 
-	if err := s.loadMetadata(); err != nil {
+	if err := s.loadMetadata(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -121,9 +124,9 @@ func (s *Store) metadataStoreKey(storeName string) string {
 	return s.tablePrefix + storeName
 }
 
-func (s *Store) loadMetadata() error {
-	rows, err := s.db.Query("SELECT " + quoteIdent(s.dialect, "name") + ", " + quoteIdent(s.dialect, "schema_json") +
-		" FROM " + quoteTableName(s.dialect, s.metadataTable()))
+func (s *Store) loadMetadata(ctx context.Context) error {
+	rows, err := s.query(ctx, "SELECT "+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+
+		" FROM "+quoteTableName(s.dialect, s.metadataTable()))
 	if err != nil {
 		return fmt.Errorf("relationaldb: load metadata: %w", err)
 	}
@@ -158,13 +161,49 @@ func (s *Store) currentMetadataStoreName(key string) (string, bool) {
 	return strings.TrimPrefix(key, s.tablePrefix), true
 }
 
-func (s *Store) HealthCheck(_ context.Context) error {
-	return s.db.Ping()
+func (s *Store) HealthCheck(ctx context.Context) error {
+	return pingDatabase(ctx, s.db, s.conn)
 }
 
 // q rebinds a query with ? placeholders to the driver's style.
 func (s *Store) q(query string) string {
 	return rebind(s.bind, query)
+}
+
+func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return s.db.ExecContext(ctx, s.q(query), args...)
+}
+
+func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return queryWithRetry(ctx, s.db, s.conn, s.q(query), args...)
+}
+
+func (s *Store) scanOne(ctx context.Context, query string, args []any, scanDest ...any) error {
+	return queryRowScanWithRetry(ctx, s.db, s.conn, s.q(query), args, scanDest...)
+}
+
+func (s *Store) withTx(ctx context.Context, fn func(context.Context, *sql.Tx) error) error {
+	return withRetry(ctx, s.conn, func(attemptCtx context.Context) error {
+		tx, err := s.db.BeginTx(attemptCtx, nil)
+		if err != nil {
+			return err
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+
+		if err := fn(attemptCtx, tx); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	})
 }
 
 func (s *Store) getMeta(name string) (*storeMeta, error) {
@@ -188,11 +227,11 @@ func (s *Store) physicalTableName(store string) string {
 func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.ObjectStoreSchema) error {
 	storage := storageSchema(schema)
 	ddl := createTableSQL(s.dialect, table, storage)
-	if _, err := s.db.ExecContext(ctx, s.q(ddl)); err != nil {
+	if _, err := s.exec(ctx, ddl); err != nil {
 		return status.Errorf(codes.Internal, "create table: %v", err)
 	}
 	for _, idx := range storage.GetIndexes() {
-		if _, err := s.db.ExecContext(ctx, s.q(createIndexSQL(s.dialect, table, idx, storage))); err != nil && !isDuplicateErr(err) {
+		if _, err := s.exec(ctx, createIndexSQL(s.dialect, table, idx, storage)); err != nil && !isDuplicateErr(err) {
 			return status.Errorf(codes.Internal, "create index: %v", err)
 		}
 	}
@@ -200,7 +239,7 @@ func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.Obj
 }
 
 func (s *Store) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, s.q("SELECT * FROM "+quoteTableName(s.dialect, table)+" WHERE 1 = 0"))
+	rows, err := s.query(ctx, "SELECT * FROM "+quoteTableName(s.dialect, table)+" WHERE 1 = 0")
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +267,7 @@ func schemaColumnsExist(existing map[string]struct{}, schema *proto.ObjectStoreS
 
 func (s *Store) tableCount(ctx context.Context, table string) (int64, error) {
 	var count int64
-	err := s.db.QueryRowContext(ctx, s.q("SELECT COUNT(*) FROM "+quoteTableName(s.dialect, table))).Scan(&count)
+	err := s.scanOne(ctx, "SELECT COUNT(*) FROM "+quoteTableName(s.dialect, table), nil, &count)
 	return count, err
 }
 
@@ -243,7 +282,7 @@ func (s *Store) resetOrphanedProviderTable(ctx context.Context, table string) er
 	if count != 0 {
 		return nil
 	}
-	if _, err := s.db.ExecContext(ctx, s.q(dropTableSQL(s.dialect, table))); err != nil {
+	if _, err := s.exec(ctx, dropTableSQL(s.dialect, table)); err != nil {
 		return status.Errorf(codes.Internal, "drop orphaned table: %v", err)
 	}
 	return nil
@@ -275,7 +314,7 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 	colList := strings.Join(cols, ", ")
 	query := "INSERT INTO " + quoteTableName(s.dialect, destTable) +
 		" (" + colList + ") SELECT " + colList + " FROM " + quoteTableName(s.dialect, sourceTable)
-	if _, err := s.db.ExecContext(ctx, s.q(query)); err != nil {
+	if _, err := s.exec(ctx, query); err != nil {
 		return status.Errorf(codes.Internal, "copy existing rows: %v", err)
 	}
 	return nil
@@ -287,26 +326,22 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName s
 		return status.Errorf(codes.Internal, "marshal schema: %v", err)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return status.Errorf(codes.Internal, "begin metadata tx: %v", err)
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
-		s.metadataStoreKey(storeName),
-	); err != nil {
-		return status.Errorf(codes.Internal, "delete metadata: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		s.q("INSERT INTO "+quoteTableName(s.dialect, s.metadataTable())+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
-		s.metadataStoreKey(storeName), string(schemaJSON),
-	); err != nil {
-		return status.Errorf(codes.Internal, "insert metadata: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return status.Errorf(codes.Internal, "commit metadata tx: %v", err)
+	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(txCtx,
+			s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
+			s.metadataStoreKey(storeName),
+		); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(txCtx,
+			s.q("INSERT INTO "+quoteTableName(s.dialect, s.metadataTable())+" ("+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+") VALUES (?, ?)"),
+			s.metadataStoreKey(storeName), string(schemaJSON),
+		); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return status.Errorf(codes.Internal, "persist metadata: %v", err)
 	}
 
 	s.meta[storeName] = newStoredSchema(tableName, schema).toMeta(storeName)
@@ -358,11 +393,11 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 		tableName = meta.table
 	}
 
-	if _, err := s.db.ExecContext(ctx, s.q(dropTableSQL(s.dialect, tableName))); err != nil {
+	if _, err := s.exec(ctx, dropTableSQL(s.dialect, tableName)); err != nil {
 		return nil, status.Errorf(codes.Internal, "drop table: %v", err)
 	}
-	_, _ = s.db.ExecContext(ctx,
-		s.q("DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?"),
+	_, _ = s.exec(ctx,
+		"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
 		s.metadataStoreKey(req.Name),
 	)
 	delete(s.meta, req.Name)
@@ -379,7 +414,7 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 	if isDocumentStore(m) {
 		query := selectDocumentPayloadByPK(s.dialect, m.table, m.pkCol)
 		var payload []byte
-		if err := s.db.QueryRowContext(ctx, s.q(query), req.Id).Scan(&payload); err != nil {
+		if err := s.scanOne(ctx, query, []any{req.Id}, &payload); err != nil {
 			return nil, mapSQLErr("get", err)
 		}
 		record, err := unmarshalRecordBlob(payload)
@@ -388,12 +423,19 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 		}
 		return &proto.RecordResponse{Record: record}, nil
 	}
-	row := s.db.QueryRowContext(ctx, s.q(selectByPK(s.dialect, m.table, m.pkCol, m.columns)), req.Id)
-	record, err := scanRow(row, m.columns)
+	rows, err := s.query(ctx, selectByPK(s.dialect, m.table, m.pkCol, m.columns), req.Id)
 	if err != nil {
 		return nil, mapSQLErr("get", err)
 	}
-	return &proto.RecordResponse{Record: record}, nil
+	defer rows.Close()
+	records, err := scanRows(rows, m.columns)
+	if err != nil {
+		return nil, mapSQLErr("get", err)
+	}
+	if len(records) == 0 {
+		return nil, mapSQLErr("get", sql.ErrNoRows)
+	}
+	return &proto.RecordResponse{Record: records[0]}, nil
 }
 
 func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
@@ -402,7 +444,7 @@ func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 		return nil, err
 	}
 	var key string
-	err = s.db.QueryRowContext(ctx, s.q(selectKeyByPK(s.dialect, m.table, m.pkCol)), req.Id).Scan(&key)
+	err = s.scanOne(ctx, selectKeyByPK(s.dialect, m.table, m.pkCol), []any{req.Id}, &key)
 	if err != nil {
 		return nil, mapSQLErr("get_key", err)
 	}
@@ -427,7 +469,7 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.db.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, documentStorageColumns)), id, payload); err != nil {
+		if _, err := s.exec(ctx, insertSQL(s.dialect, m.table, documentStorageColumns), id, payload); err != nil {
 			return nil, mapSQLErr("add", err)
 		}
 		return &emptypb.Empty{}, nil
@@ -436,7 +478,7 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, m.columns)), args...); err != nil {
+	if _, err := s.exec(ctx, insertSQL(s.dialect, m.table, m.columns), args...); err != nil {
 		return nil, mapSQLErr("add", err)
 	}
 	return &emptypb.Empty{}, nil
@@ -461,19 +503,16 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 			return nil, err
 		}
 
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "begin tx: %v", err)
-		}
-		defer tx.Rollback()
-		if _, err := tx.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), id); err != nil {
-			return nil, status.Errorf(codes.Internal, "put delete: %v", err)
-		}
-		if _, err := tx.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, documentStorageColumns)), id, payload); err != nil {
-			return nil, mapSQLErr("put insert", err)
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, status.Errorf(codes.Internal, "commit: %v", err)
+		if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(txCtx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(txCtx, s.q(insertSQL(s.dialect, m.table, documentStorageColumns)), id, payload); err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			return nil, mapSQLErr("put", err)
 		}
 		return &emptypb.Empty{}, nil
 	}
@@ -487,24 +526,20 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 		return nil, status.Errorf(codes.InvalidArgument, "marshal record id: %v", err)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "begin tx: %v", err)
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), idArg); err != nil {
-		return nil, status.Errorf(codes.Internal, "put delete: %v", err)
-	}
 	args, err := recordToArgs(record, m.columns)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
 	}
-	if _, err := tx.ExecContext(ctx, s.q(insertSQL(s.dialect, m.table, m.columns)), args...); err != nil {
-		return nil, mapSQLErr("put insert", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, status.Errorf(codes.Internal, "commit: %v", err)
+	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(txCtx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), idArg); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(txCtx, s.q(insertSQL(s.dialect, m.table, m.columns)), args...); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, mapSQLErr("put", err)
 	}
 	return &emptypb.Empty{}, nil
 }
@@ -525,7 +560,7 @@ func (s *Store) deleteByPrimaryKeyValue(ctx context.Context, m *storeMeta, value
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "marshal primary key: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx, s.q(deleteByPK(s.dialect, m.table, m.pkCol)), arg); err != nil {
+	if _, err := s.exec(ctx, deleteByPK(s.dialect, m.table, m.pkCol), arg); err != nil {
 		return mapSQLErr("delete", err)
 	}
 	return nil
@@ -538,7 +573,7 @@ func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.db.ExecContext(ctx, s.q(deleteAll(s.dialect, m.table))); err != nil {
+	if _, err := s.exec(ctx, deleteAll(s.dialect, m.table)); err != nil {
 		return nil, status.Errorf(codes.Internal, "clear: %v", err)
 	}
 	return &emptypb.Empty{}, nil
@@ -550,7 +585,7 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 		return nil, err
 	}
 	if isDocumentStore(m) {
-		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, dialect: s.dialect, bind: s.bind}, m, req.Range)
+		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind}, m, req.Range)
 		if err != nil {
 			return nil, err
 		}
@@ -560,7 +595,7 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+	rows, err := s.query(ctx, query, args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get_all: %v", err)
 	}
@@ -581,7 +616,7 @@ func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeReque
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+	rows, err := s.query(ctx, query, args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get_all_keys: %v", err)
 	}
@@ -607,7 +642,7 @@ func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (
 		return nil, err
 	}
 	var count int64
-	if err := s.db.QueryRowContext(ctx, s.q(query), args...).Scan(&count); err != nil {
+	if err := s.scanOne(ctx, query, args, &count); err != nil {
 		return nil, status.Errorf(codes.Internal, "count: %v", err)
 	}
 	return &proto.CountResponse{Count: count}, nil
@@ -622,7 +657,7 @@ func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequ
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.db.ExecContext(ctx, s.q(query), args...)
+	result, err := s.exec(ctx, query, args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "delete_range: %v", err)
 	}
@@ -713,7 +748,7 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 	}
 	if isDocumentStore(m) {
-		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, dialect: s.dialect, bind: s.bind}, m, nil)
+		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind}, m, nil)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -762,7 +797,7 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+	rows, err := s.query(ctx, query, args...)
 	if err != nil {
 		return nil, nil, status.Errorf(codes.Internal, "index_query: %v", err)
 	}

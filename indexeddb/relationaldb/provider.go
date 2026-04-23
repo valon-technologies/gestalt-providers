@@ -4,15 +4,27 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type config struct {
-	DSN         string `yaml:"dsn"`
-	TablePrefix string `yaml:"table_prefix"`
-	Prefix      string `yaml:"prefix"`
-	Schema      string `yaml:"schema"`
+	DSN         string           `yaml:"dsn"`
+	TablePrefix string           `yaml:"table_prefix"`
+	Prefix      string           `yaml:"prefix"`
+	Schema      string           `yaml:"schema"`
+	Connection  connectionConfig `yaml:"connection"`
+}
+
+type connectionConfig struct {
+	MaxOpenConns    *int           `yaml:"max_open_conns"`
+	MaxIdleConns    *int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime *time.Duration `yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime *time.Duration `yaml:"conn_max_idle_time"`
+	PingTimeout     *time.Duration `yaml:"ping_timeout"`
+	RetryAttempts   *int           `yaml:"retry_attempts"`
+	RetryBackoff    *time.Duration `yaml:"retry_backoff"`
 }
 
 type Provider struct {
@@ -39,6 +51,49 @@ func (c config) storeOptions() (storeOptions, error) {
 
 	options.TablePrefix = strings.TrimSpace(options.TablePrefix)
 	options.Schema = strings.TrimSpace(options.Schema)
+	connectionOptions, err := c.Connection.options()
+	if err != nil {
+		return options, err
+	}
+	options.Connection = connectionOptions
+	return options, nil
+}
+
+func (c connectionConfig) options() (connectionOptions, error) {
+	options := connectionOptions{
+		MaxOpenConns:    c.MaxOpenConns,
+		MaxIdleConns:    c.MaxIdleConns,
+		ConnMaxLifetime: c.ConnMaxLifetime,
+		ConnMaxIdleTime: c.ConnMaxIdleTime,
+		PingTimeout:     c.PingTimeout,
+		RetryAttempts:   c.RetryAttempts,
+		RetryBackoff:    c.RetryBackoff,
+	}
+
+	if c.MaxOpenConns != nil && *c.MaxOpenConns < 0 {
+		return options, fmt.Errorf("relationaldb: connection.max_open_conns must be >= 0")
+	}
+	if c.MaxIdleConns != nil && *c.MaxIdleConns < 0 {
+		return options, fmt.Errorf("relationaldb: connection.max_idle_conns must be >= 0")
+	}
+	if c.MaxOpenConns != nil && c.MaxIdleConns != nil && *c.MaxOpenConns > 0 && *c.MaxIdleConns > *c.MaxOpenConns {
+		return options, fmt.Errorf("relationaldb: connection.max_idle_conns must be <= connection.max_open_conns when max_open_conns is set")
+	}
+	if c.ConnMaxLifetime != nil && *c.ConnMaxLifetime < 0 {
+		return options, fmt.Errorf("relationaldb: connection.conn_max_lifetime must be >= 0")
+	}
+	if c.ConnMaxIdleTime != nil && *c.ConnMaxIdleTime < 0 {
+		return options, fmt.Errorf("relationaldb: connection.conn_max_idle_time must be >= 0")
+	}
+	if c.PingTimeout != nil && *c.PingTimeout < 0 {
+		return options, fmt.Errorf("relationaldb: connection.ping_timeout must be >= 0")
+	}
+	if c.RetryAttempts != nil && *c.RetryAttempts < 0 {
+		return options, fmt.Errorf("relationaldb: connection.retry_attempts must be >= 0")
+	}
+	if c.RetryBackoff != nil && *c.RetryBackoff < 0 {
+		return options, fmt.Errorf("relationaldb: connection.retry_backoff must be >= 0")
+	}
 	return options, nil
 }
 

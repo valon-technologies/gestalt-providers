@@ -109,7 +109,7 @@ func (s *Store) cursorRecords(ctx context.Context, cursor *relationalCursor, req
 		if err != nil {
 			return nil, err
 		}
-		rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+		rows, err := s.query(ctx, query, args...)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "open_cursor get_all scan: %v", err)
 		}
@@ -129,7 +129,7 @@ func (s *Store) cursorRecords(ctx context.Context, cursor *relationalCursor, req
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
+	rows, err := s.query(ctx, query, args...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "open_cursor index_get_all: %v", err)
 	}
