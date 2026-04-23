@@ -1,6 +1,7 @@
 import {
   test,
   expect,
+  mockAgentRuns,
   mockAuthInfo,
   mockWorkflowEventTriggers,
   mockIntegrations,
@@ -45,6 +46,16 @@ test.describe("Navigation", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
+    await mockAgentRuns(authenticatedPage, [
+      {
+        id: "agent_run_123",
+        provider: "simple",
+        model: "fast",
+        status: "succeeded",
+        messages: [{ role: "user", text: "Summarize the queue." }],
+        createdAt: "2026-04-13T00:00:00Z",
+      },
+    ]);
   });
 
   test("dashboard page renders", async ({ authenticatedPage: page }) => {
@@ -82,6 +93,13 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("agents page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/agents");
+    await expect(
+      page.getByRole("heading", { name: "Agents" }),
+    ).toBeVisible();
+  });
+
   test("docs page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/docs");
     await expect(page.getByRole("heading", { name: "Getting Started" })).toBeVisible();
@@ -115,6 +133,11 @@ test.describe("Navigation", () => {
     await expect(page).toHaveURL(/workflows/);
     await expect(
       page.getByRole("heading", { name: "Workflows" }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Agents" }).click();
+    await expect(page).toHaveURL(/agents/);
+    await expect(
+      page.getByRole("heading", { name: "Agents" }),
     ).toBeVisible();
   });
 

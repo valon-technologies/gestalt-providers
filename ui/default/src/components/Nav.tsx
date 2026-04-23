@@ -14,6 +14,7 @@ const links = [
   { href: "/authorization", label: "Authorization" },
   { href: "/integrations", label: "Plugins" },
   { href: "/workflows", label: "Workflows" },
+  { href: "/agents", label: "Agents" },
   { href: DOCS_PATH, label: "Docs" },
 ];
 
