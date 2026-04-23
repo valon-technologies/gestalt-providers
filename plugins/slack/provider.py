@@ -376,7 +376,7 @@ def _json_payload_from_http_request(
         return {}
     try:
         payload = json.loads(request.raw_body.decode("utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
