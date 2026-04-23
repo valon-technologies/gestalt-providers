@@ -27,7 +27,8 @@ esac
 echo "=== Packaging ${release_platform} (${base_image}) ==="
 
 docker run --rm --platform "${docker_platform}" \
-  -e UV_PYTHON \
+  -e UV_PYTHON=python3 \
+  -e UV_PYTHON_DOWNLOADS=never \
   -e PYTHON_ENV_VAR="${python_env_var}" \
   -e RELEASE_PLATFORM="${release_platform}" \
   -e VERSION="${version}" \
@@ -45,7 +46,7 @@ docker run --rm --platform "${docker_platform}" \
     fi
 
     rm -rf .venv
-    uv sync
+    uv sync --frozen --no-dev --python "${UV_PYTHON}"
     export "${PYTHON_ENV_VAR}=$PWD/.venv/bin/python"
     gestaltd provider release --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
     chmod -R a+rX dist
