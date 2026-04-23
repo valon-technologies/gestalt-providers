@@ -8,7 +8,7 @@ It is intentionally narrow:
 - Gestalt plugin operations exposed as tools
 - provider-owned IndexedDB persistence
 - asynchronous `StartRun` with later `GetRun` polling
-- LiteLLM as the backend normalization layer
+- direct OpenAI and Anthropic SDK backends
 
 It does not try to expose every vendor-specific agent feature. The goal is a
 small, usable provider that can drive common text-and-tools workflows now.
@@ -28,7 +28,7 @@ providers:
         defaultModel: fast
         aliases:
           fast: openai/gpt-4.1-mini
-          deep: anthropic/claude-sonnet-4-20250514
+          deep: anthropic/<model>
         maxSteps: 8
         timeoutSeconds: 120
         systemPrompt: You are a concise operations assistant.
@@ -40,11 +40,25 @@ providers:
 
 The provider stores run state through the Gestalt Python SDK `IndexedDB()`
 binding exposed as `GESTALT_INDEXEDDB_SOCKET`. It also relies on the standard
-backend environment variables that LiteLLM already knows how to read, such as
-`OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. You can either set those in the
-provider environment or pass `openaiApiKey` / `anthropicApiKey` in provider
-config; config values are copied into the corresponding LiteLLM environment
+backend environment variables that the vendor SDKs already know how to read,
+such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. You can either set those in
+the provider environment or pass `openaiApiKey` / `anthropicApiKey` in
+provider config; config values are copied into the corresponding environment
 variables when the provider starts.
+
+Supported model families today are:
+
+- `openai/<model>`
+- `anthropic/<model>`
+
+Other prefixed model IDs are still forwarded through the OpenAI-compatible
+path with the full model string preserved. Use `providerOptions.<prefix>` for
+provider-specific overrides, and `providerOptions.litellm` remains accepted as
+a legacy generic override block during migration.
+
+When targeting Anthropic, set `providerOptions.max_tokens` (or
+`providerOptions.anthropic.max_tokens`) to control the response budget. If you
+omit it, the provider defaults to `1024`.
 
 `StartRun` returns after the run is persisted in `RUNNING`; the provider
 continues the model/tool loop in the background and callers should use `GetRun`

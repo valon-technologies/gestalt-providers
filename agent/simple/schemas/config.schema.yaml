@@ -8,7 +8,7 @@ properties:
     description: IndexedDB object store used for run idempotency records.
   defaultModel:
     type: string
-    description: Default model identifier to use when a run omits `model`.
+    description: Default model identifier to use when a run omits `model` (for example `openai/gpt-4.1-mini` or `anthropic/<model>`).
   aliases:
     type: object
     description: Optional model aliases resolved before dispatch.
@@ -27,8 +27,8 @@ properties:
     description: Optional system prompt prepended to every run.
   anthropicApiKey:
     type: string
-    description: Optional Anthropic API key to expose to LiteLLM as ANTHROPIC_API_KEY.
+    description: Optional Anthropic API key to expose to the Anthropic SDK as ANTHROPIC_API_KEY.
   openaiApiKey:
     type: string
-    description: Optional OpenAI API key to expose to LiteLLM as OPENAI_API_KEY.
+    description: Optional OpenAI API key to expose to the OpenAI SDK as OPENAI_API_KEY.
 additionalProperties: false
