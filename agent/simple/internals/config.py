@@ -15,6 +15,8 @@ class SimpleAgentConfig:
     max_steps: int = DEFAULT_MAX_STEPS
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     system_prompt: str = ""
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
 
     @classmethod
     def from_dict(cls, *, name: str, raw_config: dict[str, Any]) -> "SimpleAgentConfig":
@@ -22,23 +24,21 @@ class SimpleAgentConfig:
         aliases = _coerce_aliases(raw_config.get("aliases"))
         max_steps = _coerce_positive_int(raw_config.get("maxSteps"), default=DEFAULT_MAX_STEPS, field_name="maxSteps")
         timeout_seconds = _coerce_positive_float(
-            raw_config.get("timeoutSeconds"),
-            default=DEFAULT_TIMEOUT_SECONDS,
-            field_name="timeoutSeconds",
+            raw_config.get("timeoutSeconds"), default=DEFAULT_TIMEOUT_SECONDS, field_name="timeoutSeconds"
         )
         return cls(
             name=name,
             run_store=_coerce_store_name(raw_config.get("runStore"), default="runs", field_name="runStore"),
             idempotency_store=_coerce_store_name(
-                raw_config.get("idempotencyStore"),
-                default="run_idempotency",
-                field_name="idempotencyStore",
+                raw_config.get("idempotencyStore"), default="run_idempotency", field_name="idempotencyStore"
             ),
             default_model=default_model,
             aliases=aliases,
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
             system_prompt=_trimmed_text(raw_config.get("systemPrompt")),
+            anthropic_api_key=_trimmed_text(raw_config.get("anthropicApiKey")),
+            openai_api_key=_trimmed_text(raw_config.get("openaiApiKey")),
         )
 
     def resolve_model(self, requested_model: str) -> str:

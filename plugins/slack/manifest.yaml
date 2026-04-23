@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/slack
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.7
 displayName: Slack
 description: Read public and private conversations, DMs, and group DMs; send messages; and manage channels.
 iconFile: assets/icon.svg
@@ -278,6 +278,7 @@ spec:
         scopeParam: scope
         scopeSeparator: ','
         scopes:
+        - app_mentions:read
         - channels:read
         - channels:history
         - groups:read

@@ -150,10 +150,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         )
         if self.pause_on_lookup:
             self.wait_until_released.wait(timeout=5)
-        return agent_pb2.ExecuteAgentToolResponse(
-            status=200,
-            body=json.dumps({"echo": arguments}),
-        )
+        return agent_pb2.ExecuteAgentToolResponse(status=200, body=json.dumps({"echo": arguments}))
 
 
 class _FakeOpenAIChatServer:
@@ -212,18 +209,13 @@ def _configure_provider(*, run_store: str, idempotency_store: str, default_model
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
-    request = runtime_pb2.ConfigureProviderRequest(
-        name="simple",
-        protocol_version=_runtime.CURRENT_PROTOCOL_VERSION,
-    )
+    request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     json_format.ParseDict(
         {
             "runStore": run_store,
             "idempotencyStore": idempotency_store,
             "defaultModel": default_model,
-            "aliases": {
-                "fast": "openai/fake-model",
-            },
+            "aliases": {"fast": "openai/fake-model"},
             "maxSteps": 4,
             "timeoutSeconds": 5,
             "systemPrompt": "Be concise.",
@@ -300,8 +292,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
     def test_start_run_completes_tool_loop_and_persists_run(self) -> None:
         lifecycle, provider_client = _configure_provider(
-            run_store="run_success_runs",
-            idempotency_store="run_success_idempotency",
+            run_store="run_success_runs", idempotency_store="run_success_idempotency"
         )
         identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
 
@@ -322,10 +313,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                     {
                                         "id": "call-1",
                                         "type": "function",
-                                        "function": {
-                                            "name": "person_lookup",
-                                            "arguments": "{\"query\":\"Ada Lovelace\"}",
-                                        },
+                                        "function": {"name": "person_lookup", "arguments": '{"query":"Ada Lovelace"}'},
                                     }
                                 ],
                             },
@@ -344,7 +332,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                             "index": 0,
                             "message": {
                                 "role": "assistant",
-                                "content": "{\"summary\":\"Ada Lovelace is still relevant.\"}",
+                                "content": '{"summary":"Ada Lovelace is still relevant."}',
                             },
                             "finish_reason": "stop",
                         }
@@ -361,23 +349,11 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         response_schema = struct_pb2.Struct()
         response_schema.update(
-            {
-                "type": "object",
-                "properties": {
-                    "summary": {"type": "string"},
-                },
-                "required": ["summary"],
-            }
+            {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
         )
 
         tool_parameters = struct_pb2.Struct()
-        tool_parameters.update(
-            {
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            }
-        )
+        tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
 
         started = provider_client.StartRun(
             agent_pb2.StartAgentProviderRunRequest(
@@ -398,29 +374,31 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 provider_options=provider_options,
                 execution_ref="exec-1",
                 created_by=agent_pb2.AgentActor(
-                    subject_id="user-123",
-                    subject_kind="human",
-                    display_name="Ada",
-                    auth_source="session",
+                    subject_id="user-123", subject_kind="human", display_name="Ada", auth_source="session"
                 ),
             )
         )
 
-        fetched = provider_client.GetRun(agent_pb2.GetAgentProviderRunRequest(run_id="run-success"))
+        fetched = _wait_for_run(provider_client, "run-success", agent_pb2.AGENT_RUN_STATUS_SUCCEEDED)
         listed = provider_client.ListRuns(agent_pb2.ListAgentProviderRunsRequest())
 
         self.assertEqual(identity.kind, runtime_pb2.ProviderKind.PROVIDER_KIND_AGENT)
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
 
-        self.assertEqual(started.status, agent_pb2.AGENT_RUN_STATUS_SUCCEEDED)
+        self.assertEqual(started.status, agent_pb2.AGENT_RUN_STATUS_RUNNING)
         self.assertEqual(started.model, "openai/fake-model")
-        self.assertEqual(started.output_text, "{\"summary\":\"Ada Lovelace is still relevant.\"}")
-        self.assertEqual(started.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
         self.assertEqual(started.execution_ref, "exec-1")
         self.assertEqual(started.created_by.subject_id, "user-123")
-        self.assertEqual(len(started.messages), 2)
-        self.assertEqual(started.messages[1].role, "assistant")
+
+        self.assertEqual(fetched.status, agent_pb2.AGENT_RUN_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.model, "openai/fake-model")
+        self.assertEqual(fetched.output_text, '{"summary":"Ada Lovelace is still relevant."}')
+        self.assertEqual(fetched.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
+        self.assertEqual(fetched.execution_ref, "exec-1")
+        self.assertEqual(fetched.created_by.subject_id, "user-123")
+        self.assertEqual(len(fetched.messages), 2)
+        self.assertEqual(fetched.messages[1].role, "assistant")
         self.assertEqual(fetched.id, "run-success")
         self.assertEqual(len(listed.runs), 1)
 
@@ -448,8 +426,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
     def test_cancel_run_marks_active_run_canceled(self) -> None:
         assert _host_servicer is not None
         _, provider_client = _configure_provider(
-            run_store="run_cancel_runs",
-            idempotency_store="run_cancel_idempotency",
+            run_store="run_cancel_runs", idempotency_store="run_cancel_idempotency"
         )
 
         fake_llm = _FakeOpenAIChatServer(
@@ -469,10 +446,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                     {
                                         "id": "call-10",
                                         "type": "function",
-                                        "function": {
-                                            "name": "lookup",
-                                            "arguments": "{\"query\":\"Grace Hopper\"}",
-                                        },
+                                        "function": {"name": "lookup", "arguments": '{"query":"Grace Hopper"}'},
                                     }
                                 ],
                             },
@@ -507,9 +481,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     messages=[agent_pb2.AgentMessage(role="user", text="Who is Grace Hopper?")],
                     tools=[
                         agent_pb2.ResolvedAgentTool(
-                            id="lookup",
-                            description="Look up a historical figure",
-                            parameters_schema=tool_parameters,
+                            id="lookup", description="Look up a historical figure", parameters_schema=tool_parameters
                         )
                     ],
                     provider_options=provider_options,
@@ -525,10 +497,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             time.sleep(0.05)
 
         canceled = provider_client.CancelRun(
-            agent_pb2.CancelAgentProviderRunRequest(
-                run_id="run-cancel",
-                reason="user canceled",
-            )
+            agent_pb2.CancelAgentProviderRunRequest(run_id="run-cancel", reason="user canceled")
         )
         _host_servicer.wait_until_released.set()
         thread.join(timeout=5)
@@ -538,9 +507,20 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         self.assertEqual(canceled.status, agent_pb2.AGENT_RUN_STATUS_CANCELED)
         self.assertEqual(canceled.status_message, "user canceled")
-        self.assertEqual(started.status, agent_pb2.AGENT_RUN_STATUS_CANCELED)
+        self.assertEqual(started.status, agent_pb2.AGENT_RUN_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_RUN_STATUS_CANCELED)
         self.assertEqual(len(fake_llm.requests), 1)
+
+
+def _wait_for_run(provider_client: Any, run_id: str, status: int, timeout_seconds: float = 5) -> Any:
+    deadline = time.time() + timeout_seconds
+    last = None
+    while time.time() < deadline:
+        last = provider_client.GetRun(agent_pb2.GetAgentProviderRunRequest(run_id=run_id))
+        if last.status == status:
+            return last
+        time.sleep(0.05)
+    raise AssertionError(f"run {run_id!r} did not reach status {status}; last={last}")
 
 
 if __name__ == "__main__":

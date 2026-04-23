@@ -1,5 +1,7 @@
 import json
 import re
+import threading
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -52,30 +54,39 @@ class SimpleAgentOrchestrator:
         if not created:
             return self.run_to_proto(started)
 
-        response_schema = _struct_to_dict(request.response_schema)
-        provider_options = _struct_to_dict(request.provider_options)
-        tool_specs, function_name_to_tool_id = _resolved_tools_to_openai(request.tools)
+        prepared = PreparedRun(
+            run_id=run_id,
+            resolved_model=resolved_model,
+            messages=list(started.messages),
+            response_schema=_struct_to_dict(request.response_schema),
+            provider_options=_struct_to_dict(request.provider_options),
+            tool_specs_and_names=_resolved_tools_to_openai(request.tools),
+        )
+        threading.Thread(target=self._complete_run, args=(prepared,), daemon=True).start()
+        return self.run_to_proto(started)
+
+    def _complete_run(self, prepared: "PreparedRun") -> None:
+        tool_specs, function_name_to_tool_id = prepared.tool_specs_and_names
         conversation = _build_initial_conversation(
             system_prompt=self._config.system_prompt,
-            projected_messages=started.messages,
-            response_schema=response_schema,
+            projected_messages=prepared.messages,
+            response_schema=prepared.response_schema,
         )
 
         try:
             with gestalt.AgentHost() as host:
                 for _ in range(self._config.max_steps):
-                    canceled = self._store.get_run(run_id)
+                    canceled = self._store.get_run(prepared.run_id)
                     if canceled is None:
-                        context.abort(grpc.StatusCode.NOT_FOUND, f"agent run {run_id!r} was not found")
-                        raise RuntimeError(f"agent run {run_id!r} was not found")
+                        return
                     if canceled.status == agent_pb2.AGENT_RUN_STATUS_CANCELED:
-                        return self.run_to_proto(canceled)
+                        return
 
                     step = self._backend.complete(
-                        model=resolved_model,
+                        model=prepared.resolved_model,
                         messages=conversation,
                         tools=tool_specs,
-                        provider_options=provider_options,
+                        provider_options=prepared.provider_options,
                     )
                     conversation.append(step.assistant_message)
 
@@ -83,20 +94,20 @@ class SimpleAgentOrchestrator:
                         for tool_call in step.tool_calls:
                             resolved_tool_id = function_name_to_tool_id.get(tool_call.tool_id, "")
                             if not resolved_tool_id:
-                                failed = self._store.mark_failed(
-                                    run_id=run_id,
-                                    messages=started.messages,
+                                self._store.mark_failed(
+                                    run_id=prepared.run_id,
+                                    messages=prepared.messages,
                                     status_message=f"model requested unknown tool {tool_call.tool_id!r}",
                                 )
-                                return self.run_to_proto(failed)
+                                return
 
-                            canceled = self._store.get_run(run_id)
+                            canceled = self._store.get_run(prepared.run_id)
                             if canceled is not None and canceled.status == agent_pb2.AGENT_RUN_STATUS_CANCELED:
-                                return self.run_to_proto(canceled)
+                                return
 
                             tool_response = host.execute_tool(
                                 agent_pb2.ExecuteAgentToolRequest(
-                                    run_id=run_id,
+                                    run_id=prepared.run_id,
                                     tool_call_id=tool_call.call_id,
                                     tool_id=resolved_tool_id,
                                     arguments=_dict_to_struct(tool_call.arguments),
@@ -114,47 +125,39 @@ class SimpleAgentOrchestrator:
 
                     final_text = step.output_text.strip()
                     if not final_text:
-                        failed = self._store.mark_failed(
-                            run_id=run_id,
-                            messages=started.messages,
+                        self._store.mark_failed(
+                            run_id=prepared.run_id,
+                            messages=prepared.messages,
                             status_message="model returned no final text and no tool calls",
                         )
-                        return self.run_to_proto(failed)
+                        return
 
                     structured_output = _parse_structured_output(
-                        output_text=final_text,
-                        response_schema=response_schema,
+                        output_text=final_text, response_schema=prepared.response_schema
                     )
-                    completed = self._store.mark_succeeded(
-                        run_id=run_id,
-                        messages=_append_assistant_message(started.messages, final_text),
+                    self._store.mark_succeeded(
+                        run_id=prepared.run_id,
+                        messages=_append_assistant_message(prepared.messages, final_text),
                         output_text=final_text,
                         structured_output=structured_output,
                     )
-                    return self.run_to_proto(completed)
-        except grpc.RpcError:
-            raise
+                    return
         except ValidationError as exc:
-            failed = self._store.mark_failed(
-                run_id=run_id,
-                messages=started.messages,
+            self._store.mark_failed(
+                run_id=prepared.run_id,
+                messages=prepared.messages,
                 status_message=f"response_schema validation failed: {exc.message}",
             )
-            return self.run_to_proto(failed)
+            return
         except Exception as exc:
-            failed = self._store.mark_failed(
-                run_id=run_id,
-                messages=started.messages,
-                status_message=str(exc),
-            )
-            return self.run_to_proto(failed)
+            self._store.mark_failed(run_id=prepared.run_id, messages=prepared.messages, status_message=str(exc))
+            return
 
-        failed = self._store.mark_failed(
-            run_id=run_id,
-            messages=started.messages,
+        self._store.mark_failed(
+            run_id=prepared.run_id,
+            messages=prepared.messages,
             status_message=f"run exceeded maxSteps ({self._config.max_steps})",
         )
-        return self.run_to_proto(failed)
 
     def run_to_proto(self, run: StoredRun) -> Any:
         proto = agent_pb2.BoundAgentRun(
@@ -162,10 +165,7 @@ class SimpleAgentOrchestrator:
             provider_name=run.provider_name,
             model=run.model,
             status=run.status,
-            messages=[
-                agent_pb2.AgentMessage(role=message["role"], text=message["text"])
-                for message in run.messages
-            ],
+            messages=[agent_pb2.AgentMessage(role=message["role"], text=message["text"]) for message in run.messages],
             output_text=run.output_text,
             status_message=run.status_message,
             session_ref=run.session_ref,
@@ -190,11 +190,18 @@ class SimpleAgentOrchestrator:
         return proto
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedRun:
+    run_id: str
+    resolved_model: str
+    messages: list[dict[str, str]]
+    response_schema: dict[str, Any]
+    provider_options: dict[str, Any]
+    tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str]]
+
+
 def _build_initial_conversation(
-    *,
-    system_prompt: str,
-    projected_messages: list[dict[str, str]],
-    response_schema: dict[str, Any] | None,
+    *, system_prompt: str, projected_messages: list[dict[str, str]], response_schema: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
     conversation: list[dict[str, Any]] = []
     if system_prompt:
@@ -216,10 +223,7 @@ def _build_initial_conversation(
 
 
 def _project_messages(messages: Any) -> list[dict[str, str]]:
-    return [
-        {"role": str(message.role or "").strip(), "text": str(message.text or "")}
-        for message in messages
-    ]
+    return [{"role": str(message.role or "").strip(), "text": str(message.text or "")} for message in messages]
 
 
 def _append_assistant_message(messages: list[dict[str, str]], output_text: str) -> list[dict[str, str]]:
@@ -254,11 +258,7 @@ def _resolved_tools_to_openai(tools: Any) -> tuple[list[dict[str, Any]], dict[st
         formatted.append(
             {
                 "type": "function",
-                "function": {
-                    "name": function_name,
-                    "description": description,
-                    "parameters": parameters,
-                },
+                "function": {"name": function_name, "description": description, "parameters": parameters},
             }
         )
     return formatted, function_name_to_tool_id
@@ -277,7 +277,9 @@ def _parse_structured_output(*, output_text: str, response_schema: dict[str, Any
     parsed = json.loads(output_text)
     validate(instance=parsed, schema=response_schema)
     if not isinstance(parsed, dict):
-        raise ValueError("structured output must be a JSON object because BoundAgentRun.structured_output is a protobuf Struct")
+        raise ValueError(
+            "structured output must be a JSON object because BoundAgentRun.structured_output is a protobuf Struct"
+        )
     return parsed
 
 

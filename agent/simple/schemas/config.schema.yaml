@@ -25,4 +25,10 @@ properties:
   systemPrompt:
     type: string
     description: Optional system prompt prepended to every run.
+  anthropicApiKey:
+    type: string
+    description: Optional Anthropic API key to expose to LiteLLM as ANTHROPIC_API_KEY.
+  openaiApiKey:
+    type: string
+    description: Optional OpenAI API key to expose to LiteLLM as OPENAI_API_KEY.
 additionalProperties: false
