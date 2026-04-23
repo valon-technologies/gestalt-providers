@@ -257,7 +257,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-agent-simple"
-version = "0.0.1a3"
+version = "0.0.1a4"
 source = { virtual = "." }
 dependencies = [
     { name = "gestalt-sdk" },

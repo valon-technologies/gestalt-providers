@@ -31,7 +31,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over LiteLLM.",
-            version="0.0.1-alpha.3",
+            version="0.0.1-alpha.4",
         )
 
     def warnings(self) -> list[str]:
