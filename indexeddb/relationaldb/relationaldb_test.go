@@ -75,6 +75,51 @@ func TestConfigStoreOptionsRejectsConflictingPrefixAliases(t *testing.T) {
 	}
 }
 
+func TestProviderConfigureAppliesConnectionSettings(t *testing.T) {
+	p := New()
+	err := p.Configure(context.Background(), "", map[string]any{
+		"dsn": "file:" + filepath.Join(t.TempDir(), "connection-options.sqlite"),
+		"connection": map[string]any{
+			"max_open_conns":     7,
+			"max_idle_conns":     3,
+			"conn_max_lifetime":  "41m",
+			"conn_max_idle_time": "2m",
+			"ping_timeout":       "4s",
+			"retry_attempts":     6,
+			"retry_backoff":      "125ms",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	stats := p.Store.db.Stats()
+	if stats.MaxOpenConnections != 7 {
+		t.Fatalf("db.Stats().MaxOpenConnections = %d, want 7", stats.MaxOpenConnections)
+	}
+	if p.Store.conn.MaxIdleConns == nil || *p.Store.conn.MaxIdleConns != 3 {
+		t.Fatalf("store.conn.MaxIdleConns = %v, want 3", p.Store.conn.MaxIdleConns)
+	}
+	if p.Store.conn.ConnMaxLifetime == nil || *p.Store.conn.ConnMaxLifetime != 41*time.Minute {
+		t.Fatalf("store.conn.ConnMaxLifetime = %v, want %v", p.Store.conn.ConnMaxLifetime, 41*time.Minute)
+	}
+	if p.Store.conn.ConnMaxIdleTime == nil || *p.Store.conn.ConnMaxIdleTime != 2*time.Minute {
+		t.Fatalf("store.conn.ConnMaxIdleTime = %v, want %v", p.Store.conn.ConnMaxIdleTime, 2*time.Minute)
+	}
+	if p.Store.conn.PingTimeout == nil || *p.Store.conn.PingTimeout != 4*time.Second {
+		t.Fatalf("store.conn.PingTimeout = %v, want %v", p.Store.conn.PingTimeout, 4*time.Second)
+	}
+	if p.Store.conn.RetryAttempts == nil || *p.Store.conn.RetryAttempts != 6 {
+		t.Fatalf("store.conn.RetryAttempts = %v, want 6", p.Store.conn.RetryAttempts)
+	}
+	if p.Store.conn.RetryBackoff == nil || *p.Store.conn.RetryBackoff != 125*time.Millisecond {
+		t.Fatalf("store.conn.RetryBackoff = %v, want %v", p.Store.conn.RetryBackoff, 125*time.Millisecond)
+	}
+	if err := p.Store.HealthCheck(context.Background()); err != nil {
+		t.Fatalf("HealthCheck: %v", err)
+	}
+}
+
 func TestProviderConfigureRejectsRemovedAliases(t *testing.T) {
 	t.Run("namespace", func(t *testing.T) {
 		p := New()
@@ -117,6 +162,60 @@ func TestProviderConfigureRejectsRemovedAliases(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+func TestProviderConfigureRejectsInvalidConnectionSettings(t *testing.T) {
+	tests := []struct {
+		name       string
+		connection map[string]any
+		want       string
+	}{
+		{
+			name: "negative_max_open_conns",
+			connection: map[string]any{
+				"max_open_conns": -1,
+			},
+			want: "connection.max_open_conns must be >= 0",
+		},
+		{
+			name: "max_idle_exceeds_max_open",
+			connection: map[string]any{
+				"max_open_conns": 4,
+				"max_idle_conns": 5,
+			},
+			want: "connection.max_idle_conns must be <= connection.max_open_conns",
+		},
+		{
+			name: "negative_ping_timeout",
+			connection: map[string]any{
+				"ping_timeout": "-1s",
+			},
+			want: "connection.ping_timeout must be >= 0",
+		},
+		{
+			name: "negative_retry_attempts",
+			connection: map[string]any{
+				"retry_attempts": -1,
+			},
+			want: "connection.retry_attempts must be >= 0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := New()
+			err := p.Configure(context.Background(), "", map[string]any{
+				"dsn":        "file:" + filepath.Join(t.TempDir(), tc.name+".sqlite"),
+				"connection": tc.connection,
+			})
+			if err == nil {
+				t.Fatal("expected invalid connection settings to fail")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
 }
 
 func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
