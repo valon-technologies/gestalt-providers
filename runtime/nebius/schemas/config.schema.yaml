@@ -1,0 +1,62 @@
+type: object
+properties:
+  projectID:
+    type: string
+    description: Nebius project ID that owns runtime VMs. Optional when a Nebius CLI profile with parent-id is configured.
+  endpoint:
+    type: string
+    description: Override for the Nebius API endpoint, for example api.nebius.cloud:443.
+  subnetID:
+    type: string
+    description: Nebius subnet ID where runtime VMs should be created.
+  securityGroupIDs:
+    type: array
+    items:
+      type: string
+    description: Optional Nebius security group IDs applied to the runtime VM network interface.
+  platform:
+    type: string
+    description: Nebius Compute platform ID for runtime VMs.
+  preset:
+    type: string
+    description: Nebius Compute preset name for runtime VMs.
+  serviceAccountID:
+    type: string
+    description: Optional Nebius service account ID attached to runtime VMs.
+  bootDiskSizeGiB:
+    type: integer
+    minimum: 1
+    description: Boot disk size in GiB.
+  bootDiskType:
+    type: string
+    description: Boot disk type. Supported values are network_ssd, network_hdd, network_ssd_non_replicated, and network_ssd_io_m3.
+  bootDiskImageID:
+    type: string
+    description: Explicit boot disk image ID. Mutually exclusive with bootDiskImageFamily.
+  bootDiskImageFamily:
+    type: string
+    description: Boot disk image family, for example ubuntu24.04-driverless.
+  bootDiskImageProjectID:
+    type: string
+    description: Project ID that owns the boot disk image family.
+  publicIPStatic:
+    type: boolean
+    description: Whether Nebius should allocate a static public IPv4 for the runtime VM.
+  username:
+    type: string
+    description: Linux username created through cloud-init for SSH/bootstrap access.
+  instanceReadyTimeout:
+    type: string
+    description: Maximum time to wait for the VM to reach RUNNING with a public IP.
+  bootstrapTimeout:
+    type: string
+    description: Maximum time to wait for SSH, cloud-init, and Docker readiness.
+  pluginReadyTimeout:
+    type: string
+    description: Maximum time to wait for the hosted plugin gRPC endpoint after container start.
+  cleanupTimeout:
+    type: string
+    description: Maximum time to wait while deleting a Nebius VM during session cleanup.
+required:
+  - subnetID
+additionalProperties: false
