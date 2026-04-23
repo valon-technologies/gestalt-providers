@@ -34,9 +34,11 @@ must contain the tools required to stage and launch the plugin process.
   port-forward back to `gestaltd`.
 - `BindHostService` accepts relay-backed bindings only. This matches the public
   relay path that `gestaltd` uses for hosted runtimes without direct host
-  sockets.
-- Capabilities advertise Linux/amd64 bundle launch, no provider-enforced egress
-  policy, and no direct host-service sockets.
+  sockets, including hosted agent bindings such as
+  `GESTALT_AGENT_HOST_SOCKET`.
+- Capabilities advertise Linux/amd64 bundle launch, hostname-based egress when
+  the runtime can enforce proxy-only outbound access, and no direct
+  host-service sockets.
 
 ## Configuration
 
@@ -104,10 +106,28 @@ not expect the container entrypoint to start the plugin by itself.
 
 ## Egress
 
-This provider does not yet claim `PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME` because
-the initial implementation does not create a per-session NetworkPolicy or other
-enforceable CNI policy. If the cluster/template permits internet access, the
-hosted plugin can still make network calls according to cluster policy.
+This provider now claims `PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME` by enforcing
+proxy-only outbound access with a per-session Kubernetes `NetworkPolicy`.
+When `gestaltd` injects `HTTP_PROXY` / `HTTPS_PROXY`, the provider resolves the
+proxy and relay hosts and allows only:
+
+- TCP egress to the proxy / relay endpoints
+- DNS on TCP/UDP port `53` to the sandbox resolvers discovered from
+  `/etc/resolv.conf`
+
+There is one important template-mode constraint: Kubernetes unions allowed
+egress across all matching `NetworkPolicy` objects. Because Agent Sandbox
+templates default to a shared managed policy, hostname-based egress is only
+enforceable for:
+
+- direct `Sandbox` sessions, or
+- `SandboxTemplate` sessions where `spec.networkPolicyManagement` is
+  `Unmanaged`
+
+If a template-backed session needs hostname egress and the selected
+`SandboxTemplate` uses managed network policy, `StartPlugin` fails with a clear
+precondition error instead of claiming enforcement that the cluster cannot
+provide.
 
 ## SandboxTemplate Example
 
@@ -118,6 +138,7 @@ metadata:
   name: gestalt-plugin-runtime
   namespace: gestalt-runtime
 spec:
+  networkPolicyManagement: Unmanaged
   envVarsInjectionPolicy: Disallowed
   podTemplate:
     spec:
@@ -161,13 +182,18 @@ for local development.
 The provider identity needs permissions for:
 
 - `extensions.agents.x-k8s.io/v1alpha1` `sandboxclaims`
+- `extensions.agents.x-k8s.io/v1alpha1` `sandboxtemplates` (read-only)
 - `agents.x-k8s.io/v1alpha1` `sandboxes`
 - core `pods`, including `pods/exec` and `pods/portforward`
+- `networking.k8s.io/v1` `networkpolicies`
 
 ## Verification
 
-The local contract tests exercise the runtime-provider gRPC surface with a fake
-sandbox runtime and a real local plugin lifecycle gRPC endpoint:
+The local contract tests exercise both:
+
+- the runtime-provider gRPC surface with a fake sandbox runtime and a real
+  local plugin lifecycle gRPC endpoint
+- the Kubernetes `NetworkPolicy` contract with fake Kubernetes clients
 
 ```sh
 go test ./...

@@ -44,14 +44,16 @@ type Provider struct {
 }
 
 type session struct {
-	id             string
-	state          string
-	metadata       map[string]string
-	handle         sandboxHandle
-	bindings       map[string]hostServiceBinding
-	plugin         *plugin
-	pluginStarting bool
-	pluginTunnel   tunnel
+	id                   string
+	state                string
+	metadata             map[string]string
+	template             string
+	handle               sandboxHandle
+	bindings             map[string]hostServiceBinding
+	plugin               *plugin
+	pluginStarting       bool
+	pluginTunnel         tunnel
+	hostnameEgressPolicy string
 }
 
 type hostServiceBinding struct {
@@ -128,7 +130,7 @@ func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRun
 	return &proto.PluginRuntimeSupport{
 		CanHostPlugins:    true,
 		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
-		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE,
+		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME,
 		LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
 		ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
 			Goos:   "linux",
@@ -170,6 +172,7 @@ func (p *Provider) StartSession(ctx context.Context, req *proto.StartPluginRunti
 		id:       sessionID,
 		state:    sessionStateReady,
 		metadata: cloneStringMap(req.GetMetadata()),
+		template: template,
 		handle:   handle,
 		bindings: make(map[string]hostServiceBinding),
 	}
@@ -251,14 +254,16 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 	}
 
 	var (
-		handle sandboxHandle
-		tunnel tunnel
+		handle     sandboxHandle
+		tunnel     tunnel
+		policyName string
 	)
 	p.mu.Lock()
 	s, ok := p.sessions[req.GetSessionId()]
 	if ok && s != nil {
 		handle = s.handle
 		tunnel = s.pluginTunnel
+		policyName = s.hostnameEgressPolicy
 	}
 	p.mu.Unlock()
 
@@ -271,8 +276,14 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 		_ = runtime.Exec(cleanupCtx, handle, pluginCleanupCommand(), nil)
 		cleanupCancel()
 	}
+	stopSucceeded := handle.Name == ""
 	if handle.Name != "" {
-		errs = append(errs, runtime.Stop(ctx, handle))
+		stopErr := runtime.Stop(ctx, handle)
+		errs = append(errs, stopErr)
+		stopSucceeded = stopErr == nil
+	}
+	if stopSucceeded && policyName != "" {
+		errs = append(errs, runtime.DeleteHostnameEgressPolicy(ctx, handle, policyName))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, status.Errorf(codes.Internal, "stop gke agent sandbox session: %v", err)
@@ -344,18 +355,33 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}
 	handle := s.handle
 	bindings := cloneBindings(s.bindings)
+	templateName := s.template
 	s.pluginStarting = true
 	s.state = sessionStateStarting
 	p.mu.Unlock()
 
 	launchOK := false
+	hostnamePolicyName := ""
+	execCleanupNeeded := false
 	defer func() {
 		if launchOK {
 			return
 		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
-		_ = runtime.Exec(cleanupCtx, handle, pluginCleanupCommand(), nil)
-		cleanupCancel()
+		cleanupSucceeded := true
+		if execCleanupNeeded {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
+			if err := runtime.Exec(cleanupCtx, handle, pluginCleanupCommand(), nil); err != nil {
+				cleanupSucceeded = false
+			}
+			cleanupCancel()
+		}
+		if hostnamePolicyName != "" && cleanupSucceeded {
+			deleteCtx, deleteCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
+			if err := runtime.DeleteHostnameEgressPolicy(deleteCtx, handle, hostnamePolicyName); err == nil {
+				p.clearHostnameEgressPolicy(req.GetSessionId(), hostnamePolicyName)
+			}
+			deleteCancel()
+		}
 		p.clearPluginStarting(req.GetSessionId())
 	}()
 
@@ -375,6 +401,17 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		env[binding.envVar] = binding.dialTarget
 	}
 	env[proto.EnvProviderSocket] = "/tmp/gestalt/plugin.sock"
+	if requiresHostnameEgress(req, env, bindings) {
+		hostnameEgress, err := buildHostnameEgressConfig(env, bindings, templateName)
+		if err != nil {
+			return nil, hostnameEgressStatus("", err)
+		}
+		hostnamePolicyName, err = runtime.EnsureHostnameEgressPolicy(execCtx, handle, hostnameEgress)
+		if err != nil {
+			return nil, hostnameEgressStatus("configure hosted hostname egress", err)
+		}
+		p.setHostnameEgressPolicy(req.GetSessionId(), hostnamePolicyName)
+	}
 
 	launchScript := buildLaunchScript(startProcessRequest{
 		Command: req.GetCommand(),
@@ -389,6 +426,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		PluginPort: cfg.PluginPort,
 		SocketPath: env[proto.EnvProviderSocket],
 	})
+	execCleanupNeeded = true
 	if err := runtime.Exec(execCtx, handle, []string{"sh", "-c", launchScript}, nil); err != nil {
 		return nil, status.Errorf(codes.Internal, "start plugin process in gke agent sandbox: %v", err)
 	}
@@ -476,6 +514,22 @@ func (p *Provider) clearPluginStarting(sessionID string) {
 	}
 }
 
+func (p *Provider) setHostnameEgressPolicy(sessionID, policyName string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s, ok := p.sessions[sessionID]; ok && s != nil {
+		s.hostnameEgressPolicy = policyName
+	}
+}
+
+func (p *Provider) clearHostnameEgressPolicy(sessionID, policyName string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s, ok := p.sessions[sessionID]; ok && s != nil && s.hostnameEgressPolicy == policyName {
+		s.hostnameEgressPolicy = ""
+	}
+}
+
 func (p *Provider) configured() (sandboxRuntime, Config, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -549,6 +603,8 @@ func isRelayHostServiceEnv(envVar string) bool {
 	case envVar == proto.EnvPluginInvokerSocket:
 		return true
 	case envVar == proto.EnvWorkflowManagerSocket:
+		return true
+	case envVar == proto.EnvAgentHostSocket:
 		return true
 	case envVar == proto.EnvAgentManagerSocket:
 		return true
