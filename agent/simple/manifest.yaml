@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/agent/simple
-version: 0.0.1-alpha.3
+version: 0.0.1-alpha.6
 displayName: Simple Agent
-description: Simple multi-model agent provider for Gestalt with tool calling over LiteLLM.
+description: Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.
 kind: agent
 spec:
   configSchemaPath: schemas/config.schema.yaml

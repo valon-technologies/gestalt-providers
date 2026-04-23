@@ -198,6 +198,51 @@ class _FakeOpenAIChatServer:
         return Handler
 
 
+class _FakeAnthropicMessagesServer:
+    def __init__(self, responses: list[dict[str, Any]]) -> None:
+        self._responses = list(responses)
+        self.requests: list[dict[str, Any]] = []
+        self._server = HTTPServer(("127.0.0.1", 0), self._handler_type())
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    @property
+    def base_url(self) -> str:
+        address = self._server.server_address
+        return f"http://{address[0]}:{address[1]}"
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._thread.join(timeout=5)
+        self._server.server_close()
+
+    def _handler_type(self) -> type[BaseHTTPRequestHandler]:
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                if self.path != "/v1/messages":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                outer.requests.append(json.loads(body.decode("utf-8")))
+                payload = outer._responses.pop(0)
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                del format, args
+
+        return Handler
+
+
 def _fresh_socket(name: str) -> str:
     socket_path = os.path.join(tempfile.gettempdir(), f"{name}-{os.getpid()}.sock")
     if os.path.exists(socket_path):
@@ -510,6 +555,110 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(started.status, agent_pb2.AGENT_RUN_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_RUN_STATUS_CANCELED)
         self.assertEqual(len(fake_llm.requests), 1)
+
+    def test_start_run_completes_anthropic_tool_loop_and_persists_run(self) -> None:
+        _, provider_client = _configure_provider(
+            run_store="run_anthropic_runs", idempotency_store="run_anthropic_idempotency"
+        )
+
+        fake_anthropic = _FakeAnthropicMessagesServer(
+            responses=[
+                {
+                    "id": "msg-1",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu-1",
+                            "name": "person_lookup",
+                            "input": {"query": "Ada Lovelace"},
+                        }
+                    ],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+                {
+                    "id": "msg-2",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [{"type": "text", "text": '{"summary":"Ada Lovelace is still relevant."}'}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 20, "output_tokens": 7},
+                },
+            ]
+        )
+        fake_anthropic.start()
+        self.addCleanup(fake_anthropic.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key", "max_tokens": 256})
+
+        response_schema = struct_pb2.Struct()
+        response_schema.update(
+            {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
+        )
+
+        tool_parameters = struct_pb2.Struct()
+        tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
+
+        started = provider_client.StartRun(
+            agent_pb2.StartAgentProviderRunRequest(
+                run_id="run-anthropic",
+                idempotency_key="idem-anthropic",
+                provider_name="simple",
+                model="anthropic/claude-fake-model",
+                messages=[agent_pb2.AgentMessage(role="user", text="Who is Ada Lovelace?")],
+                tools=[
+                    agent_pb2.ResolvedAgentTool(
+                        id="lookup",
+                        name="person_lookup",
+                        description="Look up a historical figure",
+                        parameters_schema=tool_parameters,
+                    )
+                ],
+                response_schema=response_schema,
+                provider_options=provider_options,
+            )
+        )
+
+        fetched = _wait_for_run(provider_client, "run-anthropic", agent_pb2.AGENT_RUN_STATUS_SUCCEEDED)
+
+        self.assertEqual(started.status, agent_pb2.AGENT_RUN_STATUS_RUNNING)
+        self.assertEqual(started.model, "anthropic/claude-fake-model")
+        self.assertEqual(fetched.status, agent_pb2.AGENT_RUN_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.model, "anthropic/claude-fake-model")
+        self.assertEqual(fetched.output_text, '{"summary":"Ada Lovelace is still relevant."}')
+        self.assertEqual(fetched.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
+
+        assert _host_servicer is not None
+        self.assertEqual(
+            _host_servicer.requests,
+            [
+                {
+                    "run_id": "run-anthropic",
+                    "tool_call_id": "toolu-1",
+                    "tool_id": "lookup",
+                    "arguments": {"query": "Ada Lovelace"},
+                }
+            ],
+        )
+
+        self.assertEqual(len(fake_anthropic.requests), 2)
+        first_request = fake_anthropic.requests[0]
+        second_request = fake_anthropic.requests[1]
+        self.assertEqual(first_request["model"], "claude-fake-model")
+        self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
+        self.assertEqual(first_request["tools"][0]["name"], "person_lookup")
+        self.assertIn("Return only valid JSON", first_request["system"])
+        self.assertEqual(second_request["messages"][1]["role"], "assistant")
+        self.assertEqual(second_request["messages"][1]["content"][0]["type"], "tool_use")
+        self.assertEqual(second_request["messages"][2]["role"], "user")
+        self.assertEqual(second_request["messages"][2]["content"][0]["type"], "tool_result")
 
 
 def _wait_for_run(provider_client: Any, run_id: str, status: int, timeout_seconds: float = 5) -> Any:

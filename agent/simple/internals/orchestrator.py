@@ -15,7 +15,7 @@ from jsonschema import ValidationError, validate
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 
 from .config import SimpleAgentConfig
-from .litellm_backend import LiteLLMBackend
+from .model_backend import ModelBackend
 from .store import SimpleRunStore, StoredRun
 
 agent_pb2: Any = _agent_pb2
@@ -27,7 +27,7 @@ class SimpleAgentOrchestrator:
     def __init__(self, *, config: SimpleAgentConfig, store: SimpleRunStore) -> None:
         self._config = config
         self._store = store
-        self._backend = LiteLLMBackend(config)
+        self._backend = ModelBackend(config)
 
     def start_run(self, request: Any, context: grpc.ServicerContext) -> Any:
         run_id = str(request.run_id or "").strip()

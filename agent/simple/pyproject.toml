@@ -1,11 +1,12 @@
 [project]
 name = "gestalt-agent-simple"
-version = "0.0.1a3"
-requires-python = "==3.13.*"
+version = "0.0.1a6"
+requires-python = "==3.14.*"
 dependencies = [
   "gestalt-sdk==0.0.1a13",
+  "anthropic==0.96.0",
   "jsonschema==4.23.0",
-  "litellm==1.83.12",
+  "openai==2.32.0",
 ]
 
 [dependency-groups]
@@ -24,10 +25,6 @@ override-dependencies = [
 [tool.gestalt]
 plugin = "provider"
 agent = "provider"
-
-[tool.gestalt.pyinstaller]
-collect-data = ["litellm"]
-collect-submodules = ["tiktoken_ext"]
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
@@ -57,7 +54,7 @@ vulture-ignore-names = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true
