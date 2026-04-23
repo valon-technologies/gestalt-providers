@@ -20,8 +20,8 @@ version="$7"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 
 case "$base_image" in
-  *alpine*) install_cmd="apk add --no-cache bash build-base ca-certificates git curl zlib-dev" ;;
-  *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git curl zlib1g-dev libffi-dev" ;;
+  *alpine*) install_cmd="apk add --no-cache bash build-base ca-certificates git curl zlib-dev cargo rust" ;;
+  *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git curl zlib1g-dev libffi-dev cargo rustc" ;;
 esac
 
 echo "=== Packaging ${release_platform} (${base_image}) ==="
