@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
@@ -66,7 +67,7 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 
 	waitForCondition(t, time.Second, func() bool {
 		run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
-			RunId:      first.GetId(),
+			RunId: first.GetId(),
 		})
 		return err == nil && run.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
 	})
@@ -175,8 +176,8 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 	}
 
 	canceled, err := provider.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{
-		RunId:      "pending-run",
-		Reason:     "skip this run",
+		RunId:  "pending-run",
+		Reason: "skip this run",
 	})
 	if err != nil {
 		t.Fatalf("CancelRun(pending): %v", err)
@@ -198,9 +199,128 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 		t.Fatalf("Put(running): %v", err)
 	}
 	if _, err := provider.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{
-		RunId:      "running-run",
+		RunId: "running-run",
 	}); err == nil {
 		t.Fatal("CancelRun(running) succeeded, want error")
+	}
+}
+
+func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	firstCreatedAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	secondCreatedAt := firstCreatedAt.Add(time.Minute)
+	first, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:                  "ref-1",
+			Target:              protoBoundTarget(t, "roadmap", "sync", nil),
+			SubjectId:           "user:123",
+			CredentialSubjectId: "svc:workflow",
+			Permissions: []*proto.WorkflowAccessPermission{
+				{Plugin: "roadmap", Operations: []string{"sync", "preview"}},
+			},
+			CreatedAt: timestamppb.New(firstCreatedAt),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PutExecutionReference(ref-1): %v", err)
+	}
+	if first.GetProviderName() != "indexeddb" {
+		t.Fatalf("provider_name = %q, want indexeddb", first.GetProviderName())
+	}
+	if got := first.GetCreatedAt().AsTime(); !got.Equal(firstCreatedAt) {
+		t.Fatalf("created_at = %v, want %v", got, firstCreatedAt)
+	}
+
+	revokedAt := secondCreatedAt.Add(time.Minute)
+	updated, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:                  "ref-1",
+			Target:              protoBoundTarget(t, "roadmap", "sync", nil),
+			SubjectId:           "user:123",
+			CredentialSubjectId: "svc:workflow",
+			Permissions: []*proto.WorkflowAccessPermission{
+				{Plugin: "roadmap", Operations: []string{"sync"}},
+			},
+			CreatedAt: timestamppb.New(secondCreatedAt),
+			RevokedAt: timestamppb.New(revokedAt),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PutExecutionReference(update ref-1): %v", err)
+	}
+	if got := updated.GetCreatedAt().AsTime(); !got.Equal(firstCreatedAt) {
+		t.Fatalf("updated created_at = %v, want preserved %v", got, firstCreatedAt)
+	}
+	if got := updated.GetRevokedAt().AsTime(); !got.Equal(revokedAt) {
+		t.Fatalf("updated revoked_at = %v, want %v", got, revokedAt)
+	}
+
+	if _, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:        "ref-2",
+			Target:    protoBoundTarget(t, "roadmap", "sync", nil),
+			SubjectId: "user:123",
+			CreatedAt: timestamppb.New(secondCreatedAt),
+		},
+	}); err != nil {
+		t.Fatalf("PutExecutionReference(ref-2): %v", err)
+	}
+	if _, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:        "ref-3",
+			Target:    protoBoundTarget(t, "billing", "collect", nil),
+			SubjectId: "user:999",
+			CreatedAt: timestamppb.New(secondCreatedAt.Add(time.Minute)),
+		},
+	}); err != nil {
+		t.Fatalf("PutExecutionReference(ref-3): %v", err)
+	}
+
+	got, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "ref-1"})
+	if err != nil {
+		t.Fatalf("GetExecutionReference(ref-1): %v", err)
+	}
+	if got.GetProviderName() != "indexeddb" {
+		t.Fatalf("get provider_name = %q, want indexeddb", got.GetProviderName())
+	}
+	if got.GetCredentialSubjectId() != "svc:workflow" {
+		t.Fatalf("credential_subject_id = %q, want svc:workflow", got.GetCredentialSubjectId())
+	}
+	if len(got.GetPermissions()) != 1 || got.GetPermissions()[0].GetPlugin() != "roadmap" {
+		t.Fatalf("permissions = %#v, want roadmap entry", got.GetPermissions())
+	}
+	if ops := got.GetPermissions()[0].GetOperations(); len(ops) != 1 || ops[0] != "sync" {
+		t.Fatalf("permission operations = %#v, want [sync]", ops)
+	}
+
+	listed, err := provider.ListExecutionReferences(ctx, &proto.ListWorkflowExecutionReferencesRequest{
+		SubjectId: "user:123",
+	})
+	if err != nil {
+		t.Fatalf("ListExecutionReferences(subject): %v", err)
+	}
+	if len(listed.GetReferences()) != 2 {
+		t.Fatalf("subject references len = %d, want 2", len(listed.GetReferences()))
+	}
+	if listed.GetReferences()[0].GetId() != "ref-1" || listed.GetReferences()[1].GetId() != "ref-2" {
+		t.Fatalf("subject references ids = [%s %s], want [ref-1 ref-2]", listed.GetReferences()[0].GetId(), listed.GetReferences()[1].GetId())
+	}
+
+	all, err := provider.ListExecutionReferences(ctx, &proto.ListWorkflowExecutionReferencesRequest{})
+	if err != nil {
+		t.Fatalf("ListExecutionReferences(all): %v", err)
+	}
+	if len(all.GetReferences()) != 3 {
+		t.Fatalf("all references len = %d, want 3", len(all.GetReferences()))
 	}
 }
 
@@ -219,12 +339,17 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = provider.Close() })
 
-	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerId:  "refresh-trigger",
-		Match:      &proto.WorkflowEventMatch{Type: "task.updated", Source: "roadmap"},
-		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
-	}); err != nil {
+	trigger, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId:    "refresh-trigger",
+		Match:        &proto.WorkflowEventMatch{Type: "task.updated", Source: "roadmap"},
+		Target:       protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
+		ExecutionRef: "event-ref",
+	})
+	if err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
+	}
+	if trigger.GetExecutionRef() != "event-ref" {
+		t.Fatalf("trigger execution_ref = %q, want event-ref", trigger.GetExecutionRef())
 	}
 	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 		PluginName: "roadmap",
@@ -242,18 +367,25 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall(event): %v", err)
 	}
+	if eventCall.GetExecutionRef() != "event-ref" {
+		t.Fatalf("event execution_ref = %q, want event-ref", eventCall.GetExecutionRef())
+	}
 	if eventCall.GetTrigger().GetEvent() == nil || eventCall.GetTrigger().GetEvent().GetTriggerId() != "refresh-trigger" {
 		t.Fatalf("event trigger = %#v", eventCall.GetTrigger())
 	}
 
 	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		ScheduleId: "nightly-sync",
-		Cron:       "*/5 * * * *",
-		Timezone:   "UTC",
-		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "schedule"}),
+		ScheduleId:   "nightly-sync",
+		Cron:         "*/5 * * * *",
+		Timezone:     "UTC",
+		Target:       protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "schedule"}),
+		ExecutionRef: "schedule-ref",
 	})
 	if err != nil {
 		t.Fatalf("UpsertSchedule: %v", err)
+	}
+	if schedule.GetExecutionRef() != "schedule-ref" {
+		t.Fatalf("schedule execution_ref = %q, want schedule-ref", schedule.GetExecutionRef())
 	}
 	if got := schedule.GetNextRunAt().AsTime(); !got.Equal(time.Date(2026, time.April, 16, 12, 5, 0, 0, time.UTC)) {
 		t.Fatalf("initial next_run_at = %v", got)
@@ -267,6 +399,9 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	scheduleCall, err := host.waitForCall(time.Second)
 	if err != nil {
 		t.Fatalf("waitForCall(schedule): %v", err)
+	}
+	if scheduleCall.GetExecutionRef() != "schedule-ref" {
+		t.Fatalf("schedule call execution_ref = %q, want schedule-ref", scheduleCall.GetExecutionRef())
 	}
 	scheduledFor := scheduleCall.GetTrigger().GetSchedule().GetScheduledFor().AsTime()
 	wantScheduledFor := time.Date(2026, time.April, 16, 12, 15, 0, 0, time.UTC)
@@ -284,6 +419,9 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if got := updated.GetNextRunAt().AsTime(); !got.Equal(wantNext) {
 		t.Fatalf("next_run_at = %v, want %v", got, wantNext)
 	}
+	if updated.GetExecutionRef() != "schedule-ref" {
+		t.Fatalf("updated schedule execution_ref = %q, want schedule-ref", updated.GetExecutionRef())
+	}
 
 	waitForCondition(t, time.Second, func() bool {
 		runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
@@ -297,6 +435,22 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 		}
 		return true
 	})
+
+	eventRun, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: eventCall.GetRunId()})
+	if err != nil {
+		t.Fatalf("GetRun(event): %v", err)
+	}
+	if eventRun.GetExecutionRef() != "event-ref" {
+		t.Fatalf("event run execution_ref = %q, want event-ref", eventRun.GetExecutionRef())
+	}
+
+	scheduleRun, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: scheduleCall.GetRunId()})
+	if err != nil {
+		t.Fatalf("GetRun(schedule): %v", err)
+	}
+	if scheduleRun.GetExecutionRef() != "schedule-ref" {
+		t.Fatalf("schedule run execution_ref = %q, want schedule-ref", scheduleRun.GetExecutionRef())
+	}
 }
 
 func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
@@ -312,9 +466,9 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerId:  "refresh-trigger",
-		Match:      &proto.WorkflowEventMatch{Type: "task.updated"},
-		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
+		TriggerId: "refresh-trigger",
+		Match:     &proto.WorkflowEventMatch{Type: "task.updated"},
+		Target:    protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
@@ -455,16 +609,16 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 	}
 
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerId:  "shared-trigger",
-		Match:      &proto.WorkflowEventMatch{Type: "task.updated"},
-		Target:     protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
+		TriggerId: "shared-trigger",
+		Match:     &proto.WorkflowEventMatch{Type: "task.updated"},
+		Target:    protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger(roadmap): %v", err)
 	}
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerId:  "shared-trigger",
-		Match:      &proto.WorkflowEventMatch{Type: "invoice.updated"},
-		Target:     protoBoundTarget(t, "billing", "sync", map[string]any{"kind": "event"}),
+		TriggerId: "shared-trigger",
+		Match:     &proto.WorkflowEventMatch{Type: "invoice.updated"},
+		Target:    protoBoundTarget(t, "billing", "sync", map[string]any{"kind": "event"}),
 	}); err == nil {
 		t.Fatal("UpsertEventTrigger(billing) succeeded, want cross-plugin collision error")
 	}
@@ -503,7 +657,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	t.Cleanup(func() { _ = second.Close() })
 
 	stale, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
-		RunId:      "stale-run",
+		RunId: "stale-run",
 	})
 	if err != nil {
 		t.Fatalf("GetRun(stale): %v", err)
