@@ -1,5 +1,10 @@
 name: slack
 operations:
+- id: events.handle
+  method: POST
+  description: Handle Slack Events API callbacks and delegate supported user events
+    to a Gestalt agent
+  visible: false
 - id: conversations.getMessage
   method: POST
   description: Fetch a single message by Slack URL or channel and timestamp
