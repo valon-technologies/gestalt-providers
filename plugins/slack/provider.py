@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
 from typing import Any, TypeAlias
+import urllib.error
+import urllib.request
 
 import gestalt
 
@@ -9,6 +12,13 @@ from internals import find_user_mentions, get_message, get_thread_participants, 
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
+PostConnectMetadata: TypeAlias = dict[str, str]
+
+SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
+SLACK_DEFAULT_CONNECTION = "default"
+SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
+EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
+EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
 
 
 class GetMessageInput(gestalt.Model):
@@ -51,6 +61,22 @@ class GetThreadParticipantsInput(gestalt.Model):
         default=True,
         required=False,
     )
+
+
+@gestalt.post_connect
+def post_connect(token: gestalt.ConnectedToken) -> PostConnectMetadata:
+    if token.connection != SLACK_DEFAULT_CONNECTION:
+        return {}
+    if not token.access_token:
+        raise RuntimeError("Slack post-connect requires an access token")
+
+    identity = _auth_test(token.access_token)
+    return {
+        EXTERNAL_IDENTITY_TYPE_METADATA_KEY: SLACK_EXTERNAL_IDENTITY_TYPE,
+        EXTERNAL_IDENTITY_ID_METADATA_KEY: slack_external_identity_id(identity["team_id"], identity["user_id"]),
+        "slack.team_id": identity["team_id"],
+        "slack.user_id": identity["user_id"],
+    }
 
 
 @gestalt.operation(
@@ -135,3 +161,44 @@ def _bad_request(message: str) -> ErrorResponse:
 
 def _server_error(message: str) -> ErrorResponse:
     return gestalt.Response(status=HTTPStatus.INTERNAL_SERVER_ERROR, body={"error": message})
+
+
+def slack_external_identity_id(team_id: str, user_id: str) -> str:
+    team_id = team_id.strip()
+    user_id = user_id.strip()
+    if not team_id or not user_id:
+        raise RuntimeError("Slack auth.test did not return team_id and user_id")
+    return f"team:{team_id}:user:{user_id}"
+
+
+def _auth_test(access_token: str) -> PostConnectMetadata:
+    request = urllib.request.Request(
+        SLACK_AUTH_TEST_URL,
+        data=b"",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"slack auth.test HTTP error (status {err.code}): {body}") from err
+    except urllib.error.URLError as err:
+        raise RuntimeError(f"slack auth.test request failed: {err.reason}") from err
+    except json.JSONDecodeError as err:
+        raise RuntimeError("slack auth.test returned invalid JSON") from err
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("slack auth.test returned invalid response")
+    if not payload.get("ok"):
+        error = payload.get("error")
+        if not isinstance(error, str) or not error:
+            error = "unknown_error"
+        raise RuntimeError(f"slack auth.test failed: {error}")
+
+    team_id = payload.get("team_id")
+    user_id = payload.get("user_id")
+    if not isinstance(team_id, str) or not isinstance(user_id, str):
+        raise RuntimeError("Slack auth.test did not return team_id and user_id")
+    return {"team_id": team_id, "user_id": user_id}

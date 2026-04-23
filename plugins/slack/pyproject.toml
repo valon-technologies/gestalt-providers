@@ -2,7 +2,7 @@
 name = "gestalt-slack"
 version = "0.0.1a1"
 requires-python = "==3.14.*"
-dependencies = ["gestalt-sdk"]
+dependencies = ["gestalt-sdk==0.0.1a11"]
 
 [dependency-groups]
 dev = [
@@ -14,14 +14,12 @@ dev = [
 [tool.uv]
 package = false
 
-[tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
-
 [tool.gestalt]
 plugin = "provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
+  "post_connect",
   "conversations_get_message",
   "conversations_find_user_mentions",
   "conversations_get_thread_participants",

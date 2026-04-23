@@ -44,6 +44,65 @@ def authorization_header(request: urllib.request.Request) -> str | None:
 
 
 class SlackProviderTests(unittest.TestCase):
+    def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.full_url, provider_module.SLACK_AUTH_TEST_URL)
+            self.assertEqual(authorization_header(request), "Bearer user-token")
+            return FakeHTTPResponse(
+                """
+                {
+                  "ok": true,
+                  "team_id": "T123ABC456",
+                  "user_id": "U123ABC456"
+                }
+                """
+            )
+
+        with mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen):
+            metadata = provider_module.post_connect(
+                gestalt.ConnectedToken(
+                    access_token="user-token",
+                    connection=provider_module.SLACK_DEFAULT_CONNECTION,
+                    subject_id="subject-1",
+                )
+            )
+
+        self.assertEqual(
+            metadata,
+            {
+                "gestalt.external_identity.type": "slack_identity",
+                "gestalt.external_identity.id": "team:T123ABC456:user:U123ABC456",
+                "slack.team_id": "T123ABC456",
+                "slack.user_id": "U123ABC456",
+            },
+        )
+
+    def test_post_connect_skips_bot_connection(self) -> None:
+        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+            metadata = provider_module.post_connect(
+                gestalt.ConnectedToken(access_token="bot-token", connection="bot", subject_id="subject-1")
+            )
+
+        self.assertEqual(metadata, {})
+        urlopen.assert_not_called()
+
+    def test_post_connect_rejects_slack_identity_failure(self) -> None:
+        def fake_urlopen(_request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            return FakeHTTPResponse('{"ok": false, "error": "invalid_auth"}')
+
+        with mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen):
+            with self.assertRaisesRegex(RuntimeError, "slack auth.test failed: invalid_auth"):
+                provider_module.post_connect(
+                    gestalt.ConnectedToken(
+                        access_token="bad-token",
+                        connection=provider_module.SLACK_DEFAULT_CONNECTION,
+                        subject_id="subject-1",
+                    )
+                )
+
     def test_get_message_uses_history_lookup_contract(self) -> None:
         def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
