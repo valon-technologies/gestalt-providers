@@ -51,11 +51,8 @@ Go, Python, or Rust. See the
 [provider development guide](https://gestaltd.ai/providers) for SDK setup and
 writing custom operations.
 
-All providers are built and packaged with `gestaltd provider release`.
-
-Hosted runtime backends under `runtime/` are the current exception: they are
-compiled into `gestaltd` through the hosted-runtime Go interface and are not
-yet manifest-driven runtime-loaded artifacts.
+All providers are built and packaged with `gestaltd provider release`,
+including hosted runtime backends under `runtime/`.
 
 ## Releasing
 
@@ -64,6 +61,13 @@ Push a tag in the format `<kind>/<name>/v<version>`:
 ```sh
 git tag plugins/slack/v0.0.1-alpha.1
 git push origin plugins/slack/v0.0.1-alpha.1
+```
+
+Runtime providers use the same release flow:
+
+```sh
+git tag runtime/modal/v0.0.1-alpha.2
+git push origin runtime/modal/v0.0.1-alpha.2
 ```
 
 The release workflow packages the provider for all supported platforms and
