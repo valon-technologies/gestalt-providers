@@ -35,7 +35,7 @@ The provider also exposes a Slack Events API ingress:
 ```yaml
 plugins:
   slack:
-    source: https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.7/provider-release.yaml
+    source: https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.8/provider-release.yaml
     authorizationPolicy: platform
     invokes:
       - plugin: slack

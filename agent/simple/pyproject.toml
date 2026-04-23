@@ -1,9 +1,9 @@
 [project]
 name = "gestalt-agent-simple"
-version = "0.0.1a2"
+version = "0.0.1a3"
 requires-python = "==3.13.*"
 dependencies = [
-  "gestalt-sdk==0.0.1a12",
+  "gestalt-sdk==0.0.1a13",
   "jsonschema==4.23.0",
   "litellm==1.83.12",
 ]
