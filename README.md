@@ -31,6 +31,7 @@ Reference providers in your Gestalt configuration by source and version. See the
 
 ```
 plugins/<name>/       Integration plugin packages (Go, Python)
+agent/<name>/         Agent providers (Python, Go)
 runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)
 authorization/<name>/ Authorization providers (Go)

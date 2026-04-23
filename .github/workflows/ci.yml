@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/scripts/**'
+      - 'agent/**'
       - 'plugins/**'
       - 'auth/**'
       - 'authorization/**'
@@ -19,6 +20,7 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/scripts/**'
+      - 'agent/**'
       - 'plugins/**'
       - 'auth/**'
       - 'authorization/**'
@@ -34,7 +36,6 @@ permissions:
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
   VALIDATION_VERSION: 0.0.1-alpha.1
-  UV_PYTHON: "3.14"
 
 jobs:
   discover:
@@ -63,7 +64,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("plugins", "auth", "authorization", "s3", "indexeddb", "cache", "secrets")
+          package_roots = ("agent", "plugins", "auth", "authorization", "s3", "indexeddb", "cache", "secrets")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -209,7 +210,7 @@ jobs:
           go-version: '1.26'
       - name: Install Python
         if: matrix.plugin.has_python
-        run: uv python install 3.14
+        run: uv python install 3.13 3.14
       - name: Prepare sibling Gestalt checkout for local Go replaces
         if: matrix.plugin.has_go
         run: |

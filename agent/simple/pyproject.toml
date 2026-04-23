@@ -1,0 +1,63 @@
+[project]
+name = "gestalt-agent-simple"
+version = "0.0.1a1"
+requires-python = "==3.13.*"
+dependencies = [
+  "gestalt-sdk",
+  "jsonschema==4.23.0",
+  "litellm==1.83.12",
+]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "ty==0.0.29",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+override-dependencies = [
+  "typing-extensions>=4.14.1",
+]
+
+[tool.uv.sources]
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
+
+[tool.gestalt]
+plugin = "provider"
+agent = "provider"
+
+[tool.gestalt.ci]
+vulture-ignore-names = [
+  "StartRun",
+  "GetRun",
+  "ListRuns",
+  "CancelRun",
+  "configure",
+  "metadata",
+  "ExecuteTool",
+  "do_POST",
+  "log_message",
+  "setUpModule",
+  "tearDownModule",
+  "CreateObjectStore",
+  "DeleteObjectStore",
+  "Get",
+  "GetKey",
+  "Add",
+  "Put",
+  "Delete",
+  "Clear",
+  "GetAll",
+  "GetAllKeys",
+  "Count",
+  "main",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true

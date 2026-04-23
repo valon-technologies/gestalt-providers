@@ -3,6 +3,7 @@ name: Release Provider Package
 on:
   push:
     tags:
+      - 'agent/*/v*'
       - 'plugins/*/v*'
       - 'auth/*/v*'
       - 'authorization/*/v*'
@@ -60,7 +61,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            plugins|auth|authorization|s3|indexeddb|workflow|cache|secrets|ui)
+            agent|plugins|auth|authorization|s3|indexeddb|workflow|cache|secrets|ui)
               GESTALT_REF="main"
               ;;
             *)

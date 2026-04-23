@@ -1,0 +1,28 @@
+type: object
+properties:
+  runStore:
+    type: string
+    description: IndexedDB object store used for provider-owned run records.
+  idempotencyStore:
+    type: string
+    description: IndexedDB object store used for run idempotency records.
+  defaultModel:
+    type: string
+    description: Default model identifier to use when a run omits `model`.
+  aliases:
+    type: object
+    description: Optional model aliases resolved before dispatch.
+    additionalProperties:
+      type: string
+  maxSteps:
+    type: integer
+    minimum: 1
+    description: Maximum model/tool loop iterations per run.
+  timeoutSeconds:
+    type: number
+    exclusiveMinimum: 0
+    description: Per-model-call timeout in seconds.
+  systemPrompt:
+    type: string
+    description: Optional system prompt prepended to every run.
+additionalProperties: false
