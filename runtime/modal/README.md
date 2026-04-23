@@ -37,5 +37,5 @@ runtime image.
 ## Current Limitations
 
 - no generic host-service tunnels
-- relay-backed public host-service bindings are accepted for IndexedDB, cache, S3, workflow manager, authorization, and plugin invoker
+- relay-backed public host-service bindings are accepted for agent host, IndexedDB, cache, S3, workflow manager, authorization, and plugin invoker
 - hostname-based egress is enforced by routing outbound HTTP(S) traffic through the public `gestaltd` proxy and constraining the sandbox with Modal `CIDRAllowlist`
