@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -13,10 +14,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -38,6 +41,8 @@ type sandboxRuntime interface {
 	CopyBundle(context.Context, sandboxHandle, string, string) error
 	Exec(context.Context, sandboxHandle, []string, io.Reader) error
 	ForwardPort(context.Context, sandboxHandle, int) (tunnel, error)
+	EnsureHostnameEgressPolicy(context.Context, sandboxHandle, hostnameEgressConfig) (string, error)
+	DeleteHostnameEgressPolicy(context.Context, sandboxHandle, string) error
 	Close() error
 }
 
@@ -71,6 +76,8 @@ type kubernetesSandboxRuntime struct {
 	core       kubernetes.Interface
 	agents     agentclientset.Interface
 	extensions extclientset.Interface
+	lookupIP   func(context.Context, string) ([]net.IPAddr, error)
+	readFile   func(context.Context, sandboxHandle, string) (string, error)
 }
 
 func newKubernetesSandboxRuntime(cfg Config) (sandboxRuntime, error) {
@@ -96,6 +103,7 @@ func newKubernetesSandboxRuntime(cfg Config) (sandboxRuntime, error) {
 		core:       core,
 		agents:     agents,
 		extensions: extensions,
+		lookupIP:   net.DefaultResolver.LookupIPAddr,
 	}, nil
 }
 
@@ -170,6 +178,13 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 	if err != nil {
 		return sandboxHandle{}, err
 	}
+	objectLabels := runtimeLabels(req.PluginName)
+	podLabels := runtimeLabels(req.PluginName)
+	sessionLabel := sanitizeLabelValue(req.Name)
+	if sessionLabel != "" {
+		objectLabels[runtimeSessionLabel] = sessionLabel
+		podLabels[runtimeSessionLabel] = sessionLabel
+	}
 	sandbox := &sandboxv1alpha1.Sandbox{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: sandboxv1alpha1.SchemeGroupVersion.String(),
@@ -178,13 +193,13 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: req.Namespace,
-			Labels:    runtimeLabels(req.PluginName),
+			Labels:    objectLabels,
 		},
 		Spec: sandboxv1alpha1.SandboxSpec{
 			Replicas: &replicas,
 			PodTemplate: sandboxv1alpha1.PodTemplate{
 				ObjectMeta: sandboxv1alpha1.PodMetadata{
-					Labels: runtimeLabels(req.PluginName),
+					Labels: podLabels,
 				},
 				Spec: podSpec,
 			},
@@ -356,13 +371,60 @@ func (r *kubernetesSandboxRuntime) CopyBundle(ctx context.Context, handle sandbo
 	return r.Exec(ctx, handle, command, bytes.NewReader(bundle.Bytes()))
 }
 
+func (r *kubernetesSandboxRuntime) EnsureHostnameEgressPolicy(ctx context.Context, handle sandboxHandle, cfg hostnameEgressConfig) (string, error) {
+	selector, err := r.hostnameEgressSelector(ctx, handle, cfg)
+	if err != nil {
+		return "", err
+	}
+	policy, err := r.hostnameEgressPolicy(ctx, handle, selector, cfg.Endpoints)
+	if err != nil {
+		return "", err
+	}
+	policies := r.core.NetworkingV1().NetworkPolicies(handle.Namespace)
+	if _, err := policies.Create(ctx, policy, metav1.CreateOptions{}); err != nil {
+		if !k8serrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("create NetworkPolicy %s/%s: %w", handle.Namespace, policy.Name, err)
+		}
+		existing, getErr := policies.Get(ctx, policy.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return "", fmt.Errorf("get NetworkPolicy %s/%s: %w", handle.Namespace, policy.Name, getErr)
+		}
+		existing.Labels = policy.Labels
+		existing.Spec = policy.Spec
+		if _, err := policies.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return "", fmt.Errorf("update NetworkPolicy %s/%s: %w", handle.Namespace, policy.Name, err)
+		}
+	}
+	return policy.Name, nil
+}
+
+func (r *kubernetesSandboxRuntime) DeleteHostnameEgressPolicy(ctx context.Context, handle sandboxHandle, policyName string) error {
+	policyName = strings.TrimSpace(policyName)
+	if policyName == "" {
+		return nil
+	}
+	err := r.core.NetworkingV1().NetworkPolicies(handle.Namespace).Delete(ctx, policyName, metav1.DeleteOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("delete NetworkPolicy %s/%s: %w", handle.Namespace, policyName, err)
+	}
+	return nil
+}
+
 func (r *kubernetesSandboxRuntime) Exec(ctx context.Context, handle sandboxHandle, command []string, stdin io.Reader) error {
+	_, err := r.execOutput(ctx, handle, command, stdin)
+	return err
+}
+
+func (r *kubernetesSandboxRuntime) execOutput(ctx context.Context, handle sandboxHandle, command []string, stdin io.Reader) (string, error) {
 	if len(command) == 0 {
-		return fmt.Errorf("exec command is required")
+		return "", fmt.Errorf("exec command is required")
 	}
 	podName := strings.TrimSpace(handle.PodName)
 	if podName == "" {
-		return fmt.Errorf("sandbox pod name is not available")
+		return "", fmt.Errorf("sandbox pod name is not available")
 	}
 	req := r.core.CoreV1().RESTClient().Post().
 		Resource("pods").
@@ -378,7 +440,7 @@ func (r *kubernetesSandboxRuntime) Exec(ctx context.Context, handle sandboxHandl
 		}, scheme.ParameterCodec)
 	executor, err := remotecommand.NewSPDYExecutor(r.restConfig, http.MethodPost, req.URL())
 	if err != nil {
-		return fmt.Errorf("create pod exec executor: %w", err)
+		return "", fmt.Errorf("create pod exec executor: %w", err)
 	}
 	var stdout, stderr bytes.Buffer
 	if err := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
@@ -386,9 +448,9 @@ func (r *kubernetesSandboxRuntime) Exec(ctx context.Context, handle sandboxHandl
 		Stdout: &stdout,
 		Stderr: &stderr,
 	}); err != nil {
-		return fmt.Errorf("exec %q: %w: %s", strings.Join(command, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("exec %q: %w: %s", strings.Join(command, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return stdout.String(), nil
 }
 
 func (r *kubernetesSandboxRuntime) ForwardPort(ctx context.Context, handle sandboxHandle, remotePort int) (tunnel, error) {
@@ -564,6 +626,8 @@ func sandboxPodName(sb *sandboxv1alpha1.Sandbox) string {
 	return strings.TrimSpace(sb.Name)
 }
 
+const runtimeSessionLabel = "gestalt.dev/runtime-session"
+
 func runtimeLabels(pluginName string) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/managed-by": "gestalt",
@@ -573,6 +637,236 @@ func runtimeLabels(pluginName string) map[string]string {
 		labels["gestalt.dev/plugin"] = value
 	}
 	return labels
+}
+
+func (r *kubernetesSandboxRuntime) hostnameEgressSelector(ctx context.Context, handle sandboxHandle, cfg hostnameEgressConfig) (map[string]string, error) {
+	switch handle.Mode {
+	case "claim":
+		templateName := strings.TrimSpace(cfg.Template)
+		if templateName == "" {
+			return nil, newHostnameEgressPreconditionError("template-backed hosted hostname egress requires a SandboxTemplate name")
+		}
+		if err := r.ensureUnmanagedTemplate(ctx, handle.Namespace, templateName); err != nil {
+			return nil, err
+		}
+		claim, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(handle.Namespace).Get(ctx, handle.ClaimName, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get SandboxClaim %s/%s: %w", handle.Namespace, handle.ClaimName, err)
+		}
+		if claim.UID == "" {
+			return nil, newHostnameEgressPreconditionError("SandboxClaim %s/%s is missing a UID", handle.Namespace, handle.ClaimName)
+		}
+		return map[string]string{extv1alpha1.SandboxIDLabel: string(claim.UID)}, nil
+	default:
+		sessionLabel := sanitizeLabelValue(handle.Name)
+		if sessionLabel == "" {
+			return nil, newHostnameEgressPreconditionError("sandbox session label is not available")
+		}
+		return map[string]string{runtimeSessionLabel: sessionLabel}, nil
+	}
+}
+
+func (r *kubernetesSandboxRuntime) ensureUnmanagedTemplate(ctx context.Context, namespace, templateName string) error {
+	template, err := r.extensions.ExtensionsV1alpha1().SandboxTemplates(namespace).Get(ctx, templateName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get SandboxTemplate %s/%s: %w", namespace, templateName, err)
+	}
+	management := template.Spec.NetworkPolicyManagement
+	if management == "" {
+		management = extv1alpha1.NetworkPolicyManagementManaged
+	}
+	if management != extv1alpha1.NetworkPolicyManagementUnmanaged {
+		return newHostnameEgressPreconditionError(
+			"SandboxTemplate %s/%s must set spec.networkPolicyManagement: Unmanaged to enforce hosted hostname egress",
+			namespace,
+			templateName,
+		)
+	}
+	return nil
+}
+
+func (r *kubernetesSandboxRuntime) hostnameEgressPolicy(ctx context.Context, handle sandboxHandle, selector map[string]string, endpoints []hostnameEgressEndpoint) (*networkingv1.NetworkPolicy, error) {
+	dnsPeers, err := r.sandboxDNSPeers(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+	egressRules := []networkingv1.NetworkPolicyEgressRule{
+		{
+			To: dnsPeers,
+			Ports: []networkingv1.NetworkPolicyPort{{
+				Protocol: protocolPtr(corev1.ProtocolUDP),
+				Port:     int32Ptr(53),
+			}},
+		},
+		{
+			To: dnsPeers,
+			Ports: []networkingv1.NetworkPolicyPort{{
+				Protocol: protocolPtr(corev1.ProtocolTCP),
+				Port:     int32Ptr(53),
+			}},
+		},
+	}
+	for _, endpoint := range endpoints {
+		peers, err := r.hostnameEgressPeers(ctx, endpoint.Host)
+		if err != nil {
+			return nil, err
+		}
+		egressRules = append(egressRules, networkingv1.NetworkPolicyEgressRule{
+			To: peers,
+			Ports: []networkingv1.NetworkPolicyPort{{
+				Protocol: protocolPtr(corev1.ProtocolTCP),
+				Port:     int32Ptr(endpoint.Port),
+			}},
+		})
+	}
+	return &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      handle.Name + "-egress",
+			Namespace: handle.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "gestalt",
+				"gestalt.dev/runtime":          "gke-agent-sandbox",
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: selector},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress:      egressRules,
+		},
+	}, nil
+}
+
+func (r *kubernetesSandboxRuntime) sandboxDNSPeers(ctx context.Context, handle sandboxHandle) ([]networkingv1.NetworkPolicyPeer, error) {
+	resolvConf, err := r.readSandboxFile(ctx, handle, "/etc/resolv.conf")
+	if err != nil {
+		return nil, err
+	}
+	resolvers, err := parseSandboxNameservers(resolvConf)
+	if err != nil {
+		return nil, newHostnameEgressPreconditionError("discover sandbox DNS resolvers: %v", err)
+	}
+	return peersForIPs(resolvers)
+}
+
+func (r *kubernetesSandboxRuntime) readSandboxFile(ctx context.Context, handle sandboxHandle, path string) (string, error) {
+	if r.readFile != nil {
+		return r.readFile(ctx, handle, path)
+	}
+	script := "while IFS= read -r line || [ -n \"$line\" ]; do printf '%s\\n' \"$line\"; done < " + shellQuote(path)
+	output, err := r.execOutput(ctx, handle, []string{"sh", "-c", script}, nil)
+	if err != nil {
+		return "", fmt.Errorf("read sandbox file %q: %w", path, err)
+	}
+	return output, nil
+}
+
+func (r *kubernetesSandboxRuntime) hostnameEgressPeers(ctx context.Context, host string) ([]networkingv1.NetworkPolicyPeer, error) {
+	ips, err := r.resolveHostnameEgressEndpoint(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	return peersForIPs(ips)
+}
+
+func (r *kubernetesSandboxRuntime) resolveHostnameEgressEndpoint(ctx context.Context, host string) ([]net.IP, error) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return nil, newHostnameEgressPreconditionError("hostname egress target is empty")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}, nil
+	}
+	lookup := r.lookupIP
+	if lookup == nil {
+		lookup = net.DefaultResolver.LookupIPAddr
+	}
+	resolved, err := lookup(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %q: %w", host, err)
+	}
+	ips := make([]net.IP, 0, len(resolved))
+	seen := make(map[string]struct{}, len(resolved))
+	for _, item := range resolved {
+		if item.IP == nil {
+			continue
+		}
+		key := item.IP.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		ips = append(ips, item.IP)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("resolve %q: no IP addresses returned", host)
+	}
+	return ips, nil
+}
+
+func parseSandboxNameservers(resolvConf string) ([]net.IP, error) {
+	lines := strings.Split(resolvConf, "\n")
+	ips := make([]net.IP, 0, len(lines))
+	seen := make(map[string]struct{}, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "nameserver" {
+			continue
+		}
+		ip := net.ParseIP(fields[1])
+		if ip == nil {
+			return nil, fmt.Errorf("invalid nameserver %q", fields[1])
+		}
+		key := ip.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		ips = append(ips, ip)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no nameserver entries found")
+	}
+	return ips, nil
+}
+
+func peersForIPs(ips []net.IP) ([]networkingv1.NetworkPolicyPeer, error) {
+	peers := make([]networkingv1.NetworkPolicyPeer, 0, len(ips))
+	for _, ip := range ips {
+		cidr, err := ipCIDR(ip)
+		if err != nil {
+			return nil, err
+		}
+		peers = append(peers, networkingv1.NetworkPolicyPeer{
+			IPBlock: &networkingv1.IPBlock{CIDR: cidr},
+		})
+	}
+	return peers, nil
+}
+
+func ipCIDR(ip net.IP) (string, error) {
+	if ip == nil {
+		return "", fmt.Errorf("IP address is nil")
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String() + "/32", nil
+	}
+	if v6 := ip.To16(); v6 != nil {
+		return v6.String() + "/128", nil
+	}
+	return "", fmt.Errorf("unsupported IP address %q", ip.String())
+}
+
+func protocolPtr(value corev1.Protocol) *corev1.Protocol {
+	return &value
+}
+
+func int32Ptr(value int32) *intstr.IntOrString {
+	out := intstr.FromInt32(value)
+	return &out
 }
 
 func sanitizeLabelValue(value string) string {
