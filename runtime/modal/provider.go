@@ -437,12 +437,13 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	}
 	imageRef := strings.TrimSpace(session.image)
 	sessionID := session.id
+	bindings := cloneStringMap(session.bindings)
 	p.mu.Unlock()
 
 	if imageRef == "" {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q is missing a runtime image", req.GetSessionId())
 	}
-	createParams, err := buildSandboxCreateParams(ctx, cfg, req, sessionID)
+	createParams, err := buildSandboxCreateParams(ctx, cfg, req, sessionID, bindings)
 	if err != nil {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "configure modal sandbox egress: %v", err)
 	}
@@ -487,7 +488,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	return sandbox, tunnel, nil
 }
 
-func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartHostedPluginRequest, sessionID string) (*modalclient.SandboxCreateParams, error) {
+func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartHostedPluginRequest, sessionID string, bindings map[string]string) (*modalclient.SandboxCreateParams, error) {
 	params := &modalclient.SandboxCreateParams{
 		CPU:            cfg.CPU,
 		MemoryMiB:      cfg.MemoryMiB,
@@ -499,7 +500,7 @@ func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartH
 		H2Ports:        []int{pluginGRPCPort},
 		Name:           sandboxName(req.GetPluginName(), sessionID),
 	}
-	if !requiresHostnameProxy(req) {
+	if !requiresHostnameProxy(req, req.GetEnv(), bindings) {
 		return params, nil
 	}
 	cidrs, err := egressProxyCIDRAllowlist(ctx, req.GetEnv())
@@ -557,8 +558,53 @@ func egressProxyCIDRAllowlist(ctx context.Context, env map[string]string) ([]str
 	return cidrs, nil
 }
 
-func requiresHostnameProxy(req *proto.StartHostedPluginRequest) bool {
-	return strings.EqualFold(strings.TrimSpace(req.GetDefaultAction()), "deny") || len(req.GetAllowedHosts()) > 0
+func requiresHostnameProxy(req *proto.StartHostedPluginRequest, env map[string]string, bindings map[string]string) bool {
+	if req == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(req.GetDefaultAction()), "deny") {
+		return true
+	}
+	for _, proxyEnv := range []string{"HTTPS_PROXY", "HTTP_PROXY"} {
+		if strings.TrimSpace(env[proxyEnv]) != "" {
+			return true
+		}
+	}
+	relayHosts := relayHostnameSet(bindings)
+	for _, host := range req.GetAllowedHosts() {
+		if _, ok := relayHosts[normalizeHostname(host)]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func relayHostnameSet(bindings map[string]string) map[string]struct{} {
+	hosts := make(map[string]struct{}, len(bindings))
+	for _, dialTarget := range bindings {
+		host := hostnameFromDialTarget(dialTarget)
+		if host == "" {
+			continue
+		}
+		hosts[host] = struct{}{}
+	}
+	return hosts
+}
+
+func hostnameFromDialTarget(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return normalizeHostname(u.Hostname())
+}
+
+func normalizeHostname(host string) string {
+	return strings.ToLower(strings.TrimSpace(host))
 }
 
 func (p *Provider) resetSessionSandbox(sessionID string, sandbox *modalclient.Sandbox) {

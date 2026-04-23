@@ -3,6 +3,7 @@ package modal
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -78,6 +79,37 @@ func TestRuntimeProviderContractRejectsUnknownRelayBinding(t *testing.T) {
 	})
 	if status.Code(err) != codes.Unimplemented {
 		t.Fatalf("BindHostService code = %v, want Unimplemented: %v", status.Code(err), err)
+	}
+}
+
+func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *testing.T) {
+	t.Parallel()
+
+	params, err := buildSandboxCreateParams(context.Background(), Config{}, &proto.StartHostedPluginRequest{
+		PluginName:   "agent-provider",
+		AllowedHosts: []string{"agent-relay.gestalt.example"},
+	}, "session-1", map[string]string{
+		gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
+	})
+	if err != nil {
+		t.Fatalf("buildSandboxCreateParams: %v", err)
+	}
+	if len(params.CIDRAllowlist) != 0 {
+		t.Fatalf("CIDRAllowlist = %v, want none for relay-only agent host launch", params.CIDRAllowlist)
+	}
+}
+
+func TestRuntimeProviderContractNonRelayAllowedHostStillRequiresProxy(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildSandboxCreateParams(context.Background(), Config{}, &proto.StartHostedPluginRequest{
+		PluginName:   "agent-provider",
+		AllowedHosts: []string{"api.github.com"},
+	}, "session-1", map[string]string{
+		gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP_PROXY or HTTPS_PROXY is required") {
+		t.Fatalf("buildSandboxCreateParams error = %v, want missing proxy precondition", err)
 	}
 }
 
