@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -29,13 +30,14 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.1"
+	providerVersion     = "0.0.1-alpha.5"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
 	storeEventTriggers = "event_triggers"
 	storeRuns          = "runs"
 	storeIdempotency   = "idempotency"
+	storeExecutionRefs = "execution_refs"
 
 	triggerKindManual   = "manual"
 	triggerKindSchedule = "schedule"
@@ -70,6 +72,7 @@ type Provider struct {
 	eventTriggerStore *gestalt.ObjectStoreClient
 	runStore          *gestalt.ObjectStoreClient
 	idempotencyStore  *gestalt.ObjectStoreClient
+	executionRefStore *gestalt.ObjectStoreClient
 	pollCancel        context.CancelFunc
 	pollDone          chan struct{}
 	wake              chan struct{}
@@ -108,6 +111,7 @@ type workflowEventTriggerRecord struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	CreatedBy    *proto.WorkflowActor
+	ExecutionRef string
 }
 
 type workflowRunRecord struct {
@@ -138,6 +142,20 @@ type workflowIdempotencyRecord struct {
 	IdempotencyKey string
 	RunID          string
 	CreatedAt      time.Time
+}
+
+type workflowExecutionReferenceRecord struct {
+	ID                  string
+	ProviderName        string
+	TargetPlugin        string
+	TargetOperation     string
+	TargetConnection    string
+	TargetInstance      string
+	SubjectID           string
+	CredentialSubjectID string
+	PermissionsJSON     string
+	CreatedAt           time.Time
+	RevokedAt           *time.Time
 }
 
 type scopedTarget struct {
@@ -210,6 +228,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.eventTriggerStore = db.ObjectStore(storeEventTriggers)
 	p.runStore = runStore
 	p.idempotencyStore = db.ObjectStore(storeIdempotency)
+	p.executionRefStore = db.ObjectStore(storeExecutionRefs)
 	p.wake = make(chan struct{}, 1)
 	p.pollDone = make(chan struct{})
 
@@ -266,6 +285,7 @@ func (p *Provider) Close() error {
 	p.eventTriggerStore = nil
 	p.runStore = nil
 	p.idempotencyStore = nil
+	p.executionRefStore = nil
 	p.pollCancel = nil
 	p.pollDone = nil
 	p.wake = nil
@@ -764,6 +784,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		CreatedBy:    requestedBy,
+		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
@@ -934,6 +955,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			TriggerEvent:          cloneEvent(event),
 			CreatedAt:             now,
 			CreatedBy:             cloneActor(trigger.CreatedBy),
+			ExecutionRef:          trigger.ExecutionRef,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -949,6 +971,102 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 	}
 	p.mu.Unlock()
 	return &emptypb.Empty{}, nil
+}
+
+func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
+	if req == nil || req.GetReference() == nil {
+		return nil, status.Error(codes.InvalidArgument, "reference is required")
+	}
+	ref := cloneExecutionReference(req.GetReference())
+	if strings.TrimSpace(ref.GetProviderName()) == "" {
+		ref.ProviderName = p.providerName()
+	}
+	record, err := executionReferenceRecordFromProto(ref)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	p.mu.Lock()
+	state, err := p.requireConfiguredLocked()
+	if err != nil {
+		p.mu.Unlock()
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if existing, found, err := loadExecutionReferenceRecord(ctx, state.executionRefStore, record.ID); err != nil {
+		p.mu.Unlock()
+		return nil, status.Errorf(codes.Internal, "load execution reference: %v", err)
+	} else if found && !existing.CreatedAt.IsZero() {
+		record.CreatedAt = existing.CreatedAt
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = p.clock().UTC()
+	}
+	if err := state.executionRefStore.Put(ctx, record.toRecord()); err != nil {
+		p.mu.Unlock()
+		return nil, status.Errorf(codes.Internal, "put execution reference: %v", err)
+	}
+	resp, err := record.toProto()
+	p.mu.Unlock()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
+	}
+	return resp, nil
+}
+
+func (p *Provider) GetExecutionReference(ctx context.Context, req *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	refID := strings.TrimSpace(req.GetId())
+	if refID == "" {
+		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+	p.mu.Lock()
+	state, err := p.requireConfiguredLocked()
+	if err != nil {
+		p.mu.Unlock()
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	record, found, err := loadExecutionReferenceRecord(ctx, state.executionRefStore, refID)
+	p.mu.Unlock()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get execution reference: %v", err)
+	}
+	if !found {
+		return nil, status.Errorf(codes.NotFound, "workflow execution reference %q not found", refID)
+	}
+	resp, err := record.toProto()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
+	}
+	return resp, nil
+}
+
+func (p *Provider) ListExecutionReferences(ctx context.Context, req *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	subjectID := strings.TrimSpace(req.GetSubjectId())
+	p.mu.Lock()
+	state, err := p.requireConfiguredLocked()
+	if err != nil {
+		p.mu.Unlock()
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	records, err := listExecutionReferenceRecords(ctx, state.executionRefStore, subjectID)
+	p.mu.Unlock()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list execution references: %v", err)
+	}
+	resp := &proto.ListWorkflowExecutionReferencesResponse{References: make([]*proto.WorkflowExecutionReference, 0, len(records))}
+	for _, record := range records {
+		pbRef, err := record.toProto()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
+		}
+		resp.References = append(resp.References, pbRef)
+	}
+	return resp, nil
 }
 
 func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, scheduleID string, paused bool) (*proto.BoundWorkflowSchedule, error) {
@@ -1203,7 +1321,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context) (bool, error) {
 }
 
 func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
-	if p.runStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.idempotencyStore == nil || p.host == nil {
+	if p.runStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.idempotencyStore == nil || p.executionRefStore == nil || p.host == nil {
 		return nil, errors.New("indexeddb workflow: provider is not configured")
 	}
 	return &configuredState{
@@ -1212,6 +1330,7 @@ func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
 		eventTriggerStore: p.eventTriggerStore,
 		runStore:          p.runStore,
 		idempotencyStore:  p.idempotencyStore,
+		executionRefStore: p.executionRefStore,
 	}, nil
 }
 
@@ -1232,12 +1351,19 @@ func (p *Provider) clock() time.Time {
 	return p.now()
 }
 
+func (p *Provider) providerName() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return strings.TrimSpace(p.name)
+}
+
 type configuredState struct {
 	host              *gestalt.WorkflowHostClient
 	scheduleStore     *gestalt.ObjectStoreClient
 	eventTriggerStore *gestalt.ObjectStoreClient
 	runStore          *gestalt.ObjectStoreClient
 	idempotencyStore  *gestalt.ObjectStoreClient
+	executionRefStore *gestalt.ObjectStoreClient
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
@@ -1307,6 +1433,31 @@ func workflowStoreSchemas() []storeSchemaDef {
 		{
 			name:   storeIdempotency,
 			schema: &proto.ObjectStoreSchema{},
+		},
+		{
+			name:   storeExecutionRefs,
+			schema: workflowExecutionReferenceSchema(),
+		},
+	}
+}
+
+func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
+	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_subject", KeyPath: []string{"subject_id"}},
+		},
+		Columns: []*proto.ColumnDef{
+			{Name: "id", Type: columnTypeString, PrimaryKey: true},
+			{Name: "provider_name", Type: columnTypeString, NotNull: true},
+			{Name: "target_plugin", Type: columnTypeString, NotNull: true},
+			{Name: "target_operation", Type: columnTypeString, NotNull: true},
+			{Name: "target_connection", Type: columnTypeString},
+			{Name: "target_instance", Type: columnTypeString},
+			{Name: "subject_id", Type: columnTypeString, NotNull: true},
+			{Name: "credential_subject_id", Type: columnTypeString},
+			{Name: "permissions_json", Type: columnTypeString},
+			{Name: "created_at", Type: columnTypeTime},
+			{Name: "revoked_at", Type: columnTypeTime},
 		},
 	}
 }
@@ -1604,6 +1755,53 @@ func storeIdempotencyRecord(ctx context.Context, store *gestalt.ObjectStoreClien
 		CreatedAt:      createdAt,
 	}
 	return store.Put(ctx, record.toRecord())
+}
+
+func loadExecutionReferenceRecord(ctx context.Context, store *gestalt.ObjectStoreClient, refID string) (workflowExecutionReferenceRecord, bool, error) {
+	record, err := store.Get(ctx, strings.TrimSpace(refID))
+	if err != nil {
+		if errors.Is(err, gestalt.ErrNotFound) {
+			return workflowExecutionReferenceRecord{}, false, nil
+		}
+		return workflowExecutionReferenceRecord{}, false, err
+	}
+	ref, err := executionReferenceRecordFromRecord(record)
+	if err != nil {
+		return workflowExecutionReferenceRecord{}, false, err
+	}
+	return ref, true, nil
+}
+
+func listExecutionReferenceRecords(ctx context.Context, store *gestalt.ObjectStoreClient, subjectID string) ([]workflowExecutionReferenceRecord, error) {
+	subjectID = strings.TrimSpace(subjectID)
+	var records []gestalt.Record
+	var err error
+	if subjectID == "" {
+		records, err = store.GetAll(ctx, nil)
+	} else {
+		records, err = store.Index("by_subject").GetAll(ctx, nil, subjectID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]workflowExecutionReferenceRecord, 0, len(records))
+	for _, record := range records {
+		ref, err := executionReferenceRecordFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		if subjectID != "" && ref.SubjectID != subjectID {
+			continue
+		}
+		out = append(out, ref)
+	}
+	slices.SortFunc(out, func(a, b workflowExecutionReferenceRecord) int {
+		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
 }
 
 func eventMatchesTrigger(event *proto.WorkflowEvent, trigger workflowEventTriggerRecord) bool {
@@ -1985,6 +2183,7 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
 		"created_by":    actorToMap(r.CreatedBy),
+		"execution_ref": r.ExecutionRef,
 	}
 }
 
@@ -2002,6 +2201,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		Input:        anyMap(value["input"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
+		ExecutionRef: stringField(value, "execution_ref"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -2027,10 +2227,11 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 			Instance:   r.Instance,
 			Input:      structFromAny(r.Input),
 		},
-		Paused:    r.Paused,
-		CreatedAt: timestamppb.New(r.CreatedAt),
-		UpdatedAt: timestamppb.New(r.UpdatedAt),
-		CreatedBy: cloneActor(r.CreatedBy),
+		Paused:       r.Paused,
+		CreatedAt:    timestamppb.New(r.CreatedAt),
+		UpdatedAt:    timestamppb.New(r.UpdatedAt),
+		CreatedBy:    cloneActor(r.CreatedBy),
+		ExecutionRef: r.ExecutionRef,
 	}, nil
 }
 
@@ -2172,6 +2373,219 @@ func idempotencyRecordFromRecord(record gestalt.Record) (workflowIdempotencyReco
 		out.CreatedAt = createdAt.UTC()
 	}
 	return out, nil
+}
+
+type workflowAccessPermissionRecord struct {
+	Plugin     string   `json:"plugin"`
+	Operations []string `json:"operations,omitempty"`
+}
+
+func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (workflowExecutionReferenceRecord, error) {
+	if ref == nil {
+		return workflowExecutionReferenceRecord{}, errors.New("reference is required")
+	}
+	target := ref.GetTarget()
+	record := workflowExecutionReferenceRecord{
+		ID:                  strings.TrimSpace(ref.GetId()),
+		ProviderName:        strings.TrimSpace(ref.GetProviderName()),
+		TargetPlugin:        strings.TrimSpace(target.GetPluginName()),
+		TargetOperation:     strings.TrimSpace(target.GetOperation()),
+		TargetConnection:    strings.TrimSpace(target.GetConnection()),
+		TargetInstance:      strings.TrimSpace(target.GetInstance()),
+		SubjectID:           strings.TrimSpace(ref.GetSubjectId()),
+		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
+	}
+	if record.ID == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("id is required")
+	}
+	if record.ProviderName == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("provider_name is required")
+	}
+	if record.TargetPlugin == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("target.plugin_name is required")
+	}
+	if record.TargetOperation == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("target.operation is required")
+	}
+	if record.SubjectID == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("subject_id is required")
+	}
+	permissionsJSON, err := executionReferencePermissionsJSON(ref.GetPermissions())
+	if err != nil {
+		return workflowExecutionReferenceRecord{}, fmt.Errorf("permissions: %w", err)
+	}
+	record.PermissionsJSON = permissionsJSON
+	if ts := ref.GetCreatedAt(); ts != nil && ts.IsValid() {
+		record.CreatedAt = ts.AsTime().UTC()
+	}
+	if ts := ref.GetRevokedAt(); ts != nil && ts.IsValid() {
+		record.RevokedAt = timePtr(ts.AsTime())
+	}
+	return record, nil
+}
+
+func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {
+	value := map[string]any(record)
+	out := workflowExecutionReferenceRecord{
+		ID:                  stringField(value, "id"),
+		ProviderName:        stringField(value, "provider_name"),
+		TargetPlugin:        stringField(value, "target_plugin"),
+		TargetOperation:     stringField(value, "target_operation"),
+		TargetConnection:    stringField(value, "target_connection"),
+		TargetInstance:      stringField(value, "target_instance"),
+		SubjectID:           stringField(value, "subject_id"),
+		CredentialSubjectID: stringField(value, "credential_subject_id"),
+		PermissionsJSON:     stringField(value, "permissions_json"),
+	}
+	if createdAt := timeField(value, "created_at"); createdAt != nil {
+		out.CreatedAt = createdAt.UTC()
+	}
+	out.RevokedAt = timeField(value, "revoked_at")
+	return out, nil
+}
+
+func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
+	record := gestalt.Record{
+		"id":                    r.ID,
+		"provider_name":         r.ProviderName,
+		"target_plugin":         r.TargetPlugin,
+		"target_operation":      r.TargetOperation,
+		"target_connection":     r.TargetConnection,
+		"target_instance":       r.TargetInstance,
+		"subject_id":            r.SubjectID,
+		"credential_subject_id": r.CredentialSubjectID,
+		"permissions_json":      r.PermissionsJSON,
+		"created_at":            r.CreatedAt.UTC(),
+	}
+	if r.RevokedAt != nil {
+		record["revoked_at"] = r.RevokedAt.UTC()
+	} else {
+		record["revoked_at"] = nil
+	}
+	return record
+}
+
+func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionReference, error) {
+	permissions, err := executionReferencePermissionsFromJSON(r.PermissionsJSON)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.WorkflowExecutionReference{
+		Id:                  r.ID,
+		ProviderName:        r.ProviderName,
+		Target:              r.targetProto(),
+		SubjectId:           r.SubjectID,
+		CredentialSubjectId: r.CredentialSubjectID,
+		Permissions:         permissions,
+		CreatedAt:           timestamppb.New(r.CreatedAt),
+		RevokedAt:           timeToProto(r.RevokedAt),
+	}, nil
+}
+
+func (r workflowExecutionReferenceRecord) targetProto() *proto.BoundWorkflowTarget {
+	return &proto.BoundWorkflowTarget{
+		PluginName: r.TargetPlugin,
+		Operation:  r.TargetOperation,
+		Connection: r.TargetConnection,
+		Instance:   r.TargetInstance,
+	}
+}
+
+func executionReferencePermissionsJSON(values []*proto.WorkflowAccessPermission) (string, error) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	records := make([]workflowAccessPermissionRecord, 0, len(values))
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		pluginName := strings.TrimSpace(value.GetPlugin())
+		if pluginName == "" {
+			continue
+		}
+		records = append(records, workflowAccessPermissionRecord{
+			Plugin:     pluginName,
+			Operations: append([]string(nil), value.GetOperations()...),
+		})
+	}
+	if len(records) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func executionReferencePermissionsFromJSON(raw string) ([]*proto.WorkflowAccessPermission, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var records []workflowAccessPermissionRecord
+	if err := json.Unmarshal([]byte(raw), &records); err != nil {
+		return nil, err
+	}
+	out := make([]*proto.WorkflowAccessPermission, 0, len(records))
+	for _, record := range records {
+		pluginName := strings.TrimSpace(record.Plugin)
+		if pluginName == "" {
+			continue
+		}
+		out = append(out, &proto.WorkflowAccessPermission{
+			Plugin:     pluginName,
+			Operations: append([]string(nil), record.Operations...),
+		})
+	}
+	return out, nil
+}
+
+func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.WorkflowExecutionReference {
+	if ref == nil {
+		return nil
+	}
+	return &proto.WorkflowExecutionReference{
+		Id:                  ref.GetId(),
+		ProviderName:        ref.GetProviderName(),
+		Target:              cloneTarget(ref.GetTarget()),
+		SubjectId:           ref.GetSubjectId(),
+		CredentialSubjectId: ref.GetCredentialSubjectId(),
+		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
+		CreatedAt:           cloneTimestamp(ref.GetCreatedAt()),
+		RevokedAt:           cloneTimestamp(ref.GetRevokedAt()),
+	}
+}
+
+func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
+	if target == nil {
+		return nil
+	}
+	return &proto.BoundWorkflowTarget{
+		PluginName: target.GetPluginName(),
+		Operation:  target.GetOperation(),
+		Connection: target.GetConnection(),
+		Instance:   target.GetInstance(),
+		Input:      cloneStruct(target.GetInput()),
+	}
+}
+
+func cloneAccessPermissions(values []*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]*proto.WorkflowAccessPermission, 0, len(values))
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		out = append(out, &proto.WorkflowAccessPermission{
+			Plugin:     value.GetPlugin(),
+			Operations: append([]string(nil), value.GetOperations()...),
+		})
+	}
+	return out
 }
 
 func timeToProto(value *time.Time) *timestamppb.Timestamp {

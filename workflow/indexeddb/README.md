@@ -25,6 +25,7 @@ providers:
           - event_triggers
           - runs
           - idempotency
+          - execution_refs
       config:
         pollInterval: 1s
 ```
@@ -43,6 +44,7 @@ and pending runs.
 - `event_triggers`
 - `runs`
 - `idempotency`
+- `execution_refs`
 
 ## v1 Behavior
 
