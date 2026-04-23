@@ -3,7 +3,7 @@ name = "gestalt-agent-simple"
 version = "0.0.1a1"
 requires-python = "==3.13.*"
 dependencies = [
-  "gestalt-sdk",
+  "gestalt-sdk==0.0.1a11",
   "jsonschema==4.23.0",
   "litellm==1.83.12",
 ]
@@ -20,9 +20,6 @@ package = false
 override-dependencies = [
   "typing-extensions>=4.14.1",
 ]
-
-[tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 plugin = "provider"

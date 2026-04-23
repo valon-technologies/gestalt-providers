@@ -274,7 +274,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" },
+    { name = "gestalt-sdk", specifier = "==0.0.1a11" },
     { name = "jsonschema", specifier = "==4.23.0" },
     { name = "litellm", specifier = "==1.83.12" },
 ]
@@ -288,14 +288,18 @@ dev = [
 
 [[package]]
 name = "gestalt-sdk"
-version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#71904663ca1bfc800cb82570d5172ead8e253790" }
+version = "0.0.1a11"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
     { name = "pyinstaller" },
     { name = "pyyaml" },
     { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/07/fa3c64d7ba0dc00d5e9e1e49641bf23dc03f0507082c221143cc4728189b/gestalt_sdk-0.0.1a11.tar.gz", hash = "sha256:c7dc1533c76a3fffc0847ffe3f555011f667f77be3139b3227e1d439cfa0af07", size = 98527 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/09/41a65ecf0a7b56ff5f7cce7eec03534f211609808cac4eadb10cb34d15ae/gestalt_sdk-0.0.1a11-py3-none-any.whl", hash = "sha256:3527260d8b43a484a7b98700cc1adda4ab66ca53da1a10ec8778b8471c3561c3", size = 98951 },
 ]
 
 [[package]]
