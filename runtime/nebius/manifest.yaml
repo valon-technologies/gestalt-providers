@@ -1,0 +1,7 @@
+source: github.com/valon-technologies/gestalt-providers/runtime/nebius
+version: 0.0.1-alpha.1
+displayName: Nebius Runtime
+description: Hosted executable-plugin runtime backed by Nebius Compute VMs.
+kind: runtime
+spec:
+  configSchemaPath: schemas/config.schema.yaml
