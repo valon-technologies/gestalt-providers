@@ -375,6 +375,79 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 	return nil
 }
 
+func (s *Store) loadLegacyStoreRecords(ctx context.Context, m *storeMeta) ([]*proto.Record, error) {
+	if isDocumentStore(m) {
+		return loadDocumentStoreRecords(ctx, &sqlStoreView{
+			db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind,
+		}, m, nil)
+	}
+	query, args, err := selectAllWithRange(s.dialect, m, nil)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.query(ctx, query, args...)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load legacy rows: %v", err)
+	}
+	defer rows.Close()
+	records, err := scanRows(rows, m.columns)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load legacy rows: %v", err)
+	}
+	return records, nil
+}
+
+func (s *Store) migrateLegacyStoreToGeneric(ctx context.Context, store string, existing *storeMeta, tableName string, schema *proto.ObjectStoreSchema) error {
+	if err := s.ensureGenericTables(ctx); err != nil {
+		return status.Errorf(codes.Internal, "create generic tables: %v", err)
+	}
+
+	records, err := s.loadLegacyStoreRecords(ctx, existing)
+	if err != nil {
+		return err
+	}
+
+	meta := newStoredSchema(tableName, schema, storageVersionGeneric).toMeta(store)
+	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if err := s.clearGenericStoreTables(txCtx, tx, store); err != nil {
+			return err
+		}
+		for _, record := range records {
+			primary, err := extractGenericPrimaryKey(record, meta)
+			if err != nil {
+				return err
+			}
+			payload, err := marshalRecordBlob(record)
+			if err != nil {
+				return err
+			}
+			uniqueRows, nonUniqueRows, err := buildGenericIndexRows(record, meta, primary)
+			if err != nil {
+				return err
+			}
+			if err := s.upsertGenericRecord(txCtx, tx, store, primary, payload); err != nil {
+				return err
+			}
+			for _, uniqueRow := range uniqueRows {
+				if err := s.insertGenericUniqueIndexRow(txCtx, tx, store, uniqueRow); err != nil {
+					return err
+				}
+			}
+			if err := s.insertGenericIndexRows(txCtx, tx, s.genericIndexTable(), store, nonUniqueRows); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := s.persistStoreMetadata(ctx, store, tableName, schema, storageVersionGeneric); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName string, schema *proto.ObjectStoreSchema, storageVersion int) error {
 	schemaJSON, err := json.Marshal(newStoredSchema(tableName, schema, storageVersion))
 	if err != nil {
@@ -421,6 +494,16 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 				return nil, err
 			}
 			if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema, storageVersionGeneric); err != nil {
+				return nil, err
+			}
+			return &emptypb.Empty{}, nil
+		}
+		sourceCols, err := s.tableColumns(ctx, existing.table)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "inspect legacy table columns: %v", err)
+		}
+		if !schemaColumnsExist(sourceCols, storageSchema(schema)) {
+			if err := s.migrateLegacyStoreToGeneric(ctx, req.Name, existing, tableName, schema); err != nil {
 				return nil, err
 			}
 			return &emptypb.Empty{}, nil

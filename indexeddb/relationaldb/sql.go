@@ -168,9 +168,30 @@ func indexedColumns(schema *proto.ObjectStoreSchema) map[string]struct{} {
 	return cols
 }
 
+type columnSQLOptions struct {
+	IncludePrimaryKey bool
+	IncludeUnique     bool
+	IncludeNotNull    bool
+}
+
+func columnSQLDef(d dialect, col *proto.ColumnDef, schema *proto.ObjectStoreSchema, options columnSQLOptions) string {
+	indexed := indexedColumns(schema)
+	_, participatesInIndex := indexed[col.Name]
+	def := quoteIdent(d, col.Name) + " " + sqlType(d, col.Type, col.PrimaryKey || col.Unique || participatesInIndex)
+	if options.IncludeNotNull && (col.NotNull || col.PrimaryKey) {
+		def += " NOT NULL"
+	}
+	if options.IncludePrimaryKey && col.PrimaryKey {
+		def += " PRIMARY KEY"
+	}
+	if options.IncludeUnique && col.Unique && !col.PrimaryKey {
+		def += " UNIQUE"
+	}
+	return def
+}
+
 func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) string {
-	cols := schema.GetColumns()
-	if len(cols) == 0 {
+	if len(schema.GetColumns()) == 0 {
 		if d == dialectSQLServer {
 			return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s %s NOT NULL PRIMARY KEY)",
 				table, quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
@@ -179,21 +200,13 @@ func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) st
 			quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
 	}
 
-	indexed := indexedColumns(schema)
-	defs := make([]string, len(cols))
-	for i, col := range cols {
-		_, participatesInIndex := indexed[col.Name]
-		def := quoteIdent(d, col.Name) + " " + sqlType(d, col.Type, col.PrimaryKey || col.Unique || participatesInIndex)
-		if col.NotNull || col.PrimaryKey {
-			def += " NOT NULL"
-		}
-		if col.PrimaryKey {
-			def += " PRIMARY KEY"
-		}
-		if col.Unique && !col.PrimaryKey {
-			def += " UNIQUE"
-		}
-		defs[i] = def
+	defs := make([]string, len(schema.GetColumns()))
+	for i, col := range schema.GetColumns() {
+		defs[i] = columnSQLDef(d, col, schema, columnSQLOptions{
+			IncludePrimaryKey: true,
+			IncludeUnique:     true,
+			IncludeNotNull:    true,
+		})
 	}
 	if d == dialectSQLServer {
 		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
@@ -316,7 +329,7 @@ func sqlServerCreateIndexIfMissing(table, indexName, createStmt string) string {
 		"DECLARE @gestalt_object_id int = OBJECT_ID(%s); "+
 			"IF @gestalt_object_id IS NULL THROW 51000, 'failed to resolve index target object', 1; "+
 			"DECLARE @gestalt_lock_resource nvarchar(255) = CONCAT(N'gestalt:index:', CONVERT(nvarchar(32), @gestalt_object_id)); "+
-		"DECLARE @gestalt_lock_result int; "+
+			"DECLARE @gestalt_lock_result int; "+
 			"EXEC @gestalt_lock_result = sp_getapplock @Resource = @gestalt_lock_resource, @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1; "+
 			"IF @gestalt_lock_result < 0 THROW 51000, 'failed to acquire index creation lock', 1; "+
 			"BEGIN TRY "+

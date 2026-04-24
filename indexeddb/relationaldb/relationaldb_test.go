@@ -279,6 +279,34 @@ func sampleRecordsSchema() *proto.ObjectStoreSchema {
 	}
 }
 
+func legacyExecutionsSchema() *proto.ObjectStoreSchema {
+	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_subject", KeyPath: []string{"subject_id"}},
+		},
+		Columns: []*proto.ColumnDef{
+			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
+			{Name: "provider_name", Type: 0, NotNull: true},
+			{Name: "subject_id", Type: 0, NotNull: true},
+		},
+	}
+}
+
+func evolvedExecutionsSchema() *proto.ObjectStoreSchema {
+	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_subject", KeyPath: []string{"subject_id"}},
+			{Name: "by_subject_session", KeyPath: []string{"subject_id", "session_id"}},
+		},
+		Columns: []*proto.ColumnDef{
+			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
+			{Name: "session_id", Type: 0, NotNull: true},
+			{Name: "provider_name", Type: 0, NotNull: true},
+			{Name: "subject_id", Type: 0, NotNull: true},
+		},
+	}
+}
+
 func makeWidget(id, code, title string) *proto.Record {
 	record, _ := gestalt.RecordToProto(map[string]any{
 		"id":         id,
@@ -303,6 +331,20 @@ func makeSampleRecord(id string) *proto.Record {
 		"created_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 		"updated_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 	})
+	return record
+}
+
+func makeExecutionRecord(t *testing.T, id, providerName, subjectID, sessionID string) *proto.Record {
+	t.Helper()
+	record, err := gestalt.RecordToProto(map[string]any{
+		"id":            id,
+		"provider_name": providerName,
+		"subject_id":    subjectID,
+		"session_id":    sessionID,
+	})
+	if err != nil {
+		t.Fatalf("RecordToProto(execution): %v", err)
+	}
 	return record
 }
 
@@ -432,6 +474,97 @@ func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
 	}
 	if meta.table != "widgets" {
 		t.Fatalf("meta.table = %q, want %q", meta.table, "widgets")
+	}
+}
+
+func TestCreateObjectStoreMigratesLegacyStoreToGenericBeforeCreatingIndexes(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	tableName := s.physicalTableName("executions")
+	if err := s.ensureTable(ctx, tableName, legacyExecutionsSchema()); err != nil {
+		t.Fatalf("ensureTable(legacy): %v", err)
+	}
+	if err := s.persistStoreMetadata(ctx, "executions", tableName, legacyExecutionsSchema(), storageVersionLegacy); err != nil {
+		t.Fatalf("persistStoreMetadata(legacy): %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "executions",
+		Record: func() *proto.Record {
+			record, err := gestalt.RecordToProto(map[string]any{
+				"id":            "run-legacy",
+				"provider_name": "simple",
+				"subject_id":    "subject-1",
+			})
+			if err != nil {
+				t.Fatalf("RecordToProto(legacy execution): %v", err)
+			}
+			return record
+		}(),
+	}); err != nil {
+		t.Fatalf("Add(legacy execution): %v", err)
+	}
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "executions", Schema: evolvedExecutionsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore(evolved): %v", err)
+	}
+
+	meta, err := s.getMeta("executions")
+	if err != nil {
+		t.Fatalf("getMeta(executions): %v", err)
+	}
+	if meta.storageVersion != storageVersionGeneric {
+		t.Fatalf("meta.storageVersion = %d, want %d", meta.storageVersion, storageVersionGeneric)
+	}
+	if meta.table != tableName {
+		t.Fatalf("meta.table = %q, want %q", meta.table, tableName)
+	}
+	cols, err := s.tableColumns(ctx, tableName)
+	if err != nil {
+		t.Fatalf("tableColumns(executions): %v", err)
+	}
+	if _, ok := cols["session_id"]; ok {
+		t.Fatalf("legacy table columns = %#v, want session_id to remain absent after generic migration", cols)
+	}
+
+	legacyResp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "executions", Id: "run-legacy"})
+	if err != nil {
+		t.Fatalf("Get(run-legacy): %v", err)
+	}
+	if got := legacyResp.GetRecord().GetFields()["provider_name"].GetStringValue(); got != "simple" {
+		t.Fatalf("legacy provider_name = %q, want simple", got)
+	}
+	if _, ok := legacyResp.GetRecord().GetFields()["session_id"]; ok {
+		t.Fatalf("legacy record unexpectedly gained session_id: %#v", legacyResp.GetRecord().GetFields()["session_id"])
+	}
+
+	if _, err := s.Put(ctx, &proto.RecordRequest{
+		Store:  "executions",
+		Record: makeExecutionRecord(t, "run-1", "simple", "subject-1", "session-1"),
+	}); err != nil {
+		t.Fatalf("Put(evolved execution): %v", err)
+	}
+
+	resp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
+		Store:  "executions",
+		Index:  "by_subject_session",
+		Values: []*proto.TypedValue{mustTypedValue(t, "subject-1"), mustTypedValue(t, "session-1")},
+	})
+	if err != nil {
+		t.Fatalf("IndexGet(by_subject_session): %v", err)
+	}
+	if got := resp.GetRecord().GetFields()["id"].GetStringValue(); got != "run-1" {
+		t.Fatalf("IndexGet(by_subject_session) id = %q, want run-1", got)
+	}
+
+	countResp, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "executions"})
+	if err != nil {
+		t.Fatalf("Count(executions): %v", err)
+	}
+	if got := countResp.GetCount(); got != 2 {
+		t.Fatalf("Count(executions) = %d, want 2", got)
 	}
 }
 
