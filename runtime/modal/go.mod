@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/modal-labs/modal-client/go v0.7.4
-	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af2bbc9e1add
+	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260424021927-f3620b97b03d
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
