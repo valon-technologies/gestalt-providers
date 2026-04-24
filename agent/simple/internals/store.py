@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -20,7 +21,7 @@ class StoredRun:
     provider_name: str
     model: str
     status: int
-    messages: list[dict[str, str]]
+    messages: list[dict[str, Any]]
     output_text: str
     structured_output: dict[str, Any] | None
     status_message: str
@@ -198,7 +199,7 @@ class SimpleRunStore:
         idempotency_key: str,
         provider_name: str,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         created_by: dict[str, str],
         execution_ref: str,
     ) -> tuple[StoredRun, bool]:
@@ -228,7 +229,7 @@ class SimpleRunStore:
         self,
         *,
         turn_id: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         output_text: str,
         structured_output: dict[str, Any] | None,
     ) -> StoredRun:
@@ -243,7 +244,7 @@ class SimpleRunStore:
         self,
         *,
         turn_id: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         status_message: str,
     ) -> StoredRun:
         return self.mark_failed(
@@ -259,7 +260,7 @@ class SimpleRunStore:
         idempotency_key: str,
         provider_name: str,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         session_ref: str,
         created_by: dict[str, str],
         execution_ref: str,
@@ -364,7 +365,7 @@ class SimpleRunStore:
         self,
         *,
         run_id: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         output_text: str,
         structured_output: dict[str, Any] | None,
     ) -> StoredRun:
@@ -384,7 +385,7 @@ class SimpleRunStore:
         self,
         *,
         run_id: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         status_message: str,
     ) -> StoredRun:
         current = self._require_run(run_id)
@@ -532,13 +533,13 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
     )
 
 
-def _coerce_messages(raw_value: Any) -> list[dict[str, str]]:
+def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_value, list):
         return []
-    messages: list[dict[str, str]] = []
+    messages: list[dict[str, Any]] = []
     for item in raw_value:
         if isinstance(item, dict):
-            messages.append({"role": str(item.get("role") or ""), "text": str(item.get("text") or "")})
+            messages.append(copy.deepcopy(item))
     return messages
 
 

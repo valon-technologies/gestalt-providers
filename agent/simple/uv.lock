@@ -105,7 +105,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-agent-simple"
-version = "0.0.1a9"
+version = "0.0.1a10"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
@@ -124,7 +124,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = "==0.96.0" },
-    { name = "gestalt-sdk", specifier = "==0.0.1a15" },
+    { name = "gestalt-sdk", specifier = "==0.0.1a16" },
     { name = "jsonschema", specifier = "==4.23.0" },
     { name = "openai", specifier = "==2.32.0" },
 ]
@@ -138,7 +138,7 @@ dev = [
 
 [[package]]
 name = "gestalt-sdk"
-version = "0.0.1a15"
+version = "0.0.1a16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
@@ -147,9 +147,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/0b/a564f435df07769c61cfa0fc44a3a5f45fe856d3d9cc1884f3f01886e5ad/gestalt_sdk-0.0.1a15.tar.gz", hash = "sha256:82e75bae7e86d5d6c9b1fde1bd131433c6875732e6923ef1c3466fdda578e598", size = 106446 }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/c7/b656a06ad9196941817f8edec0346b4c8c2cccfbd914cfe14d8e8b7165bb/gestalt_sdk-0.0.1a16.tar.gz", hash = "sha256:9505312e65818ec041625a026005fd7931a488d12a5a330d66abf8655e4632aa", size = 107688 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/91/bf228f116142376f5f6303f40278365c6b47616fd7b21894590804cabcf4/gestalt_sdk-0.0.1a15-py3-none-any.whl", hash = "sha256:83ef4d702643d16babc53e94072f54ef7fea133badabce8055c6c7e07aadb886", size = 102947 },
+    { url = "https://files.pythonhosted.org/packages/b9/81/c4fcea34fcdec6177b5941dfb4cb8ac98c0effb730661be0da761abf7e2c/gestalt_sdk-0.0.1a16-py3-none-any.whl", hash = "sha256:3898f4371338775e8172fd1b5be042192ac3f98d124c78733245db9ef2f5be96", size = 103507 },
 ]
 
 [[package]]
