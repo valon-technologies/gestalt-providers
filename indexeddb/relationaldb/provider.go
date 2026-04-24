@@ -127,6 +127,9 @@ func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) er
 	if err != nil {
 		return err
 	}
+	if p.Store != nil {
+		_ = p.Store.Close()
+	}
 	p.Store = store
 	return nil
 }

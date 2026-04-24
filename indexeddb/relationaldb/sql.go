@@ -229,6 +229,80 @@ func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *pro
 		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
 }
 
+func createGenericRecordsTableSQL(d dialect, table string) string {
+	defs := []string{
+		quoteIdent(d, "store_name") + " " + sqlType(d, 0, true) + " NOT NULL",
+		quoteIdent(d, "pk_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
+		quoteIdent(d, "pk_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+		quoteIdent(d, "record_blob") + " " + sqlType(d, 5, false) + " NOT NULL",
+	}
+	if d == dialectSQLServer {
+		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
+			table, quoteTableName(d, table), strings.Join(defs, ", "))
+	}
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
+		quoteTableName(d, table), strings.Join(defs, ", "))
+}
+
+func createGenericIndexEntriesTableSQL(d dialect, table string) string {
+	defs := []string{
+		quoteIdent(d, "store_name") + " " + sqlType(d, 0, true) + " NOT NULL",
+		quoteIdent(d, "index_name") + " " + sqlType(d, 0, true) + " NOT NULL",
+		quoteIdent(d, "index_key_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
+		quoteIdent(d, "index_key_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+		quoteIdent(d, "pk_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
+		quoteIdent(d, "pk_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+	}
+	if d == dialectSQLServer {
+		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
+			table, quoteTableName(d, table), strings.Join(defs, ", "))
+	}
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
+		quoteTableName(d, table), strings.Join(defs, ", "))
+}
+
+func createGenericRecordsLookupIndexSQL(d dialect, table string) string {
+	indexName := fmt.Sprintf("idx_%s_record_lookup", baseTableName(table))
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "pk_hash"}, true)
+}
+
+func createGenericRecordsStoreIndexSQL(d dialect, table string) string {
+	indexName := fmt.Sprintf("idx_%s_store", baseTableName(table))
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name"}, false)
+}
+
+func createGenericIndexLookupIndexSQL(d dialect, table string, unique bool) string {
+	indexName := fmt.Sprintf("idx_%s_lookup", baseTableName(table))
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_hash"}, unique)
+}
+
+func createGenericIndexRecordIndexSQL(d dialect, table string) string {
+	indexName := fmt.Sprintf("idx_%s_record", baseTableName(table))
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "pk_hash"}, false)
+}
+
+func createGenericIndexScanIndexSQL(d dialect, table string) string {
+	indexName := fmt.Sprintf("idx_%s_scan", baseTableName(table))
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name"}, false)
+}
+
+func createColumnsIndexSQL(d dialect, table, indexName string, columns []string, unique bool) string {
+	uniquePrefix := ""
+	if unique {
+		uniquePrefix = "UNIQUE "
+	}
+	cols := make([]string, len(columns))
+	for i, col := range columns {
+		cols[i] = quoteIdent(d, col)
+	}
+	if d == dialectMySQL || d == dialectSQLServer {
+		return fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+			uniquePrefix, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+	}
+	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)",
+		uniquePrefix, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+}
+
 func dropTableSQL(d dialect, table string) string {
 	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteTableName(d, table))
 }

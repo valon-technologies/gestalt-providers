@@ -94,6 +94,44 @@ func (h *relationalContractHarness) InsertUnreadablePayloadRow(t *testing.T, sto
 		t.Fatalf("getMeta(%s): %v", storeName, err)
 	}
 
+	if usesGenericStorage(meta) {
+		primary, err := encodeKeyValue(id)
+		if err != nil {
+			t.Fatalf("encodeKeyValue(id): %v", err)
+		}
+		indexKey, err := encodeKeyValue(status)
+		if err != nil {
+			t.Fatalf("encodeKeyValue(status): %v", err)
+		}
+
+		recordStmt := fmt.Sprintf(
+			"INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?)",
+			quoteTableName(store.dialect, store.genericRecordsTable()),
+			quoteIdent(store.dialect, "store_name"),
+			quoteIdent(store.dialect, "pk_hash"),
+			quoteIdent(store.dialect, "pk_bytes"),
+			quoteIdent(store.dialect, "record_blob"),
+		)
+		if _, err := store.db.ExecContext(context.Background(), store.q(recordStmt), storeName, primary.hash, primary.raw, []byte("not-a-proto-record")); err != nil {
+			t.Fatalf("ExecContext(insert unreadable generic record): %v", err)
+		}
+
+		indexStmt := fmt.Sprintf(
+			"INSERT INTO %s (%s, %s, %s, %s, %s, %s) VALUES (?, ?, ?, ?, ?, ?)",
+			quoteTableName(store.dialect, store.genericIndexTable()),
+			quoteIdent(store.dialect, "store_name"),
+			quoteIdent(store.dialect, "index_name"),
+			quoteIdent(store.dialect, "index_key_hash"),
+			quoteIdent(store.dialect, "index_key_bytes"),
+			quoteIdent(store.dialect, "pk_hash"),
+			quoteIdent(store.dialect, "pk_bytes"),
+		)
+		if _, err := store.db.ExecContext(context.Background(), store.q(indexStmt), storeName, "by_status", indexKey.hash, indexKey.raw, primary.hash, primary.raw); err != nil {
+			t.Fatalf("ExecContext(insert unreadable generic index row): %v", err)
+		}
+		return
+	}
+
 	query := fmt.Sprintf(
 		"INSERT INTO %s (%s, %s, %s) VALUES (?, ?, ?)",
 		quoteTableName(store.dialect, meta.table),
