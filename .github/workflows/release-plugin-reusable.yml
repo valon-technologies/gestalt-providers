@@ -168,7 +168,7 @@ jobs:
         env:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh "linux/amd64" "python:${{ steps.detect.outputs.python-version }}-alpine" gestaltd "GESTALT_PYTHON_LINUX_$(echo 'amd64' | tr '[:lower:]' '[:upper:]')" "linux/amd64" "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
+          .github/scripts/package_python_docker.sh "linux/amd64" "python:${{ steps.detect.outputs.python-version }}-slim" gestaltd "GESTALT_PYTHON_LINUX_$(echo 'amd64' | tr '[:lower:]' '[:upper:]')" "linux/amd64" "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
       # -- Package ARM64 cross-compiled artifacts (amd64 runner only) --
       - name: Package Go ARM64 provider
@@ -188,7 +188,7 @@ jobs:
         env:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh linux/arm64 "python:${{ steps.detect.outputs.python-version }}-alpine" gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64/musl "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
+          .github/scripts/package_python_docker.sh linux/arm64 "python:${{ steps.detect.outputs.python-version }}-slim" gestaltd-arm64 GESTALT_PYTHON_LINUX_ARM64 linux/arm64 "${{ inputs.plugin-dir }}" "${{ steps.version.outputs.release }}"
 
       # -- Package Darwin cross-compiled artifacts (Go only) --
       - name: Package Go darwin/arm64 provider

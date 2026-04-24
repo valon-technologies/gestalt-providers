@@ -137,10 +137,10 @@ def merge_artifacts(output_dir: pathlib.Path, version: str) -> dict[str, dict[st
             continue
         if candidate["path"] == existing["path"]:
             continue
-        if candidate["is_musl"] and not existing["is_musl"]:
+        if existing["is_musl"] and not candidate["is_musl"]:
             artifacts[target] = candidate
             continue
-        if existing["is_musl"] and not candidate["is_musl"]:
+        if candidate["is_musl"] and not existing["is_musl"]:
             continue
         raise SystemExit(
             f"multiple archives map to {target}: {existing['path']} and {candidate['path']}"
