@@ -8,4 +8,4 @@ concrete backend.
 
 Current packages:
 
-- `simple`: Python agent provider backed by LiteLLM and provider-owned IndexedDB state
+- `simple`: Python agent provider backed by the OpenAI and Anthropic SDKs with provider-owned IndexedDB state
