@@ -231,7 +231,7 @@ func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.Obj
 		return status.Errorf(codes.Internal, "create table: %v", err)
 	}
 	for _, idx := range storage.GetIndexes() {
-		if _, err := s.exec(ctx, createIndexSQL(s.dialect, table, idx, storage)); err != nil && !isDuplicateErr(err) {
+		if _, err := s.exec(ctx, createIndexSQL(s.dialect, table, idx, storage)); err != nil && !isIndexAlreadyExistsErr(err) {
 			return status.Errorf(codes.Internal, "create index: %v", err)
 		}
 	}
@@ -926,11 +926,15 @@ func indexSelectQuery(d dialect, m *storeMeta, req *proto.IndexQueryRequest, lim
 		if i >= len(req.Values) {
 			break
 		}
-		clauses = append(clauses, quoteIdent(d, col)+" = ?")
 		arg, err := protoValueToArg(req.Values[i], columnType(m, col))
 		if err != nil {
 			return "", nil, status.Errorf(codes.InvalidArgument, "index value %d: %v", i, err)
 		}
+		if arg == nil {
+			clauses = append(clauses, quoteIdent(d, col)+" IS NULL")
+			continue
+		}
+		clauses = append(clauses, quoteIdent(d, col)+" = ?")
 		args = append(args, arg)
 	}
 
@@ -1354,6 +1358,22 @@ func mapSQLErr(op string, err error) error {
 func isDuplicateErr(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "constraint")
+}
+
+func isIndexAlreadyExistsErr(err error) bool {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "duplicate key name"):
+		return true
+	case strings.Contains(msg, "already exists"):
+		return true
+	case strings.Contains(msg, "already an object named"):
+		return true
+	case strings.Contains(msg, "is specified more than once"):
+		return true
+	default:
+		return false
+	}
 }
 
 // ---- Schema persistence ----

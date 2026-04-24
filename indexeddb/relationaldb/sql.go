@@ -16,6 +16,8 @@ const (
 	bindAtP                       // @p1, @p2 (SQL Server)
 )
 
+const mysqlMaxIndexBytes = 3072
+
 type dialect int
 
 const (
@@ -208,6 +210,11 @@ func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *pro
 	if idx.Unique {
 		unique = "UNIQUE "
 	}
+	if d == dialectMySQL && mysqlNeedsHashedUniqueCompositeIndex(idx, schema) {
+		indexName := fmt.Sprintf("idx_%s_%s", baseTableName(table), idx.Name)
+		return fmt.Sprintf("CREATE %sINDEX %s ON %s ((%s))",
+			unique, quoteIdent(d, indexName), quoteTableName(d, table), mysqlUniqueCompositeIndexExpression(idx))
+	}
 	columnTypes := make(map[string]int32, len(schema.GetColumns()))
 	for _, col := range schema.GetColumns() {
 		columnTypes[col.Name] = col.Type
@@ -227,6 +234,60 @@ func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *pro
 	}
 	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)",
 		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+}
+
+func mysqlNeedsHashedUniqueCompositeIndex(idx *proto.IndexSchema, schema *proto.ObjectStoreSchema) bool {
+	if idx == nil || schema == nil || !idx.Unique || len(idx.KeyPath) < 2 {
+		return false
+	}
+
+	columnTypes := make(map[string]int32, len(schema.GetColumns()))
+	for _, col := range schema.GetColumns() {
+		columnTypes[col.Name] = col.Type
+	}
+
+	total := 0
+	for _, key := range idx.KeyPath {
+		columnType := columnTypes[key]
+		if !mysqlHashedUniqueCompositeIndexSupported(columnType) {
+			return false
+		}
+		total += mysqlIndexedColumnBytes(columnType)
+	}
+	return total > mysqlMaxIndexBytes
+}
+
+func mysqlHashedUniqueCompositeIndexSupported(columnType int32) bool {
+	switch columnType {
+	case 0, 6: // TypeString, TypeJSON
+		return true
+	default:
+		return false
+	}
+}
+
+func mysqlIndexedColumnBytes(columnType int32) int {
+	switch columnType {
+	case 1, 2: // TypeInt, TypeFloat
+		return 8
+	case 3: // TypeBool
+		return 1
+	case 4: // TypeTime
+		return 8
+	case 5: // TypeBytes
+		return 256
+	default: // TypeString, TypeJSON, unknown
+		return 1021
+	}
+}
+
+func mysqlUniqueCompositeIndexExpression(idx *proto.IndexSchema) string {
+	parts := make([]string, len(idx.KeyPath))
+	for i, key := range idx.KeyPath {
+		col := quoteIdent(dialectMySQL, key)
+		parts[i] = fmt.Sprintf("IF(%s IS NULL, '__gestalt_null__', HEX(WEIGHT_STRING(%s)))", col, col)
+	}
+	return fmt.Sprintf("SHA2(CONCAT_WS(CHAR(0), %s), 256)", strings.Join(parts, ", "))
 }
 
 func dropTableSQL(d dialect, table string) string {
