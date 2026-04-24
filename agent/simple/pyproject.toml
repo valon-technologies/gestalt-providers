@@ -1,9 +1,9 @@
 [project]
 name = "gestalt-agent-simple"
-version = "0.0.1a8"
+version = "0.0.1a9"
 requires-python = "==3.14.*"
 dependencies = [
-  "gestalt-sdk==0.0.1a14",
+  "gestalt-sdk==0.0.1a15",
   "anthropic==0.96.0",
   "jsonschema==4.23.0",
   "openai==2.32.0",
@@ -28,10 +28,19 @@ agent = "provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
-  "StartRun",
-  "GetRun",
-  "ListRuns",
-  "CancelRun",
+  "CreateSession",
+  "GetSession",
+  "ListSessions",
+  "UpdateSession",
+  "CreateTurn",
+  "GetTurn",
+  "ListTurns",
+  "CancelTurn",
+  "ListTurnEvents",
+  "GetInteraction",
+  "ListInteractions",
+  "ResolveInteraction",
+  "GetCapabilities",
   "configure",
   "metadata",
   "ExecuteTool",
