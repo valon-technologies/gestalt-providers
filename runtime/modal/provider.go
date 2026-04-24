@@ -2,6 +2,7 @@ package modal
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -65,7 +66,8 @@ type Provider struct {
 	client *modalclient.Client
 	cfg    Config
 
-	nextID uint64
+	instanceID string
+	nextID     uint64
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -91,7 +93,8 @@ type plugin struct {
 
 func New() *Provider {
 	return &Provider{
-		sessions: make(map[string]*session),
+		instanceID: newInstanceID(),
+		sessions:   make(map[string]*session),
 	}
 }
 
@@ -669,7 +672,20 @@ func (p *Provider) sessionLocked(sessionID string) (*session, error) {
 }
 
 func (p *Provider) newID(prefix string) string {
-	return fmt.Sprintf("%s-%06d", prefix, atomic.AddUint64(&p.nextID, 1))
+	instanceID := strings.TrimSpace(p.instanceID)
+	if instanceID == "" {
+		instanceID = newInstanceID()
+		p.instanceID = instanceID
+	}
+	return fmt.Sprintf("%s-%s-%06d", prefix, instanceID, atomic.AddUint64(&p.nextID, 1))
+}
+
+func newInstanceID() string {
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return fmt.Sprintf("%x", buf[:])
+	}
+	return fmt.Sprintf("%08x", time.Now().UnixNano())
 }
 
 func decodeConfig(raw map[string]any) (Config, error) {

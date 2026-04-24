@@ -113,6 +113,23 @@ func TestRuntimeProviderContractNonRelayAllowedHostStillRequiresProxy(t *testing
 	}
 }
 
+func TestNewProviderIDsAreBootUnique(t *testing.T) {
+	t.Parallel()
+
+	first := New().newID("session")
+	second := New().newID("session")
+
+	if first == second {
+		t.Fatalf("first session id = %q, second = %q; want boot-unique ids", first, second)
+	}
+	if !strings.HasPrefix(first, "session-") {
+		t.Fatalf("first session id = %q, want session- prefix", first)
+	}
+	if !strings.HasPrefix(second, "session-") {
+		t.Fatalf("second session id = %q, want session- prefix", second)
+	}
+}
+
 func startRuntimeProviderServer(t *testing.T, provider *Provider) proto.PluginRuntimeProviderClient {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
