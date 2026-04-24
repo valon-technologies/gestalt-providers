@@ -3,6 +3,12 @@ properties:
   app:
     type: string
     description: Modal app name used to create or reuse sandboxes.
+  tokenId:
+    type: string
+    description: Modal token ID used to authenticate the runtime provider.
+  tokenSecret:
+    type: string
+    description: Modal token secret used to authenticate the runtime provider.
   environment:
     type: string
     description: Modal environment name.
