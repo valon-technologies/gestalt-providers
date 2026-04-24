@@ -1,0 +1,6 @@
+source: github.com/valon-technologies/gestalt-providers/external_credentials/default
+version: 0.0.1-alpha.1
+displayName: Default External Credentials
+description: External credentials provider backed by the host IndexedDB service.
+kind: external_credentials
+spec: {}
