@@ -71,11 +71,18 @@ class SimpleAgentOrchestrator:
         prepared = PreparedTurn(
             session_id=session_id,
             turn_id=turn_id,
+            provider_name=provider_name.strip() or self._config.name,
             resolved_model=resolved_model,
             messages=list(started.messages),
             response_schema=_struct_to_dict(request.response_schema),
             provider_options=_struct_to_dict(request.provider_options),
             tool_specs_and_names=_resolved_tools_to_openai(request.tools),
+        )
+        self._store.append_turn_event(
+            turn_id=turn_id,
+            event_type="turn.started",
+            source=prepared.provider_name,
+            data={"session_id": session_id, "model": resolved_model},
         )
         threading.Thread(target=self._complete_turn, args=(prepared,), daemon=True).start()
         return self.turn_to_proto(started)
@@ -94,7 +101,7 @@ class SimpleAgentOrchestrator:
                     canceled = self._store.get_turn(prepared.turn_id)
                     if canceled is None:
                         return
-                    if canceled.status == agent_pb2.AGENT_RUN_STATUS_CANCELED:
+                    if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
                         return
 
                     step = self._backend.complete(
@@ -109,17 +116,27 @@ class SimpleAgentOrchestrator:
                         for tool_call in step.tool_calls:
                             resolved_tool_id = function_name_to_tool_id.get(tool_call.tool_id, "")
                             if not resolved_tool_id:
-                                self._store.mark_turn_failed(
-                                    turn_id=prepared.turn_id,
+                                self._fail_turn(
+                                    prepared=prepared,
                                     messages=prepared.messages,
                                     status_message=f"model requested unknown tool {tool_call.tool_id!r}",
                                 )
                                 return
 
                             canceled = self._store.get_turn(prepared.turn_id)
-                            if canceled is not None and canceled.status == agent_pb2.AGENT_RUN_STATUS_CANCELED:
+                            if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
                                 return
 
+                            self._store.append_turn_event(
+                                turn_id=prepared.turn_id,
+                                event_type="tool.started",
+                                source=prepared.provider_name,
+                                data={
+                                    "tool_call_id": tool_call.call_id,
+                                    "tool_id": resolved_tool_id,
+                                    "arguments": tool_call.arguments,
+                                },
+                            )
                             tool_response = host.execute_tool(
                                 agent_pb2.ExecuteAgentToolRequest(
                                     session_id=prepared.session_id,
@@ -128,6 +145,19 @@ class SimpleAgentOrchestrator:
                                     tool_id=resolved_tool_id,
                                     arguments=_dict_to_struct(tool_call.arguments),
                                 )
+                            )
+                            canceled = self._store.get_turn(prepared.turn_id)
+                            if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                                return
+                            self._store.append_turn_event(
+                                turn_id=prepared.turn_id,
+                                event_type="tool.completed",
+                                source=prepared.provider_name,
+                                data={
+                                    "tool_call_id": tool_call.call_id,
+                                    "tool_id": resolved_tool_id,
+                                    "status": int(tool_response.status or 0),
+                                },
                             )
                             conversation.append(
                                 {
@@ -140,8 +170,8 @@ class SimpleAgentOrchestrator:
 
                     final_text = step.output_text.strip()
                     if not final_text:
-                        self._store.mark_turn_failed(
-                            turn_id=prepared.turn_id,
+                        self._fail_turn(
+                            prepared=prepared,
                             messages=prepared.messages,
                             status_message="model returned no final text and no tool calls",
                         )
@@ -158,24 +188,33 @@ class SimpleAgentOrchestrator:
                     )
                     return
         except ValidationError as exc:
-            self._store.mark_turn_failed(
-                turn_id=prepared.turn_id,
+            self._fail_turn(
+                prepared=prepared,
                 messages=prepared.messages,
                 status_message=f"response_schema validation failed: {exc.message}",
             )
             return
         except Exception as exc:
-            self._store.mark_turn_failed(
-                turn_id=prepared.turn_id,
+            self._fail_turn(
+                prepared=prepared,
                 messages=prepared.messages,
                 status_message=str(exc),
             )
             return
 
-        self._store.mark_turn_failed(
-            turn_id=prepared.turn_id,
+        self._fail_turn(
+            prepared=prepared,
             messages=prepared.messages,
             status_message=f"run exceeded maxSteps ({self._config.max_steps})",
+        )
+
+    def _fail_turn(
+        self, *, prepared: "PreparedTurn", messages: list[dict[str, Any]], status_message: str
+    ) -> None:
+        self._store.mark_turn_failed(
+            turn_id=prepared.turn_id,
+            messages=messages,
+            status_message=status_message,
         )
 
     def turn_to_proto(self, run: StoredRun) -> Any:
@@ -213,6 +252,7 @@ class SimpleAgentOrchestrator:
 class PreparedTurn:
     session_id: str
     turn_id: str
+    provider_name: str
     resolved_model: str
     messages: list[dict[str, Any]]
     response_schema: dict[str, Any]

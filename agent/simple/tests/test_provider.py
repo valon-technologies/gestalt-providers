@@ -488,6 +488,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fetched_session = provider_client.GetSession(
             agent_pb2.GetAgentProviderSessionRequest(session_id="session-success")
         )
+        listed_events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-success")
+        )
+        paged_events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(
+                turn_id="turn-success", after_seq=2, limit=2
+            )
+        )
 
         self.assertEqual(identity.kind, runtime_pb2.ProviderKind.PROVIDER_KIND_AGENT)
         self.assertEqual(identity.name, "simple")
@@ -576,6 +584,24 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(second_request["messages"][-1]["role"], "tool")
         self.assertIn("Ada Lovelace", second_request["messages"][-1]["content"])
         self.assertNotIn("name", second_request["messages"][-1])
+        self.assertEqual(
+            [event.type for event in listed_events.events],
+            [
+                "turn.started",
+                "tool.started",
+                "tool.completed",
+                "assistant.completed",
+                "turn.completed",
+            ],
+        )
+        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5])
+        self.assertEqual(listed_events.events[0].data.fields["session_id"].string_value, "session-success")
+        self.assertEqual(listed_events.events[1].data.fields["tool_id"].string_value, "lookup")
+        self.assertEqual(listed_events.events[2].data.fields["status"].number_value, 200)
+        self.assertEqual(
+            [event.type for event in paged_events.events],
+            ["tool.completed", "assistant.completed"],
+        )
 
     def test_create_turn_completes_over_tcp_runtime_socket(self) -> None:
         provider = provider_module.SimpleAgentRuntimeProvider()
@@ -779,12 +805,22 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fetched = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel")
         )
+        events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-cancel")
+        )
 
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(canceled.status_message, "user canceled")
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(len(fake_llm.requests), 1)
+        self.assertEqual(
+            [event.type for event in events.events],
+            ["turn.started", "tool.started", "turn.canceled"],
+        )
+        self.assertEqual(
+            events.events[-1].data.fields["reason"].string_value, "user canceled"
+        )
 
     def test_create_session_rejects_empty_session_id(self) -> None:
         _, provider_client = _configure_provider(
