@@ -35,6 +35,7 @@ const (
 	pluginGRPCPort      = 50051
 	tunnelLookupTimeout = 30 * time.Second
 	dialTimeout         = 15 * time.Second
+	launchDrainTimeout  = 3 * time.Second
 	sessionStateReady   = "ready"
 	sessionStateRunning = "running"
 	sessionStateStopped = "stopped"
@@ -83,6 +84,7 @@ type session struct {
 	sandbox  *modalclient.Sandbox
 	tunnel   *modalclient.Tunnel
 	plugin   *plugin
+	logSeq   uint64
 }
 
 type plugin struct {
@@ -308,10 +310,13 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
 	}
 	bindings := cloneStringMap(session.bindings)
+	logs := newSessionLogSink(session.id, &session.logSeq, nil)
 	p.mu.Unlock()
+	logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, fmt.Sprintf("starting plugin %q", req.GetPluginName()), time.Now())
 
 	sandbox, tunnel, err := p.ensureSessionSandbox(ctx, client, cfg, req)
 	if err != nil {
+		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, err.Error(), time.Now())
 		return nil, err
 	}
 	launchOK := false
@@ -326,10 +331,12 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	command := req.GetCommand()
 	if req.GetBundleDir() != "" {
 		if err := uploadBundleDir(ctx, sandbox, req.GetBundleDir(), gestalt.HostedPluginBundleRoot); err != nil {
+			logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "upload plugin bundle: "+err.Error(), time.Now())
 			return nil, status.Errorf(codes.Internal, "upload plugin bundle: %v", err)
 		}
 		if strings.HasPrefix(command, gestalt.HostedPluginBundleRoot+"/") || command == gestalt.HostedPluginBundleRoot {
 			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", "0755", command}); err != nil {
+				logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "mark plugin entrypoint executable: "+err.Error(), time.Now())
 				return nil, status.Errorf(codes.Internal, "mark plugin entrypoint executable: %v", err)
 			}
 		}
@@ -345,8 +352,8 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort)
 
 	process, err := sandbox.Exec(ctx, append([]string{command}, req.GetArgs()...), &modalclient.SandboxExecParams{
-		Stdout: modalclient.Ignore,
-		Stderr: modalclient.Ignore,
+		Stdout: modalclient.Pipe,
+		Stderr: modalclient.Pipe,
 		Env:    env,
 		Workdir: func() string {
 			if req.GetBundleDir() != "" {
@@ -356,11 +363,21 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		}(),
 	})
 	if err != nil {
+		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "start plugin process in modal sandbox: "+err.Error(), time.Now())
 		return nil, status.Errorf(codes.Internal, "start plugin process in modal sandbox: %v", err)
 	}
+	stdoutDone := logs.stream(process.Stdout, proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDOUT)
+	stderrDone := logs.stream(process.Stderr, proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDERR)
+	processDone := p.watchPluginProcess(req.GetSessionId(), logs, process)
 
 	host, port := tunnel.TLSSocket()
 	if err := waitForPluginReady(ctx, host, port); err != nil {
+		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "wait for modal plugin gRPC endpoint: "+err.Error(), time.Now())
+		p.markSessionLaunchFailed(req.GetSessionId())
+		p.resetSessionSandbox(req.GetSessionId(), sandbox)
+		_, _ = sandbox.Terminate(context.Background(), nil)
+		waitForLaunchDrain(processDone, stdoutDone, stderrDone, launchDrainTimeout)
+		launchOK = true
 		return nil, status.Errorf(codes.DeadlineExceeded, "wait for modal plugin gRPC endpoint: %v", err)
 	}
 
@@ -371,14 +388,15 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	session, err = p.sessionLocked(req.GetSessionId())
 	if err != nil {
+		p.mu.Unlock()
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 	session.plugin = plugin
 	session.state = sessionStateRunning
-	go p.watchPluginProcess(req.GetSessionId(), process)
+	p.mu.Unlock()
+	logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, fmt.Sprintf("plugin %q became ready", req.GetPluginName()), time.Now())
 	launchOK = true
 
 	return &proto.HostedPlugin{
@@ -632,31 +650,78 @@ func (p *Provider) resetSessionSandbox(sessionID string, sandbox *modalclient.Sa
 	}
 	session.sandbox = nil
 	session.tunnel = nil
-	if session.plugin == nil {
+	if session.plugin == nil && session.state != sessionStateFailed {
 		session.state = sessionStateReady
 	}
 }
 
-func (p *Provider) watchPluginProcess(sessionID string, process *modalclient.ContainerProcess) {
-	if process == nil {
-		return
-	}
-	code, err := process.Wait(context.Background())
+func (p *Provider) markSessionLaunchFailed(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	session, ok := p.sessions[sessionID]
+	session, ok := p.sessions[strings.TrimSpace(sessionID)]
 	if !ok || session == nil {
 		return
 	}
-	if err != nil {
-		session.state = sessionStateFailed
-		return
-	}
-	if code == 0 {
-		session.state = sessionStateStopped
-		return
-	}
 	session.state = sessionStateFailed
+}
+
+func (p *Provider) watchPluginProcess(sessionID string, logs *sessionLogSink, process *modalclient.ContainerProcess) <-chan struct{} {
+	done := make(chan struct{})
+	if process == nil {
+		close(done)
+		return done
+	}
+	go func() {
+		defer close(done)
+		code, err := process.Wait(context.Background())
+		p.mu.Lock()
+		session, ok := p.sessions[sessionID]
+		if !ok || session == nil {
+			p.mu.Unlock()
+			return
+		}
+		message := ""
+		stream := proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME
+		if err != nil {
+			session.state = sessionStateFailed
+			message = "plugin process wait failed: " + err.Error()
+			p.mu.Unlock()
+			logs.add(stream, message, time.Now())
+			return
+		}
+		if code == 0 {
+			if session.state != sessionStateFailed {
+				session.state = sessionStateStopped
+			}
+			message = "plugin process exited successfully"
+			p.mu.Unlock()
+			logs.add(stream, message, time.Now())
+			return
+		}
+		session.state = sessionStateFailed
+		message = fmt.Sprintf("plugin process exited with status %d", code)
+		p.mu.Unlock()
+		logs.add(stream, message, time.Now())
+	}()
+	return done
+}
+
+func waitForLaunchDrain(processDone, stdoutDone, stderrDone <-chan struct{}, timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = launchDrainTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for _, done := range []<-chan struct{}{processDone, stdoutDone, stderrDone} {
+		if done == nil {
+			continue
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (p *Provider) sessionLocked(sessionID string) (*session, error) {
