@@ -13,5 +13,6 @@ export default defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "public/admin/echarts.min.js",
   ]),
 ]);
