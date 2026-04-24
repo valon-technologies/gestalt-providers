@@ -221,9 +221,13 @@ func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *pro
 		cols[i] = colSQL
 	}
 	indexName := fmt.Sprintf("idx_%s_%s", baseTableName(table), idx.Name)
-	if d == dialectMySQL || d == dialectSQLServer {
-		return fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
-			unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+	createStmt := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+	if d == dialectMySQL {
+		return createStmt
+	}
+	if d == dialectSQLServer {
+		return sqlServerCreateIndexIfMissing(table, indexName, createStmt)
 	}
 	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)",
 		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
@@ -295,12 +299,51 @@ func createColumnsIndexSQL(d dialect, table, indexName string, columns []string,
 	for i, col := range columns {
 		cols[i] = quoteIdent(d, col)
 	}
-	if d == dialectMySQL || d == dialectSQLServer {
-		return fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
-			uniquePrefix, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+	createStmt := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		uniquePrefix, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+	if d == dialectMySQL {
+		return createStmt
+	}
+	if d == dialectSQLServer {
+		return sqlServerCreateIndexIfMissing(table, indexName, createStmt)
 	}
 	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)",
 		uniquePrefix, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
+}
+
+func sqlServerCreateIndexIfMissing(table, indexName, createStmt string) string {
+	return fmt.Sprintf(
+		"DECLARE @gestalt_object_id int = OBJECT_ID(%s); "+
+			"IF @gestalt_object_id IS NULL THROW 51000, 'failed to resolve index target object', 1; "+
+			"DECLARE @gestalt_lock_resource nvarchar(255) = CONCAT(N'gestalt:index:', CONVERT(nvarchar(32), @gestalt_object_id)); "+
+		"DECLARE @gestalt_lock_result int; "+
+			"EXEC @gestalt_lock_result = sp_getapplock @Resource = @gestalt_lock_resource, @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1; "+
+			"IF @gestalt_lock_result < 0 THROW 51000, 'failed to acquire index creation lock', 1; "+
+			"BEGIN TRY "+
+			"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = %s AND object_id = @gestalt_object_id) %s; "+
+			"END TRY "+
+			"BEGIN CATCH "+
+			"EXEC sp_releaseapplock @Resource = @gestalt_lock_resource, @LockOwner = 'Session'; "+
+			"THROW; "+
+			"END CATCH; "+
+			"EXEC sp_releaseapplock @Resource = @gestalt_lock_resource, @LockOwner = 'Session';",
+		sqlServerStringLiteral(sqlServerObjectName(table)),
+		sqlServerStringLiteral(indexName),
+		createStmt,
+	)
+}
+
+func sqlServerStringLiteral(value string) string {
+	return "N'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func sqlServerObjectName(table string) string {
+	parts := strings.Split(table, ".")
+	quoted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		quoted = append(quoted, "["+strings.ReplaceAll(part, "]", "]]")+"]")
+	}
+	return strings.Join(quoted, ".")
 }
 
 func dropTableSQL(d dialect, table string) string {
