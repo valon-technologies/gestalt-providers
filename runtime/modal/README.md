@@ -17,6 +17,14 @@ runtime:
         path: ./runtime/modal/manifest.yaml
       config:
         app: gestalt-runtime
+        tokenId:
+          secret:
+            provider: secrets
+            name: modal-token-id
+        tokenSecret:
+          secret:
+            provider: secrets
+            name: modal-token-secret
         environment: main
         cpu: 2
         memoryMiB: 4096
@@ -30,9 +38,14 @@ plugins:
       image: ghcr.io/valon-technologies/github-plugin-runtime:latest
 ```
 
-`config.app` is required. The runtime also requires
-`plugins.<name>.runtime.image` so Modal can create a sandbox from a concrete
-runtime image.
+`config.app` is required. `config.tokenId` and `config.tokenSecret` are
+optional, but when one is set the other must also be set. Supplying credentials
+in config is the preferred deployment shape because runtime providers run as
+child processes and do not automatically inherit arbitrary host environment
+variables.
+
+The runtime also requires `plugins.<name>.runtime.image` so Modal can create a
+sandbox from a concrete runtime image.
 
 ## Current Limitations
 

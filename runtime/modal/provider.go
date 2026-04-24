@@ -46,6 +46,8 @@ var sandboxNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 type Config struct {
 	App            string        `yaml:"app"`
+	TokenID        string        `yaml:"tokenId,omitempty"`
+	TokenSecret    string        `yaml:"tokenSecret,omitempty"`
 	Environment    string        `yaml:"environment,omitempty"`
 	CPU            float64       `yaml:"cpu,omitempty"`
 	MemoryMiB      int           `yaml:"memoryMiB,omitempty"`
@@ -98,7 +100,12 @@ func (p *Provider) Configure(_ context.Context, name string, raw map[string]any)
 	if err != nil {
 		return err
 	}
-	client, err := modalclient.NewClient()
+	params := &modalclient.ClientParams{
+		TokenID:     cfg.TokenID,
+		TokenSecret: cfg.TokenSecret,
+		Environment: cfg.Environment,
+	}
+	client, err := modalclient.NewClientWithOptions(params)
 	if err != nil {
 		return fmt.Errorf("modal runtime: create client: %w", err)
 	}
@@ -694,6 +701,8 @@ func (c *Config) Normalize() {
 		return
 	}
 	c.App = strings.TrimSpace(c.App)
+	c.TokenID = strings.TrimSpace(c.TokenID)
+	c.TokenSecret = strings.TrimSpace(c.TokenSecret)
 	c.Environment = strings.TrimSpace(c.Environment)
 	c.Cloud = strings.TrimSpace(c.Cloud)
 	for i := range c.Regions {
@@ -704,6 +713,9 @@ func (c *Config) Normalize() {
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.App) == "" {
 		return fmt.Errorf("modal runtime app is required")
+	}
+	if (c.TokenID == "") != (c.TokenSecret == "") {
+		return fmt.Errorf("modal runtime tokenId and tokenSecret must be set together")
 	}
 	if c.CPU < 0 {
 		return fmt.Errorf("modal runtime cpu must be non-negative")
