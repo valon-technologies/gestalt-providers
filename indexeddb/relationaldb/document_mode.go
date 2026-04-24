@@ -26,7 +26,7 @@ func usesDocumentSchema(schema *proto.ObjectStoreSchema) bool {
 }
 
 func isDocumentStore(m *storeMeta) bool {
-	return m != nil && len(m.columns) == 0
+	return m != nil && m.storageVersion == storageVersionLegacy && len(m.columns) == 0
 }
 
 func storageSchema(schema *proto.ObjectStoreSchema) *proto.ObjectStoreSchema {

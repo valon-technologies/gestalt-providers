@@ -26,15 +26,22 @@ import (
 )
 
 type storeMeta struct {
-	table   string
-	pkCol   string
-	columns []*proto.ColumnDef
-	indexes []*proto.IndexSchema
+	name           string
+	table          string
+	pkCol          string
+	columns        []*proto.ColumnDef
+	indexes        []*proto.IndexSchema
+	storageVersion int
 }
 
 const (
-	metadataTableName  = "_gestalt_stores"
-	defaultTablePrefix = ""
+	metadataTableName           = "_gestalt_stores"
+	genericRecordsTableName     = "_gestalt_records_v2"
+	genericIndexTableName       = "_gestalt_index_entries_v2"
+	genericUniqueIndexTableName = "_gestalt_unique_index_entries_v2"
+	defaultTablePrefix          = ""
+	storageVersionLegacy        = 1
+	storageVersionGeneric       = 2
 )
 
 type storeOptions struct {
@@ -94,6 +101,10 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
 	}
+	if err := s.ensureGenericTables(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	if err := s.loadMetadata(context.Background()); err != nil {
 		_ = db.Close()
@@ -111,6 +122,18 @@ func (s *Store) Close() error {
 
 func (s *Store) metadataTable() string {
 	return qualifyTableName(s.schemaName, metadataTableName)
+}
+
+func (s *Store) genericRecordsTable() string {
+	return qualifyTableName(s.schemaName, s.tablePrefix+genericRecordsTableName)
+}
+
+func (s *Store) genericIndexTable() string {
+	return qualifyTableName(s.schemaName, s.tablePrefix+genericIndexTableName)
+}
+
+func (s *Store) genericUniqueIndexTable() string {
+	return qualifyTableName(s.schemaName, s.tablePrefix+genericUniqueIndexTableName)
 }
 
 func (s *Store) usesNamespacedMetadata() bool {
@@ -238,6 +261,36 @@ func (s *Store) ensureTable(ctx context.Context, table string, schema *proto.Obj
 	return nil
 }
 
+func (s *Store) ensureGenericTables(ctx context.Context) error {
+	statements := []string{
+		createGenericRecordsTableSQL(s.dialect, s.genericRecordsTable()),
+		createGenericIndexEntriesTableSQL(s.dialect, s.genericIndexTable()),
+		createGenericIndexEntriesTableSQL(s.dialect, s.genericUniqueIndexTable()),
+	}
+	for _, stmt := range statements {
+		if _, err := s.exec(ctx, stmt); err != nil {
+			return fmt.Errorf("relationaldb: create generic storage table: %w", err)
+		}
+	}
+
+	indexStatements := []string{
+		createGenericRecordsLookupIndexSQL(s.dialect, s.genericRecordsTable()),
+		createGenericRecordsStoreIndexSQL(s.dialect, s.genericRecordsTable()),
+		createGenericIndexLookupIndexSQL(s.dialect, s.genericIndexTable(), false),
+		createGenericIndexRecordIndexSQL(s.dialect, s.genericIndexTable()),
+		createGenericIndexScanIndexSQL(s.dialect, s.genericIndexTable()),
+		createGenericIndexLookupIndexSQL(s.dialect, s.genericUniqueIndexTable(), true),
+		createGenericIndexRecordIndexSQL(s.dialect, s.genericUniqueIndexTable()),
+		createGenericIndexScanIndexSQL(s.dialect, s.genericUniqueIndexTable()),
+	}
+	for _, stmt := range indexStatements {
+		if _, err := s.exec(ctx, stmt); err != nil && !isDuplicateErr(err) {
+			return fmt.Errorf("relationaldb: create generic storage index: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
 	rows, err := s.query(ctx, "SELECT * FROM "+quoteTableName(s.dialect, table)+" WHERE 1 = 0")
 	if err != nil {
@@ -320,8 +373,8 @@ func (s *Store) copyStoreRows(ctx context.Context, sourceTable, destTable string
 	return nil
 }
 
-func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName string, schema *proto.ObjectStoreSchema) error {
-	schemaJSON, err := json.Marshal(newStoredSchema(tableName, schema))
+func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName string, schema *proto.ObjectStoreSchema, storageVersion int) error {
+	schemaJSON, err := json.Marshal(newStoredSchema(tableName, schema, storageVersion))
 	if err != nil {
 		return status.Errorf(codes.Internal, "marshal schema: %v", err)
 	}
@@ -344,7 +397,7 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName, tableName s
 		return status.Errorf(codes.Internal, "persist metadata: %v", err)
 	}
 
-	s.meta[storeName] = newStoredSchema(tableName, schema).toMeta(storeName)
+	s.meta[storeName] = newStoredSchema(tableName, schema, storageVersion).toMeta(storeName)
 	return nil
 }
 
@@ -358,6 +411,18 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 	tableName := s.physicalTableName(req.Name)
 
 	if existing, ok := s.meta[req.Name]; ok {
+		if usesGenericStorage(existing) {
+			if err := s.ensureGenericTables(ctx); err != nil {
+				return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
+			}
+			if err := s.reindexGenericStore(ctx, req.Name, schema); err != nil {
+				return nil, err
+			}
+			if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema, storageVersionGeneric); err != nil {
+				return nil, err
+			}
+			return &emptypb.Empty{}, nil
+		}
 		if err := s.ensureTable(ctx, tableName, schema); err != nil {
 			return nil, err
 		}
@@ -366,19 +431,16 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 				return nil, err
 			}
 		}
-		if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema); err != nil {
+		if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema, storageVersionLegacy); err != nil {
 			return nil, err
 		}
 		return &emptypb.Empty{}, nil
 	}
 
-	if err := s.resetOrphanedProviderTable(ctx, tableName); err != nil {
-		return nil, err
+	if err := s.ensureGenericTables(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
 	}
-	if err := s.ensureTable(ctx, tableName, schema); err != nil {
-		return nil, err
-	}
-	if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema); err != nil {
+	if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema, storageVersionGeneric); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -387,6 +449,18 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if meta, ok := s.meta[req.Name]; ok && usesGenericStorage(meta) {
+		if err := s.clearGeneric(ctx, req.Name); err != nil {
+			return nil, err
+		}
+		_, _ = s.exec(ctx,
+			"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
+			s.metadataStoreKey(req.Name),
+		)
+		delete(s.meta, req.Name)
+		return &emptypb.Empty{}, nil
+	}
 
 	tableName := s.physicalTableName(req.Name)
 	if meta, ok := s.meta[req.Name]; ok && meta.table != "" {
@@ -411,6 +485,13 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		record, err := s.genericGet(ctx, req.Store, m, req.Id)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.RecordResponse{Record: record}, nil
+	}
 	if isDocumentStore(m) {
 		query := selectDocumentPayloadByPK(s.dialect, m.table, m.pkCol)
 		var payload []byte
@@ -423,7 +504,11 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 		}
 		return &proto.RecordResponse{Record: record}, nil
 	}
-	rows, err := s.query(ctx, selectByPK(s.dialect, m.table, m.pkCol, m.columns), req.Id)
+	lookupArg, err := primaryKeyLookupArg(req.Id, m)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "lookup key: %v", err)
+	}
+	rows, err := s.query(ctx, selectByPK(s.dialect, m.table, m.pkCol, m.columns), lookupArg)
 	if err != nil {
 		return nil, mapSQLErr("get", err)
 	}
@@ -443,8 +528,23 @@ func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		record, err := s.genericGet(ctx, req.Store, m, req.Id)
+		if err != nil {
+			return nil, err
+		}
+		value, err := extractGenericPrimaryKey(record, m)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.KeyResponse{Key: fmt.Sprint(value.value)}, nil
+	}
 	var key string
-	err = s.scanOne(ctx, selectKeyByPK(s.dialect, m.table, m.pkCol), []any{req.Id}, &key)
+	lookupArg, err := primaryKeyLookupArg(req.Id, m)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "lookup key: %v", err)
+	}
+	err = s.scanOne(ctx, selectKeyByPK(s.dialect, m.table, m.pkCol), []any{lookupArg}, &key)
 	if err != nil {
 		return nil, mapSQLErr("get_key", err)
 	}
@@ -455,6 +555,12 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if usesGenericStorage(m) {
+		if err := s.addGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
+			return nil, err
+		}
+		return &emptypb.Empty{}, nil
 	}
 	if isDocumentStore(m) {
 		record := req.GetRecord()
@@ -488,6 +594,12 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if usesGenericStorage(m) {
+		if err := s.putGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
+			return nil, err
+		}
+		return &emptypb.Empty{}, nil
 	}
 	if isDocumentStore(m) {
 		record := req.GetRecord()
@@ -549,6 +661,12 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emp
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		if err := s.deleteGeneric(ctx, req.Store, m, req.Id); err != nil {
+			return nil, err
+		}
+		return &emptypb.Empty{}, nil
+	}
 	if err := s.deleteByPrimaryKeyValue(ctx, m, req.Id); err != nil {
 		return nil, err
 	}
@@ -556,6 +674,9 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emp
 }
 
 func (s *Store) deleteByPrimaryKeyValue(ctx context.Context, m *storeMeta, value any) error {
+	if usesGenericStorage(m) {
+		return s.deleteGenericByValue(ctx, m.name, value)
+	}
 	arg, err := anyToSQLArg(value, columnType(m, m.pkCol))
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "marshal primary key: %v", err)
@@ -573,6 +694,12 @@ func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		if err := s.clearGeneric(ctx, req.Store); err != nil {
+			return nil, err
+		}
+		return &emptypb.Empty{}, nil
+	}
 	if _, err := s.exec(ctx, deleteAll(s.dialect, m.table)); err != nil {
 		return nil, status.Errorf(codes.Internal, "clear: %v", err)
 	}
@@ -583,6 +710,17 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if usesGenericStorage(m) {
+		entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, false)
+		if err != nil {
+			return nil, err
+		}
+		records := make([]*proto.Record, 0, len(entries))
+		for _, entry := range entries {
+			records = append(records, entry.Record)
+		}
+		return &proto.RecordsResponse{Records: records}, nil
 	}
 	if isDocumentStore(m) {
 		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind}, m, req.Range)
@@ -612,6 +750,17 @@ func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeReque
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+		if err != nil {
+			return nil, err
+		}
+		keys := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			keys = append(keys, entry.PrimaryKey)
+		}
+		return &proto.KeysResponse{Keys: keys}, nil
+	}
 	query, args, err := selectKeysWithRange(s.dialect, m, req.Range)
 	if err != nil {
 		return nil, err
@@ -637,6 +786,13 @@ func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.CountResponse{Count: int64(len(entries))}, nil
+	}
 	query, args, err := countWithRange(s.dialect, m, req.Range)
 	if err != nil {
 		return nil, err
@@ -652,6 +808,17 @@ func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequ
 	m, err := s.getMeta(req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if usesGenericStorage(m) {
+		entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+		if err != nil {
+			return nil, err
+		}
+		deleted, err := s.deleteGenericEntries(ctx, req.Store, entries)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.DeleteResponse{Deleted: deleted}, nil
 	}
 	query, args, err := deleteWithRange(s.dialect, m, req.Range)
 	if err != nil {
@@ -726,6 +893,13 @@ func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (
 	if err != nil {
 		return nil, err
 	}
+	if usesGenericStorage(m) {
+		deleted, err := s.deleteGenericEntries(ctx, req.Store, entries)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.DeleteResponse{Deleted: deleted}, nil
+	}
 	var deleted int64
 	for _, entry := range entries {
 		if err := s.deleteByPrimaryKeyValue(ctx, m, entry.PrimaryKeyValue); err != nil {
@@ -746,6 +920,13 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 	idx := findIndex(m, req.Index)
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
+	}
+	if usesGenericStorage(m) {
+		entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.GetValues(), req.GetRange(), keyOnly)
+		if err != nil {
+			return nil, nil, err
+		}
+		return m, entries, nil
 	}
 	if isDocumentStore(m) {
 		records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind}, m, nil)
@@ -1359,9 +1540,10 @@ func isDuplicateErr(err error) bool {
 // ---- Schema persistence ----
 
 type storedSchema struct {
-	Table   string         `json:"table,omitempty"`
-	Columns []storedColumn `json:"columns"`
-	Indexes []storedIndex  `json:"indexes"`
+	Table          string         `json:"table,omitempty"`
+	StorageVersion int            `json:"storage_version,omitempty"`
+	Columns        []storedColumn `json:"columns"`
+	Indexes        []storedIndex  `json:"indexes"`
 }
 
 type storedColumn struct {
@@ -1378,8 +1560,8 @@ type storedIndex struct {
 	Unique  bool     `json:"unique"`
 }
 
-func newStoredSchema(table string, schema *proto.ObjectStoreSchema) storedSchema {
-	s := storedSchema{Table: table}
+func newStoredSchema(table string, schema *proto.ObjectStoreSchema, storageVersion int) storedSchema {
+	s := storedSchema{Table: table, StorageVersion: storageVersion}
 	for _, c := range schema.GetColumns() {
 		s.Columns = append(s.Columns, storedColumn{
 			Name: c.Name, Type: c.Type, PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique,
@@ -1395,10 +1577,14 @@ func newStoredSchema(table string, schema *proto.ObjectStoreSchema) storedSchema
 
 func (s storedSchema) toMeta(name string) *storeMeta {
 	table := s.Table
-	if table == "" {
+	storageVersion := s.StorageVersion
+	if storageVersion == 0 {
+		storageVersion = storageVersionLegacy
+	}
+	if table == "" && storageVersion == storageVersionLegacy {
 		table = name
 	}
-	m := &storeMeta{table: table, pkCol: "id"}
+	m := &storeMeta{name: name, table: table, pkCol: "id", storageVersion: storageVersion}
 	for _, c := range s.Columns {
 		col := &proto.ColumnDef{Name: c.Name, Type: c.Type, PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique}
 		m.columns = append(m.columns, col)

@@ -78,6 +78,13 @@ func Run(t *testing.T, harness Harness) {
 		runBulkConsistency(t, harness)
 	})
 
+	t.Run("TypedDeleteRangeFidelity", func(t *testing.T) {
+		if !harness.Capabilities().TypedPrimaryKeys {
+			t.Skip("backend does not support typed primary keys")
+		}
+		runTypedDeleteRangeFidelity(t, harness)
+	})
+
 	t.Run("RestartReconfigurePersistsIndexes", func(t *testing.T) {
 		runRestartReconfigurePersistsIndexes(t, harness)
 	})
@@ -512,6 +519,78 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 			t.Fatalf("remaining ids after IndexDelete(range) = %#v, want %#v", remaining, []string{"c"})
 		}
 	})
+}
+
+func runTypedDeleteRangeFidelity(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	timeA := time.Date(2024, time.January, 1, 8, 0, 0, 0, time.UTC)
+	timeB := time.Date(2024, time.January, 2, 8, 0, 0, 0, time.UTC)
+	timeC := time.Date(2024, time.January, 3, 8, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name       string
+		store      string
+		columnType int32
+		ids        []any
+		lower      any
+		upper      any
+		remaining  []any
+	}{
+		{
+			name:       "Int64",
+			store:      "typed_delete_range_int",
+			columnType: typeInt,
+			ids:        []any{int64(10), int64(20), int64(30)},
+			lower:      int64(20),
+			upper:      int64(30),
+			remaining:  []any{int64(10)},
+		},
+		{
+			name:       "Time",
+			store:      "typed_delete_range_time",
+			columnType: typeTime,
+			ids:        []any{timeA, timeB, timeC},
+			lower:      timeB,
+			upper:      timeC,
+			remaining:  []any{timeA},
+		},
+		{
+			name:       "Bytes",
+			store:      "typed_delete_range_bytes",
+			columnType: typeBytes,
+			ids:        []any{[]byte{0x01}, []byte{0x02}, []byte{0x03}},
+			lower:      []byte{0x02},
+			upper:      []byte{0x03},
+			remaining:  []any{[]byte{0x01}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mustCreateObjectStore(t, sess.client, tc.store, typedPrimaryKeySchema(tc.columnType))
+			for i, id := range tc.ids {
+				mustAddRecord(t, sess.client, tc.store, map[string]any{
+					"id":   id,
+					"name": fmt.Sprintf("%s-%d", tc.name, i),
+				})
+			}
+
+			deleted := mustDeleteRange(t, sess.client, tc.store, &proto.KeyRange{
+				Lower: mustTypedValue(t, tc.lower),
+				Upper: mustTypedValue(t, tc.upper),
+			})
+			if deleted != 2 {
+				t.Fatalf("DeleteRange deleted = %d, want 2", deleted)
+			}
+
+			remaining := sortedRecordIDs(t, mustGetAll(t, sess.client, tc.store, nil))
+			assertValueSliceEqual(t, remaining, sortedValues(append([]any(nil), tc.remaining...)))
+		})
+	}
 }
 
 func runRestartReconfigurePersistsIndexes(t *testing.T, harness Harness) {

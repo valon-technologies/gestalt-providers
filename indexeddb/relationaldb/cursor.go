@@ -48,6 +48,22 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorReq
 		}
 	}
 
+	if usesGenericStorage(meta) {
+		var entries []cursorutil.Entry
+		if cursor.IndexCursor {
+			entries, err = s.genericIndexEntries(ctx, req.GetStore(), meta, cursor.index, req.GetValues(), req.GetRange(), cursor.KeysOnly)
+		} else {
+			entries, err = s.genericObjectStoreEntries(ctx, req.GetStore(), meta, req.GetRange(), cursor.KeysOnly)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := cursor.Load(entries, nil); err != nil {
+			return nil, err
+		}
+		return cursor, nil
+	}
+
 	records, err := s.cursorRecords(ctx, cursor, req)
 	if err != nil {
 		return nil, err

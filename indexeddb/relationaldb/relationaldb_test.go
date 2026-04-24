@@ -421,8 +421,14 @@ func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
 	if meta.table != defaultTablePrefix+"widgets" {
 		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
 	}
-	if _, err := s.tableColumns(ctx, meta.table); err != nil {
-		t.Fatalf("tableColumns(requested): %v", err)
+	if meta.storageVersion != storageVersionGeneric {
+		t.Fatalf("meta.storageVersion = %d, want %d", meta.storageVersion, storageVersionGeneric)
+	}
+	if _, err := s.tableColumns(ctx, s.genericRecordsTable()); err != nil {
+		t.Fatalf("tableColumns(records): %v", err)
+	}
+	if _, err := s.tableColumns(ctx, s.genericIndexTable()); err != nil {
+		t.Fatalf("tableColumns(index_entries): %v", err)
 	}
 	if meta.table != "widgets" {
 		t.Fatalf("meta.table = %q, want %q", meta.table, "widgets")
@@ -494,6 +500,9 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 		}
 		if meta.table != tc.table {
 			t.Fatalf("meta.table(%s) = %q, want %q", tc.prefix, meta.table, tc.table)
+		}
+		if meta.storageVersion != storageVersionGeneric {
+			t.Fatalf("meta.storageVersion(%s) = %d, want %d", tc.prefix, meta.storageVersion, storageVersionGeneric)
 		}
 	}
 
