@@ -3,6 +3,7 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -279,6 +280,24 @@ func sampleRecordsSchema() *proto.ObjectStoreSchema {
 	}
 }
 
+func wideUniqueRecordsSchema() *proto.ObjectStoreSchema {
+	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"}, Unique: true},
+		},
+		Columns: []*proto.ColumnDef{
+			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
+			{Name: "owner_id", Type: 0, NotNull: true},
+			{Name: "category", Type: 0, NotNull: true},
+			{Name: "region", Type: 0, NotNull: true},
+			{Name: "variant", Type: 0},
+			{Name: "payload", Type: 0},
+			{Name: "created_at", Type: 4},
+			{Name: "updated_at", Type: 4},
+		},
+	}
+}
+
 func makeWidget(id, code, title string) *proto.Record {
 	record, _ := gestalt.RecordToProto(map[string]any{
 		"id":         id,
@@ -303,6 +322,37 @@ func makeSampleRecord(id string) *proto.Record {
 		"created_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 		"updated_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 	})
+	return record
+}
+
+func makeWideUniqueRecord(id, ownerID, category, region, variant string) *proto.Record {
+	record, _ := gestalt.RecordToProto(map[string]any{
+		"id":         id,
+		"owner_id":   ownerID,
+		"category":   category,
+		"region":     region,
+		"variant":    variant,
+		"payload":    "payload-" + id,
+		"created_at": time.Date(2026, time.April, 24, 2, 0, 0, 0, time.UTC),
+		"updated_at": time.Date(2026, time.April, 24, 2, 0, 0, 0, time.UTC),
+	})
+	return record
+}
+
+func makeWideUniqueRecordWithNullableVariant(id, ownerID, category, region string, variant *string) *proto.Record {
+	fields := map[string]any{
+		"id":         id,
+		"owner_id":   ownerID,
+		"category":   category,
+		"region":     region,
+		"payload":    "payload-" + id,
+		"created_at": time.Date(2026, time.April, 24, 2, 0, 0, 0, time.UTC),
+		"updated_at": time.Date(2026, time.April, 24, 2, 0, 0, 0, time.UTC),
+	}
+	if variant != nil {
+		fields["variant"] = *variant
+	}
+	record, _ := gestalt.RecordToProto(fields)
 	return record
 }
 
@@ -719,6 +769,117 @@ func TestCreateIndexSQLMySQLUsesPrefixLengthsForCompositeStringIndexes(t *testin
 		if !strings.Contains(got, "`"+col+"`(128)") {
 			t.Fatalf("createIndexSQL(mysql) missing prefix length for %s: %s", col, got)
 		}
+	}
+}
+
+func TestCreateIndexSQLMySQLHashesWideUniqueCompositeStringIndexes(t *testing.T) {
+	got := createIndexSQL(dialectMySQL, "wide_unique_records", &proto.IndexSchema{
+		Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"}, Unique: true,
+	}, wideUniqueRecordsSchema())
+	if !strings.Contains(got, "CREATE UNIQUE INDEX `idx_wide_unique_records_by_lookup`") {
+		t.Fatalf("createIndexSQL(mysql) unexpected index name: %s", got)
+	}
+	if !strings.Contains(got, "SHA2(CONCAT_WS(CHAR(0), IF(`owner_id` IS NULL, '__gestalt_null__', HEX(WEIGHT_STRING(`owner_id`))), IF(`category` IS NULL, '__gestalt_null__', HEX(WEIGHT_STRING(`category`))), IF(`region` IS NULL, '__gestalt_null__', HEX(WEIGHT_STRING(`region`))), IF(`variant` IS NULL, '__gestalt_null__', HEX(WEIGHT_STRING(`variant`)))), 256)") {
+		t.Fatalf("createIndexSQL(mysql) should hash wide unique composite indexes: %s", got)
+	}
+	if strings.Contains(got, "`owner_id`, `category`, `region`, `variant`") {
+		t.Fatalf("createIndexSQL(mysql) should not emit the raw wide unique key list: %s", got)
+	}
+}
+
+func TestCreateObjectStoreMySQLSupportsWideUniqueCompositeIndexesOnExistingTables(t *testing.T) {
+	dsn := os.Getenv("GESTALT_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("GESTALT_TEST_MYSQL_DSN is not set")
+	}
+
+	s := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: makeRelationalContractPrefix()})
+	ctx := context.Background()
+	table := s.physicalTableName("wide_unique_records")
+	if _, err := s.db.ExecContext(ctx, s.q(createTableSQL(s.dialect, table, wideUniqueRecordsSchema()))); err != nil {
+		t.Fatalf("create existing table: %v", err)
+	}
+	if _, err := s.db.ExecContext(
+		ctx,
+		s.q("INSERT INTO "+quoteTableName(s.dialect, table)+" (`id`, `owner_id`, `category`, `region`, `variant`, `payload`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
+		"seed-existing",
+		"owner-seed",
+		"beta",
+		"west",
+		"v0",
+		"payload-seed",
+		time.Date(2026, time.April, 24, 1, 0, 0, 0, time.UTC),
+		time.Date(2026, time.April, 24, 1, 0, 0, 0, time.UTC),
+	); err != nil {
+		t.Fatalf("seed existing table: %v", err)
+	}
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name:   "wide_unique_records",
+		Schema: wideUniqueRecordsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "wide_unique_records",
+		Record: makeWideUniqueRecord("r1", "owner-1", "alpha", "east", "v1"),
+	}); err != nil {
+		t.Fatalf("Add first record: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "wide_unique_records",
+		Record: makeWideUniqueRecord("r2", "owner-1", "alpha", "east", "v1"),
+	}); status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("Add duplicate record error = %v, want AlreadyExists", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "wide_unique_records",
+		Record: makeWideUniqueRecord("r2-case", "OWNER-1", "ALPHA", "EAST", "v1"),
+	}); status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("Add case-only duplicate error = %v, want AlreadyExists", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "wide_unique_records",
+		Record: makeWideUniqueRecord("r3", "owner-1", "alpha", "east", "v2"),
+	}); err != nil {
+		t.Fatalf("Add distinct record: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "wide_unique_records",
+		Record: makeWideUniqueRecordWithNullableVariant("r4-null", "owner-1", "alpha", "east", nil),
+	}); err != nil {
+		t.Fatalf("Add null-variant record: %v", err)
+	}
+	nullVals, _ := gestalt.TypedValuesFromAny([]any{"owner-1", "alpha", "east", nil})
+	nullResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
+		Store:  "wide_unique_records",
+		Index:  "by_lookup",
+		Values: nullVals,
+	})
+	if err != nil {
+		t.Fatalf("IndexGet null variant: %v", err)
+	}
+	if got := nullResp.Record.Fields["id"].GetStringValue(); got != "r4-null" {
+		t.Fatalf("IndexGet null variant id = %q, want %q", got, "r4-null")
+	}
+	empty := ""
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "wide_unique_records",
+		Record: makeWideUniqueRecordWithNullableVariant("r5-empty", "owner-1", "alpha", "east", &empty),
+	}); err != nil {
+		t.Fatalf("Add empty-string variant record: %v", err)
+	}
+	emptyVals, _ := gestalt.TypedValuesFromAny([]any{"owner-1", "alpha", "east", ""})
+	emptyResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
+		Store:  "wide_unique_records",
+		Index:  "by_lookup",
+		Values: emptyVals,
+	})
+	if err != nil {
+		t.Fatalf("IndexGet empty-string variant: %v", err)
+	}
+	if got := emptyResp.Record.Fields["id"].GetStringValue(); got != "r5-empty" {
+		t.Fatalf("IndexGet empty-string variant id = %q, want %q", got, "r5-empty")
 	}
 }
 
