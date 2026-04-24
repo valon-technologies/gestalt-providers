@@ -327,7 +327,19 @@ func (s *Store) insertGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, sto
 		quoteIdent(s.dialect, "index_key_bytes") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
 		quoteIdent(s.dialect, "pk_bytes") + ") VALUES (?, ?, ?, ?, ?, ?)"
-	_, err := tx.ExecContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.pkHash, row.pkBytes)
+	existingKeyBytes, existingPKBytes, found, err := s.loadExistingGenericUniqueIndexRow(ctx, tx, store, row.indexName, row.indexKeyHash)
+	if err != nil {
+		return err
+	}
+	if found {
+		return classifyGenericUniqueIndexConflict(existingKeyBytes, existingPKBytes, row)
+	}
+
+	if s.dialect == dialectPostgres {
+		return s.upsertPostgresGenericUniqueIndexRow(ctx, tx, store, row)
+	}
+
+	_, err = tx.ExecContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.pkHash, row.pkBytes)
 	if err == nil {
 		return nil
 	}
@@ -335,6 +347,42 @@ func (s *Store) insertGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, sto
 		return status.Errorf(codes.Internal, "insert unique index row: %v", err)
 	}
 
+	existingKeyBytes, existingPKBytes, found, err = s.loadExistingGenericUniqueIndexRow(ctx, tx, store, row.indexName, row.indexKeyHash)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return status.Error(codes.AlreadyExists, "unique index conflict")
+	}
+	return classifyGenericUniqueIndexConflict(existingKeyBytes, existingPKBytes, row)
+}
+
+func (s *Store) upsertPostgresGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, store string, row genericIndexRow) error {
+	table := quoteTableName(s.dialect, s.genericUniqueIndexTable())
+	stmt := "INSERT INTO " + table +
+		" (" + quoteIdent(s.dialect, "store_name") + ", " +
+		quoteIdent(s.dialect, "index_name") + ", " +
+		quoteIdent(s.dialect, "index_key_hash") + ", " +
+		quoteIdent(s.dialect, "index_key_bytes") + ", " +
+		quoteIdent(s.dialect, "pk_hash") + ", " +
+		quoteIdent(s.dialect, "pk_bytes") + ") VALUES (?, ?, ?, ?, ?, ?)" +
+		" ON CONFLICT (" + quoteIdent(s.dialect, "store_name") + ", " +
+		quoteIdent(s.dialect, "index_name") + ", " +
+		quoteIdent(s.dialect, "index_key_hash") + ")" +
+		" DO UPDATE SET " +
+		quoteIdent(s.dialect, "index_key_bytes") + " = " + table + "." + quoteIdent(s.dialect, "index_key_bytes") + ", " +
+		quoteIdent(s.dialect, "pk_bytes") + " = " + table + "." + quoteIdent(s.dialect, "pk_bytes") +
+		" RETURNING " + quoteIdent(s.dialect, "index_key_bytes") + ", " + quoteIdent(s.dialect, "pk_bytes")
+
+	var existingKeyBytes []byte
+	var existingPKBytes []byte
+	if err := tx.QueryRowContext(ctx, s.q(stmt), store, row.indexName, row.indexKeyHash, row.indexKeyBytes, row.pkHash, row.pkBytes).Scan(&existingKeyBytes, &existingPKBytes); err != nil {
+		return status.Errorf(codes.Internal, "upsert unique index row: %v", err)
+	}
+	return classifyGenericUniqueIndexConflict(existingKeyBytes, existingPKBytes, row)
+}
+
+func (s *Store) loadExistingGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, store, indexName string, indexKeyHash []byte) ([]byte, []byte, bool, error) {
 	query := "SELECT " + quoteIdent(s.dialect, "index_key_bytes") + ", " + quoteIdent(s.dialect, "pk_bytes") +
 		" FROM " + quoteTableName(s.dialect, s.genericUniqueIndexTable()) +
 		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " +
@@ -342,9 +390,16 @@ func (s *Store) insertGenericUniqueIndexRow(ctx context.Context, tx *sql.Tx, sto
 		quoteIdent(s.dialect, "index_key_hash") + " = ?"
 	var existingKeyBytes []byte
 	var existingPKBytes []byte
-	if scanErr := tx.QueryRowContext(ctx, s.q(query), store, row.indexName, row.indexKeyHash).Scan(&existingKeyBytes, &existingPKBytes); scanErr != nil {
-		return status.Errorf(codes.Internal, "load conflicting unique index row: %v", scanErr)
+	if scanErr := tx.QueryRowContext(ctx, s.q(query), store, indexName, indexKeyHash).Scan(&existingKeyBytes, &existingPKBytes); scanErr != nil {
+		if scanErr == sql.ErrNoRows {
+			return nil, nil, false, nil
+		}
+		return nil, nil, false, status.Errorf(codes.Internal, "load conflicting unique index row: %v", scanErr)
 	}
+	return existingKeyBytes, existingPKBytes, true, nil
+}
+
+func classifyGenericUniqueIndexConflict(existingKeyBytes, existingPKBytes []byte, row genericIndexRow) error {
 	if !bytes.Equal(existingKeyBytes, row.indexKeyBytes) {
 		return status.Error(codes.Internal, "unique index hash collision")
 	}
