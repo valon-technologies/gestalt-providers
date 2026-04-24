@@ -1,12 +1,10 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import gestalt
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-
-agent_pb2: Any = cast(Any, _agent_pb2)
+from .agent_proto_compat import agent_pb2
 
 TERMINAL_STATUSES = {
     agent_pb2.AGENT_RUN_STATUS_SUCCEEDED,
@@ -35,16 +33,42 @@ class StoredRun:
     cancel_reason: str
 
 
+@dataclass(slots=True)
+class StoredSession:
+    session_id: str
+    idempotency_key: str
+    provider_name: str
+    model: str
+    client_ref: str
+    state: int
+    metadata: dict[str, Any]
+    created_by: dict[str, str]
+    created_at: datetime
+    updated_at: datetime
+    last_turn_at: datetime | None
+
+
 class SimpleRunStore:
     def __init__(self, *, run_store: str, idempotency_store: str) -> None:
         self._client = gestalt.IndexedDB()
         self._runs = self._client.object_store(run_store)
         self._idempotency = self._client.object_store(idempotency_store)
+        self._sessions = self._client.object_store(f"{run_store}_sessions")
+        self._session_idempotency = self._client.object_store(
+            f"{idempotency_store}_sessions"
+        )
         self._run_store_name = run_store
         self._idempotency_store_name = idempotency_store
+        self._session_store_name = f"{run_store}_sessions"
+        self._session_idempotency_store_name = f"{idempotency_store}_sessions"
 
     def initialize(self) -> None:
-        for name in (self._run_store_name, self._idempotency_store_name):
+        for name in (
+            self._run_store_name,
+            self._idempotency_store_name,
+            self._session_store_name,
+            self._session_idempotency_store_name,
+        ):
             try:
                 self._client.create_object_store(name)
             except gestalt.AlreadyExistsError:
@@ -52,6 +76,181 @@ class SimpleRunStore:
 
     def close(self) -> None:
         self._client.close()
+
+    def create_session(
+        self,
+        *,
+        session_id: str,
+        idempotency_key: str,
+        provider_name: str,
+        model: str,
+        client_ref: str,
+        metadata: dict[str, Any],
+        created_by: dict[str, str],
+    ) -> tuple[StoredSession, bool]:
+        session_id = session_id.strip()
+        if not session_id:
+            raise ValueError("session_id is required")
+        existing = self.get_session(session_id)
+        if existing is not None:
+            return existing, False
+
+        if idempotency_key:
+            existing = self._session_for_idempotency_key(idempotency_key)
+            if existing is not None:
+                return existing, False
+
+        now = _utcnow()
+        session = StoredSession(
+            session_id=session_id,
+            idempotency_key=idempotency_key,
+            provider_name=provider_name,
+            model=model,
+            client_ref=client_ref,
+            state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+            metadata=metadata,
+            created_by=created_by,
+            created_at=now,
+            updated_at=now,
+            last_turn_at=None,
+        )
+
+        claimed_idempotency = False
+        if idempotency_key:
+            try:
+                self._session_idempotency.add(
+                    {
+                        "id": idempotency_key,
+                        "session_id": session_id,
+                        "provider_name": provider_name,
+                        "created_at": now,
+                    }
+                )
+                claimed_idempotency = True
+            except gestalt.AlreadyExistsError:
+                existing = self._session_for_idempotency_key(idempotency_key)
+                if existing is not None:
+                    return existing, False
+                raise
+
+        try:
+            self._sessions.add(_session_to_record(session))
+        except gestalt.AlreadyExistsError:
+            if claimed_idempotency:
+                self._delete_session_idempotency(idempotency_key)
+            existing = self.get_session(session_id)
+            if existing is not None:
+                return existing, False
+            raise
+        except Exception:
+            if claimed_idempotency:
+                self._delete_session_idempotency(idempotency_key)
+            raise
+
+        return session, True
+
+    def get_session(self, session_id: str) -> StoredSession | None:
+        try:
+            return _record_to_session(self._sessions.get(session_id))
+        except gestalt.NotFoundError:
+            return None
+
+    def list_sessions(self) -> list[StoredSession]:
+        sessions = [
+            _record_to_session(record) for record in self._sessions.get_all()
+        ]
+        sessions = [session for session in sessions if session is not None]
+        return sorted(
+            sessions,
+            key=lambda session: (
+                session.last_turn_at or session.updated_at,
+                session.session_id,
+            ),
+            reverse=True,
+        )
+
+    def update_session(
+        self,
+        *,
+        session_id: str,
+        client_ref: str,
+        state: int,
+        metadata: dict[str, Any] | None,
+    ) -> StoredSession | None:
+        session = self.get_session(session_id)
+        if session is None:
+            return None
+        if client_ref:
+            session.client_ref = client_ref
+        if state:
+            session.state = state
+        if metadata is not None:
+            session.metadata = metadata
+        session.updated_at = _utcnow()
+        self._sessions.put(_session_to_record(session))
+        return self.get_session(session_id)
+
+    def begin_turn(
+        self,
+        *,
+        turn_id: str,
+        session_id: str,
+        idempotency_key: str,
+        provider_name: str,
+        model: str,
+        messages: list[dict[str, str]],
+        created_by: dict[str, str],
+        execution_ref: str,
+    ) -> tuple[StoredRun, bool]:
+        return self.begin_run(
+            run_id=turn_id,
+            idempotency_key=idempotency_key,
+            provider_name=provider_name,
+            model=model,
+            messages=messages,
+            session_ref=session_id,
+            created_by=created_by,
+            execution_ref=execution_ref,
+        )
+
+    def get_turn(self, turn_id: str) -> StoredRun | None:
+        return self.get_run(turn_id)
+
+    def list_turns(self, session_id: str) -> list[StoredRun]:
+        return [
+            run for run in self.list_runs() if run.session_ref == session_id
+        ]
+
+    def cancel_turn(self, turn_id: str, reason: str) -> StoredRun | None:
+        return self.request_cancel(turn_id, reason)
+
+    def mark_turn_succeeded(
+        self,
+        *,
+        turn_id: str,
+        messages: list[dict[str, str]],
+        output_text: str,
+        structured_output: dict[str, Any] | None,
+    ) -> StoredRun:
+        return self.mark_succeeded(
+            run_id=turn_id,
+            messages=messages,
+            output_text=output_text,
+            structured_output=structured_output,
+        )
+
+    def mark_turn_failed(
+        self,
+        *,
+        turn_id: str,
+        messages: list[dict[str, str]],
+        status_message: str,
+    ) -> StoredRun:
+        return self.mark_failed(
+            run_id=turn_id,
+            messages=messages,
+            status_message=status_message,
+        )
 
     def begin_run(
         self,
@@ -67,14 +266,22 @@ class SimpleRunStore:
     ) -> tuple[StoredRun, bool]:
         existing = self.get_run(run_id)
         if existing is not None:
+            _ensure_matching_session(existing, session_ref, conflict_key="turn_id", conflict_value=run_id)
             return existing, False
 
         if idempotency_key:
             existing = self._run_for_idempotency_key(idempotency_key)
-            if existing is not None:
-                return existing, False
+        if existing is not None:
+            _ensure_matching_session(
+                existing,
+                session_ref,
+                conflict_key="idempotency_key",
+                conflict_value=idempotency_key,
+            )
+            return existing, False
 
         now = _utcnow()
+        self._touch_session_for_turn(session_ref, now)
         run = StoredRun(
             run_id=run_id,
             idempotency_key=idempotency_key,
@@ -214,6 +421,36 @@ class SimpleRunStore:
         except gestalt.NotFoundError:
             pass
 
+    def _session_for_idempotency_key(
+        self, idempotency_key: str
+    ) -> StoredSession | None:
+        try:
+            record = self._session_idempotency.get(idempotency_key)
+        except gestalt.NotFoundError:
+            return None
+        session_id = str(record.get("session_id") or "").strip()
+        if not session_id:
+            return None
+        return self.get_session(session_id)
+
+    def _delete_session_idempotency(self, idempotency_key: str) -> None:
+        if not idempotency_key:
+            return
+        try:
+            self._session_idempotency.delete(idempotency_key)
+        except gestalt.NotFoundError:
+            pass
+
+    def _touch_session_for_turn(self, session_id: str, now: datetime) -> None:
+        if not session_id:
+            return
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        session.last_turn_at = now
+        session.updated_at = now
+        self._sessions.put(_session_to_record(session))
+
 
 def _run_to_record(run: StoredRun) -> dict[str, Any]:
     return {
@@ -259,6 +496,42 @@ def _record_to_run(record: dict[str, Any] | None) -> StoredRun | None:
     )
 
 
+def _session_to_record(session: StoredSession) -> dict[str, Any]:
+    return {
+        "id": session.session_id,
+        "idempotency_key": session.idempotency_key,
+        "provider_name": session.provider_name,
+        "model": session.model,
+        "client_ref": session.client_ref,
+        "state": session.state,
+        "metadata": session.metadata,
+        "created_by": session.created_by,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "last_turn_at": session.last_turn_at,
+    }
+
+
+def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
+    if record is None:
+        return None
+    return StoredSession(
+        session_id=str(record.get("id") or ""),
+        idempotency_key=str(record.get("idempotency_key") or ""),
+        provider_name=str(record.get("provider_name") or ""),
+        model=str(record.get("model") or ""),
+        client_ref=str(record.get("client_ref") or ""),
+        state=int(
+            record.get("state") or agent_pb2.AGENT_SESSION_STATE_UNSPECIFIED
+        ),
+        metadata=_coerce_optional_dict(record.get("metadata")) or {},
+        created_by=_coerce_string_dict(record.get("created_by")),
+        created_at=_coerce_required_datetime(record.get("created_at")),
+        updated_at=_coerce_required_datetime(record.get("updated_at")),
+        last_turn_at=_coerce_datetime(record.get("last_turn_at")),
+    )
+
+
 def _coerce_messages(raw_value: Any) -> list[dict[str, str]]:
     if not isinstance(raw_value, list):
         return []
@@ -296,6 +569,16 @@ def _coerce_required_datetime(raw_value: Any) -> datetime:
     if parsed is None:
         raise ValueError("expected a timestamp value")
     return parsed
+
+
+def _ensure_matching_session(
+    run: StoredRun, session_id: str, *, conflict_key: str, conflict_value: str
+) -> None:
+    if run.session_ref == session_id:
+        return
+    raise ValueError(
+        f"{conflict_key} {conflict_value!r} already belongs to session {run.session_ref!r}"
+    )
 
 
 def _utcnow() -> datetime:

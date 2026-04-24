@@ -7,7 +7,7 @@ It is intentionally narrow:
 - text-in, text-out
 - Gestalt plugin operations exposed as tools
 - provider-owned IndexedDB persistence
-- asynchronous `StartRun` with later `GetRun` polling
+- explicit `CreateSession` then asynchronous `CreateTurn` / `GetTurn` polling
 - direct OpenAI and Anthropic SDK backends
 
 It does not try to expose every vendor-specific agent feature. The goal is a
@@ -38,7 +38,7 @@ providers:
             name: anthropic-api-key
 ```
 
-The provider stores run state through the Gestalt Python SDK `IndexedDB()`
+The provider stores session and turn state through the Gestalt Python SDK `IndexedDB()`
 binding exposed as `GESTALT_INDEXEDDB_SOCKET`. It also relies on the standard
 backend environment variables that the vendor SDKs already know how to read,
 such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. You can either set those in
@@ -60,17 +60,28 @@ When targeting Anthropic, set `providerOptions.max_tokens` (or
 `providerOptions.anthropic.max_tokens`) to control the response budget. If you
 omit it, the provider defaults to `1024`.
 
-`StartRun` returns after the run is persisted in `RUNNING`; the provider
-continues the model/tool loop in the background and callers should use `GetRun`
-or `ListRuns` to observe terminal status.
+`CreateSession` returns an `ACTIVE` session. `CreateTurn` returns after the
+turn is persisted in `RUNNING`; the provider continues the model/tool loop in
+the background and callers should use `GetTurn` or `ListTurns` to observe
+terminal status.
 
 ## JSON request and response
 
-Example run request through Gestalt's agent manager surface:
+Example agent-manager session request:
 
 ```json
 {
   "providerName": "simple",
+  "model": "fast",
+  "clientRef": "ops-briefing"
+}
+```
+
+Example agent-manager turn request for that session:
+
+```json
+{
+  "sessionId": "session_01",
   "model": "fast",
   "messages": [
     {
@@ -95,40 +106,22 @@ Example run request through Gestalt's agent manager surface:
 }
 ```
 
-## CLI stdin/stdout
-
-```sh
-cat <<'JSON' | gestalt --format json agent runs create --request-file -
-{
-  "providerName": "simple",
-  "model": "fast",
-  "messages": [
-    {
-      "role": "user",
-      "text": "Summarize the latest open production incidents."
-    }
-  ],
-  "toolRefs": [
-    {
-      "pluginName": "incident_io",
-      "operation": "incidents.list"
-    }
-  ],
-  "toolSource": "AGENT_TOOL_SOURCE_MODE_EXPLICIT"
-}
-JSON
-```
-
 Example response shape:
 
 ```json
 {
-  "providerName": "simple",
-  "run": {
-    "id": "run_01",
+  "session": {
+    "id": "session_01",
     "providerName": "simple",
     "model": "openai/gpt-4.1-mini",
-    "status": "AGENT_RUN_STATUS_SUCCEEDED",
+    "state": "AGENT_SESSION_STATE_ACTIVE"
+  },
+  "turn": {
+    "id": "turn_01",
+    "sessionId": "session_01",
+    "providerName": "simple",
+    "model": "openai/gpt-4.1-mini",
+    "status": "AGENT_EXECUTION_STATUS_SUCCEEDED",
     "messages": [
       {"role": "user", "text": "Summarize the latest open production incidents."},
       {"role": "assistant", "text": "{\"summary\":\"Two incidents remain open.\"}"}
@@ -141,69 +134,10 @@ Example response shape:
 }
 ```
 
-## Golang
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-)
-
-func main() {
-	ctx := context.Background()
-
-	manager, err := gestalt.AgentManager(ctx)
-	if err != nil {
-		panic(err)
-	}
-	defer manager.Close()
-
-	run, err := manager.Run(ctx, &proto.AgentManagerRunRequest{
-		ProviderName: "simple",
-		Model:        "fast",
-		Messages: []*proto.AgentMessage{
-			{Role: "user", Text: "Summarize the latest open PRs."},
-		},
-		ToolRefs: []*proto.AgentToolRef{
-			{PluginName: "github", Operation: "pull_requests.list"},
-		},
-		ToolSource: proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(run.Run.OutputText)
-}
-```
-
-## TypeScript
-
-```ts
-import { AgentManagerClient } from "@valon/gestalt";
-
-const client = new AgentManagerClient();
-
-const run = await client.run({
-  providerName: "simple",
-  model: "fast",
-  messages: [{ role: "user", text: "Summarize the latest open PRs." }],
-  toolRefs: [{ pluginName: "github", operation: "pull_requests.list" }],
-  toolSource: "AGENT_TOOL_SOURCE_MODE_EXPLICIT",
-});
-
-console.log(run.run?.outputText ?? "");
-```
-
 ## Notes
 
 - `responseSchema` is validated against the final model response, but the final
-  value must still be a JSON object because `BoundAgentRun.structured_output`
+  value must still be a JSON object because `AgentTurn.structuredOutput`
   is a protobuf `Struct`.
-- `CancelRun` is cooperative in V1. The provider checks cancellation between
+- `CancelTurn` is cooperative in V1. The provider checks cancellation between
   model calls and tool invocations.
