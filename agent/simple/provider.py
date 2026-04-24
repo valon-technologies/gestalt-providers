@@ -36,7 +36,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.10",
+            version="0.0.1-alpha.11",
         )
 
     def warnings(self) -> list[str]:
@@ -142,7 +142,10 @@ class SimpleAgentRuntimeProvider(
 
     def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         orchestrator, store, _ = self._require_runtime(context)
-        turn = store.cancel_turn(request.turn_id, request.reason)
+        turn = store.cancel_turn(
+            str(request.turn_id or "").strip(),
+            str(request.reason or "").strip(),
+        )
         if turn is None:
             context.abort(
                 grpc.StatusCode.NOT_FOUND,
@@ -152,8 +155,17 @@ class SimpleAgentRuntimeProvider(
         return orchestrator.turn_to_proto(turn)
 
     def ListTurnEvents(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, _, _ = self._require_runtime(context)
-        return agent_pb2.ListAgentProviderTurnEventsResponse(events=[])
+        _, store, _ = self._require_runtime(context)
+        return agent_pb2.ListAgentProviderTurnEventsResponse(
+            events=[
+                _turn_event_to_proto(event)
+                for event in store.list_turn_events(
+                    turn_id=str(request.turn_id or "").strip(),
+                    after_seq=int(request.after_seq or 0),
+                    limit=int(request.limit or 0),
+                )
+            ]
+        )
 
     def GetInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, _ = self._require_runtime(context)
@@ -238,6 +250,21 @@ def _session_to_proto(session: StoredSession) -> Any:
     proto.updated_at.CopyFrom(_datetime_to_timestamp(session.updated_at))
     if session.last_turn_at is not None:
         proto.last_turn_at.CopyFrom(_datetime_to_timestamp(session.last_turn_at))
+    return proto
+
+
+def _turn_event_to_proto(event: Any) -> Any:
+    proto = agent_pb2.AgentTurnEvent(
+        id=event.event_id,
+        turn_id=event.turn_id,
+        seq=event.seq,
+        type=event.event_type,
+        source=event.source,
+        visibility=event.visibility,
+    )
+    if event.data:
+        proto.data.CopyFrom(_dict_to_struct(event.data))
+    proto.created_at.CopyFrom(_datetime_to_timestamp(event.created_at))
     return proto
 
 

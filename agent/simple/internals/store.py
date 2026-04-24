@@ -1,4 +1,5 @@
 import copy
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -8,9 +9,9 @@ import gestalt
 from .agent_proto_compat import agent_pb2
 
 TERMINAL_STATUSES = {
-    agent_pb2.AGENT_RUN_STATUS_SUCCEEDED,
-    agent_pb2.AGENT_RUN_STATUS_FAILED,
-    agent_pb2.AGENT_RUN_STATUS_CANCELED,
+    agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+    agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
+    agent_pb2.AGENT_EXECUTION_STATUS_CANCELED,
 }
 
 
@@ -35,6 +36,18 @@ class StoredRun:
 
 
 @dataclass(slots=True)
+class StoredTurnEvent:
+    event_id: str
+    turn_id: str
+    seq: int
+    event_type: str
+    source: str
+    visibility: str
+    data: dict[str, Any]
+    created_at: datetime
+
+
+@dataclass(slots=True)
 class StoredSession:
     session_id: str
     idempotency_key: str
@@ -54,19 +67,23 @@ class SimpleRunStore:
         self._client = gestalt.IndexedDB()
         self._runs = self._client.object_store(run_store)
         self._idempotency = self._client.object_store(idempotency_store)
+        self._events = self._client.object_store(f"{run_store}_events")
         self._sessions = self._client.object_store(f"{run_store}_sessions")
         self._session_idempotency = self._client.object_store(
             f"{idempotency_store}_sessions"
         )
         self._run_store_name = run_store
         self._idempotency_store_name = idempotency_store
+        self._event_store_name = f"{run_store}_events"
         self._session_store_name = f"{run_store}_sessions"
         self._session_idempotency_store_name = f"{idempotency_store}_sessions"
+        self._mutation_lock = threading.Lock()
 
     def initialize(self) -> None:
         for name in (
             self._run_store_name,
             self._idempotency_store_name,
+            self._event_store_name,
             self._session_store_name,
             self._session_idempotency_store_name,
         ):
@@ -223,7 +240,61 @@ class SimpleRunStore:
         ]
 
     def cancel_turn(self, turn_id: str, reason: str) -> StoredRun | None:
-        return self.request_cancel(turn_id, reason)
+        with self._mutation_lock:
+            run = self.get_run(turn_id)
+            if run is None:
+                return None
+            if run.status in TERMINAL_STATUSES:
+                return run
+            cancel_reason = reason.strip() or "canceled"
+            run.status = agent_pb2.AGENT_EXECUTION_STATUS_CANCELED
+            run.status_message = cancel_reason
+            run.cancel_reason = cancel_reason
+            run.completed_at = _utcnow()
+            self._runs.put(_run_to_record(run))
+            return run
+
+    def append_turn_event(
+        self,
+        *,
+        turn_id: str,
+        event_type: str,
+        source: str,
+        visibility: str = "private",
+        data: dict[str, Any] | None = None,
+    ) -> StoredTurnEvent:
+        with self._mutation_lock:
+            return self._append_turn_event_locked(
+                turn_id=turn_id,
+                event_type=event_type,
+                source=source,
+                visibility=visibility,
+                data=data,
+            )
+
+    def list_turn_events(
+        self, *, turn_id: str, after_seq: int = 0, limit: int = 0
+    ) -> list[StoredTurnEvent]:
+        events = [
+            _record_to_turn_event(record) for record in self._events.get_all()
+        ]
+        all_events = [
+            event
+            for event in events
+            if event is not None and event.turn_id == turn_id
+        ]
+        all_events.sort(key=lambda event: (event.seq, event.event_id))
+        filtered = [event for event in all_events if event.seq > after_seq]
+        filtered.extend(
+            self._synthetic_terminal_events(
+                turn_id=turn_id,
+                after_seq=after_seq,
+                start_seq=max((event.seq for event in all_events), default=0),
+            )
+        )
+        if limit > 0:
+            return filtered[:limit]
+        return filtered
 
     def mark_turn_succeeded(
         self,
@@ -233,12 +304,18 @@ class SimpleRunStore:
         output_text: str,
         structured_output: dict[str, Any] | None,
     ) -> StoredRun:
-        return self.mark_succeeded(
-            run_id=turn_id,
-            messages=messages,
-            output_text=output_text,
-            structured_output=structured_output,
-        )
+        with self._mutation_lock:
+            current = self._require_run(turn_id)
+            if current.status in TERMINAL_STATUSES:
+                return current
+            current.status = agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+            current.messages = messages
+            current.output_text = output_text
+            current.structured_output = structured_output
+            current.status_message = ""
+            current.completed_at = _utcnow()
+            self._runs.put(_run_to_record(current))
+            return current
 
     def mark_turn_failed(
         self,
@@ -247,11 +324,16 @@ class SimpleRunStore:
         messages: list[dict[str, Any]],
         status_message: str,
     ) -> StoredRun:
-        return self.mark_failed(
-            run_id=turn_id,
-            messages=messages,
-            status_message=status_message,
-        )
+        with self._mutation_lock:
+            current = self._require_run(turn_id)
+            if current.status in TERMINAL_STATUSES:
+                return current
+            current.status = agent_pb2.AGENT_EXECUTION_STATUS_FAILED
+            current.messages = messages
+            current.status_message = status_message.strip()
+            current.completed_at = _utcnow()
+            self._runs.put(_run_to_record(current))
+            return current
 
     def begin_run(
         self,
@@ -288,7 +370,7 @@ class SimpleRunStore:
             idempotency_key=idempotency_key,
             provider_name=provider_name,
             model=model,
-            status=agent_pb2.AGENT_RUN_STATUS_RUNNING,
+            status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
             messages=messages,
             output_text="",
             structured_output=None,
@@ -347,57 +429,6 @@ class SimpleRunStore:
         runs = [run for run in runs if run is not None]
         return sorted(runs, key=lambda run: (run.created_at, run.run_id), reverse=True)
 
-    def request_cancel(self, run_id: str, reason: str) -> StoredRun | None:
-        run = self.get_run(run_id)
-        if run is None:
-            return None
-        if run.status in TERMINAL_STATUSES:
-            return run
-        cancel_reason = reason.strip() or "canceled"
-        run.status = agent_pb2.AGENT_RUN_STATUS_CANCELED
-        run.status_message = cancel_reason
-        run.cancel_reason = cancel_reason
-        run.completed_at = _utcnow()
-        self._runs.put(_run_to_record(run))
-        return self.get_run(run_id)
-
-    def mark_succeeded(
-        self,
-        *,
-        run_id: str,
-        messages: list[dict[str, Any]],
-        output_text: str,
-        structured_output: dict[str, Any] | None,
-    ) -> StoredRun:
-        current = self._require_run(run_id)
-        if current.status in TERMINAL_STATUSES:
-            return current
-        current.status = agent_pb2.AGENT_RUN_STATUS_SUCCEEDED
-        current.messages = messages
-        current.output_text = output_text
-        current.structured_output = structured_output
-        current.status_message = ""
-        current.completed_at = _utcnow()
-        self._runs.put(_run_to_record(current))
-        return self._require_run(run_id)
-
-    def mark_failed(
-        self,
-        *,
-        run_id: str,
-        messages: list[dict[str, Any]],
-        status_message: str,
-    ) -> StoredRun:
-        current = self._require_run(run_id)
-        if current.status in TERMINAL_STATUSES:
-            return current
-        current.status = agent_pb2.AGENT_RUN_STATUS_FAILED
-        current.messages = messages
-        current.status_message = status_message.strip()
-        current.completed_at = _utcnow()
-        self._runs.put(_run_to_record(current))
-        return self._require_run(run_id)
-
     def _require_run(self, run_id: str) -> StoredRun:
         run = self.get_run(run_id)
         if run is None:
@@ -413,6 +444,106 @@ class SimpleRunStore:
         if not run_id:
             return None
         return self.get_run(run_id)
+
+    def _next_turn_event_seq(self, turn_id: str) -> int:
+        existing = self.list_turn_events(turn_id=turn_id)
+        if not existing:
+            return 1
+        return max(event.seq for event in existing) + 1
+
+    def _synthetic_terminal_events(
+        self, *, turn_id: str, after_seq: int, start_seq: int
+    ) -> list[StoredTurnEvent]:
+        turn = self.get_turn(turn_id)
+        if turn is None or turn.status not in TERMINAL_STATUSES:
+            return []
+
+        created_at = turn.completed_at or turn.started_at or turn.created_at
+        source = turn.provider_name
+        events: list[StoredTurnEvent] = []
+        next_seq = start_seq + 1
+
+        if turn.status == agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
+            events.append(
+                StoredTurnEvent(
+                    event_id=f"{turn_id}:synthetic:assistant.completed",
+                    turn_id=turn_id,
+                    seq=next_seq,
+                    event_type="assistant.completed",
+                    source=source,
+                    visibility="private",
+                    data={"text": turn.output_text},
+                    created_at=created_at,
+                )
+            )
+            next_seq += 1
+            events.append(
+                StoredTurnEvent(
+                    event_id=f"{turn_id}:synthetic:turn.completed",
+                    turn_id=turn_id,
+                    seq=next_seq,
+                    event_type="turn.completed",
+                    source=source,
+                    visibility="private",
+                    data={"status": "succeeded"},
+                    created_at=created_at,
+                )
+            )
+        elif turn.status == agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
+            events.append(
+                StoredTurnEvent(
+                    event_id=f"{turn_id}:synthetic:turn.failed",
+                    turn_id=turn_id,
+                    seq=next_seq,
+                    event_type="turn.failed",
+                    source=source,
+                    visibility="private",
+                    data={"status_message": turn.status_message},
+                    created_at=created_at,
+                )
+            )
+        elif turn.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+            events.append(
+                StoredTurnEvent(
+                    event_id=f"{turn_id}:synthetic:turn.canceled",
+                    turn_id=turn_id,
+                    seq=next_seq,
+                    event_type="turn.canceled",
+                    source=source,
+                    visibility="private",
+                    data={"reason": turn.cancel_reason or turn.status_message or "canceled"},
+                    created_at=created_at,
+                )
+            )
+
+        return [event for event in events if event.seq > after_seq]
+
+    def _append_turn_event_locked(
+        self,
+        *,
+        turn_id: str,
+        event_type: str,
+        source: str,
+        visibility: str = "private",
+        data: dict[str, Any] | None = None,
+    ) -> StoredTurnEvent:
+        while True:
+            seq = self._next_turn_event_seq(turn_id)
+            event = StoredTurnEvent(
+                event_id=f"{turn_id}:{seq}",
+                turn_id=turn_id,
+                seq=seq,
+                event_type=event_type.strip(),
+                source=source.strip(),
+                visibility=visibility.strip() or "private",
+                data=copy.deepcopy(data) if isinstance(data, dict) else {},
+                created_at=_utcnow(),
+            )
+            try:
+                self._events.add(_turn_event_to_record(event))
+            except gestalt.AlreadyExistsError:
+                continue
+            return event
 
     def _delete_idempotency(self, idempotency_key: str) -> None:
         if not idempotency_key:
@@ -474,6 +605,19 @@ def _run_to_record(run: StoredRun) -> dict[str, Any]:
     }
 
 
+def _turn_event_to_record(event: StoredTurnEvent) -> dict[str, Any]:
+    return {
+        "id": event.event_id,
+        "turn_id": event.turn_id,
+        "seq": event.seq,
+        "type": event.event_type,
+        "source": event.source,
+        "visibility": event.visibility,
+        "data": event.data,
+        "created_at": event.created_at,
+    }
+
+
 def _record_to_run(record: dict[str, Any] | None) -> StoredRun | None:
     if record is None:
         return None
@@ -482,7 +626,7 @@ def _record_to_run(record: dict[str, Any] | None) -> StoredRun | None:
         idempotency_key=str(record.get("idempotency_key") or ""),
         provider_name=str(record.get("provider_name") or ""),
         model=str(record.get("model") or ""),
-        status=int(record.get("status") or agent_pb2.AGENT_RUN_STATUS_UNSPECIFIED),
+        status=int(record.get("status") or agent_pb2.AGENT_EXECUTION_STATUS_UNSPECIFIED),
         messages=_coerce_messages(record.get("messages")),
         output_text=str(record.get("output_text") or ""),
         structured_output=_coerce_optional_dict(record.get("structured_output")),
@@ -494,6 +638,21 @@ def _record_to_run(record: dict[str, Any] | None) -> StoredRun | None:
         completed_at=_coerce_datetime(record.get("completed_at")),
         execution_ref=str(record.get("execution_ref") or ""),
         cancel_reason=str(record.get("cancel_reason") or ""),
+    )
+
+
+def _record_to_turn_event(record: dict[str, Any] | None) -> StoredTurnEvent | None:
+    if record is None:
+        return None
+    return StoredTurnEvent(
+        event_id=str(record.get("id") or ""),
+        turn_id=str(record.get("turn_id") or ""),
+        seq=int(record.get("seq") or 0),
+        event_type=str(record.get("type") or ""),
+        source=str(record.get("source") or ""),
+        visibility=str(record.get("visibility") or ""),
+        data=_coerce_optional_dict(record.get("data")) or {},
+        created_at=_coerce_required_datetime(record.get("created_at")),
     )
 
 
