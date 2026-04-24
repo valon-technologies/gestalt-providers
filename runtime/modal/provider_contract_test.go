@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -127,6 +128,50 @@ func TestNewProviderIDsAreBootUnique(t *testing.T) {
 	}
 	if !strings.HasPrefix(second, "session-") {
 		t.Fatalf("second session id = %q, want session- prefix", second)
+	}
+}
+
+func TestRuntimeProviderContractReturnsSessionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	logs := newSessionLogBuffer(0)
+	logTime := time.Date(2026, time.April, 23, 21, 30, 0, 0, time.UTC)
+	logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDERR, "Traceback: boom", logTime)
+	provider := &Provider{
+		name: "modal",
+		sessions: map[string]*session{
+			"session-1": {
+				id:    "session-1",
+				state: sessionStateFailed,
+				logs:  logs,
+				metadata: map[string]string{
+					"plugin": "agent",
+				},
+			},
+		},
+	}
+	client := startRuntimeProviderServer(t, provider)
+
+	resp, err := client.GetSessionDiagnostics(context.Background(), &proto.GetPluginRuntimeSessionDiagnosticsRequest{
+		SessionId: "session-1",
+	})
+	if err != nil {
+		t.Fatalf("GetSessionDiagnostics: %v", err)
+	}
+	if got := resp.GetSession().GetId(); got != "session-1" {
+		t.Fatalf("GetSessionDiagnostics session id = %q, want session-1", got)
+	}
+	if len(resp.GetLogs()) != 1 {
+		t.Fatalf("GetSessionDiagnostics logs len = %d, want 1", len(resp.GetLogs()))
+	}
+	if got := resp.GetLogs()[0].GetStream(); got != proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDERR {
+		t.Fatalf("GetSessionDiagnostics stream = %v, want stderr", got)
+	}
+	if got := resp.GetLogs()[0].GetMessage(); got != "Traceback: boom" {
+		t.Fatalf("GetSessionDiagnostics message = %q, want Traceback: boom", got)
+	}
+	if got := resp.GetLogs()[0].GetObservedAt().AsTime(); !got.Equal(logTime) {
+		t.Fatalf("GetSessionDiagnostics observed_at = %s, want %s", got, logTime)
 	}
 }
 
