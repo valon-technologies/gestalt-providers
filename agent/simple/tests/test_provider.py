@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import tempfile
 import threading
 import time
@@ -7,6 +8,7 @@ import unittest
 from concurrent import futures
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, cast
+from unittest import mock
 
 import grpc
 from google.protobuf import empty_pb2 as _empty_pb2
@@ -254,6 +256,18 @@ def _configure_provider(*, run_store: str, idempotency_store: str, default_model
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+    _configure_runtime(
+        lifecycle,
+        run_store=run_store,
+        idempotency_store=idempotency_store,
+        default_model=default_model,
+    )
+    return lifecycle, provider_client
+
+
+def _configure_runtime(
+    lifecycle: Any, *, run_store: str, idempotency_store: str, default_model: str = "fast"
+) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     json_format.ParseDict(
         {
@@ -268,7 +282,6 @@ def _configure_provider(*, run_store: str, idempotency_store: str, default_model
         request.config,
     )
     lifecycle.ConfigureProvider(request)
-    return lifecycle, provider_client
 
 
 def _create_session(
@@ -563,6 +576,118 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(second_request["messages"][-1]["role"], "tool")
         self.assertIn("Ada Lovelace", second_request["messages"][-1]["content"])
         self.assertNotIn("name", second_request["messages"][-1])
+
+    def test_create_turn_completes_over_tcp_runtime_socket(self) -> None:
+        provider = provider_module.SimpleAgentRuntimeProvider()
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            host, port = sock.getsockname()
+        address = f"{host}:{port}"
+        server_holder: dict[str, grpc.Server] = {}
+        ready = threading.Event()
+        failures: list[BaseException] = []
+
+        def capture_shutdown(server: grpc.Server, _close_provider: Any) -> None:
+            server_holder["server"] = server
+            ready.set()
+
+        def run_server() -> None:
+            try:
+                with mock.patch.object(
+                    _runtime,
+                    "_register_shutdown_handlers",
+                    side_effect=capture_shutdown,
+                ):
+                    with mock.patch.dict(
+                        os.environ,
+                        {_runtime.ENV_PROVIDER_SOCKET: f"tcp://{address}"},
+                        clear=False,
+                    ):
+                        _runtime.serve(provider, runtime_kind=ProviderKind.AGENT)
+            except BaseException as exc:  # pragma: no cover - surfaced via assertions
+                failures.append(exc)
+                ready.set()
+
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+        self.assertTrue(ready.wait(timeout=5))
+        self.assertEqual(failures, [])
+        self.assertIn("server", server_holder)
+
+        channel = grpc.insecure_channel(address)
+        self.addCleanup(channel.close)
+        grpc.channel_ready_future(channel).result(timeout=5)
+        lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
+        provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+
+        try:
+            _configure_runtime(
+                lifecycle,
+                run_store="run_tcp_runtime_runs",
+                idempotency_store="run_tcp_runtime_idempotency",
+            )
+            created_session = _create_session(
+                provider_client,
+                session_id="session-tcp",
+                idempotency_key="session-idem-tcp",
+            )
+
+            fake_llm = _FakeOpenAIChatServer(
+                responses=[
+                    {
+                        "id": "chatcmpl-tcp-1",
+                        "object": "chat.completion",
+                        "created": 1710000040,
+                        "model": "fake-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "pong over tcp",
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                    }
+                ]
+            )
+            fake_llm.start()
+            self.addCleanup(fake_llm.close)
+
+            provider_options = struct_pb2.Struct()
+            provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+
+            started = provider_client.CreateTurn(
+                agent_pb2.CreateAgentProviderTurnRequest(
+                    turn_id="turn-tcp",
+                    session_id="session-tcp",
+                    idempotency_key="idem-tcp",
+                    model="fast",
+                    messages=[agent_pb2.AgentMessage(role="user", text="Ping over tcp")],
+                    provider_options=provider_options,
+                ),
+                timeout=5,
+            )
+            fetched = _wait_for_turn(
+                provider_client,
+                "turn-tcp",
+                agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+            )
+        finally:
+            if "server" in server_holder:
+                server_holder["server"].stop(grace=0).wait()
+            thread.join(timeout=5)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(created_session.model, "openai/fake-model")
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(started.model, "openai/fake-model")
+        self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "pong over tcp")
+        self.assertEqual(fetched.model, "openai/fake-model")
 
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
