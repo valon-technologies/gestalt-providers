@@ -420,6 +420,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         response_schema.update(
             {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
         )
+        message_metadata = struct_pb2.Struct()
+        message_metadata.update({"source": "slack", "thread": "thread-123"})
 
         tool_parameters = struct_pb2.Struct()
         tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
@@ -430,7 +432,18 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 session_id="session-success",
                 idempotency_key="idem-success",
                 model="fast",
-                messages=[agent_pb2.AgentMessage(role="user", text="Who is Ada Lovelace?")],
+                messages=[
+                    agent_pb2.AgentMessage(
+                        role="user",
+                        parts=[
+                            agent_pb2.AgentMessagePart(
+                                type=agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
+                                text="Who is Ada Lovelace?",
+                            )
+                        ],
+                        metadata=message_metadata,
+                    )
+                ],
                 tools=[
                     agent_pb2.ResolvedAgentTool(
                         id="lookup",
@@ -485,6 +498,17 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(started.execution_ref, "exec-1")
         self.assertEqual(started.created_by.subject_id, "user-123")
         self.assertEqual(started.session_id, "session-success")
+        self.assertEqual(len(started.messages), 1)
+        self.assertEqual(started.messages[0].role, "user")
+        self.assertEqual(started.messages[0].text, "")
+        self.assertEqual(len(started.messages[0].parts), 1)
+        self.assertEqual(
+            started.messages[0].parts[0].type,
+            agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
+        )
+        self.assertEqual(started.messages[0].parts[0].text, "Who is Ada Lovelace?")
+        self.assertEqual(started.messages[0].metadata.fields["source"].string_value, "slack")
+        self.assertEqual(started.messages[0].metadata.fields["thread"].string_value, "thread-123")
 
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(fetched.model, "openai/fake-model")
@@ -493,7 +517,27 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.execution_ref, "exec-1")
         self.assertEqual(fetched.created_by.subject_id, "user-123")
         self.assertEqual(len(fetched.messages), 2)
+        self.assertEqual(fetched.messages[0].role, "user")
+        self.assertEqual(fetched.messages[0].text, "")
+        self.assertEqual(len(fetched.messages[0].parts), 1)
+        self.assertEqual(
+            fetched.messages[0].parts[0].type,
+            agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
+        )
+        self.assertEqual(fetched.messages[0].parts[0].text, "Who is Ada Lovelace?")
+        self.assertEqual(fetched.messages[0].metadata.fields["source"].string_value, "slack")
+        self.assertEqual(fetched.messages[0].metadata.fields["thread"].string_value, "thread-123")
         self.assertEqual(fetched.messages[1].role, "assistant")
+        self.assertEqual(fetched.messages[1].text, '{"summary":"Ada Lovelace is still relevant."}')
+        self.assertEqual(len(fetched.messages[1].parts), 1)
+        self.assertEqual(
+            fetched.messages[1].parts[0].type,
+            agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
+        )
+        self.assertEqual(
+            fetched.messages[1].parts[0].text,
+            '{"summary":"Ada Lovelace is still relevant."}',
+        )
         self.assertEqual(fetched.id, "turn-success")
         self.assertEqual(len(listed_turns.turns), 1)
 

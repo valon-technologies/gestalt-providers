@@ -1,6 +1,7 @@
 import json
 import re
 import threading
+import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -184,7 +185,7 @@ class SimpleAgentOrchestrator:
             provider_name=run.provider_name,
             model=run.model,
             status=run.status,
-            messages=[agent_pb2.AgentMessage(role=message["role"], text=message["text"]) for message in run.messages],
+            messages=[_message_from_dict(message) for message in run.messages],
             output_text=run.output_text,
             status_message=run.status_message,
             execution_ref=run.execution_ref,
@@ -213,14 +214,14 @@ class PreparedTurn:
     session_id: str
     turn_id: str
     resolved_model: str
-    messages: list[dict[str, str]]
+    messages: list[dict[str, Any]]
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str]]
 
 
 def _build_initial_conversation(
-    *, system_prompt: str, projected_messages: list[dict[str, str]], response_schema: dict[str, Any] | None
+    *, system_prompt: str, projected_messages: list[dict[str, Any]], response_schema: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
     conversation: list[dict[str, Any]] = []
     if system_prompt:
@@ -237,18 +238,168 @@ def _build_initial_conversation(
             }
         )
     for message in projected_messages:
-        conversation.append({"role": message["role"], "content": message["text"]})
+        conversation_message = _conversation_message_from_agent_message(message)
+        if conversation_message is not None:
+            conversation.append(conversation_message)
     return conversation
 
 
-def _project_messages(messages: Any) -> list[dict[str, str]]:
-    return [{"role": str(message.role or "").strip(), "text": str(message.text or "")} for message in messages]
+def _project_messages(messages: Any) -> list[dict[str, Any]]:
+    return [_message_to_dict(message) for message in messages]
 
 
-def _append_assistant_message(messages: list[dict[str, str]], output_text: str) -> list[dict[str, str]]:
-    projected = list(messages)
-    projected.append({"role": "assistant", "text": output_text})
+def _append_assistant_message(messages: list[dict[str, Any]], output_text: str) -> list[dict[str, Any]]:
+    projected = copy.deepcopy(messages)
+    projected.append(
+        {
+            "role": "assistant",
+            "text": output_text,
+            "parts": [{"type": "AGENT_MESSAGE_PART_TYPE_TEXT", "text": output_text}],
+        }
+    )
     return projected
+
+
+def _message_to_dict(message: Any) -> dict[str, Any]:
+    return json_format.MessageToDict(message, preserving_proto_field_name=True)
+
+
+def _message_from_dict(raw_message: dict[str, Any]) -> Any:
+    message = agent_pb2.AgentMessage()
+    json_format.ParseDict(raw_message, message)
+    return message
+
+
+def _conversation_message_from_agent_message(raw_message: dict[str, Any]) -> dict[str, Any] | None:
+    role = str(raw_message.get("role", "") or "").strip()
+    if not role:
+        return None
+
+    if role == "assistant":
+        tool_calls = _tool_calls_from_message_parts(raw_message)
+        content = _message_content_text(raw_message)
+        message: dict[str, Any] = {"role": role}
+        if content:
+            message["content"] = content
+        elif tool_calls:
+            message["content"] = None
+        else:
+            message["content"] = ""
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        return message
+
+    if role == "tool":
+        return {
+            "role": role,
+            "tool_call_id": _tool_call_id_from_message_parts(raw_message),
+            "content": _tool_result_content_from_message_parts(raw_message) or _message_content_text(raw_message),
+        }
+
+    return {"role": role, "content": _message_content_text(raw_message)}
+
+
+def _message_content_text(raw_message: dict[str, Any]) -> str:
+    direct_text = str(raw_message.get("text", "") or "")
+    if direct_text:
+        return direct_text
+
+    parts = raw_message.get("parts")
+    if not isinstance(parts, list):
+        return ""
+
+    content_parts: list[str] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        part_type = _part_type(part)
+        if part_type == "AGENT_MESSAGE_PART_TYPE_TEXT":
+            text = str(part.get("text", "") or "")
+            if text:
+                content_parts.append(text)
+        elif part_type == "AGENT_MESSAGE_PART_TYPE_JSON":
+            raw_json = part.get("json")
+            if isinstance(raw_json, dict):
+                content_parts.append(json.dumps(raw_json, separators=(",", ":")))
+    return "\n".join(part for part in content_parts if part)
+
+
+def _tool_calls_from_message_parts(raw_message: dict[str, Any]) -> list[dict[str, Any]]:
+    parts = raw_message.get("parts")
+    if not isinstance(parts, list):
+        return []
+
+    tool_calls: list[dict[str, Any]] = []
+    for part in parts:
+        if not isinstance(part, dict) or _part_type(part) != "AGENT_MESSAGE_PART_TYPE_TOOL_CALL":
+            continue
+        raw_tool_call = part.get("tool_call")
+        if not isinstance(raw_tool_call, dict):
+            continue
+        tool_call_id = str(raw_tool_call.get("id", "") or "").strip()
+        tool_name = str(raw_tool_call.get("tool_id", "") or "").strip()
+        if not tool_call_id or not tool_name:
+            continue
+        arguments = raw_tool_call.get("arguments")
+        if not isinstance(arguments, dict):
+            arguments = {}
+        tool_calls.append(
+            {
+                "id": tool_call_id,
+                "type": "function",
+                "function": {"name": tool_name, "arguments": json.dumps(arguments, separators=(",", ":"))},
+            }
+        )
+    return tool_calls
+
+
+def _tool_call_id_from_message_parts(raw_message: dict[str, Any]) -> str:
+    parts = raw_message.get("parts")
+    if not isinstance(parts, list):
+        return ""
+    for part in parts:
+        if not isinstance(part, dict) or _part_type(part) != "AGENT_MESSAGE_PART_TYPE_TOOL_RESULT":
+            continue
+        raw_tool_result = part.get("tool_result")
+        if isinstance(raw_tool_result, dict):
+            return str(raw_tool_result.get("tool_call_id", "") or "").strip()
+    return ""
+
+
+def _tool_result_content_from_message_parts(raw_message: dict[str, Any]) -> str:
+    parts = raw_message.get("parts")
+    if not isinstance(parts, list):
+        return ""
+    for part in parts:
+        if not isinstance(part, dict) or _part_type(part) != "AGENT_MESSAGE_PART_TYPE_TOOL_RESULT":
+            continue
+        raw_tool_result = part.get("tool_result")
+        if not isinstance(raw_tool_result, dict):
+            continue
+        content = str(raw_tool_result.get("content", "") or "")
+        if content:
+            return content
+        output = raw_tool_result.get("output")
+        if isinstance(output, dict):
+            return json.dumps(output, separators=(",", ":"))
+    return ""
+
+
+def _part_type(part: dict[str, Any]) -> str:
+    raw_value = part.get("type")
+    if isinstance(raw_value, str):
+        return raw_value
+    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT:
+        return "AGENT_MESSAGE_PART_TYPE_TEXT"
+    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_JSON:
+        return "AGENT_MESSAGE_PART_TYPE_JSON"
+    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_TOOL_CALL:
+        return "AGENT_MESSAGE_PART_TYPE_TOOL_CALL"
+    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_TOOL_RESULT:
+        return "AGENT_MESSAGE_PART_TYPE_TOOL_RESULT"
+    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_IMAGE_REF:
+        return "AGENT_MESSAGE_PART_TYPE_IMAGE_REF"
+    return ""
 
 
 def _resolved_tools_to_openai(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
