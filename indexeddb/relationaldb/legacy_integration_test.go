@@ -25,6 +25,11 @@ func TestLegacyV1StoreRemainsReadableOverTransport(t *testing.T) {
 	if _, err := db.Exec(createTableSQL(dialectSQLite, "widgets", widgetsSchema())); err != nil {
 		t.Fatalf("create widgets table: %v", err)
 	}
+	for _, idx := range widgetsSchema().GetIndexes() {
+		if _, err := db.Exec(createIndexSQL(dialectSQLite, "widgets", idx, widgetsSchema())); err != nil {
+			t.Fatalf("create widgets index %q: %v", idx.GetName(), err)
+		}
+	}
 
 	legacySchema := newStoredSchema("widgets", widgetsSchema(), storageVersionLegacy)
 	legacySchema.StorageVersion = 0

@@ -568,6 +568,64 @@ func TestCreateObjectStoreMigratesLegacyStoreToGenericBeforeCreatingIndexes(t *t
 	}
 }
 
+func TestCreateObjectStoreMigratesLegacyStoreToGenericWhenLegacyIndexesAreMissing(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	tableName := s.physicalTableName("samples")
+	if _, err := s.exec(ctx, createTableSQL(s.dialect, tableName, sampleRecordsSchema())); err != nil {
+		t.Fatalf("create legacy table without indexes: %v", err)
+	}
+	if err := s.persistStoreMetadata(ctx, "samples", tableName, sampleRecordsSchema(), storageVersionLegacy); err != nil {
+		t.Fatalf("persistStoreMetadata(legacy): %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store:  "samples",
+		Record: makeSampleRecord("sample-legacy"),
+	}); err != nil {
+		t.Fatalf("Add(sample-legacy): %v", err)
+	}
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "samples", Schema: sampleRecordsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore(samples): %v", err)
+	}
+
+	meta, err := s.getMeta("samples")
+	if err != nil {
+		t.Fatalf("getMeta(samples): %v", err)
+	}
+	if meta.storageVersion != storageVersionGeneric {
+		t.Fatalf("meta.storageVersion = %d, want %d", meta.storageVersion, storageVersionGeneric)
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "samples", Id: "sample-legacy"})
+	if err != nil {
+		t.Fatalf("Get(sample-legacy): %v", err)
+	}
+	if got := resp.GetRecord().GetFields()["owner_id"].GetStringValue(); got != "owner-1" {
+		t.Fatalf("owner_id = %q, want owner-1", got)
+	}
+
+	indexResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
+		Store: "samples",
+		Index: "by_lookup",
+		Values: []*proto.TypedValue{
+			mustTypedValue(t, "owner-1"),
+			mustTypedValue(t, "alpha"),
+			mustTypedValue(t, "east"),
+			mustTypedValue(t, "v1"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("IndexGet(by_lookup): %v", err)
+	}
+	if got := indexResp.GetRecord().GetFields()["id"].GetStringValue(); got != "sample-legacy" {
+		t.Fatalf("IndexGet(by_lookup) id = %q, want sample-legacy", got)
+	}
+}
+
 func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

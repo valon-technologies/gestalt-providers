@@ -311,6 +311,103 @@ func (s *Store) tableColumns(ctx context.Context, table string) (map[string]stru
 	return cols, nil
 }
 
+func (s *Store) tableIndexes(ctx context.Context, table string) (map[string]struct{}, error) {
+	schema, name := splitQualifiedTableName(table)
+	indexes := map[string]struct{}{}
+
+	switch s.dialect {
+	case dialectSQLite:
+		rows, err := s.query(ctx, "PRAGMA index_list("+quoteIdent(s.dialect, name)+")")
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				seq     int
+				idxName string
+				unique  int
+				origin  string
+				partial int
+			)
+			if err := rows.Scan(&seq, &idxName, &unique, &origin, &partial); err != nil {
+				return nil, err
+			}
+			indexes[idxName] = struct{}{}
+		}
+		return indexes, rows.Err()
+	case dialectMySQL:
+		query := "SELECT DISTINCT INDEX_NAME FROM information_schema.statistics WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE()"
+		args := []any{name}
+		if schema != "" {
+			query = "SELECT DISTINCT INDEX_NAME FROM information_schema.statistics WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?"
+			args = append(args, schema)
+		}
+		rows, err := s.query(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var idxName string
+			if err := rows.Scan(&idxName); err != nil {
+				return nil, err
+			}
+			indexes[idxName] = struct{}{}
+		}
+		return indexes, rows.Err()
+	case dialectPostgres:
+		args := []any{name}
+		query := "SELECT indexname FROM pg_indexes WHERE tablename = ? AND schemaname = current_schema()"
+		if schema != "" {
+			query = "SELECT indexname FROM pg_indexes WHERE tablename = ? AND schemaname = ?"
+			args = append(args, schema)
+		}
+		rows, err := s.query(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var idxName string
+			if err := rows.Scan(&idxName); err != nil {
+				return nil, err
+			}
+			indexes[idxName] = struct{}{}
+		}
+		return indexes, rows.Err()
+	case dialectSQLServer:
+		args := []any{name}
+		query := "SELECT i.name FROM sys.indexes i JOIN sys.objects o ON i.object_id = o.object_id WHERE o.name = ? AND SCHEMA_NAME(o.schema_id) = SCHEMA_NAME() AND i.name IS NOT NULL"
+		if schema != "" {
+			query = "SELECT i.name FROM sys.indexes i JOIN sys.objects o ON i.object_id = o.object_id WHERE o.name = ? AND SCHEMA_NAME(o.schema_id) = ? AND i.name IS NOT NULL"
+			args = append(args, schema)
+		}
+		rows, err := s.query(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var idxName string
+			if err := rows.Scan(&idxName); err != nil {
+				return nil, err
+			}
+			indexes[idxName] = struct{}{}
+		}
+		return indexes, rows.Err()
+	default:
+		return indexes, nil
+	}
+}
+
+func splitQualifiedTableName(table string) (schema, name string) {
+	if idx := strings.LastIndex(table, "."); idx >= 0 {
+		return table[:idx], table[idx+1:]
+	}
+	return "", table
+}
+
 func schemaColumnsExist(existing map[string]struct{}, schema *proto.ObjectStoreSchema) bool {
 	for _, col := range storageSchema(schema).GetColumns() {
 		if _, ok := existing[col.Name]; !ok {
@@ -318,6 +415,20 @@ func schemaColumnsExist(existing map[string]struct{}, schema *proto.ObjectStoreS
 		}
 	}
 	return true
+}
+
+func (s *Store) schemaIndexesExist(ctx context.Context, table string, schema *proto.ObjectStoreSchema) (bool, error) {
+	actual, err := s.tableIndexes(ctx, table)
+	if err != nil {
+		return false, err
+	}
+	for _, idx := range storageSchema(schema).GetIndexes() {
+		name := fmt.Sprintf("idx_%s_%s", baseTableName(table), idx.GetName())
+		if _, ok := actual[name]; !ok {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (s *Store) tableCount(ctx context.Context, table string) (int64, error) {
@@ -503,6 +614,16 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 			return nil, status.Errorf(codes.Internal, "inspect legacy table columns: %v", err)
 		}
 		if !schemaColumnsExist(sourceCols, storageSchema(schema)) {
+			if err := s.migrateLegacyStoreToGeneric(ctx, req.Name, existing, tableName, schema); err != nil {
+				return nil, err
+			}
+			return &emptypb.Empty{}, nil
+		}
+		indexesExist, err := s.schemaIndexesExist(ctx, existing.table, schema)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "inspect legacy table indexes: %v", err)
+		}
+		if !indexesExist {
 			if err := s.migrateLegacyStoreToGeneric(ctx, req.Name, existing, tableName, schema); err != nil {
 				return nil, err
 			}
