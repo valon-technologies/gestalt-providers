@@ -7,11 +7,90 @@ It is intentionally narrow:
 - text-in, text-out
 - Gestalt plugin operations exposed as tools
 - provider-owned IndexedDB persistence
-- explicit `CreateSession` then asynchronous `CreateTurn` / `GetTurn` polling
+- explicit `CreateSession`, then asynchronous `CreateTurn` / `GetTurn` polling
 - direct OpenAI and Anthropic SDK backends
 
 It does not try to expose every vendor-specific agent feature. The goal is a
 small, usable provider that can drive common text-and-tools workflows now.
+
+## Local quickstart
+
+`gestaltd init` builds source-backed Python providers from the provider-local
+Python environment. For `agent/simple`, create that environment first:
+
+```sh
+cd /path/to/gestalt-providers/agent/simple
+uv sync --group dev
+```
+
+Set the upstream model credentials you plan to use:
+
+```sh
+export OPENAI_API_KEY=...
+# or
+export ANTHROPIC_API_KEY=...
+```
+
+Then point a Gestalt config at both the IndexedDB backend and this provider:
+
+```yaml
+apiVersion: gestaltd.config/v3
+server:
+  public:
+    port: 18080
+  encryptionKey: local-dev-key
+  providers:
+    indexeddb: main
+
+providers:
+  indexeddb:
+    main:
+      source: /absolute/path/to/gestalt-providers/indexeddb/relationaldb/manifest.yaml
+      config:
+        dsn: sqlite:///tmp/gestalt-agent-local.db
+
+  secrets:
+    env:
+      source: env
+
+  agent:
+    simple:
+      source: /absolute/path/to/gestalt-providers/agent/simple/manifest.yaml
+      default: true
+      indexeddb:
+        provider: main
+        db: simple_agent
+      config:
+        runStore: runs
+        idempotencyStore: run_idempotency
+        defaultModel: fast
+        aliases:
+          fast: openai/gpt-4.1-mini
+          deep: anthropic/claude-sonnet-4-20250514
+        maxSteps: 8
+        timeoutSeconds: 120
+```
+
+Bring the server up from the `gestalt` repo:
+
+```sh
+cd /path/to/gestalt/gestaltd
+go run ./cmd/gestaltd init --config ../config.yaml
+go run ./cmd/gestaltd serve --locked --config ../config.yaml
+```
+
+Then talk to the provider through the CLI:
+
+```sh
+gestalt --url http://localhost:18080 agent --provider simple --model fast
+```
+
+For a no-auth local server, the CLI does not need `GESTALT_API_KEY`.
+
+Notes:
+
+- If you add `providers.agent.simple.indexeddb.objectStores`, include the full set of stores implied by your configured prefixes. With the defaults above, that means `runs`, `run_idempotency`, `runs_events`, `runs_sessions`, and `run_idempotency_sessions`. The simplest local setup is to omit `objectStores` entirely.
+- `CreateTurn` returns after the turn is persisted in `RUNNING`; the provider continues the model/tool loop in the background and callers should use `GetTurn`, `ListTurns`, or `ListTurnEvents` to observe terminal state.
 
 ## YAML configuration
 
@@ -28,7 +107,7 @@ providers:
         defaultModel: fast
         aliases:
           fast: openai/gpt-4.1-mini
-          deep: anthropic/<model>
+          deep: anthropic/claude-sonnet-4-20250514
         maxSteps: 8
         timeoutSeconds: 120
         systemPrompt: You are a concise operations assistant.
@@ -38,13 +117,14 @@ providers:
             name: anthropic-api-key
 ```
 
-The provider stores session and turn state through the Gestalt Python SDK `IndexedDB()`
-binding exposed as `GESTALT_INDEXEDDB_SOCKET`. It also relies on the standard
-backend environment variables that the vendor SDKs already know how to read,
-such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. You can either set those in
-the provider environment or pass `openaiApiKey` / `anthropicApiKey` in
-provider config; config values are copied into the corresponding environment
-variables when the provider starts.
+The provider stores canonical session, turn, and turn-event state through the
+Gestalt Python SDK `IndexedDB()` binding exposed as `GESTALT_INDEXEDDB_SOCKET`.
+It does not currently persist or expose canonical interactions. It also relies
+on the standard backend environment variables that the vendor SDKs already know
+how to read, such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. You can either
+set those in the provider environment or pass `openaiApiKey` /
+`anthropicApiKey` in provider config; config values are copied into the
+corresponding environment variables when the provider starts.
 
 Supported model families today are:
 
@@ -59,11 +139,6 @@ a legacy generic override block during migration.
 When targeting Anthropic, set `providerOptions.max_tokens` (or
 `providerOptions.anthropic.max_tokens`) to control the response budget. If you
 omit it, the provider defaults to `1024`.
-
-`CreateSession` returns an `ACTIVE` session. `CreateTurn` returns after the
-turn is persisted in `RUNNING`; the provider continues the model/tool loop in
-the background and callers should use `GetTurn` or `ListTurns` to observe
-terminal status.
 
 ## JSON request and response
 

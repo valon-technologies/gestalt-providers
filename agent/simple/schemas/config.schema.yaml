@@ -2,10 +2,10 @@ type: object
 properties:
   runStore:
     type: string
-    description: IndexedDB object store used for provider-owned run records.
+    description: IndexedDB object store prefix used for provider-owned turn state. The provider also derives `${runStore}_sessions` and `${runStore}_events`.
   idempotencyStore:
     type: string
-    description: IndexedDB object store used for run idempotency records.
+    description: IndexedDB object store prefix used for provider-owned turn and session idempotency records.
   defaultModel:
     type: string
     description: Default model identifier to use when a run omits `model` (for example `openai/gpt-4.1-mini` or `anthropic/<model>`).
@@ -17,7 +17,7 @@ properties:
   maxSteps:
     type: integer
     minimum: 1
-    description: Maximum model/tool loop iterations per run.
+    description: Maximum model/tool loop iterations per turn.
   timeoutSeconds:
     type: number
     exclusiveMinimum: 0
