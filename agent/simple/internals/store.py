@@ -1,10 +1,12 @@
 import copy
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 import gestalt
+import grpc
 
 from .agent_proto_compat import agent_pb2
 
@@ -13,6 +15,9 @@ TERMINAL_STATUSES = {
     agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
     agent_pb2.AGENT_EXECUTION_STATUS_CANCELED,
 }
+
+BUSY_RETRY_INITIAL_DELAY_SECONDS = 0.02
+BUSY_RETRY_MAX_DELAY_SECONDS = 0.25
 
 
 @dataclass(slots=True)
@@ -65,12 +70,18 @@ class StoredSession:
 class SimpleRunStore:
     def __init__(self, *, run_store: str, idempotency_store: str) -> None:
         self._client = gestalt.IndexedDB()
-        self._runs = self._client.object_store(run_store)
-        self._idempotency = self._client.object_store(idempotency_store)
-        self._events = self._client.object_store(f"{run_store}_events")
-        self._sessions = self._client.object_store(f"{run_store}_sessions")
-        self._session_idempotency = self._client.object_store(
-            f"{idempotency_store}_sessions"
+        self._runs = _RetryingObjectStore(self._client.object_store(run_store))
+        self._idempotency = _RetryingObjectStore(
+            self._client.object_store(idempotency_store)
+        )
+        self._events = _RetryingObjectStore(
+            self._client.object_store(f"{run_store}_events")
+        )
+        self._sessions = _RetryingObjectStore(
+            self._client.object_store(f"{run_store}_sessions")
+        )
+        self._session_idempotency = _RetryingObjectStore(
+            self._client.object_store(f"{idempotency_store}_sessions")
         )
         self._run_store_name = run_store
         self._idempotency_store_name = idempotency_store
@@ -88,7 +99,9 @@ class SimpleRunStore:
             self._session_idempotency_store_name,
         ):
             try:
-                self._client.create_object_store(name)
+                _call_with_busy_retry(
+                    lambda name=name: self._client.create_object_store(name)
+                )
             except gestalt.AlreadyExistsError:
                 pass
 
@@ -743,3 +756,47 @@ def _ensure_matching_session(
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+class _RetryingObjectStore:
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def add(self, record: dict[str, Any]) -> None:
+        _call_with_busy_retry(lambda: self._store.add(record))
+
+    def get(self, record_id: str) -> dict[str, Any]:
+        return _call_with_busy_retry(lambda: self._store.get(record_id))
+
+    def put(self, record: dict[str, Any]) -> None:
+        _call_with_busy_retry(lambda: self._store.put(record))
+
+    def delete(self, record_id: str) -> None:
+        _call_with_busy_retry(lambda: self._store.delete(record_id))
+
+    def get_all(self) -> list[dict[str, Any]]:
+        return _call_with_busy_retry(self._store.get_all)
+
+
+def _call_with_busy_retry(operation: Any) -> Any:
+    delay = BUSY_RETRY_INITIAL_DELAY_SECONDS
+    while True:
+        try:
+            return operation()
+        except grpc.RpcError as exc:
+            if not _is_busy_error(exc):
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, BUSY_RETRY_MAX_DELAY_SECONDS)
+
+
+def _is_busy_error(exc: grpc.RpcError) -> bool:
+    code_fn = getattr(exc, "code", None)
+    details_fn = getattr(exc, "details", None)
+    code = code_fn() if callable(code_fn) else None
+    details = str(details_fn() or "").lower() if callable(details_fn) else ""
+    return code == grpc.StatusCode.INTERNAL and (
+        "database is locked" in details
+        or "sqlite_busy" in details
+        or "sql_busy" in details
+    )

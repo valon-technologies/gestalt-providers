@@ -41,27 +41,58 @@ _indexeddb_socket: str = ""
 _previous_agent_host_socket: str | None = None
 _previous_indexeddb_socket: str | None = None
 _host_servicer: "_FakeAgentHost | None" = None
+_indexeddb_servicer: "_FakeIndexedDB | None" = None
 
 
 class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._stores: dict[str, dict[str, Any]] = {}
+        self._busy_failures: dict[tuple[str, str], int] = {}
+
+    def fail_next_busy(self, *, store: str, operation: str, count: int = 1) -> None:
+        with self._lock:
+            self._busy_failures[(store, operation)] = count
+
+    def clear_failures(self) -> None:
+        with self._lock:
+            self._busy_failures.clear()
+
+    def _maybe_fail_busy(
+        self, *, store: str, operation: str, context: grpc.ServicerContext
+    ) -> None:
+        key = (store, operation)
+        remaining = self._busy_failures.get(key, 0)
+        if remaining <= 0:
+            return
+        if remaining == 1:
+            self._busy_failures.pop(key, None)
+        else:
+            self._busy_failures[key] = remaining - 1
+        context.abort(
+            grpc.StatusCode.INTERNAL,
+            "rpc error: code = Internal desc = database is locked (5) (SQLITE_BUSY)",
+        )
 
     def CreateObjectStore(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
+            self._maybe_fail_busy(
+                store=request.name, operation="create_object_store", context=context
+            )
             self._stores.setdefault(request.name, {})
         return empty_pb2.Empty()
 
     def DeleteObjectStore(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
+            self._maybe_fail_busy(
+                store=request.name, operation="delete_object_store", context=context
+            )
             self._stores.pop(request.name, None)
         return empty_pb2.Empty()
 
     def Get(self, request: Any, context: grpc.ServicerContext) -> Any:
         with self._lock:
+            self._maybe_fail_busy(store=request.store, operation="get", context=context)
             record = self._stores.get(request.store, {}).get(request.id)
             if record is None:
                 context.abort(grpc.StatusCode.NOT_FOUND, "record not found")
@@ -76,6 +107,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
     def Add(self, request: Any, context: grpc.ServicerContext) -> Any:
         record_id = _record_id(request.record)
         with self._lock:
+            self._maybe_fail_busy(store=request.store, operation="add", context=context)
             store = self._stores.setdefault(request.store, {})
             if record_id in store:
                 context.abort(grpc.StatusCode.ALREADY_EXISTS, "record already exists")
@@ -83,13 +115,16 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         return empty_pb2.Empty()
 
     def Put(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
+            self._maybe_fail_busy(store=request.store, operation="put", context=context)
             self._stores.setdefault(request.store, {})[_record_id(request.record)] = _copy_record(request.record)
         return empty_pb2.Empty()
 
     def Delete(self, request: Any, context: grpc.ServicerContext) -> Any:
         with self._lock:
+            self._maybe_fail_busy(
+                store=request.store, operation="delete", context=context
+            )
             store = self._stores.get(request.store, {})
             if request.id not in store:
                 context.abort(grpc.StatusCode.NOT_FOUND, "record not found")
@@ -103,8 +138,8 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         return empty_pb2.Empty()
 
     def GetAll(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
+            self._maybe_fail_busy(store=request.store, operation="get_all", context=context)
             return datastore_pb2.RecordsResponse(
                 records=[_copy_record(record) for record in self._stores.get(request.store, {}).values()]
             )
@@ -305,6 +340,7 @@ def _create_session(
 def setUpModule() -> None:
     global _runtime_server, _host_server, _indexeddb_server, _runtime_socket, _host_socket, _indexeddb_socket
     global _previous_agent_host_socket, _previous_indexeddb_socket, _host_servicer
+    global _indexeddb_servicer
 
     _runtime_socket = _fresh_socket("simple-agent-runtime")
     _host_socket = _fresh_socket("simple-agent-host")
@@ -314,6 +350,7 @@ def setUpModule() -> None:
     os.environ[indexeddb_socket_env()] = _indexeddb_socket
 
     indexeddb = _FakeIndexedDB()
+    _indexeddb_servicer = indexeddb
     _indexeddb_server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     datastore_pb2_grpc.add_IndexedDBServicer_to_server(indexeddb, _indexeddb_server)
     _indexeddb_server.add_insecure_port(f"unix:{_indexeddb_socket}")
@@ -362,9 +399,11 @@ def tearDownModule() -> None:
 class SimpleAgentProviderTests(unittest.TestCase):
     def setUp(self) -> None:
         assert _host_servicer is not None
+        assert _indexeddb_servicer is not None
         _host_servicer.requests.clear()
         _host_servicer.pause_on_lookup = False
         _host_servicer.wait_until_released.set()
+        _indexeddb_servicer.clear_failures()
 
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider(
@@ -601,6 +640,77 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(
             [event.type for event in paged_events.events],
             ["tool.completed", "assistant.completed"],
+        )
+
+    def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
+        assert _indexeddb_servicer is not None
+
+        _, provider_client = _configure_provider(
+            run_store="run_busy_retry_runs", idempotency_store="run_busy_retry_idempotency"
+        )
+        _create_session(
+            provider_client,
+            session_id="session-busy-retry",
+            idempotency_key="session-idem-busy-retry",
+        )
+
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-busy-1",
+                    "object": "chat.completion",
+                    "created": 1710000030,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "retry survived",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        _indexeddb_servicer.fail_next_busy(
+            store="run_busy_retry_runs", operation="put", count=12
+        )
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+
+        started = provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-busy-retry",
+                session_id="session-busy-retry",
+                idempotency_key="idem-busy-retry",
+                model="fast",
+                messages=[agent_pb2.AgentMessage(role="user", text="Retry through SQLITE_BUSY")],
+                provider_options=provider_options,
+            )
+        )
+
+        fetched = _wait_for_turn(
+            provider_client,
+            "turn-busy-retry",
+            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+        )
+        events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-busy-retry")
+        )
+
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "retry survived")
+        self.assertEqual(
+            [event.type for event in events.events],
+            ["turn.started", "assistant.completed", "turn.completed"],
         )
 
     def test_create_turn_completes_over_tcp_runtime_socket(self) -> None:
