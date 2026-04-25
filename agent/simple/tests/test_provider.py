@@ -23,6 +23,7 @@ from gestalt.gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
 from gestalt.gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt.gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.agent_proto_compat import agent_pb2
+from internals.config import SimpleAgentConfig
 
 agent_pb2_grpc: Any = _agent_pb2_grpc
 datastore_pb2: Any = _datastore_pb2
@@ -31,6 +32,8 @@ empty_pb2: Any = _empty_pb2
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
+
+_SIMPLE_RUN_STORE = SimpleAgentConfig.from_dict(name="simple", raw_config={}).run_store
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
@@ -54,8 +57,9 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         with self._lock:
             self._busy_failures[(store, operation)] = count
 
-    def clear_failures(self) -> None:
+    def reset(self) -> None:
         with self._lock:
+            self._stores.clear()
             self._busy_failures.clear()
 
     def _maybe_fail_busy(
@@ -287,27 +291,21 @@ def _fresh_socket(name: str) -> str:
     return socket_path
 
 
-def _configure_provider(*, run_store: str, idempotency_store: str, default_model: str = "fast") -> tuple[Any, Any]:
+def _configure_provider(*, default_model: str = "fast") -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
     _configure_runtime(
         lifecycle,
-        run_store=run_store,
-        idempotency_store=idempotency_store,
         default_model=default_model,
     )
     return lifecycle, provider_client
 
 
-def _configure_runtime(
-    lifecycle: Any, *, run_store: str, idempotency_store: str, default_model: str = "fast"
-) -> None:
+def _configure_runtime(lifecycle: Any, *, default_model: str = "fast") -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     json_format.ParseDict(
         {
-            "runStore": run_store,
-            "idempotencyStore": idempotency_store,
             "defaultModel": default_model,
             "aliases": {"fast": "openai/fake-model"},
             "maxSteps": 4,
@@ -403,7 +401,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _host_servicer.requests.clear()
         _host_servicer.pause_on_lookup = False
         _host_servicer.wait_until_released.set()
-        _indexeddb_servicer.clear_failures()
+        _indexeddb_servicer.reset()
 
     def test_configure_provider_defers_indexeddb_connection_until_agent_rpc(self) -> None:
         missing_socket = _fresh_socket("simple-agent-missing-indexeddb")
@@ -417,8 +415,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         try:
             _configure_runtime(
                 lifecycle,
-                run_store="deferred_config_runs",
-                idempotency_store="deferred_config_idempotency",
             )
             identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
         finally:
@@ -433,9 +429,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(list(identity.warnings), [])
 
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
-        lifecycle, provider_client = _configure_provider(
-            run_store="run_success_runs", idempotency_store="run_success_idempotency"
-        )
+        lifecycle, provider_client = _configure_provider()
         identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
         created_session = _create_session(
             provider_client,
@@ -672,9 +666,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
         assert _indexeddb_servicer is not None
 
-        _, provider_client = _configure_provider(
-            run_store="run_busy_retry_runs", idempotency_store="run_busy_retry_idempotency"
-        )
+        _, provider_client = _configure_provider()
         _create_session(
             provider_client,
             session_id="session-busy-retry",
@@ -706,7 +698,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.addCleanup(fake_llm.close)
 
         _indexeddb_servicer.fail_next_busy(
-            store="run_busy_retry_runs", operation="put", count=12
+            store=_SIMPLE_RUN_STORE, operation="put", count=12
         )
 
         provider_options = struct_pb2.Struct()
@@ -787,8 +779,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         try:
             _configure_runtime(
                 lifecycle,
-                run_store="run_tcp_runtime_runs",
-                idempotency_store="run_tcp_runtime_idempotency",
             )
             created_session = _create_session(
                 provider_client,
@@ -854,9 +844,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
-        _, provider_client = _configure_provider(
-            run_store="run_cancel_runs", idempotency_store="run_cancel_idempotency"
-        )
+        _, provider_client = _configure_provider()
         _create_session(
             provider_client,
             session_id="session-cancel",
@@ -960,9 +948,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         )
 
     def test_create_session_rejects_empty_session_id(self) -> None:
-        _, provider_client = _configure_provider(
-            run_store="run_empty_session_runs", idempotency_store="run_empty_session_idempotency"
-        )
+        _, provider_client = _configure_provider()
 
         with self.assertRaises(grpc.RpcError) as exc:
             provider_client.CreateSession(
@@ -976,9 +962,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(_rpc_error_details(exc.exception), "session_id is required")
 
     def test_update_session_can_clear_metadata(self) -> None:
-        _, provider_client = _configure_provider(
-            run_store="run_update_session_runs", idempotency_store="run_update_session_idempotency"
-        )
+        _, provider_client = _configure_provider()
         session_metadata = struct_pb2.Struct()
         session_metadata.update({"mode": "sticky"})
 
@@ -1006,9 +990,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(dict(fetched.metadata.fields), {})
 
     def test_create_turn_rejects_cross_session_conflicts(self) -> None:
-        _, provider_client = _configure_provider(
-            run_store="run_cross_session_runs", idempotency_store="run_cross_session_idempotency"
-        )
+        _, provider_client = _configure_provider()
         _create_session(
             provider_client,
             session_id="session-a",
@@ -1093,9 +1075,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertIn("session 'session-a'", _rpc_error_details(idempotency_exc.exception))
 
     def test_create_turn_completes_anthropic_tool_loop_and_persists_turn(self) -> None:
-        _, provider_client = _configure_provider(
-            run_store="run_anthropic_runs", idempotency_store="run_anthropic_idempotency"
-        )
+        _, provider_client = _configure_provider()
         _create_session(
             provider_client,
             session_id="session-anthropic",
@@ -1208,9 +1188,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(second_request["messages"][2]["content"][0]["type"], "tool_result")
 
     def test_create_turn_keeps_openai_compatible_prefixed_models_and_legacy_nested_overrides(self) -> None:
-        _, provider_client = _configure_provider(
-            run_store="run_compat_runs", idempotency_store="run_compat_idempotency"
-        )
+        _, provider_client = _configure_provider()
         _create_session(
             provider_client,
             session_id="session-compat",

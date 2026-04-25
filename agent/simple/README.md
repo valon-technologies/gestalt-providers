@@ -61,8 +61,6 @@ providers:
         provider: main
         db: simple_agent
       config:
-        runStore: runs
-        idempotencyStore: run_idempotency
         defaultModel: fast
         aliases:
           fast: openai/gpt-4.1-mini
@@ -89,7 +87,7 @@ For a no-auth local server, the CLI does not need `GESTALT_API_KEY`.
 
 Notes:
 
-- If you add `providers.agent.simple.indexeddb.objectStores`, include the full set of stores implied by your configured prefixes. With the defaults above, that means `runs`, `run_idempotency`, `runs_events`, `runs_sessions`, and `run_idempotency_sessions`. The simplest local setup is to omit `objectStores` entirely.
+- Store names are internal and derived from the configured provider name. The simplest local setup is to omit `providers.agent.simple.indexeddb.objectStores` entirely so Gestalt can create the provider-owned IndexedDB stores on demand.
 - `CreateTurn` returns after the turn is persisted in `RUNNING`; the provider continues the model/tool loop in the background and callers should use `GetTurn`, `ListTurns`, or `ListTurnEvents` to observe terminal state.
 
 ## YAML configuration
@@ -102,8 +100,6 @@ providers:
         path: github.com/valon-technologies/gestalt-providers/agent/simple
       default: true
       config:
-        runStore: runs
-        idempotencyStore: run_idempotency
         defaultModel: fast
         aliases:
           fast: openai/gpt-4.1-mini
@@ -119,12 +115,14 @@ providers:
 
 The provider stores canonical session, turn, and turn-event state through the
 Gestalt Python SDK `IndexedDB()` binding exposed as `GESTALT_INDEXEDDB_SOCKET`.
-It does not currently persist or expose canonical interactions. It also relies
-on the standard backend environment variables that the vendor SDKs already know
-how to read, such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. You can either
-set those in the provider environment or pass `openaiApiKey` /
-`anthropicApiKey` in provider config; config values are copied into the
-corresponding environment variables when the provider starts.
+IndexedDB object-store names are derived from the provider name so normal
+configuration only needs behavior-level settings such as model aliases,
+timeouts, and prompts. It does not currently persist or expose canonical
+interactions. It also relies on the standard backend environment variables that
+the vendor SDKs already know how to read, such as `OPENAI_API_KEY` and
+`ANTHROPIC_API_KEY`. You can either set those in the provider environment or
+pass `openaiApiKey` / `anthropicApiKey` in provider config; config values are
+copied into the corresponding environment variables when the provider starts.
 
 Supported model families today are:
 
