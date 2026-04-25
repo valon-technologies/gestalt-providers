@@ -275,6 +275,153 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 	}
 }
 
+func TestExternalCredentialProviderBackfillsLegacyIntegrationTokens(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	const encryptionKey = "provider-legacy-backfill-key"
+	db, err := gestalt.IndexedDB()
+	if err != nil {
+		t.Fatalf("IndexedDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	if err := db.CreateObjectStore(ctx, legacyStoreName, storeSchema); err != nil {
+		t.Fatalf("CreateObjectStore(%s): %v", legacyStoreName, err)
+	}
+
+	key := deriveKey(encryptionKey)
+	createdAt := time.Date(2026, time.April, 25, 14, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(time.Minute)
+	legacyAccess := mustEncryptWithNonce(t, key, []byte("legacyaccess"), "legacy-access-token")
+	legacyRefresh := mustEncryptWithNonce(t, key, []byte("legacyrefres"), "legacy-refresh-token")
+	if err := db.ObjectStore(legacyStoreName).Put(ctx, gestalt.Record{
+		"id":                      "legacy-cred-1",
+		"subject_id":              "user:user-legacy",
+		"integration":             "github",
+		"connection":              "default",
+		"access_token_encrypted":  legacyAccess,
+		"refresh_token_encrypted": legacyRefresh,
+		"scopes":                  "repo read:user",
+		"metadata_json":           `{"legacy":true}`,
+		"created_at":              createdAt,
+		"updated_at":              updatedAt,
+	}); err != nil {
+		t.Fatalf("Put(legacy record): %v", err)
+	}
+
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": encryptionKey,
+	})
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	got, err := client.GetCredential(ctx, &proto.GetExternalCredentialRequest{
+		Lookup: &proto.ExternalCredentialLookup{
+			SubjectId:   "user:user-legacy",
+			Integration: "github",
+			Connection:  "default",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetCredential(backfilled): %v", err)
+	}
+	if got.GetAccessToken() != "legacy-access-token" || got.GetRefreshToken() != "legacy-refresh-token" {
+		t.Fatalf("tokens = access:%q refresh:%q", got.GetAccessToken(), got.GetRefreshToken())
+	}
+	if got.GetInstance() != "" {
+		t.Fatalf("instance = %q, want empty canonical instance", got.GetInstance())
+	}
+
+	secondAccess := mustEncryptWithNonce(t, key, []byte("legacyacc002"), "legacy-access-token-2")
+	if err := db.ObjectStore(legacyStoreName).Put(ctx, gestalt.Record{
+		"id":                     "legacy-cred-2",
+		"subject_id":             "user:user-legacy",
+		"integration":            "github",
+		"connection":             "default",
+		"instance":               "org-2",
+		"access_token_encrypted": secondAccess,
+		"created_at":             createdAt,
+		"updated_at":             updatedAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("Put(post-config legacy record): %v", err)
+	}
+	listed, err := client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
+		SubjectId:   "user:user-legacy",
+		Integration: "github",
+		Connection:  "default",
+	})
+	if err != nil {
+		t.Fatalf("ListCredentials(merged): %v", err)
+	}
+	if len(listed.GetCredentials()) != 2 {
+		t.Fatalf("merged credentials len = %d, want 2", len(listed.GetCredentials()))
+	}
+
+	tieCreatedAt := updatedAt.Add(2 * time.Minute)
+	tieUpdatedAt := tieCreatedAt.Add(time.Minute)
+	canonicalAccess := mustEncryptWithNonce(t, key, []byte("canonical001"), "canonical-access-token")
+	legacyTieAccess := mustEncryptWithNonce(t, key, []byte("legacytie001"), "legacy-access-token-tie")
+	tieSubjectID := "user:user-canonical-tie"
+	if err := db.ObjectStore(storeName).Put(ctx, gestalt.Record{
+		"id":                     "z-canonical-tie",
+		"subject_id":             tieSubjectID,
+		"integration":            "github",
+		"connection":             "default",
+		"instance":               "primary",
+		"access_token_encrypted": canonicalAccess,
+		"created_at":             tieCreatedAt,
+		"updated_at":             tieUpdatedAt,
+	}); err != nil {
+		t.Fatalf("Put(canonical tie record): %v", err)
+	}
+	if err := db.ObjectStore(legacyStoreName).Put(ctx, gestalt.Record{
+		"id":                     "a-legacy-tie",
+		"subject_id":             tieSubjectID,
+		"integration":            "github",
+		"connection":             "default",
+		"instance":               "primary",
+		"access_token_encrypted": legacyTieAccess,
+		"created_at":             tieCreatedAt,
+		"updated_at":             tieUpdatedAt,
+	}); err != nil {
+		t.Fatalf("Put(legacy tie record): %v", err)
+	}
+	tieListed, err := client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
+		SubjectId:   tieSubjectID,
+		Integration: "github",
+		Connection:  "default",
+		Instance:    "primary",
+	})
+	if err != nil {
+		t.Fatalf("ListCredentials(canonical tie): %v", err)
+	}
+	if len(tieListed.GetCredentials()) != 1 {
+		t.Fatalf("canonical tie credentials len = %d, want 1", len(tieListed.GetCredentials()))
+	}
+	tieCredential := tieListed.GetCredentials()[0]
+	if tieCredential.GetId() != "z-canonical-tie" || tieCredential.GetAccessToken() != "canonical-access-token" {
+		t.Fatalf("canonical tie credential = id:%q access:%q, want canonical row", tieCredential.GetId(), tieCredential.GetAccessToken())
+	}
+
+	if _, err := db.ObjectStore(legacyStoreName).Get(ctx, "legacy-cred-1"); err != nil {
+		t.Fatalf("legacy row was not preserved: %v", err)
+	}
+	raw, err := db.ObjectStore(storeName).Get(ctx, "legacy-cred-1")
+	if err != nil {
+		t.Fatalf("Get(backfilled raw): %v", err)
+	}
+	if got := recordString(raw, "instance"); got != "" {
+		t.Fatalf("raw instance = %q, want empty", got)
+	}
+}
+
 func TestExternalCredentialProviderValidation(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	lifecycle, providerConn := startTestProviderServer(t)

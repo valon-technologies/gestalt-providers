@@ -2,7 +2,9 @@ package externalcredentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -12,13 +14,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.1"
+const providerVersion = "0.0.1-alpha.2"
 
 type Provider struct {
-	mu    sync.RWMutex
-	cfg   config
-	store *store
-	now   func() time.Time
+	mu             sync.RWMutex
+	cfg            config
+	store          *store
+	backfillCancel context.CancelFunc
+	backfillDone   chan struct{}
+	now            func() time.Time
 }
 
 func New() *Provider {
@@ -36,16 +40,49 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		return fmt.Errorf("default external credentials: %w", err)
 	}
 
+	backfillCtx, backfillCancel := context.WithCancel(context.Background())
+	backfillDone := startLegacyBackfill(backfillCtx, st)
+
 	p.mu.Lock()
 	oldStore := p.store
+	oldBackfillCancel := p.backfillCancel
+	oldBackfillDone := p.backfillDone
 	p.cfg = cfg
 	p.store = st
+	p.backfillCancel = backfillCancel
+	p.backfillDone = backfillDone
 	p.mu.Unlock()
 
+	stopLegacyBackfill(oldBackfillCancel, oldBackfillDone)
 	if oldStore != nil {
 		_ = oldStore.Close()
 	}
 	return nil
+}
+
+func startLegacyBackfill(ctx context.Context, st *store) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		started := time.Now()
+		if err := st.backfillLegacyCredentials(ctx); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				slog.WarnContext(ctx, "legacy external credentials backfill failed", "error", err, "duration", time.Since(started).String())
+			}
+			return
+		}
+		slog.InfoContext(ctx, "legacy external credentials backfill finished", "duration", time.Since(started).String())
+	}()
+	return done
+}
+
+func stopLegacyBackfill(cancel context.CancelFunc, done <-chan struct{}) {
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
@@ -69,14 +106,19 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 
 func (p *Provider) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	st := p.store
+	cancel := p.backfillCancel
+	done := p.backfillDone
+	p.store = nil
+	p.backfillCancel = nil
+	p.backfillDone = nil
+	p.mu.Unlock()
 
-	if p.store == nil {
+	stopLegacyBackfill(cancel, done)
+	if st == nil {
 		return nil
 	}
-	err := p.store.Close()
-	p.store = nil
-	return err
+	return st.Close()
 }
 
 func (p *Provider) UpsertCredential(ctx context.Context, req *gestalt.UpsertExternalCredentialRequest) (*gestalt.ExternalCredential, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 )
 
 const (
+	legacyStoreName           = "integration_tokens"
 	storeName                 = "external_credentials"
 	indexBySubject            = "by_subject"
 	indexBySubjectIntegration = "by_subject_integration"
@@ -47,9 +49,10 @@ var storeSchema = gestalt.ObjectStoreSchema{
 }
 
 type store struct {
-	client      *gestalt.IndexedDBClient
-	credentials *gestalt.ObjectStoreClient
-	encryptor   *aesgcmEncryptor
+	client            *gestalt.IndexedDBClient
+	credentials       *gestalt.ObjectStoreClient
+	legacyCredentials *gestalt.ObjectStoreClient
+	encryptor         *aesgcmEncryptor
 }
 
 func openStore(ctx context.Context, cfg config) (*store, error) {
@@ -73,9 +76,10 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	}
 
 	st := &store{
-		client:      client,
-		credentials: client.ObjectStore(storeName),
-		encryptor:   encryptor,
+		client:            client,
+		credentials:       client.ObjectStore(storeName),
+		legacyCredentials: client.ObjectStore(legacyStoreName),
+		encryptor:         encryptor,
 	}
 	if err := st.ensure(ctx); err != nil {
 		_ = client.Close()
@@ -96,6 +100,104 @@ func (s *store) ensure(ctx context.Context) error {
 		return fmt.Errorf("create object store %q: %w", storeName, err)
 	}
 	return nil
+}
+
+func (s *store) backfillLegacyCredentials(ctx context.Context) error {
+	legacy := s.client.ObjectStore(legacyStoreName)
+	records, err := legacy.GetAll(ctx, nil)
+	switch {
+	case errors.Is(err, gestalt.ErrNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("list legacy external credentials: %w", err)
+	}
+	if len(records) == 0 {
+		return nil
+	}
+
+	var created, updated, skipped int
+	for _, legacyRecord := range dedupeCredentialRecords(records) {
+		outcome, err := s.backfillLegacyCredential(ctx, legacyRecord)
+		if err != nil {
+			return err
+		}
+		switch outcome {
+		case legacyBackfillCreated:
+			created++
+		case legacyBackfillUpdated:
+			updated++
+		case legacyBackfillSkipped:
+			skipped++
+		}
+	}
+
+	if created > 0 || updated > 0 || skipped > 0 {
+		slog.InfoContext(ctx, "backfilled legacy external credentials",
+			"created", created,
+			"updated", updated,
+			"skipped", skipped,
+		)
+	}
+	return nil
+}
+
+type legacyBackfillOutcome int
+
+const (
+	legacyBackfillSkipped legacyBackfillOutcome = iota
+	legacyBackfillCreated
+	legacyBackfillUpdated
+)
+
+func (s *store) backfillLegacyCredential(ctx context.Context, legacyRecord gestalt.Record) (legacyBackfillOutcome, error) {
+	if !legacyCredentialRecordHasRequiredLookup(legacyRecord) {
+		return legacyBackfillSkipped, nil
+	}
+
+	canonical := canonicalCredentialRecord(legacyRecord)
+	existing, err := s.credentialRecord(ctx,
+		credentialRecordSubjectID(canonical),
+		recordString(canonical, "integration"),
+		recordString(canonical, "connection"),
+		recordString(canonical, "instance"),
+	)
+	switch {
+	case err == nil:
+		return s.backfillExistingLegacyCredential(ctx, canonical, existing)
+	case errors.Is(err, gestalt.ErrExternalCredentialNotFound):
+		if err := s.credentials.Put(ctx, canonical); err != nil {
+			if !errors.Is(err, gestalt.ErrAlreadyExists) {
+				return legacyBackfillSkipped, fmt.Errorf("create legacy external credential backfill: %w", err)
+			}
+			existing, lookupErr := s.credentialRecord(ctx,
+				credentialRecordSubjectID(canonical),
+				recordString(canonical, "integration"),
+				recordString(canonical, "connection"),
+				recordString(canonical, "instance"),
+			)
+			if lookupErr != nil {
+				return legacyBackfillSkipped, fmt.Errorf("recover legacy external credential backfill race: %w", lookupErr)
+			}
+			return s.backfillExistingLegacyCredential(ctx, canonical, existing)
+		}
+		return legacyBackfillCreated, nil
+	default:
+		return legacyBackfillSkipped, fmt.Errorf("check legacy external credential backfill: %w", err)
+	}
+}
+
+func (s *store) backfillExistingLegacyCredential(ctx context.Context, canonical, existing gestalt.Record) (legacyBackfillOutcome, error) {
+	if !credentialRecordNewer(canonical, existing) {
+		return legacyBackfillSkipped, nil
+	}
+	canonical["id"] = recordString(existing, "id")
+	if existingCreatedAt := recordTime(existing, "created_at"); !existingCreatedAt.IsZero() {
+		canonical["created_at"] = existingCreatedAt
+	}
+	if err := s.credentials.Put(ctx, canonical); err != nil {
+		return legacyBackfillSkipped, fmt.Errorf("update legacy external credential backfill: %w", err)
+	}
+	return legacyBackfillUpdated, nil
 }
 
 func (s *store) upsertCredential(ctx context.Context, credential *gestalt.ExternalCredential, preserveTimestamps bool, now time.Time) (*gestalt.ExternalCredential, error) {
@@ -163,10 +265,23 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 
 func (s *store) getCredential(ctx context.Context, subjectID, integration, connection, instance string) (*gestalt.ExternalCredential, error) {
 	record, err := s.credentialRecord(ctx, subjectID, integration, connection, instance)
-	if err != nil {
+	if err == nil {
+		return s.recordToCredential(record)
+	}
+	if !errors.Is(err, gestalt.ErrExternalCredentialNotFound) {
 		return nil, err
 	}
-	return s.recordToCredential(record)
+	legacyRecord, legacyErr := s.legacyCredentialRecord(ctx, subjectID, integration, connection, instance)
+	if legacyErr != nil {
+		if !errors.Is(legacyErr, gestalt.ErrExternalCredentialNotFound) {
+			return nil, legacyErr
+		}
+		return nil, err
+	}
+	if _, backfillErr := s.backfillLegacyCredential(ctx, legacyRecord); backfillErr != nil {
+		slog.WarnContext(ctx, "backfill legacy external credential after read failed", "error", backfillErr)
+	}
+	return s.recordToCredential(canonicalCredentialRecord(legacyRecord))
 }
 
 func (s *store) listCredentials(ctx context.Context, subjectID, integration, connection, instance string) ([]*gestalt.ExternalCredential, error) {
@@ -184,6 +299,14 @@ func (s *store) listCredentials(ctx context.Context, subjectID, integration, con
 	}
 	if err != nil {
 		return nil, err
+	}
+	legacyRecords, err := s.listLegacyCredentialRecords(ctx, indexForCredentialList(integration, connection), legacyKeysForCredentialList(subjectID, integration, connection)...)
+	if err != nil {
+		return nil, err
+	}
+	if len(legacyRecords) > 0 {
+		records = append(records, legacyRecords...)
+		records = dedupeCredentialRecords(records)
 	}
 
 	credentials := make([]*gestalt.ExternalCredential, 0, len(records))
@@ -204,6 +327,28 @@ func (s *store) listCredentials(ctx context.Context, subjectID, integration, con
 		credentials = append(credentials, credential)
 	}
 	return credentials, nil
+}
+
+func indexForCredentialList(integration, connection string) string {
+	switch {
+	case integration != "" && connection != "":
+		return indexBySubjectConnection
+	case integration != "":
+		return indexBySubjectIntegration
+	default:
+		return indexBySubject
+	}
+}
+
+func legacyKeysForCredentialList(subjectID, integration, connection string) []any {
+	switch {
+	case integration != "" && connection != "":
+		return []any{subjectID, integration, connection}
+	case integration != "":
+		return []any{subjectID, integration}
+	default:
+		return []any{subjectID}
+	}
 }
 
 func (s *store) deleteCredential(ctx context.Context, id string) error {
@@ -257,6 +402,54 @@ func (s *store) listCredentialRecords(ctx context.Context, indexName string, key
 		return nil, err
 	}
 	return dedupeCredentialRecords(records), nil
+}
+
+func (s *store) legacyCredentialRecord(ctx context.Context, subjectID, integration, connection, instance string) (gestalt.Record, error) {
+	records, err := s.listLegacyCredentialRecords(ctx, indexByLookup, subjectID, integration, connection, instance)
+	if err != nil {
+		return nil, fmt.Errorf("get legacy external credential: %w", err)
+	}
+	if len(records) > 0 {
+		return records[0], nil
+	}
+	if instance != "" {
+		return nil, gestalt.ErrExternalCredentialNotFound
+	}
+
+	// Legacy rows may have a NULL/missing instance, while canonical lookups use
+	// the empty string. Fall back to the connection index and normalize locally.
+	records, err = s.listLegacyCredentialRecords(ctx, indexBySubjectConnection, subjectID, integration, connection)
+	if err != nil {
+		return nil, fmt.Errorf("get legacy external credential without instance: %w", err)
+	}
+	for _, record := range records {
+		if recordString(record, "instance") == "" {
+			return record, nil
+		}
+	}
+	return nil, gestalt.ErrExternalCredentialNotFound
+}
+
+func (s *store) listLegacyCredentialRecords(ctx context.Context, indexName string, keys ...any) ([]gestalt.Record, error) {
+	if s.legacyCredentials == nil {
+		return nil, nil
+	}
+	records, err := s.legacyCredentials.Index(indexName).GetAll(ctx, nil, keys...)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	normalized := make([]gestalt.Record, 0, len(records))
+	for _, record := range records {
+		if !legacyCredentialRecordHasRequiredLookup(record) {
+			continue
+		}
+		normalized = append(normalized, canonicalCredentialRecord(record))
+	}
+	return dedupeCredentialRecords(normalized), nil
 }
 
 func (s *store) deleteDuplicateLookupRecords(ctx context.Context, keepID, subjectID, integration, connection, instance string) error {
@@ -337,6 +530,26 @@ func credentialRecordSubjectID(record gestalt.Record) string {
 	return strings.TrimSpace(recordString(record, "subject_id"))
 }
 
+func legacyCredentialRecordHasRequiredLookup(record gestalt.Record) bool {
+	return recordString(record, "id") != "" &&
+		credentialRecordSubjectID(record) != "" &&
+		recordString(record, "integration") != "" &&
+		recordString(record, "connection") != ""
+}
+
+func canonicalCredentialRecord(record gestalt.Record) gestalt.Record {
+	out := make(gestalt.Record, len(record))
+	for key, value := range record {
+		out[key] = value
+	}
+	out["id"] = strings.TrimSpace(recordString(record, "id"))
+	out["subject_id"] = credentialRecordSubjectID(record)
+	out["integration"] = strings.TrimSpace(recordString(record, "integration"))
+	out["connection"] = strings.TrimSpace(recordString(record, "connection"))
+	out["instance"] = strings.TrimSpace(recordString(record, "instance"))
+	return out
+}
+
 func dedupeCredentialRecords(records []gestalt.Record) []gestalt.Record {
 	if len(records) <= 1 {
 		return records
@@ -346,7 +559,7 @@ func dedupeCredentialRecords(records []gestalt.Record) []gestalt.Record {
 	for _, record := range records {
 		key := credentialLookupKey(record)
 		best, ok := bestByLookup[key]
-		if !ok || credentialRecordLess(record, best) {
+		if !ok || credentialRecordNewer(record, best) {
 			bestByLookup[key] = record
 		}
 	}
@@ -369,6 +582,16 @@ func credentialLookupKey(record gestalt.Record) string {
 }
 
 func credentialRecordLess(left, right gestalt.Record) bool {
+	if credentialRecordNewer(left, right) {
+		return true
+	}
+	if credentialRecordNewer(right, left) {
+		return false
+	}
+	return recordString(left, "id") < recordString(right, "id")
+}
+
+func credentialRecordNewer(left, right gestalt.Record) bool {
 	leftUpdated := recordTime(left, "updated_at")
 	rightUpdated := recordTime(right, "updated_at")
 	if !leftUpdated.Equal(rightUpdated) {
@@ -380,8 +603,7 @@ func credentialRecordLess(left, right gestalt.Record) bool {
 	if !leftCreated.Equal(rightCreated) {
 		return leftCreated.After(rightCreated)
 	}
-
-	return recordString(left, "id") < recordString(right, "id")
+	return false
 }
 
 func recordString(record gestalt.Record, key string) string {
