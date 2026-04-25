@@ -45,6 +45,21 @@ for local development against loopback issuers such as `http://127.0.0.1:8080`
 or `http://localhost:8080`. The same opt-in applies to any endpoints returned by
 OIDC discovery, and non-loopback `http://` endpoints are always rejected.
 
+On authorization-code exchange, Gestalt now behaves as an OIDC relying party:
+the token response must include an `id_token`, and that token is validated
+against the discovery document's `issuer`, `jwks_uri`, and advertised signing
+algorithms before a session is created.
+
+`userinfo_endpoint` is optional. When it is present and the token response
+includes an access token, Gestalt fetches UserInfo after validating the
+`id_token` and requires the UserInfo `sub` to match the `id_token` `sub` before
+merging profile claims.
+
+External token validation accepts either:
+
+- a valid OIDC `id_token`
+- an access token that can be resolved through `userinfo_endpoint`
+
 PKCE verifier state is stored server-side with bounded retention. By default,
 entries live for `1h` and the cache holds up to `10000` in-flight login attempts.
 Tune those values only if your identity provider requires longer user interaction
@@ -71,6 +86,24 @@ type config struct {
 
 `pkceVerifierTtl` and `pkceVerifierMaxItems` are optional. When set, they must
 both be greater than zero.
+
+## Discovery Interface
+
+Gestalt consumes the following discovery metadata at startup:
+
+```go
+type discoveryDocument struct {
+    Issuer                string   `json:"issuer"`
+    AuthorizationEndpoint string   `json:"authorization_endpoint"`
+    TokenEndpoint         string   `json:"token_endpoint"`
+    UserinfoEndpoint      string   `json:"userinfo_endpoint"`
+    JWKSURI               string   `json:"jwks_uri"`
+    IDTokenSigningAlgs    []string `json:"id_token_signing_alg_values_supported"`
+}
+```
+
+`userinfo_endpoint` may be omitted, but `issuer`, `authorization_endpoint`,
+`token_endpoint`, and `jwks_uri` are required.
 
 ## Examples
 
@@ -119,6 +152,28 @@ providers:
         pkce: true
         pkceVerifierTtl: 90m
         pkceVerifierMaxItems: 20000
+```
+
+Use an issuer that relies entirely on `id_token` claims and omits UserInfo:
+
+```yaml
+server:
+  providers:
+    authentication: oidc
+providers:
+  authentication:
+    oidc:
+      source: github.com/valon-technologies/gestalt-providers/auth/oidc
+      version: 0.0.1-alpha.3
+      config:
+        issuerUrl: https://login.example.com
+        clientId: ${OIDC_CLIENT_ID}
+        clientSecret: ${OIDC_CLIENT_SECRET}
+        scopes:
+          - openid
+          - email
+          - profile
+        pkce: true
 ```
 
 ## Local Development
