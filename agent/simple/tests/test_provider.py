@@ -405,6 +405,33 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _host_servicer.wait_until_released.set()
         _indexeddb_servicer.clear_failures()
 
+    def test_configure_provider_defers_indexeddb_connection_until_agent_rpc(self) -> None:
+        missing_socket = _fresh_socket("simple-agent-missing-indexeddb")
+        previous_socket = os.environ.get(indexeddb_socket_env())
+        os.environ[indexeddb_socket_env()] = missing_socket
+
+        channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
+        self.addCleanup(channel.close)
+        lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
+
+        try:
+            _configure_runtime(
+                lifecycle,
+                run_store="deferred_config_runs",
+                idempotency_store="deferred_config_idempotency",
+            )
+            identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
+        finally:
+            if previous_socket is None:
+                os.environ.pop(indexeddb_socket_env(), None)
+            else:
+                os.environ[indexeddb_socket_env()] = previous_socket
+            if os.path.exists(missing_socket):
+                os.remove(missing_socket)
+
+        self.assertEqual(identity.name, "simple")
+        self.assertEqual(list(identity.warnings), [])
+
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider(
             run_store="run_success_runs", idempotency_store="run_success_idempotency"

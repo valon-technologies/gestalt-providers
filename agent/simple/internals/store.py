@@ -69,44 +69,79 @@ class StoredSession:
 
 class SimpleRunStore:
     def __init__(self, *, run_store: str, idempotency_store: str) -> None:
-        self._client = gestalt.IndexedDB()
-        self._runs = _RetryingObjectStore(self._client.object_store(run_store))
-        self._idempotency = _RetryingObjectStore(
-            self._client.object_store(idempotency_store)
-        )
-        self._events = _RetryingObjectStore(
-            self._client.object_store(f"{run_store}_events")
-        )
-        self._sessions = _RetryingObjectStore(
-            self._client.object_store(f"{run_store}_sessions")
-        )
-        self._session_idempotency = _RetryingObjectStore(
-            self._client.object_store(f"{idempotency_store}_sessions")
+        self._client: Any | None = None
+        self._runs = _LazyObjectStore(self, run_store)
+        self._idempotency = _LazyObjectStore(self, idempotency_store)
+        self._events = _LazyObjectStore(self, f"{run_store}_events")
+        self._sessions = _LazyObjectStore(self, f"{run_store}_sessions")
+        self._session_idempotency = _LazyObjectStore(
+            self, f"{idempotency_store}_sessions"
         )
         self._run_store_name = run_store
         self._idempotency_store_name = idempotency_store
         self._event_store_name = f"{run_store}_events"
         self._session_store_name = f"{run_store}_sessions"
         self._session_idempotency_store_name = f"{idempotency_store}_sessions"
+        self._initialize_lock = threading.RLock()
+        self._initialized = False
+        self._closed = False
         self._mutation_lock = threading.Lock()
 
     def initialize(self) -> None:
-        for name in (
-            self._run_store_name,
-            self._idempotency_store_name,
-            self._event_store_name,
-            self._session_store_name,
-            self._session_idempotency_store_name,
-        ):
+        if self._initialized:
+            return
+        with self._initialize_lock:
+            if self._initialized:
+                return
+            client = self._ensure_client()
             try:
-                _call_with_busy_retry(
-                    lambda name=name: self._client.create_object_store(name)
-                )
-            except gestalt.AlreadyExistsError:
-                pass
+                for name in (
+                    self._run_store_name,
+                    self._idempotency_store_name,
+                    self._event_store_name,
+                    self._session_store_name,
+                    self._session_idempotency_store_name,
+                ):
+                    try:
+                        _call_with_busy_retry(
+                            lambda name=name: client.create_object_store(name)
+                        )
+                    except gestalt.AlreadyExistsError:
+                        pass
+            except Exception:
+                self._close_client()
+                raise
+            self._initialized = True
 
     def close(self) -> None:
-        self._client.close()
+        with self._initialize_lock:
+            self._closed = True
+            self._close_client()
+
+    def _ensure_client(self) -> Any:
+        if self._client is not None:
+            return self._client
+        with self._initialize_lock:
+            if self._client is not None:
+                return self._client
+            if self._closed:
+                raise RuntimeError("agent run store is closed")
+            self._client = gestalt.IndexedDB()
+            return self._client
+
+    def _object_store(self, name: str) -> Any:
+        self.initialize()
+        client = self._ensure_client()
+        return _RetryingObjectStore(client.object_store(name))
+
+    def _close_client(self) -> None:
+        if self._client is None:
+            return
+        try:
+            self._client.close()
+        finally:
+            self._client = None
+            self._initialized = False
 
     def create_session(
         self,
@@ -776,6 +811,30 @@ class _RetryingObjectStore:
 
     def get_all(self) -> list[dict[str, Any]]:
         return _call_with_busy_retry(self._store.get_all)
+
+
+class _LazyObjectStore:
+    def __init__(self, owner: SimpleRunStore, name: str) -> None:
+        self._owner = owner
+        self._name = name
+
+    def add(self, record: dict[str, Any]) -> None:
+        self._resolve().add(record)
+
+    def get(self, record_id: str) -> dict[str, Any]:
+        return self._resolve().get(record_id)
+
+    def put(self, record: dict[str, Any]) -> None:
+        self._resolve().put(record)
+
+    def delete(self, record_id: str) -> None:
+        self._resolve().delete(record_id)
+
+    def get_all(self) -> list[dict[str, Any]]:
+        return self._resolve().get_all()
+
+    def _resolve(self) -> _RetryingObjectStore:
+        return self._owner._object_store(self._name)
 
 
 def _call_with_busy_retry(operation: Any) -> Any:

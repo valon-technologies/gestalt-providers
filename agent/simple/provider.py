@@ -36,7 +36,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.13",
+            version="0.0.1-alpha.14",
         )
 
     def warnings(self) -> list[str]:
@@ -210,7 +210,6 @@ class SimpleAgentRuntimeProvider(
         self._config = config
         self._apply_backend_env(config)
         self._store = SimpleRunStore(run_store=config.run_store, idempotency_store=config.idempotency_store)
-        self._store.initialize()
         self._orchestrator = SimpleAgentOrchestrator(config=config, store=self._store)
         self._warnings = self._build_warnings(config)
 
