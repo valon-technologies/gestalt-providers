@@ -1,11 +1,5 @@
 type: object
 properties:
-  runStore:
-    type: string
-    description: IndexedDB object store prefix used for provider-owned turn state. The provider also derives `${runStore}_sessions` and `${runStore}_events`.
-  idempotencyStore:
-    type: string
-    description: IndexedDB object store prefix used for provider-owned turn and session idempotency records.
   defaultModel:
     type: string
     description: Default model identifier to use when a run omits `model` (for example `openai/gpt-4.1-mini` or `anthropic/<model>`).
