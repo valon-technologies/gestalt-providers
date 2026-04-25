@@ -10,6 +10,7 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'authorization/**'
+      - 'external_credentials/**'
       - 's3/**'
       - 'indexeddb/**'
       - 'cache/**'
@@ -26,6 +27,7 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'authorization/**'
+      - 'external_credentials/**'
       - 's3/**'
       - 'indexeddb/**'
       - 'cache/**'
@@ -66,7 +68,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "s3", "indexeddb", "cache", "secrets")
+          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "external_credentials", "s3", "indexeddb", "cache", "secrets")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -115,7 +117,10 @@ jobs:
                           break
                       if parts[1] == "internal":
                           selected.update(packages_by_root.get("indexeddb", set()))
+                          selected.update(packages_by_root.get("external_credentials", set()))
                           continue
+                      if parts[1] == "relationaldb":
+                          selected.update(packages_by_root.get("external_credentials", set()))
                   if len(parts) >= 2 and parts[0] == "cache":
                       if parts[1] == "internal":
                           selected.update(packages_by_root.get("cache", set()))
@@ -358,9 +363,10 @@ jobs:
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
 
           # Package local providers as release metadata to avoid local-source fingerprint churn
-          mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release"
+          mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release" "${RUNNER_TEMP}/external-credentials-default-release"
           (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
           (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
+          (cd external_credentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
           apiVersion: gestaltd.config/v4
@@ -372,6 +378,7 @@ jobs:
             providers:
               secrets: secrets
               indexeddb: main
+              externalCredentials: default
           providers:
             indexeddb:
               main:
@@ -382,6 +389,11 @@ jobs:
               default:
                 path: /
                 source: "${RUNNER_TEMP}/ui-default-release/provider-release.yaml"
+            externalCredentials:
+              default:
+                source: "${RUNNER_TEMP}/external-credentials-default-release/provider-release.yaml"
+                config:
+                  encryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
             secrets:
               secrets:
                 source: env

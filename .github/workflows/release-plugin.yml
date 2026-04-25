@@ -8,6 +8,7 @@ on:
       - 'plugins/*/v*'
       - 'auth/*/v*'
       - 'authorization/*/v*'
+      - 'external_credentials/*/v*'
       - 's3/*/v*'
       - 'indexeddb/*/v*'
       - 'workflow/*/v*'
@@ -62,7 +63,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            agent|runtime|plugins|auth|authorization|s3|indexeddb|workflow|cache|secrets|ui)
+            agent|runtime|plugins|auth|authorization|external_credentials|s3|indexeddb|workflow|cache|secrets|ui)
               GESTALT_REF="main"
               ;;
             *)
