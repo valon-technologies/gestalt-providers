@@ -21,6 +21,41 @@ from .store import SimpleRunStore, StoredRun
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
 
+TOOL_SEARCH_FUNCTION_NAME = "gestalt_search_tools"
+TOOL_SEARCH_TOOL_ID = "__gestalt_search_tools__"
+TOOL_SEARCH_DEFAULT_MAX_RESULTS = 8
+TOOL_SEARCH_MAX_RESULTS = 20
+TOOL_SEARCH_SYSTEM_PROMPT = (
+    "When a user asks you to use an external integration or read external data and the needed tool is not already "
+    f"available, call `{TOOL_SEARCH_FUNCTION_NAME}` before saying you do not have access."
+)
+TOOL_SEARCH_TOOL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": TOOL_SEARCH_FUNCTION_NAME,
+        "description": (
+            "Search the authorized Gestalt integration tool catalog for tools relevant to the task. "
+            "Use this when a needed integration tool is not already available."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Short natural-language description of the tool or integration needed.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of matching tools to return.",
+                    "minimum": 1,
+                    "maximum": TOOL_SEARCH_MAX_RESULTS,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 
 class SimpleAgentOrchestrator:
     def __init__(self, *, config: SimpleAgentConfig, store: SimpleRunStore) -> None:
@@ -76,6 +111,7 @@ class SimpleAgentOrchestrator:
             messages=list(started.messages),
             response_schema=_struct_to_dict(request.response_schema),
             provider_options=_struct_to_dict(request.provider_options),
+            tool_specs_and_names=_tool_registry_from_resolved_tools(request.tools),
         )
         self._store.append_turn_event(
             turn_id=turn_id,
@@ -87,6 +123,9 @@ class SimpleAgentOrchestrator:
         return self.turn_to_proto(started)
 
     def _complete_turn(self, prepared: "PreparedTurn") -> None:
+        tool_specs, function_name_to_tool_id, loaded_tool_ids = _copy_tool_registry(
+            prepared.tool_specs_and_names
+        )
         conversation = _build_initial_conversation(
             system_prompt=self._config.system_prompt,
             projected_messages=prepared.messages,
@@ -99,48 +138,76 @@ class SimpleAgentOrchestrator:
                 return
             if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
                 return
-            with gestalt.AgentHost() as host:
-                tool_specs, function_name_to_tool_id = _search_tools_for_turn(host, prepared)
-                for _ in range(self._config.max_steps):
-                    canceled = self._store.get_turn(prepared.turn_id)
-                    if canceled is None:
-                        return
-                    if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-                        return
+            for _ in range(self._config.max_steps):
+                canceled = self._store.get_turn(prepared.turn_id)
+                if canceled is None:
+                    return
+                if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                    return
 
-                    step = self._backend.complete(
-                        model=prepared.resolved_model,
-                        messages=conversation,
-                        tools=tool_specs,
-                        provider_options=prepared.provider_options,
-                    )
-                    conversation.append(step.assistant_message)
+                step = self._backend.complete(
+                    model=prepared.resolved_model,
+                    messages=conversation,
+                    tools=tool_specs,
+                    provider_options=prepared.provider_options,
+                )
+                conversation.append(step.assistant_message)
 
-                    if step.tool_calls:
-                        for tool_call in step.tool_calls:
-                            resolved_tool_id = function_name_to_tool_id.get(tool_call.tool_id, "")
-                            if not resolved_tool_id:
-                                self._fail_turn(
+                if step.tool_calls:
+                    for tool_call in step.tool_calls:
+                        resolved_tool_id = function_name_to_tool_id.get(tool_call.tool_id, "")
+                        if not resolved_tool_id:
+                            self._fail_turn(
+                                prepared=prepared,
+                                messages=prepared.messages,
+                                status_message=f"model requested unknown tool {tool_call.tool_id!r}",
+                            )
+                            return
+
+                        canceled = self._store.get_turn(prepared.turn_id)
+                        if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                            return
+
+                        self._store.append_turn_event(
+                            turn_id=prepared.turn_id,
+                            event_type="tool.started",
+                            source=prepared.provider_name,
+                            data={
+                                "tool_call_id": tool_call.call_id,
+                                "tool_id": resolved_tool_id,
+                                "arguments": tool_call.arguments,
+                            },
+                        )
+                        if resolved_tool_id == TOOL_SEARCH_TOOL_ID:
+                            with gestalt.AgentHost() as host:
+                                tool_response_body = _search_tools_for_model(
+                                    host=host,
                                     prepared=prepared,
-                                    messages=prepared.messages,
-                                    status_message=f"model requested unknown tool {tool_call.tool_id!r}",
+                                    tool_call_arguments=tool_call.arguments,
+                                    tool_specs=tool_specs,
+                                    function_name_to_tool_id=function_name_to_tool_id,
+                                    loaded_tool_ids=loaded_tool_ids,
                                 )
-                                return
-
-                            canceled = self._store.get_turn(prepared.turn_id)
-                            if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-                                return
-
                             self._store.append_turn_event(
                                 turn_id=prepared.turn_id,
-                                event_type="tool.started",
+                                event_type="tool.completed",
                                 source=prepared.provider_name,
                                 data={
                                     "tool_call_id": tool_call.call_id,
                                     "tool_id": resolved_tool_id,
-                                    "arguments": tool_call.arguments,
+                                    "status": 200,
                                 },
                             )
+                            conversation.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.call_id,
+                                    "content": tool_response_body,
+                                }
+                            )
+                            continue
+
+                        with gestalt.AgentHost() as host:
                             tool_response = host.execute_tool(
                                 agent_pb2.ExecuteAgentToolRequest(
                                     session_id=prepared.session_id,
@@ -150,47 +217,47 @@ class SimpleAgentOrchestrator:
                                     arguments=_dict_to_struct(tool_call.arguments),
                                 )
                             )
-                            canceled = self._store.get_turn(prepared.turn_id)
-                            if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-                                return
-                            self._store.append_turn_event(
-                                turn_id=prepared.turn_id,
-                                event_type="tool.completed",
-                                source=prepared.provider_name,
-                                data={
-                                    "tool_call_id": tool_call.call_id,
-                                    "tool_id": resolved_tool_id,
-                                    "status": int(tool_response.status or 0),
-                                },
-                            )
-                            conversation.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.call_id,
-                                    "content": str(tool_response.body or ""),
-                                }
-                            )
-                        continue
-
-                    final_text = step.output_text.strip()
-                    if not final_text:
-                        self._fail_turn(
-                            prepared=prepared,
-                            messages=prepared.messages,
-                            status_message="model returned no final text and no tool calls",
+                        canceled = self._store.get_turn(prepared.turn_id)
+                        if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                            return
+                        self._store.append_turn_event(
+                            turn_id=prepared.turn_id,
+                            event_type="tool.completed",
+                            source=prepared.provider_name,
+                            data={
+                                "tool_call_id": tool_call.call_id,
+                                "tool_id": resolved_tool_id,
+                                "status": int(tool_response.status or 0),
+                            },
                         )
-                        return
+                        conversation.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.call_id,
+                                "content": str(tool_response.body or ""),
+                            }
+                        )
+                    continue
 
-                    structured_output = _parse_structured_output(
-                        output_text=final_text, response_schema=prepared.response_schema
-                    )
-                    self._store.mark_turn_succeeded(
-                        turn_id=prepared.turn_id,
-                        messages=_append_assistant_message(prepared.messages, final_text),
-                        output_text=final_text,
-                        structured_output=structured_output,
+                final_text = step.output_text.strip()
+                if not final_text:
+                    self._fail_turn(
+                        prepared=prepared,
+                        messages=prepared.messages,
+                        status_message="model returned no final text and no tool calls",
                     )
                     return
+
+                structured_output = _parse_structured_output(
+                    output_text=final_text, response_schema=prepared.response_schema
+                )
+                self._store.mark_turn_succeeded(
+                    turn_id=prepared.turn_id,
+                    messages=_append_assistant_message(prepared.messages, final_text),
+                    output_text=final_text,
+                    structured_output=structured_output,
+                )
+                return
         except ValidationError as exc:
             self._fail_turn(
                 prepared=prepared,
@@ -261,18 +328,46 @@ class PreparedTurn:
     messages: list[dict[str, Any]]
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
+    tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]]
 
 
-def _search_tools_for_turn(host: Any, prepared: PreparedTurn) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def _search_tools_for_model(
+    *,
+    host: Any,
+    prepared: PreparedTurn,
+    tool_call_arguments: dict[str, Any],
+    tool_specs: list[dict[str, Any]],
+    function_name_to_tool_id: dict[str, str],
+    loaded_tool_ids: set[str],
+) -> str:
+    query = str(tool_call_arguments.get("query", "") or "").strip()
+    if not query:
+        query = _tool_search_query(prepared.messages)
     response = host.search_tools(
         agent_pb2.SearchAgentToolsRequest(
             session_id=prepared.session_id,
             turn_id=prepared.turn_id,
-            query=_tool_search_query(prepared.messages),
-            max_results=20,
+            query=query,
+            max_results=_tool_search_max_results(tool_call_arguments.get("max_results")),
         )
     )
-    return _resolved_tools_to_openai(response.tools)
+    available_tools = _register_resolved_tools(
+        response.tools,
+        tool_specs=tool_specs,
+        function_name_to_tool_id=function_name_to_tool_id,
+        loaded_tool_ids=loaded_tool_ids,
+    )
+    return json.dumps({"tools": available_tools}, separators=(",", ":"))
+
+
+def _tool_search_max_results(raw_value: Any) -> int:
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return TOOL_SEARCH_DEFAULT_MAX_RESULTS
+    if value <= 0:
+        return TOOL_SEARCH_DEFAULT_MAX_RESULTS
+    return min(value, TOOL_SEARCH_MAX_RESULTS)
 
 
 def _tool_search_query(messages: list[dict[str, Any]]) -> str:
@@ -286,6 +381,7 @@ def _build_initial_conversation(
     conversation: list[dict[str, Any]] = []
     if system_prompt:
         conversation.append({"role": "system", "content": system_prompt})
+    conversation.append({"role": "system", "content": TOOL_SEARCH_SYSTEM_PROMPT})
     if response_schema:
         conversation.append(
             {
@@ -462,36 +558,100 @@ def _part_type(part: dict[str, Any]) -> str:
     return ""
 
 
-def _resolved_tools_to_openai(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    formatted: list[dict[str, Any]] = []
-    function_name_to_tool_id: dict[str, str] = {}
+def _tool_registry_from_resolved_tools(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
+    tool_specs = [copy.deepcopy(TOOL_SEARCH_TOOL_SPEC)]
+    function_name_to_tool_id = {TOOL_SEARCH_FUNCTION_NAME: TOOL_SEARCH_TOOL_ID}
+    loaded_tool_ids: set[str] = set()
+    _register_resolved_tools(
+        tools,
+        tool_specs=tool_specs,
+        function_name_to_tool_id=function_name_to_tool_id,
+        loaded_tool_ids=loaded_tool_ids,
+    )
+    return tool_specs, function_name_to_tool_id, loaded_tool_ids
+
+
+def _copy_tool_registry(
+    registry: tuple[list[dict[str, Any]], dict[str, str], set[str]]
+) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
+    tool_specs, function_name_to_tool_id, loaded_tool_ids = registry
+    return copy.deepcopy(tool_specs), dict(function_name_to_tool_id), set(loaded_tool_ids)
+
+
+def _register_resolved_tools(
+    tools: Any,
+    *,
+    tool_specs: list[dict[str, Any]],
+    function_name_to_tool_id: dict[str, str],
+    loaded_tool_ids: set[str],
+) -> list[dict[str, Any]]:
+    available_tools: list[dict[str, Any]] = []
     for tool in tools:
         tool_id = str(tool.id or "").strip()
         if not tool_id:
             continue
-        function_name = _sanitize_function_name(str(tool.name or "").strip() or tool_id)
-        if function_name in function_name_to_tool_id:
-            suffix = 2
-            while f"{function_name}_{suffix}" in function_name_to_tool_id:
-                suffix += 1
-            function_name = f"{function_name}_{suffix}"
+        if tool_id in loaded_tool_ids:
+            function_name = _function_name_for_tool_id(tool_id, function_name_to_tool_id)
+            if function_name:
+                available_tools.append(
+                    _tool_search_result_entry(
+                        function_name=function_name,
+                        tool=tool,
+                        description=_tool_description(tool),
+                    )
+                )
+            continue
+        function_name = _unique_function_name(str(tool.name or "").strip() or tool_id, function_name_to_tool_id)
         function_name_to_tool_id[function_name] = tool_id
-        description = str(tool.description or "").strip()
-        if str(tool.name or "").strip() and str(tool.name or "").strip() != tool_id:
-            prefix = f"{tool.name.strip()}: "
-            description = prefix + description if description else tool.name.strip()
+        loaded_tool_ids.add(tool_id)
+        description = _tool_description(tool)
         parameters = _struct_to_dict(tool.parameters_schema) or {"type": "object", "properties": {}}
         if not isinstance(parameters, dict):
             parameters = {"type": "object", "properties": {}}
         if "type" not in parameters:
             parameters["type"] = "object"
-        formatted.append(
+        tool_specs.append(
             {
                 "type": "function",
                 "function": {"name": function_name, "description": description, "parameters": parameters},
             }
         )
-    return formatted, function_name_to_tool_id
+        available_tools.append(_tool_search_result_entry(function_name=function_name, tool=tool, description=description))
+    return available_tools
+
+
+def _function_name_for_tool_id(tool_id: str, function_name_to_tool_id: dict[str, str]) -> str:
+    for function_name, mapped_tool_id in function_name_to_tool_id.items():
+        if mapped_tool_id == tool_id:
+            return function_name
+    return ""
+
+
+def _tool_description(tool: Any) -> str:
+    tool_id = str(tool.id or "").strip()
+    tool_name = str(tool.name or "").strip()
+    description = str(tool.description or "").strip()
+    if tool_name and tool_name != tool_id:
+        prefix = f"{tool_name}: "
+        description = prefix + description if description else tool_name
+    return description
+
+
+def _unique_function_name(raw_value: str, function_name_to_tool_id: dict[str, str]) -> str:
+    function_name = _sanitize_function_name(raw_value)
+    if function_name not in function_name_to_tool_id:
+        return function_name
+    suffix = 2
+    while f"{function_name}_{suffix}" in function_name_to_tool_id:
+        suffix += 1
+    return f"{function_name}_{suffix}"
+
+
+def _tool_search_result_entry(*, function_name: str, tool: Any, description: str) -> dict[str, Any]:
+    return {
+        "name": function_name,
+        "description": description,
+    }
 
 
 def _sanitize_function_name(raw_value: str) -> str:

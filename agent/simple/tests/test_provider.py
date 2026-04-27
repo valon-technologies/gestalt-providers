@@ -216,6 +216,7 @@ def _fake_resolved_tool(*, name: str) -> Any:
         id="lookup",
         name=name,
         description="Look up a historical figure",
+        target=agent_pb2.BoundAgentToolTarget(plugin="people", operation="lookup"),
         parameters_schema=tool_parameters,
     )
 
@@ -481,9 +482,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                 "content": None,
                                 "tool_calls": [
                                     {
-                                        "id": "call-1",
+                                        "id": "call-search-1",
                                         "type": "function",
-                                        "function": {"name": "person_lookup", "arguments": '{"query":"Ada Lovelace"}'},
+                                        "function": {
+                                            "name": "gestalt_search_tools",
+                                            "arguments": '{"query":"historical figure lookup","max_results":5}',
+                                        },
                                     }
                                 ],
                             },
@@ -496,6 +500,30 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "id": "chatcmpl-2",
                     "object": "chat.completion",
                     "created": 1710000001,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call-1",
+                                        "type": "function",
+                                        "function": {"name": "person_lookup", "arguments": '{"query":"Ada Lovelace"}'},
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 14, "completion_tokens": 4, "total_tokens": 18},
+                },
+                {
+                    "id": "chatcmpl-3",
+                    "object": "chat.completion",
+                    "created": 1710000002,
                     "model": "fake-model",
                     "choices": [
                         {
@@ -573,10 +601,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 turn_id="turn-success", after_seq=2, limit=2
             )
         )
+        capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
 
         self.assertEqual(identity.kind, runtime_pb2.ProviderKind.PROVIDER_KIND_AGENT)
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
+        self.assertTrue(capabilities.native_tool_search)
 
         self.assertEqual(created_session.id, "session-success")
         self.assertEqual(created_session.model, "openai/fake-model")
@@ -646,8 +676,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 {
                     "session_id": "session-success",
                     "turn_id": "turn-success",
-                    "query": "Who is Ada Lovelace?",
-                    "max_results": 20,
+                    "query": "historical figure lookup",
+                    "max_results": 5,
                 }
             ],
         )
@@ -663,32 +693,42 @@ class SimpleAgentProviderTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(len(fake_llm.requests), 2)
+        self.assertEqual(len(fake_llm.requests), 3)
         first_request = fake_llm.requests[0]
         second_request = fake_llm.requests[1]
+        third_request = fake_llm.requests[2]
         self.assertEqual(first_request["model"], "fake-model")
         self.assertEqual(first_request["messages"][0]["role"], "system")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
+        self.assertEqual([tool["function"]["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
         self.assertEqual(second_request["messages"][-1]["role"], "tool")
-        self.assertIn("Ada Lovelace", second_request["messages"][-1]["content"])
-        self.assertNotIn("name", second_request["messages"][-1])
+        self.assertIn("person_lookup", second_request["messages"][-1]["content"])
+        self.assertNotIn('"id"', second_request["messages"][-1]["content"])
+        self.assertNotIn('"target"', second_request["messages"][-1]["content"])
+        self.assertIn("person_lookup", [tool["function"]["name"] for tool in second_request["tools"]])
+        self.assertEqual(third_request["messages"][-1]["role"], "tool")
+        self.assertIn("Ada Lovelace", third_request["messages"][-1]["content"])
+        self.assertNotIn("name", third_request["messages"][-1])
         self.assertEqual(
             [event.type for event in listed_events.events],
             [
                 "turn.started",
                 "tool.started",
                 "tool.completed",
+                "tool.started",
+                "tool.completed",
                 "assistant.completed",
                 "turn.completed",
             ],
         )
-        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5])
+        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(listed_events.events[0].data.fields["session_id"].string_value, "session-success")
-        self.assertEqual(listed_events.events[1].data.fields["tool_id"].string_value, "lookup")
-        self.assertEqual(listed_events.events[2].data.fields["status"].number_value, 200)
+        self.assertEqual(listed_events.events[1].data.fields["tool_id"].string_value, "__gestalt_search_tools__")
+        self.assertEqual(listed_events.events[3].data.fields["tool_id"].string_value, "lookup")
+        self.assertEqual(listed_events.events[4].data.fields["status"].number_value, 200)
         self.assertEqual(
             [event.type for event in paged_events.events],
-            ["tool.completed", "assistant.completed"],
+            ["tool.completed", "tool.started"],
         )
 
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
@@ -759,6 +799,71 @@ class SimpleAgentProviderTests(unittest.TestCase):
             [event.type for event in events.events],
             ["turn.started", "assistant.completed", "turn.completed"],
         )
+
+    def test_text_only_turn_does_not_require_agent_host_socket(self) -> None:
+        assert _host_servicer is not None
+
+        previous_socket = os.environ.pop(ENV_AGENT_HOST_SOCKET, None)
+        try:
+            _, provider_client = _configure_provider()
+            _create_session(
+                provider_client,
+                session_id="session-no-host",
+                idempotency_key="session-idem-no-host",
+            )
+
+            fake_llm = _FakeOpenAIChatServer(
+                responses=[
+                    {
+                        "id": "chatcmpl-no-host",
+                        "object": "chat.completion",
+                        "created": 1710000035,
+                        "model": "fake-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "text-only response",
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                    }
+                ]
+            )
+            fake_llm.start()
+            self.addCleanup(fake_llm.close)
+
+            provider_options = struct_pb2.Struct()
+            provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+
+            started = provider_client.CreateTurn(
+                agent_pb2.CreateAgentProviderTurnRequest(
+                    turn_id="turn-no-host",
+                    session_id="session-no-host",
+                    idempotency_key="idem-no-host",
+                    model="fast",
+                    messages=[agent_pb2.AgentMessage(role="user", text="Say something brief.")],
+                    provider_options=provider_options,
+                )
+            )
+            fetched = _wait_for_turn(
+                provider_client,
+                "turn-no-host",
+                agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+            )
+        finally:
+            if previous_socket is None:
+                os.environ.pop(ENV_AGENT_HOST_SOCKET, None)
+            else:
+                os.environ[ENV_AGENT_HOST_SOCKET] = previous_socket
+
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(fetched.output_text, "text-only response")
+        self.assertEqual(_host_servicer.search_requests, [])
+        self.assertEqual(_host_servicer.requests, [])
 
     def test_create_turn_completes_over_tcp_runtime_socket(self) -> None:
         provider = provider_module.SimpleAgentRuntimeProvider()
@@ -894,6 +999,30 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                 "content": None,
                                 "tool_calls": [
                                     {
+                                        "id": "call-search-10",
+                                        "type": "function",
+                                        "function": {"name": "gestalt_search_tools", "arguments": '{"query":"person lookup"}'},
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+                },
+                {
+                    "id": "chatcmpl-11",
+                    "object": "chat.completion",
+                    "created": 1710000011,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
                                         "id": "call-10",
                                         "type": "function",
                                         "function": {"name": "lookup", "arguments": '{"query":"Grace Hopper"}'},
@@ -903,8 +1032,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                             "finish_reason": "tool_calls",
                         }
                     ],
-                    "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
-                }
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15},
+                },
             ]
         )
         fake_llm.start()
@@ -960,10 +1089,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(len(_host_servicer.search_requests), 1)
-        self.assertEqual(len(fake_llm.requests), 1)
+        self.assertEqual(len(fake_llm.requests), 2)
         self.assertEqual(
             [event.type for event in events.events],
-            ["turn.started", "tool.started", "turn.canceled"],
+            ["turn.started", "tool.started", "tool.completed", "tool.started", "turn.canceled"],
         )
         self.assertEqual(
             events.events[-1].data.fields["reason"].string_value, "user canceled"
@@ -1115,9 +1244,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "content": [
                         {
                             "type": "tool_use",
-                            "id": "toolu-1",
-                            "name": "person_lookup",
-                            "input": {"query": "Ada Lovelace"},
+                            "id": "toolu-search-1",
+                            "name": "gestalt_search_tools",
+                            "input": {"query": "historical figure lookup", "max_results": 5},
                         }
                     ],
                     "stop_reason": "tool_use",
@@ -1129,10 +1258,27 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "type": "message",
                     "role": "assistant",
                     "model": "claude-fake-model",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu-1",
+                            "name": "person_lookup",
+                            "input": {"query": "Ada Lovelace"},
+                        }
+                    ],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 20, "output_tokens": 5},
+                },
+                {
+                    "id": "msg-3",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
                     "content": [{"type": "text", "text": '{"summary":"Ada Lovelace is still relevant."}'}],
                     "stop_reason": "end_turn",
                     "stop_sequence": None,
-                    "usage": {"input_tokens": 20, "output_tokens": 7},
+                    "usage": {"input_tokens": 30, "output_tokens": 7},
                 },
             ]
         )
@@ -1173,7 +1319,17 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
 
         assert _host_servicer is not None
-        self.assertEqual(len(_host_servicer.search_requests), 1)
+        self.assertEqual(
+            _host_servicer.search_requests,
+            [
+                {
+                    "session_id": "session-anthropic",
+                    "turn_id": "turn-anthropic",
+                    "query": "historical figure lookup",
+                    "max_results": 5,
+                }
+            ],
+        )
         self.assertEqual(
             _host_servicer.requests,
             [
@@ -1187,17 +1343,22 @@ class SimpleAgentProviderTests(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(len(fake_anthropic.requests), 2)
+        self.assertEqual(len(fake_anthropic.requests), 3)
         first_request = fake_anthropic.requests[0]
         second_request = fake_anthropic.requests[1]
+        third_request = fake_anthropic.requests[2]
         self.assertEqual(first_request["model"], "claude-fake-model")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
-        self.assertEqual(first_request["tools"][0]["name"], "person_lookup")
+        self.assertEqual([tool["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
         self.assertIn("Return only valid JSON", first_request["system"])
+        self.assertIn("person_lookup", [tool["name"] for tool in second_request["tools"]])
         self.assertEqual(second_request["messages"][1]["role"], "assistant")
         self.assertEqual(second_request["messages"][1]["content"][0]["type"], "tool_use")
         self.assertEqual(second_request["messages"][2]["role"], "user")
         self.assertEqual(second_request["messages"][2]["content"][0]["type"], "tool_result")
+        self.assertEqual(third_request["messages"][3]["role"], "assistant")
+        self.assertEqual(third_request["messages"][3]["content"][0]["name"], "person_lookup")
+        self.assertEqual(third_request["messages"][4]["content"][0]["type"], "tool_result")
 
     def test_create_turn_keeps_openai_compatible_prefixed_models_and_legacy_nested_overrides(self) -> None:
         _, provider_client = _configure_provider()
