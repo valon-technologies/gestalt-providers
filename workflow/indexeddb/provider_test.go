@@ -442,36 +442,6 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	}
 }
 
-func TestProviderAgentTargetDropsLegacyFlatPluginFields(t *testing.T) {
-	ctx := context.Background()
-	startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
-
-	provider := New()
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	target := protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder")
-	setLegacyFlatStringField(target, 1, " ")
-	setLegacyFlatStringField(target, 2, " ")
-
-	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		ScheduleId:   "agent-flat-cleanup",
-		Cron:         "* * * * *",
-		Timezone:     "UTC",
-		Target:       target,
-		ExecutionRef: "agent-ref",
-	})
-	if err != nil {
-		t.Fatalf("UpsertSchedule(agent with legacy flat fields): %v", err)
-	}
-	if schedule.GetTarget().GetPlugin() != nil || hasLegacyFlatPluginTargetWire(schedule.GetTarget()) {
-		t.Fatalf("schedule target included plugin fields: %#v", schedule.GetTarget())
-	}
-}
-
 func TestProviderRejectsAgentExecutionReferenceWithoutFingerprint(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
@@ -741,6 +711,20 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				ToolRefs:     []*proto.AgentToolRef{{Operation: "chat.postMessage"}},
 			}},
 		},
+		{
+			name: "legacy flat plugin fields",
+			target: func() *proto.BoundWorkflowTarget {
+				target := &proto.BoundWorkflowTarget{
+					Agent: &proto.BoundWorkflowAgentTarget{
+						ProviderName: "managed",
+						Prompt:       "send a Slack reminder",
+					},
+				}
+				setLegacyFlatStringField(target, 1, "roadmap")
+				setLegacyFlatStringField(target, 2, "sync")
+				return target
+			}(),
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -753,6 +737,30 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				t.Fatal("UpsertSchedule succeeded, want error")
 			}
 		})
+	}
+}
+
+func TestProviderRejectsFlatPluginTarget(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	target := &proto.BoundWorkflowTarget{}
+	setLegacyFlatStringField(target, 1, "roadmap")
+	setLegacyFlatStringField(target, 2, "sync")
+
+	_, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: target})
+	if err == nil {
+		t.Fatal("StartRun succeeded, want error")
+	}
+	if !strings.Contains(err.Error(), "plugin_name is required") {
+		t.Fatalf("StartRun error = %v, want plugin_name validation", err)
 	}
 }
 
@@ -1177,36 +1185,6 @@ func setLegacyFlatStringField(target *proto.BoundWorkflowTarget, number protoref
 	raw = protowire.AppendTag(raw, protowire.Number(number), protowire.BytesType)
 	raw = protowire.AppendString(raw, value)
 	message.SetUnknown(raw)
-}
-
-func hasLegacyFlatPluginTargetWire(target *proto.BoundWorkflowTarget) bool {
-	if target == nil {
-		return false
-	}
-	message := target.ProtoReflect()
-	fields := message.Descriptor().Fields()
-	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
-		field := fields.ByNumber(number)
-		if field != nil && message.Has(field) {
-			return true
-		}
-	}
-	raw := message.GetUnknown()
-	for len(raw) > 0 {
-		number, typ, tagLen := protowire.ConsumeTag(raw)
-		if tagLen < 0 {
-			return false
-		}
-		if number >= 1 && number <= 5 {
-			return true
-		}
-		valueLen := protowire.ConsumeFieldValue(number, typ, raw[tagLen:])
-		if valueLen < 0 {
-			return false
-		}
-		raw = raw[tagLen+valueLen:]
-	}
-	return false
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {

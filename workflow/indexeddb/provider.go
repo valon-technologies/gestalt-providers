@@ -1516,7 +1516,7 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	}
 	pluginName = strings.TrimSpace(pluginName)
 	if agentTarget := target.GetAgent(); agentTarget != nil {
-		if target.GetPlugin() != nil || !flatPluginTargetFields(target).empty() {
+		if target.GetPlugin() != nil || hasLegacyFlatPluginTargetFields(target) {
 			return scopedTarget{}, errors.New("target cannot include both agent and plugin fields")
 		}
 		if pluginName != "" {
@@ -2016,7 +2016,53 @@ func pluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetF
 	if plugin := target.GetPlugin(); plugin != nil {
 		return pluginMessageTargetFields(plugin)
 	}
-	return flatPluginTargetFields(target)
+	return workflowPluginTargetFields{}
+}
+
+func hasLegacyFlatPluginTargetFields(target *proto.BoundWorkflowTarget) bool {
+	if target == nil {
+		return false
+	}
+	message := target.ProtoReflect()
+	fields := message.Descriptor().Fields()
+	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
+		field := fields.ByNumber(number)
+		if field == nil || !message.Has(field) {
+			continue
+		}
+		if field.Kind() != protoreflect.StringKind || strings.TrimSpace(message.Get(field).String()) != "" {
+			return true
+		}
+	}
+	return hasLegacyFlatPluginTargetUnknownFields(message.GetUnknown())
+}
+
+func hasLegacyFlatPluginTargetUnknownFields(raw protoreflect.RawFields) bool {
+	for len(raw) > 0 {
+		number, typ, tagLen := protowire.ConsumeTag(raw)
+		if tagLen < 0 {
+			return false
+		}
+		value := raw[tagLen:]
+		valueLen := protowire.ConsumeFieldValue(number, typ, value)
+		if valueLen < 0 {
+			return false
+		}
+		if number >= 1 && number <= 5 {
+			if typ != protowire.BytesType {
+				return true
+			}
+			bytesValue, bytesLen := protowire.ConsumeBytes(value)
+			if bytesLen < 0 {
+				return false
+			}
+			if len(bytesValue) > 0 && strings.TrimSpace(string(bytesValue)) != "" {
+				return true
+			}
+		}
+		raw = value[valueLen:]
+	}
+	return false
 }
 
 func pluginMessageTargetFields(plugin *proto.BoundWorkflowPluginTarget) workflowPluginTargetFields {
@@ -2030,104 +2076,6 @@ func pluginMessageTargetFields(plugin *proto.BoundWorkflowPluginTarget) workflow
 		Instance:   strings.TrimSpace(plugin.GetInstance()),
 		Input:      cloneStruct(plugin.GetInput()),
 	}
-}
-
-func flatPluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetFields {
-	if target == nil {
-		return workflowPluginTargetFields{}
-	}
-	var out workflowPluginTargetFields
-	message := target.ProtoReflect()
-	fields := message.Descriptor().Fields()
-	out.PluginName = protoReflectStringField(message, fields, 1)
-	out.Operation = protoReflectStringField(message, fields, 2)
-	out.Connection = protoReflectStringField(message, fields, 4)
-	out.Instance = protoReflectStringField(message, fields, 5)
-	if input := protoReflectStructField(message, fields, 3); input != nil {
-		out.Input = input
-	}
-	out.mergeUnknown(message.GetUnknown())
-	return out
-}
-
-func protoReflectStringField(message protoreflect.Message, fields protoreflect.FieldDescriptors, number protoreflect.FieldNumber) string {
-	field := fields.ByNumber(number)
-	if field == nil {
-		return ""
-	}
-	return strings.TrimSpace(message.Get(field).String())
-}
-
-func protoReflectStructField(message protoreflect.Message, fields protoreflect.FieldDescriptors, number protoreflect.FieldNumber) *structpb.Struct {
-	field := fields.ByNumber(number)
-	if field == nil || !message.Has(field) {
-		return nil
-	}
-	if input, ok := message.Get(field).Message().Interface().(*structpb.Struct); ok {
-		return cloneStruct(input)
-	}
-	return nil
-}
-
-func (f *workflowPluginTargetFields) mergeUnknown(raw protoreflect.RawFields) {
-	for len(raw) > 0 {
-		number, typ, tagLen := protowire.ConsumeTag(raw)
-		if tagLen < 0 {
-			return
-		}
-		value := raw[tagLen:]
-		switch typ {
-		case protowire.BytesType:
-			bytesValue, valueLen := protowire.ConsumeBytes(value)
-			if valueLen < 0 {
-				return
-			}
-			f.mergeUnknownBytesField(number, bytesValue)
-			raw = value[valueLen:]
-		default:
-			valueLen := protowire.ConsumeFieldValue(number, typ, value)
-			if valueLen < 0 {
-				return
-			}
-			raw = value[valueLen:]
-		}
-	}
-}
-
-func (f *workflowPluginTargetFields) mergeUnknownBytesField(number protowire.Number, value []byte) {
-	switch number {
-	case 1:
-		if f.PluginName == "" {
-			f.PluginName = strings.TrimSpace(string(value))
-		}
-	case 2:
-		if f.Operation == "" {
-			f.Operation = strings.TrimSpace(string(value))
-		}
-	case 3:
-		if f.Input == nil {
-			var input structpb.Struct
-			if err := gproto.Unmarshal(value, &input); err == nil {
-				f.Input = cloneStruct(&input)
-			}
-		}
-	case 4:
-		if f.Connection == "" {
-			f.Connection = strings.TrimSpace(string(value))
-		}
-	case 5:
-		if f.Instance == "" {
-			f.Instance = strings.TrimSpace(string(value))
-		}
-	}
-}
-
-func (f workflowPluginTargetFields) empty() bool {
-	return strings.TrimSpace(f.PluginName) == "" &&
-		strings.TrimSpace(f.Operation) == "" &&
-		strings.TrimSpace(f.Connection) == "" &&
-		strings.TrimSpace(f.Instance) == "" &&
-		f.Input == nil
 }
 
 func targetJSON(target *proto.BoundWorkflowTarget) string {
