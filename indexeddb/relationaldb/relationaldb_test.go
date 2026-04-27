@@ -3,7 +3,6 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -121,48 +120,18 @@ func TestProviderConfigureAppliesConnectionSettings(t *testing.T) {
 	}
 }
 
-func TestProviderConfigureRejectsRemovedAliases(t *testing.T) {
-	t.Run("namespace", func(t *testing.T) {
-		p := New()
-		err := p.Configure(context.Background(), "", map[string]any{
-			"dsn":       "file:" + filepath.Join(t.TempDir(), "namespace.sqlite"),
-			"namespace": "analytics",
-		})
-		if err == nil {
-			t.Fatal("expected namespace alias to fail")
-		}
-		if !strings.Contains(err.Error(), "namespace is no longer supported; use schema") {
-			t.Fatalf("unexpected error: %v", err)
-		}
+func TestProviderConfigureRejectsUnknownFields(t *testing.T) {
+	p := New()
+	err := p.Configure(context.Background(), "", map[string]any{
+		"dsn":     "file:" + filepath.Join(t.TempDir(), "unknown-field.sqlite"),
+		"unknown": true,
 	})
-
-	t.Run("legacy_prefix", func(t *testing.T) {
-		p := New()
-		err := p.Configure(context.Background(), "", map[string]any{
-			"dsn":           "file:" + filepath.Join(t.TempDir(), "legacy-prefix.sqlite"),
-			"legacy_prefix": "plugin_alpha_",
-		})
-		if err == nil {
-			t.Fatal("expected legacy_prefix alias to fail")
-		}
-		if !strings.Contains(err.Error(), "legacy_prefix is no longer supported") {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("legacy_table_prefix", func(t *testing.T) {
-		p := New()
-		err := p.Configure(context.Background(), "", map[string]any{
-			"dsn":                 "file:" + filepath.Join(t.TempDir(), "legacy-table-prefix.sqlite"),
-			"legacy_table_prefix": "plugin_alpha_",
-		})
-		if err == nil {
-			t.Fatal("expected legacy_table_prefix to fail")
-		}
-		if !strings.Contains(err.Error(), "legacy_table_prefix is no longer supported") {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	if err == nil {
+		t.Fatal("expected unknown field to fail")
+	}
+	if !strings.Contains(err.Error(), "field unknown not found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestProviderConfigureRejectsInvalidConnectionSettings(t *testing.T) {
@@ -470,71 +439,6 @@ func TestCreateObjectStorePersistsGenericRows(t *testing.T) {
 	}
 }
 
-func TestGenericStoreIgnoresStaleLegacyMetadataFields(t *testing.T) {
-	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-metadata-fields.sqlite")
-
-	s, err := NewStore(dsn)
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore: %v", err)
-	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
-		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
-	}); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	staleMetadata, err := json.Marshal(map[string]any{
-		"table":           "widgets",
-		"storage_version": 2,
-		"columns": []map[string]any{
-			{"name": "id", "type": 0, "primary_key": true, "not_null": true},
-			{"name": "code", "type": 0, "not_null": true, "unique": true},
-			{"name": "title", "type": 0},
-			{"name": "created_at", "type": 4},
-			{"name": "updated_at", "type": 4},
-		},
-		"indexes": []map[string]any{
-			{"name": "by_code", "key_path": []string{"code"}, "unique": true},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal stale metadata: %v", err)
-	}
-
-	db := openSQLiteDB(t, dsn)
-	if _, err := db.Exec(`UPDATE "_gestalt_stores" SET "schema_json" = ? WHERE "name" = ?`, string(staleMetadata), "widgets"); err != nil {
-		t.Fatalf("update stale metadata: %v", err)
-	}
-
-	reopened, err := NewStore(dsn)
-	if err != nil {
-		t.Fatalf("NewStore(reopen): %v", err)
-	}
-	defer reopened.Close()
-
-	resp, err := reopened.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if err != nil {
-		t.Fatalf("Get after stale metadata reload: %v", err)
-	}
-	if got := resp.Record.Fields["title"].GetStringValue(); got != "Alpha Widget" {
-		t.Fatalf("title after stale metadata reload = %q, want Alpha Widget", got)
-	}
-	if _, err := reopened.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore after stale metadata reload: %v", err)
-	}
-}
-
 func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
@@ -704,38 +608,6 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 	}
 	if _, err := betaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "alpha_tasks", Id: "a1"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("Get(beta reload foreign store) error = %v, want NotFound", err)
-	}
-}
-
-func TestCreateObjectStoreIgnoresOrphanedLegacyPrefixedTable(t *testing.T) {
-	ctx := context.Background()
-	dsn := "file:" + filepath.Join(t.TempDir(), "orphaned-prefixed.sqlite")
-	db := openSQLiteDB(t, dsn)
-
-	if _, err := db.Exec(`CREATE TABLE "_gestalt_sample_records" (
-		"id" TEXT NOT NULL PRIMARY KEY
-	)`); err != nil {
-		t.Fatalf("create orphaned prefixed table: %v", err)
-	}
-
-	s := testStoreWithDSN(t, dsn)
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "sample_records", Schema: sampleRecordsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore: %v", err)
-	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
-		Store: "sample_records", Record: makeSampleRecord("row-2"),
-	}); err != nil {
-		t.Fatalf("Add record: %v", err)
-	}
-
-	meta, err := s.getMeta("sample_records")
-	if err != nil {
-		t.Fatalf("getMeta: %v", err)
-	}
-	if meta.name != "sample_records" {
-		t.Fatalf("meta.name = %q, want sample_records", meta.name)
 	}
 }
 
