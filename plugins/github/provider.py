@@ -66,16 +66,20 @@ class GitHubAppConfig:
     private_key_path: str = ""
     api_base_url: str = GITHUB_DEFAULT_API_BASE_URL
     web_base_url: str = GITHUB_DEFAULT_WEB_BASE_URL
-    bot_name: str = "GitHub Bot"
-    bot_email: str = ""
-    bot_login: str = ""
-    bot_user_id: str = ""
     webhook_events: tuple[str, ...] = DEFAULT_WEBHOOK_EVENTS
     ignore_bot_sender: bool = True
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_provider_options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubBotIdentity:
+    name: str
+    login: str
+    user_id: str
+    email: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +163,7 @@ class CommitFilesInput(gestalt.Model):
         required=False,
     )
     include_bot_coauthor: bool = gestalt.field(
-        description="Append the configured GitHub App bot as a co-author when botEmail is configured",
+        description="Append the GitHub App bot as a co-author when its no-reply identity can be derived",
         default=True,
         required=False,
     )
@@ -249,7 +253,7 @@ class CreatePullRequestInput(gestalt.Model):
         required=False,
     )
     include_bot_coauthor: bool = gestalt.field(
-        description="Append the configured GitHub App bot as a co-author when botEmail is configured",
+        description="Append the GitHub App bot as a co-author when its no-reply identity can be derived",
         default=True,
         required=False,
     )
@@ -294,15 +298,17 @@ class GitHubAuthorizationError(RuntimeError):
 
 
 _github_config = GitHubAppConfig()
+_github_bot_identity: GitHubBotIdentity | None = None
 
 
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
-    global _github_config
+    global _github_bot_identity, _github_config
 
-    app_id = _config_string(config, "appId", "app_id") or os.environ.get(
-        "GITHUB_APP_ID", ""
-    ).strip()
+    app_id = (
+        _config_string(config, "appId", "app_id")
+        or os.environ.get("GITHUB_APP_ID", "").strip()
+    )
     private_key = _config_string(
         config, "appPrivateKey", "privateKey", "app_private_key", "private_key"
     )
@@ -324,6 +330,7 @@ def configure(_name: str, config: dict[str, Any]) -> None:
         private_key_path = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
 
     webhook_events = _config_string_list(config, "webhookEvents", "webhook_events")
+    _github_bot_identity = None
     _github_config = GitHubAppConfig(
         app_id=app_id,
         private_key=_normalize_private_key(private_key),
@@ -336,10 +343,6 @@ def configure(_name: str, config: dict[str, Any]) -> None:
             _config_string(config, "webBaseUrl", "web_base_url")
             or GITHUB_DEFAULT_WEB_BASE_URL
         ).rstrip("/"),
-        bot_name=_config_string(config, "botName", "bot_name") or "GitHub Bot",
-        bot_email=_config_string(config, "botEmail", "bot_email"),
-        bot_login=_config_string(config, "botLogin", "bot_login"),
-        bot_user_id=_config_string(config, "botUserId", "bot_user_id"),
         webhook_events=tuple(
             event.lower()
             for event in (
@@ -356,7 +359,9 @@ def configure(_name: str, config: dict[str, Any]) -> None:
         agent_system_prompt=_agent_config_string(
             config, "systemPrompt", "system_prompt", "prompt"
         ),
-        agent_provider_options=_agent_config_dict(config, "providerOptions", "provider_options"),
+        agent_provider_options=_agent_config_dict(
+            config, "providerOptions", "provider_options"
+        ),
     )
 
 
@@ -386,7 +391,9 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
     description="Handle GitHub App webhook callbacks and delegate repository events to a Gestalt agent",
     visible=False,
 )
-def github_events_handle(input: dict[str, Any], req: gestalt.Request) -> OperationResult:
+def github_events_handle(
+    input: dict[str, Any], req: gestalt.Request
+) -> OperationResult:
     ignored_reason = _webhook_ignored_reason(input)
     if ignored_reason:
         return {"ok": True, "ignored": ignored_reason}
@@ -549,11 +556,8 @@ def _commit_files_from_input(
 ) -> CommitResult:
     owner = _require_slug(input.owner, "owner")
     repo = _require_slug(input.repo, "repo")
-    message = _commit_message_with_coauthors(
-        _require_text(input.message, "message"),
-        coauthors=input.coauthors,
-        include_bot=input.include_bot_coauthor,
-    )
+    message = _require_text(input.message, "message")
+    coauthors = _normalize_coauthors(input.coauthors)
     files = _normalize_file_changes(input.files)
     if not files:
         raise ValueError("files must contain at least one change")
@@ -618,6 +622,11 @@ def _commit_files_from_input(
     if not tree_sha:
         raise GitHubAPIError(502, "GitHub tree response did not include sha")
 
+    message = _commit_message_with_coauthors(
+        message,
+        coauthors=coauthors,
+        include_bot=input.include_bot_coauthor,
+    )
     commit_payload: dict[str, Any] = {
         "message": message,
         "tree": tree_sha,
@@ -693,9 +702,7 @@ def _create_pull_request(
         "draft": bool(draft),
         "maintainer_can_modify": bool(maintainer_can_modify),
     }
-    return _github_json(
-        "POST", _repo_path(owner, repo, "pulls"), token, payload
-    )
+    return _github_json("POST", _repo_path(owner, repo, "pulls"), token, payload)
 
 
 def _tree_entry_for_file(
@@ -710,7 +717,9 @@ def _tree_entry_for_file(
             "sha": None,
         }
     if change.content and change.content_base64:
-        raise ValueError(f"{change.path}: content and content_base64 are mutually exclusive")
+        raise ValueError(
+            f"{change.path}: content and content_base64 are mutually exclusive"
+        )
     if change.content_base64:
         blob = _github_json(
             "POST",
@@ -753,12 +762,16 @@ def _normalize_file_changes(files: list[FileChangeInput]) -> list[GitHubFileChan
         if item.delete and (item.content or content_base64):
             raise ValueError(f"{path}: delete cannot include content")
         if item.content and content_base64:
-            raise ValueError(f"{path}: content and content_base64 are mutually exclusive")
+            raise ValueError(
+                f"{path}: content and content_base64 are mutually exclusive"
+            )
         if content_base64:
             try:
                 base64.b64decode(content_base64, validate=True)
             except (binascii.Error, ValueError) as err:
-                raise ValueError(f"{path}: content_base64 must be valid base64") from err
+                raise ValueError(
+                    f"{path}: content_base64 must be valid base64"
+                ) from err
         seen.add(path)
         normalized.append(
             GitHubFileChange(
@@ -851,9 +864,14 @@ def _create_app_jwt() -> str:
             _base64url_json(payload),
         ]
     )
-    private_key = serialization.load_pem_private_key(
-        _private_key_bytes(config), password=None
-    )
+    try:
+        private_key = serialization.load_pem_private_key(
+            _private_key_bytes(config), password=None
+        )
+    except ValueError as err:
+        raise GitHubConfigError(
+            "GitHub App private key is not a valid PEM key"
+        ) from err
     if not isinstance(private_key, RSAPrivateKey):
         raise GitHubConfigError("GitHub App private key must be an RSA private key")
     signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
@@ -885,16 +903,17 @@ def _private_key_bytes(config: GitHubAppConfig) -> bytes:
 def _github_json(
     method: str,
     path: str,
-    token: str,
+    token: str | None,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     data = None
     headers = {
         "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": GITHUB_API_VERSION,
         "User-Agent": "gestalt-github-plugin",
     }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -945,7 +964,9 @@ def _repository_default_branch(token: str, owner: str, repo: str) -> str:
     data = _github_json("GET", _repo_path(owner, repo), token)
     branch = _str_field(data, "default_branch")
     if not branch:
-        raise GitHubAPIError(502, "GitHub repository response did not include default_branch")
+        raise GitHubAPIError(
+            502, "GitHub repository response did not include default_branch"
+        )
     return branch
 
 
@@ -954,7 +975,9 @@ def _get_branch_ref(
 ) -> dict[str, Any] | None:
     try:
         return _github_json(
-            "GET", _repo_path(owner, repo, "git", "ref", "heads", branch, safe_last="/"), token
+            "GET",
+            _repo_path(owner, repo, "git", "ref", "heads", branch, safe_last="/"),
+            token,
         )
     except GitHubAPIError as err:
         if err.status == HTTPStatus.NOT_FOUND:
@@ -978,10 +1001,8 @@ def _object_sha(ref: dict[str, Any], name: str) -> str:
     return sha
 
 
-def _commit_message_with_coauthors(
-    message: str, *, coauthors: list[CoAuthorInput], include_bot: bool
-) -> str:
-    trailers: list[str] = []
+def _normalize_coauthors(coauthors: list[CoAuthorInput]) -> list[tuple[str, str]]:
+    normalized: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for coauthor in coauthors:
         name = coauthor.name.strip()
@@ -991,12 +1012,26 @@ def _commit_message_with_coauthors(
         key = (name, email)
         if key not in seen:
             seen.add(key)
+            normalized.append(key)
+    return normalized
+
+
+def _commit_message_with_coauthors(
+    message: str, *, coauthors: list[tuple[str, str]], include_bot: bool
+) -> str:
+    trailers: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for name, email in coauthors:
+        key = (name, email)
+        if key not in seen:
+            seen.add(key)
             trailers.append(f"Co-authored-by: {name} <{email}>")
 
-    bot = _bot_coauthor()
-    if include_bot and bot is not None and bot not in seen:
-        seen.add(bot)
-        trailers.append(f"Co-authored-by: {bot[0]} <{bot[1]}>")
+    if include_bot:
+        bot = _bot_coauthor()
+        if bot is not None and bot not in seen:
+            seen.add(bot)
+            trailers.append(f"Co-authored-by: {bot[0]} <{bot[1]}>")
 
     if not trailers:
         return message
@@ -1004,16 +1039,56 @@ def _commit_message_with_coauthors(
 
 
 def _bot_coauthor() -> tuple[str, str] | None:
-    name = _github_config.bot_name.strip() or _github_config.bot_login.strip()
-    email = _github_config.bot_email.strip()
-    if not email and _github_config.bot_login and _github_config.bot_user_id:
-        email = (
-            f"{_github_config.bot_user_id.strip()}+"
-            f"{_github_config.bot_login.strip()}@users.noreply.github.com"
-        )
-    if not name or not email:
+    identity = _bot_identity_or_none()
+    if identity is None or not identity.name or not identity.email:
         return None
-    return name, email
+    return identity.name, identity.email
+
+
+def _bot_identity_or_none() -> GitHubBotIdentity | None:
+    try:
+        return _bot_identity()
+    except (
+        GitHubAPIError,
+        GitHubConfigError,
+    ):
+        return None
+
+
+def _bot_identity() -> GitHubBotIdentity:
+    global _github_bot_identity
+
+    if _github_bot_identity is not None:
+        return _github_bot_identity
+
+    app = _github_json("GET", "/app", _create_app_jwt())
+    slug = _str_field(app, "slug")
+    if not slug:
+        raise GitHubAPIError(502, "GitHub app response did not include slug")
+
+    login = f"{slug}[bot]"
+    name = _str_field(app, "name") or login
+    user_id = ""
+    email = ""
+    try:
+        user = _github_json("GET", f"/users/{urllib.parse.quote(login, safe='')}", None)
+        user_id_int = _int_field(user, "id")
+        if user_id_int > 0:
+            user_id = str(user_id_int)
+            email = f"{user_id}+{login}@users.noreply.github.com"
+        login = _str_field(user, "login") or login
+    except GitHubAPIError:
+        pass
+
+    identity = GitHubBotIdentity(
+        name=name,
+        login=login,
+        user_id=user_id,
+        email=email,
+    )
+    if email:
+        _github_bot_identity = identity
+    return identity
 
 
 def _git_identity(name: str, email: str) -> dict[str, str] | None:
@@ -1022,7 +1097,9 @@ def _git_identity(name: str, email: str) -> dict[str, str] | None:
     if not name and not email:
         return None
     if not name or not email:
-        raise ValueError("git author/committer name and email must be provided together")
+        raise ValueError(
+            "git author/committer name and email must be provided together"
+        )
     return {"name": name, "email": email}
 
 
@@ -1047,7 +1124,9 @@ def _build_agent_turn_request(
         model=_github_config.agent_model,
         messages=[
             agent_pb2.AgentMessage(role="system", text=_agent_system_prompt()),
-            agent_pb2.AgentMessage(role="user", text=_agent_user_prompt(payload, summary)),
+            agent_pb2.AgentMessage(
+                role="user", text=_agent_user_prompt(payload, summary)
+            ),
         ],
         tool_refs=[
             agent_pb2.AgentToolRef(
@@ -1068,7 +1147,9 @@ def _build_agent_turn_request(
     )
     request.metadata.CopyFrom(_agent_turn_metadata(summary))
     if _github_config.agent_provider_options:
-        request.provider_options.CopyFrom(_dict_to_struct(_github_config.agent_provider_options))
+        request.provider_options.CopyFrom(
+            _dict_to_struct(_github_config.agent_provider_options)
+        )
     return request
 
 
@@ -1163,7 +1244,9 @@ def _agent_session_idempotency_key(summary: dict[str, Any]) -> str:
     return f"github:session:{_agent_session_ref(summary)}"
 
 
-def _agent_turn_idempotency_key(payload: dict[str, Any], summary: dict[str, Any]) -> str:
+def _agent_turn_idempotency_key(
+    payload: dict[str, Any], summary: dict[str, Any]
+) -> str:
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -1214,8 +1297,16 @@ def _webhook_ignored_reason(payload: dict[str, Any]) -> str:
         return "unknown_event_type"
     if event_type not in _github_config.webhook_events:
         return f"unsupported_event_type:{event_type}"
-    if _github_config.ignore_bot_sender and _is_configured_bot_sender(payload):
-        return "configured_bot_sender"
+    if _github_config.ignore_bot_sender:
+        try:
+            if _is_configured_bot_sender(payload):
+                return "configured_bot_sender"
+        except (
+            GitHubAPIError,
+            GitHubConfigError,
+        ):
+            if _is_bot_sender(payload):
+                return "unresolved_bot_sender"
     return ""
 
 
@@ -1245,18 +1336,19 @@ def _github_event_type(payload: dict[str, Any]) -> str:
 
 def _is_configured_bot_sender(payload: dict[str, Any]) -> bool:
     sender_login = _nested_str(_map_field(payload, "sender"), "login").lower()
-    return bool(sender_login and sender_login in _configured_bot_logins())
+    if not sender_login or not _is_bot_login(sender_login):
+        return False
+    identity = _bot_identity()
+    return bool(identity.login and sender_login == identity.login.lower())
 
 
-def _configured_bot_logins() -> set[str]:
-    logins: set[str] = set()
-    if _github_config.bot_login.strip():
-        logins.add(_github_config.bot_login.strip().lower())
-    email = _github_config.bot_email.strip()
-    match = re.match(r"^\d+\+([^@]+)@users\.noreply\.github\.com$", email)
-    if match:
-        logins.add(match.group(1).lower())
-    return logins
+def _is_bot_sender(payload: dict[str, Any]) -> bool:
+    sender_login = _nested_str(_map_field(payload, "sender"), "login").lower()
+    return _is_bot_login(sender_login)
+
+
+def _is_bot_login(login: str) -> bool:
+    return login.endswith("[bot]")
 
 
 def _commit_result_dict(commit: CommitResult) -> dict[str, Any]:
@@ -1435,7 +1527,9 @@ def _config_string_list(config: dict[str, Any], *keys: str) -> list[str] | None:
             continue
         value = config.get(key)
         if isinstance(value, list):
-            return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+            return [
+                item.strip() for item in value if isinstance(item, str) and item.strip()
+            ]
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
     return None

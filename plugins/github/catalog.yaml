@@ -46,8 +46,8 @@ operations:
       email.
   - name: include_bot_coauthor
     type: boolean
-    description: Append the configured GitHub App bot as a co-author when botEmail
-      is configured
+    description: Append the GitHub App bot as a co-author when its no-reply identity
+      can be derived
     default: true
   - name: author_name
     type: string
@@ -167,8 +167,8 @@ operations:
       email.
   - name: include_bot_coauthor
     type: boolean
-    description: Append the configured GitHub App bot as a co-author when botEmail
-      is configured
+    description: Append the GitHub App bot as a co-author when its no-reply identity
+      can be derived
     default: true
   - name: author_name
     type: string

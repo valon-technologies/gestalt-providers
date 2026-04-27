@@ -57,8 +57,6 @@ plugins:
         provider: simple
         model: gpt-5.4
         systemPrompt: Keep pull request changes small and explain what changed.
-      botName: Example App Bot
-      botEmail: "12345678+example-app[bot]@users.noreply.github.com"
       webhookEvents:
         - pull_request
         - issue_comment
@@ -73,6 +71,11 @@ turns or bot operations.
 The private key can also be supplied with `appPrivateKey`,
 `appPrivateKeyPath`, `GITHUB_APP_PRIVATE_KEY`, or
 `GITHUB_APP_PRIVATE_KEY_PATH`.
+
+The provider derives the GitHub App bot identity from the configured app. It
+uses `/app` to read the app name and slug, then resolves `{slug}[bot]` to the
+bot account when a no-reply co-author email is needed. You do not need to
+configure the bot login, user ID, name, or email.
 
 Webhook signature validation is configured separately from the regular
 connection and reads the shared webhook secret from `GITHUB_WEBHOOK_SECRET`.
