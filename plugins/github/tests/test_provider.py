@@ -103,8 +103,11 @@ class GitHubProviderTests(unittest.TestCase):
                 "appPrivateKey": "unused-in-tests",
                 "botName": "Example App Bot",
                 "botEmail": "12345678+example-app[bot]@users.noreply.github.com",
-                "agentProvider": "simple",
-                "agentModel": "deep",
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "providerOptions": {"temperature": 0},
+                },
             },
         )
         self.addCleanup(provider_module.configure, "github", {})
@@ -158,6 +161,7 @@ class GitHubProviderTests(unittest.TestCase):
         request = agent_manager.requests[0]
         self.assertEqual(request.provider_name, "simple")
         self.assertEqual(request.model, "deep")
+        self.assertEqual(request.provider_options["temperature"], 0)
         self.assertEqual(
             request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT
         )
