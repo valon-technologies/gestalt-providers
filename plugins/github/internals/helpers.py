@@ -29,6 +29,8 @@ def int_field(data: dict[str, Any], field_name: str) -> int:
         return 0
     if isinstance(value, int):
         return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     if isinstance(value, str) and value.strip().isdigit():
         return int(value.strip())
     return 0

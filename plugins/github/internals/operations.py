@@ -24,6 +24,7 @@ from .constants import (
 )
 from .errors import GitHubAPIError, GitHubAuthorizationError
 from .helpers import (
+    int_field,
     nested_str,
     optional_slug,
     require_branch_name,
@@ -530,7 +531,7 @@ def commit_result_dict(commit: CommitResult) -> dict[str, Any]:
 
 def pull_request_summary(pull: dict[str, Any]) -> dict[str, Any]:
     return {
-        "number": int_field_safe(pull, "number"),
+        "number": int_field(pull, "number"),
         "title": str_field(pull, "title"),
         "state": str_field(pull, "state"),
         "html_url": str_field(pull, "html_url"),
@@ -538,17 +539,6 @@ def pull_request_summary(pull: dict[str, Any]) -> dict[str, Any]:
         "head": nested_str(pull, "head", "ref"),
         "base": nested_str(pull, "base", "ref"),
     }
-
-
-def int_field_safe(data: dict[str, Any], field_name: str) -> int:
-    value = data.get(field_name)
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.strip().isdigit():
-        return int(value.strip())
-    return 0
 
 
 def generated_branch_name(message: str) -> str:

@@ -283,7 +283,7 @@ class GitHubProviderTests(unittest.TestCase):
         subject = provider_module.resolve_http_subject(
             gestalt.HTTPSubjectRequest(
                 params={
-                    "installation": {"id": 99},
+                    "installation": {"id": 99.0},
                     "repository": {"full_name": "acme/widgets"},
                 }
             )
@@ -302,14 +302,14 @@ class GitHubProviderTests(unittest.TestCase):
         agent_manager = FakeAgentManager()
         payload = {
             "action": "opened",
-            "installation": {"id": 99},
+            "installation": {"id": 99.0},
             "repository": {
                 "full_name": "acme/widgets",
                 "name": "widgets",
                 "owner": {"login": "acme"},
             },
             "pull_request": {
-                "number": 7,
+                "number": 7.0,
                 "head": {"ref": "feature"},
                 "base": {"ref": "main"},
             },
