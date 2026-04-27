@@ -318,27 +318,33 @@ def _fresh_socket(name: str) -> str:
     return socket_path
 
 
-def _configure_provider(*, default_model: str = "fast") -> tuple[Any, Any]:
+def _configure_provider(*, default_model: str = "fast", provider_options: dict[str, Any] | None = None) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
     _configure_runtime(
         lifecycle,
         default_model=default_model,
+        provider_options=provider_options,
     )
     return lifecycle, provider_client
 
 
-def _configure_runtime(lifecycle: Any, *, default_model: str = "fast") -> None:
+def _configure_runtime(
+    lifecycle: Any, *, default_model: str = "fast", provider_options: dict[str, Any] | None = None
+) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
+    config: dict[str, Any] = {
+        "defaultModel": default_model,
+        "aliases": {"fast": "openai/fake-model"},
+        "maxSteps": 4,
+        "timeoutSeconds": 5,
+        "systemPrompt": "Be concise.",
+    }
+    if provider_options is not None:
+        config["providerOptions"] = provider_options
     json_format.ParseDict(
-        {
-            "defaultModel": default_model,
-            "aliases": {"fast": "openai/fake-model"},
-            "maxSteps": 4,
-            "timeoutSeconds": 5,
-            "systemPrompt": "Be concise.",
-        },
+        config,
         request.config,
     )
     lifecycle.ConfigureProvider(request)
@@ -975,6 +981,79 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.output_text, "pong over tcp")
         self.assertEqual(fetched.model, "openai/fake-model")
 
+    def test_create_turn_merges_config_provider_options_before_request_options(self) -> None:
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-config-options",
+                    "object": "chat.completion",
+                    "created": 1710000050,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "config options applied",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        _, provider_client = _configure_provider(
+            provider_options={
+                "litellm": {"top_p": 0.8},
+                "openai": {
+                    "base_url": f"{fake_llm.base_url}/v1",
+                    "api_key": "config-key",
+                    "reasoning_effort": "xhigh",
+                    "temperature": 0.1,
+                },
+            }
+        )
+        _create_session(
+            provider_client,
+            session_id="session-config-options",
+            idempotency_key="session-idem-config-options",
+        )
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"max_completion_tokens": 64, "openai": {"temperature": 0.7}})
+
+        started = provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-config-options",
+                session_id="session-config-options",
+                idempotency_key="idem-config-options",
+                model="fast",
+                messages=[agent_pb2.AgentMessage(role="user", text="Apply config options.")],
+                provider_options=provider_options,
+            )
+        )
+        fetched = _wait_for_turn(
+            provider_client,
+            "turn-config-options",
+            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+        )
+
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "config options applied")
+
+        self.assertEqual(len(fake_llm.requests), 1)
+        request = fake_llm.requests[0]
+        self.assertEqual(request["model"], "fake-model")
+        self.assertEqual(request["reasoning_effort"], "xhigh")
+        self.assertEqual(request["top_p"], 0.8)
+        self.assertEqual(request["temperature"], 0.7)
+        self.assertEqual(request["max_completion_tokens"], 64)
+
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
         _, provider_client = _configure_provider()
@@ -1226,7 +1305,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertIn("session 'session-a'", _rpc_error_details(idempotency_exc.exception))
 
     def test_create_turn_completes_anthropic_tool_loop_and_persists_turn(self) -> None:
-        _, provider_client = _configure_provider()
+        _, provider_client = _configure_provider(
+            provider_options={
+                "anthropic": {
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": "medium"},
+                }
+            }
+        )
         _create_session(
             provider_client,
             session_id="session-anthropic",
@@ -1242,6 +1328,11 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "role": "assistant",
                     "model": "claude-fake-model",
                     "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Search for the relevant lookup tool.",
+                            "signature": "sig-search",
+                        },
                         {
                             "type": "tool_use",
                             "id": "toolu-search-1",
@@ -1259,6 +1350,11 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "role": "assistant",
                     "model": "claude-fake-model",
                     "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Use person_lookup for Ada Lovelace.",
+                            "signature": "sig-lookup",
+                        },
                         {
                             "type": "tool_use",
                             "id": "toolu-1",
@@ -1350,14 +1446,20 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(first_request["model"], "claude-fake-model")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
         self.assertEqual([tool["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
+        self.assertEqual(first_request["thinking"], {"type": "adaptive"})
+        self.assertEqual(first_request["output_config"], {"effort": "medium"})
         self.assertIn("Return only valid JSON", first_request["system"])
         self.assertIn("person_lookup", [tool["name"] for tool in second_request["tools"]])
         self.assertEqual(second_request["messages"][1]["role"], "assistant")
-        self.assertEqual(second_request["messages"][1]["content"][0]["type"], "tool_use")
+        self.assertEqual(second_request["messages"][1]["content"][0]["type"], "thinking")
+        self.assertEqual(second_request["messages"][1]["content"][0]["signature"], "sig-search")
+        self.assertEqual(second_request["messages"][1]["content"][1]["type"], "tool_use")
         self.assertEqual(second_request["messages"][2]["role"], "user")
         self.assertEqual(second_request["messages"][2]["content"][0]["type"], "tool_result")
         self.assertEqual(third_request["messages"][3]["role"], "assistant")
-        self.assertEqual(third_request["messages"][3]["content"][0]["name"], "person_lookup")
+        self.assertEqual(third_request["messages"][3]["content"][0]["type"], "thinking")
+        self.assertEqual(third_request["messages"][3]["content"][0]["signature"], "sig-lookup")
+        self.assertEqual(third_request["messages"][3]["content"][1]["name"], "person_lookup")
         self.assertEqual(third_request["messages"][4]["content"][0]["type"], "tool_result")
 
     def test_create_turn_keeps_openai_compatible_prefixed_models_and_legacy_nested_overrides(self) -> None:

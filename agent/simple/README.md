@@ -66,6 +66,14 @@ providers:
         aliases:
           fast: openai/gpt-4.1-mini
           deep: anthropic/claude-sonnet-4-20250514
+        providerOptions:
+          openai:
+            reasoning_effort: medium
+          anthropic:
+            thinking:
+              type: adaptive
+            output_config:
+              effort: medium
         maxSteps: 8
         timeoutSeconds: 120
 ```
@@ -106,9 +114,21 @@ providers:
         aliases:
           fast: openai/gpt-4.1-mini
           deep: anthropic/claude-sonnet-4-20250514
+        providerOptions:
+          openai:
+            reasoning_effort: medium
+          anthropic:
+            thinking:
+              type: adaptive
+            output_config:
+              effort: medium
         maxSteps: 8
         timeoutSeconds: 120
         systemPrompt: You are a concise operations assistant.
+        openaiApiKey:
+          secret:
+            provider: secrets
+            name: openai-api-key
         anthropicApiKey:
           secret:
             provider: secrets
@@ -132,9 +152,11 @@ Supported model families today are:
 - `anthropic/<model>`
 
 Other prefixed model IDs are still forwarded through the OpenAI-compatible
-path with the full model string preserved. Use `providerOptions.<prefix>` for
-provider-specific overrides, and `providerOptions.litellm` remains accepted as
-a legacy generic override block during migration.
+path with the full model string preserved. Use config `providerOptions` for
+provider-wide defaults and per-turn `provider_options` for request-specific
+overrides. Both support `providerOptions.<prefix>` for provider-specific
+values, and `providerOptions.litellm` remains accepted as a legacy generic
+override block during migration.
 
 When targeting Anthropic, set `providerOptions.max_tokens` (or
 `providerOptions.anthropic.max_tokens`) to control the response budget. If you
