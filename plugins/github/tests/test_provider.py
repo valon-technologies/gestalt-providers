@@ -99,7 +99,9 @@ def http_error(
     )
 
 
-def github_request(installation_id: int = 99, repo: str = "acme/widgets") -> gestalt.Request:
+def github_request(
+    installation_id: int = 99, repo: str = "acme/widgets"
+) -> gestalt.Request:
     return gestalt.Request(
         subject=gestalt.Subject(
             id=f"workload:github_app_installation:{installation_id}:repo:{repo}",
@@ -117,8 +119,6 @@ class GitHubProviderTests(unittest.TestCase):
             {
                 "appId": "12345",
                 "appPrivateKey": "unused-in-tests",
-                "botName": "Example App Bot",
-                "botEmail": "12345678+example-app[bot]@users.noreply.github.com",
                 "agent": {
                     "provider": "simple",
                     "model": "deep",
@@ -146,6 +146,127 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")
         self.assertEqual(security["signaturePrefix"], "sha256=")
         self.assertEqual(security["payloadTemplate"], "{raw_body}")
+
+    def test_bot_identity_is_derived_from_github_app(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            calls.append((path, auth_header(request)))
+            if path == "/app":
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                return FakeHTTPResponse(
+                    {"name": "Example App Bot", "slug": "example-app"}
+                )
+            if path == "/users/example-app%5Bbot%5D":
+                self.assertEqual(auth_header(request), "")
+                return FakeHTTPResponse({"id": 12345678, "login": "example-app[bot]"})
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("provider._create_app_jwt", return_value="app-jwt"),
+            mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen),
+        ):
+            identity = provider_module._bot_identity()
+            cached_identity = provider_module._bot_identity()
+
+        self.assertEqual(identity, cached_identity)
+        self.assertEqual(identity.name, "Example App Bot")
+        self.assertEqual(identity.login, "example-app[bot]")
+        self.assertEqual(identity.user_id, "12345678")
+        self.assertEqual(
+            identity.email, "12345678+example-app[bot]@users.noreply.github.com"
+        )
+        self.assertEqual(
+            calls, [("/app", "Bearer app-jwt"), ("/users/example-app%5Bbot%5D", "")]
+        )
+
+    def test_commit_message_skips_bot_identity_when_bot_coauthor_disabled(self) -> None:
+        with mock.patch(
+            "provider._bot_identity", side_effect=AssertionError("unexpected lookup")
+        ):
+            message = provider_module._commit_message_with_coauthors(
+                "Update README",
+                coauthors=provider_module._normalize_coauthors(
+                    [provider_module.CoAuthorInput(name="Ada", email="ada@example.com")]
+                ),
+                include_bot=False,
+            )
+
+        self.assertEqual(
+            message, "Update README\n\nCo-authored-by: Ada <ada@example.com>"
+        )
+
+    def test_invalid_coauthors_are_rejected_before_github_calls(self) -> None:
+        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_commit_files(
+                provider_module.CommitFilesInput(
+                    owner="acme",
+                    repo="widgets",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base_branch="main",
+                    installation_id=99,
+                    coauthors=[provider_module.CoAuthorInput(name="", email="")],
+                ),
+                github_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertIn("coauthor name and email are required", response.body["error"])
+        urlopen.assert_not_called()
+
+    def test_bot_identity_retries_user_lookup_after_partial_derivation(self) -> None:
+        calls: list[str] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            calls.append(path)
+            if path == "/app":
+                return FakeHTTPResponse(
+                    {"name": "Example App Bot", "slug": "example-app"}
+                )
+            if path == "/users/example-app%5Bbot%5D" and calls.count(path) == 1:
+                raise http_error(request.full_url, HTTPStatus.FORBIDDEN)
+            if path == "/users/example-app%5Bbot%5D":
+                return FakeHTTPResponse({"id": 12345678, "login": "example-app[bot]"})
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("provider._create_app_jwt", return_value="app-jwt"),
+            mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen),
+        ):
+            partial_identity = provider_module._bot_identity()
+            full_identity = provider_module._bot_identity()
+
+        self.assertEqual(partial_identity.login, "example-app[bot]")
+        self.assertEqual(partial_identity.email, "")
+        self.assertEqual(
+            full_identity.email,
+            "12345678+example-app[bot]@users.noreply.github.com",
+        )
+        self.assertEqual(
+            calls,
+            [
+                "/app",
+                "/users/example-app%5Bbot%5D",
+                "/app",
+                "/users/example-app%5Bbot%5D",
+            ],
+        )
 
     def test_resolve_http_subject_maps_installation_to_workload(self) -> None:
         subject = provider_module.resolve_http_subject(
@@ -249,6 +370,15 @@ class GitHubProviderTests(unittest.TestCase):
             body = request_json(request)
             calls.append((method, path, body, auth_header(request)))
 
+            if path == "/app":
+                self.assertEqual(method, "GET")
+                return FakeHTTPResponse(
+                    {"name": "Example App Bot", "slug": "example-app"}
+                )
+            if path == "/users/example-app%5Bbot%5D":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "")
+                return FakeHTTPResponse({"id": 12345678, "login": "example-app[bot]"})
             if path == "/app/installations/99/access_tokens":
                 self.assertEqual(method, "POST")
                 self.assertEqual(auth_header(request), "Bearer app-jwt")
@@ -276,16 +406,16 @@ class GitHubProviderTests(unittest.TestCase):
             if path == "/repos/acme/widgets/git/commits":
                 self.assertEqual(body["tree"], "new-tree")
                 self.assertEqual(body["parents"], ["base-commit"])
-                self.assertIn(
-                    "Co-authored-by: Ada <ada@example.com>", body["message"]
-                )
+                self.assertIn("Co-authored-by: Ada <ada@example.com>", body["message"])
                 self.assertIn(
                     "Co-authored-by: Example App Bot <12345678+example-app[bot]@users.noreply.github.com>",
                     body["message"],
                 )
                 return FakeHTTPResponse({"sha": "new-commit"})
             if path == "/repos/acme/widgets/git/refs":
-                self.assertEqual(body, {"ref": "refs/heads/feature", "sha": "new-commit"})
+                self.assertEqual(
+                    body, {"ref": "refs/heads/feature", "sha": "new-commit"}
+                )
                 return FakeHTTPResponse({})
             self.fail(f"unexpected request {method} {path}")
 
@@ -332,6 +462,13 @@ class GitHubProviderTests(unittest.TestCase):
             path = request_path(request)
             body = request_json(request)
 
+            if path == "/app":
+                return FakeHTTPResponse(
+                    {"name": "Example App Bot", "slug": "example-app"}
+                )
+            if path == "/users/example-app%5Bbot%5D":
+                self.assertEqual(auth_header(request), "")
+                return FakeHTTPResponse({"id": 12345678, "login": "example-app[bot]"})
             if path == "/app/installations/99/access_tokens":
                 permissions = body["permissions"]
                 if permissions == {"contents": "write", "pull_requests": "write"}:
@@ -487,7 +624,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("repository", response.body["error"])
         urlopen.assert_not_called()
 
-    def test_webhook_handler_filters_unsupported_and_configured_bot_events(self) -> None:
+    def test_webhook_handler_filters_unsupported_and_configured_bot_events(
+        self,
+    ) -> None:
         agent_manager = FakeAgentManager()
         push_payload = {
             "ref": "refs/heads/feature",
@@ -504,8 +643,19 @@ class GitHubProviderTests(unittest.TestCase):
             "sender": {"login": "example-app[bot]"},
         }
 
-        with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+        with (
+            mock.patch.object(
+                gestalt.Request, "agent_manager", return_value=agent_manager
+            ),
+            mock.patch(
+                "provider._bot_identity",
+                return_value=provider_module.GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
         ):
             push_result = provider_module.github_events_handle(
                 push_payload, gestalt.Request()
@@ -518,6 +668,32 @@ class GitHubProviderTests(unittest.TestCase):
             push_result, {"ok": True, "ignored": "unsupported_event_type:push"}
         )
         self.assertEqual(bot_result, {"ok": True, "ignored": "configured_bot_sender"})
+        self.assertEqual(agent_manager.requests, [])
+
+    def test_webhook_handler_ignores_bot_sender_when_identity_derivation_fails(
+        self,
+    ) -> None:
+        agent_manager = FakeAgentManager()
+        payload = {
+            "action": "opened",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {"number": 7},
+            "sender": {"login": "example-app[bot]"},
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request, "agent_manager", return_value=agent_manager
+            ),
+            mock.patch(
+                "provider._bot_identity",
+                side_effect=provider_module.GitHubAPIError(502, "unavailable"),
+            ),
+        ):
+            result = provider_module.github_events_handle(payload, gestalt.Request())
+
+        self.assertEqual(result, {"ok": True, "ignored": "unresolved_bot_sender"})
         self.assertEqual(agent_manager.requests, [])
 
 
