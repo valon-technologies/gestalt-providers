@@ -42,6 +42,8 @@ github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af
 github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af2bbc9e1add/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
 github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260424032606-a529df53c4ec h1:0ZlwhD82X0zqt20yPuASVBC/SEdFGikdgtML6tqdE7c=
 github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260424032606-a529df53c4ec/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260427150224-7cf09784f1db h1:us0ZeiSz3dSy5WyYTZfLHT3pQ+WdRyO3DdRfWfBWl34=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260427150224-7cf09784f1db/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

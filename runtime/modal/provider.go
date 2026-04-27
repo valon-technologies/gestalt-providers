@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,6 +37,8 @@ const (
 	tunnelLookupTimeout = 30 * time.Second
 	dialTimeout         = 15 * time.Second
 	launchDrainTimeout  = 3 * time.Second
+	defaultSandboxTTL   = 5 * time.Minute
+	drainBeforeExpiry   = 30 * time.Second
 	sessionStateReady   = "ready"
 	sessionStateRunning = "running"
 	sessionStateStopped = "stopped"
@@ -76,15 +79,20 @@ type Provider struct {
 }
 
 type session struct {
-	id       string
-	state    string
-	metadata map[string]string
-	bindings map[string]string
-	image    string
-	sandbox  *modalclient.Sandbox
-	tunnel   *modalclient.Tunnel
-	plugin   *plugin
-	logSeq   uint64
+	id                 string
+	state              string
+	metadata           map[string]string
+	bindings           map[string]string
+	image              string
+	startedAt          time.Time
+	recommendedDrainAt *time.Time
+	expiresAt          *time.Time
+	stateReason        string
+	stateMessage       string
+	sandbox            *modalclient.Sandbox
+	tunnel             *modalclient.Tunnel
+	plugin             *plugin
+	logSeq             uint64
 }
 
 type plugin struct {
@@ -225,11 +233,38 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 		}
 		if session.state != sessionStateStopped && session.state != sessionStateFailed {
 			session.state = sessionStateStopped
+			session.stateReason = "exited"
+			session.stateMessage = fmt.Sprintf("modal sandbox process exited with status %d", *code)
 		}
 		cloned = cloneSession(session)
 		p.mu.Unlock()
 	}
 	return cloned, nil
+}
+
+func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeSessionsRequest) (*proto.ListPluginRuntimeSessionsResponse, error) {
+	p.mu.Lock()
+	sessionIDs := make([]string, 0, len(p.sessions))
+	for sessionID := range p.sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	p.mu.Unlock()
+	sort.Strings(sessionIDs)
+
+	resp := &proto.ListPluginRuntimeSessionsResponse{
+		Sessions: make([]*proto.PluginRuntimeSession, 0, len(sessionIDs)),
+	}
+	for _, sessionID := range sessionIDs {
+		session, err := p.GetSession(ctx, &proto.GetPluginRuntimeSessionRequest{SessionId: sessionID})
+		if status.Code(err) == codes.NotFound {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		resp.Sessions = append(resp.Sessions, session)
+	}
+	return resp, nil
 }
 
 func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntimeSessionRequest) (*emptypb.Empty, error) {
@@ -385,7 +420,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	if err := waitForPluginReady(ctx, host, port); err != nil {
 		logRuntimePhase(logs, "plugin gRPC readiness: failed after %s: %v", elapsed(startedAt), err)
 		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "wait for modal plugin gRPC endpoint: "+err.Error(), time.Now())
-		p.markSessionLaunchFailed(req.GetSessionId())
+		p.markSessionLaunchFailed(req.GetSessionId(), "readiness_failed", err.Error())
 		p.resetSessionSandbox(req.GetSessionId(), sandbox)
 		_, _ = sandbox.Terminate(context.Background(), nil)
 		waitForLaunchDrain(processDone, stdoutDone, stderrDone, launchDrainTimeout)
@@ -408,6 +443,8 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}
 	session.plugin = plugin
 	session.state = sessionStateRunning
+	session.stateReason = ""
+	session.stateMessage = ""
 	p.mu.Unlock()
 	logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, fmt.Sprintf("plugin %q became ready", req.GetPluginName()), time.Now())
 	launchOK = true
@@ -508,6 +545,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 
 	startedAt = time.Now()
 	logRuntimePhase(logs, "modal sandbox create: starting image=%q timeout=%s idle_timeout=%s", imageRef, configuredDuration(cfg.Timeout), configuredDuration(cfg.IdleTimeout))
+	sandboxStartedAt := startedAt.UTC()
 	sandbox, err := client.Sandboxes.Create(ctx, app, client.Images.FromRegistry(imageRef, nil), createParams)
 	if err != nil {
 		logRuntimePhase(logs, "modal sandbox create: failed after %s: %v", elapsed(startedAt), err)
@@ -550,6 +588,10 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	session.sandbox = sandbox
 	session.tunnel = tunnel
 	session.state = sessionStateReady
+	session.stateReason = ""
+	session.stateMessage = ""
+	session.startedAt = sandboxStartedAt
+	session.expiresAt, session.recommendedDrainAt = modalSessionLifecycleDeadlines(session.startedAt, cfg)
 	p.mu.Unlock()
 	logRuntimePhase(logs, "modal sandbox: registered for session %q", req.GetSessionId())
 	return sandbox, tunnel, nil
@@ -689,12 +731,15 @@ func (p *Provider) resetSessionSandbox(sessionID string, sandbox *modalclient.Sa
 	}
 	session.sandbox = nil
 	session.tunnel = nil
+	session.startedAt = time.Time{}
+	session.recommendedDrainAt = nil
+	session.expiresAt = nil
 	if session.plugin == nil && session.state != sessionStateFailed {
 		session.state = sessionStateReady
 	}
 }
 
-func (p *Provider) markSessionLaunchFailed(sessionID string) {
+func (p *Provider) markSessionLaunchFailed(sessionID, reason, message string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	session, ok := p.sessions[strings.TrimSpace(sessionID)]
@@ -702,6 +747,8 @@ func (p *Provider) markSessionLaunchFailed(sessionID string) {
 		return
 	}
 	session.state = sessionStateFailed
+	session.stateReason = strings.TrimSpace(reason)
+	session.stateMessage = strings.TrimSpace(message)
 }
 
 func (p *Provider) watchPluginProcess(sessionID string, logs *sessionLogSink, process *modalclient.ContainerProcess) <-chan struct{} {
@@ -723,22 +770,28 @@ func (p *Provider) watchPluginProcess(sessionID string, logs *sessionLogSink, pr
 		stream := proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME
 		if err != nil {
 			session.state = sessionStateFailed
+			session.stateReason = "wait_failed"
 			message = "plugin process wait failed: " + err.Error()
+			session.stateMessage = message
 			p.mu.Unlock()
 			logs.add(stream, message, time.Now())
 			return
 		}
 		if code == 0 {
+			message = "plugin process exited successfully"
 			if session.state != sessionStateFailed {
 				session.state = sessionStateStopped
+				session.stateReason = "exited"
+				session.stateMessage = message
 			}
-			message = "plugin process exited successfully"
 			p.mu.Unlock()
 			logs.add(stream, message, time.Now())
 			return
 		}
 		session.state = sessionStateFailed
+		session.stateReason = "exited"
 		message = fmt.Sprintf("plugin process exited with status %d", code)
+		session.stateMessage = message
 		p.mu.Unlock()
 		logs.add(stream, message, time.Now())
 	}()
@@ -860,13 +913,49 @@ func cloneSession(session *session) *proto.PluginRuntimeSession {
 		return nil
 	}
 	return &proto.PluginRuntimeSession{
-		Id:       session.id,
-		State:    session.state,
-		Metadata: cloneStringMap(session.metadata),
+		Id:           session.id,
+		State:        session.state,
+		Metadata:     cloneStringMap(session.metadata),
+		Lifecycle:    cloneSessionLifecycle(session),
+		StateReason:  session.stateReason,
+		StateMessage: session.stateMessage,
 	}
 }
 
+func cloneSessionLifecycle(session *session) *proto.PluginRuntimeSessionLifecycle {
+	if session == nil || (session.startedAt.IsZero() && session.recommendedDrainAt == nil && session.expiresAt == nil) {
+		return nil
+	}
+	lifecycle := &proto.PluginRuntimeSessionLifecycle{}
+	if !session.startedAt.IsZero() {
+		lifecycle.StartedAt = timestamppb.New(session.startedAt.UTC())
+	}
+	if session.recommendedDrainAt != nil {
+		lifecycle.RecommendedDrainAt = timestamppb.New(session.recommendedDrainAt.UTC())
+	}
+	if session.expiresAt != nil {
+		lifecycle.ExpiresAt = timestamppb.New(session.expiresAt.UTC())
+	}
+	return lifecycle
+}
+
+func modalSessionLifecycleDeadlines(startedAt time.Time, cfg Config) (*time.Time, *time.Time) {
+	ttl := cfg.Timeout
+	if ttl <= 0 {
+		ttl = defaultSandboxTTL
+	}
+	expiresAt := startedAt.UTC().Add(ttl)
+	recommendedDrainAt := expiresAt.Add(-drainBeforeExpiry)
+	if !recommendedDrainAt.After(startedAt) {
+		recommendedDrainAt = startedAt.Add(ttl / 2)
+	}
+	return &expiresAt, &recommendedDrainAt
+}
+
 func logRuntimePhase(logs *sessionLogSink, format string, args ...any) {
+	if logs == nil {
+		return
+	}
 	logs.add(
 		proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME,
 		fmt.Sprintf(format, args...),

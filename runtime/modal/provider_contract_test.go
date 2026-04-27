@@ -5,7 +5,9 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
+	modalclient "github.com/modal-labs/modal-client/go"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
@@ -79,6 +81,110 @@ func TestRuntimeProviderContractRejectsUnknownRelayBinding(t *testing.T) {
 	})
 	if status.Code(err) != codes.Unimplemented {
 		t.Fatalf("BindHostService code = %v, want Unimplemented: %v", status.Code(err), err)
+	}
+}
+
+func TestRuntimeProviderContractListsSessionsWithLifecycle(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, time.April, 27, 14, 0, 0, 0, time.UTC)
+	recommendedDrainAt := startedAt.Add(4 * time.Minute)
+	expiresAt := startedAt.Add(5 * time.Minute)
+	provider := &Provider{
+		name: "modal",
+		sessions: map[string]*session{
+			"session-1": {
+				id:                 "session-1",
+				state:              sessionStateRunning,
+				metadata:           map[string]string{"provider_kind": "agent"},
+				startedAt:          startedAt,
+				recommendedDrainAt: &recommendedDrainAt,
+				expiresAt:          &expiresAt,
+				stateReason:        "exited",
+				stateMessage:       "plugin process exited with status 137",
+			},
+		},
+	}
+	client := startRuntimeProviderServer(t, provider)
+
+	resp, err := client.ListSessions(context.Background(), &proto.ListPluginRuntimeSessionsRequest{})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	sessions := resp.GetSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("ListSessions len = %d, want 1", len(sessions))
+	}
+	session := sessions[0]
+	if got, want := session.GetId(), "session-1"; got != want {
+		t.Fatalf("session id = %q, want %q", got, want)
+	}
+	if got, want := session.GetLifecycle().GetStartedAt().AsTime(), startedAt; !got.Equal(want) {
+		t.Fatalf("started_at = %s, want %s", got, want)
+	}
+	if got, want := session.GetLifecycle().GetRecommendedDrainAt().AsTime(), recommendedDrainAt; !got.Equal(want) {
+		t.Fatalf("recommended_drain_at = %s, want %s", got, want)
+	}
+	if got, want := session.GetLifecycle().GetExpiresAt().AsTime(), expiresAt; !got.Equal(want) {
+		t.Fatalf("expires_at = %s, want %s", got, want)
+	}
+	if got, want := session.GetStateReason(), "exited"; got != want {
+		t.Fatalf("state_reason = %q, want %q", got, want)
+	}
+	if got, want := session.GetStateMessage(), "plugin process exited with status 137"; got != want {
+		t.Fatalf("state_message = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeProviderContractStartSessionHasNoLifecycleBeforeSandbox(t *testing.T) {
+	t.Parallel()
+
+	provider := New()
+	provider.name = "modal"
+	provider.client = &modalclient.Client{}
+	provider.cfg = Config{App: "gestalt-test", Timeout: 5 * time.Minute}
+	client := startRuntimeProviderServer(t, provider)
+
+	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "agent",
+		Image:      "python:3.14-slim-bookworm",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	if session.GetLifecycle() != nil {
+		t.Fatalf("StartSession lifecycle = %#v, want nil before Modal sandbox creation", session.GetLifecycle())
+	}
+}
+
+func TestRuntimeProviderContractResetSessionSandboxClearsLifecycle(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, time.April, 27, 14, 0, 0, 0, time.UTC)
+	recommendedDrainAt := startedAt.Add(4 * time.Minute)
+	expiresAt := startedAt.Add(5 * time.Minute)
+	provider := &Provider{
+		name: "modal",
+		sessions: map[string]*session{
+			"session-1": {
+				id:                 "session-1",
+				state:              sessionStateReady,
+				startedAt:          startedAt,
+				recommendedDrainAt: &recommendedDrainAt,
+				expiresAt:          &expiresAt,
+				sandbox:            &modalclient.Sandbox{},
+			},
+		},
+	}
+
+	provider.resetSessionSandbox("session-1", provider.sessions["session-1"].sandbox)
+
+	cloned := cloneSession(provider.sessions["session-1"])
+	if cloned.GetLifecycle() != nil {
+		t.Fatalf("lifecycle after reset = %#v, want nil", cloned.GetLifecycle())
+	}
+	if provider.sessions["session-1"].sandbox != nil {
+		t.Fatal("sandbox after reset is still set")
 	}
 }
 
