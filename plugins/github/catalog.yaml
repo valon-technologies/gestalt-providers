@@ -1,0 +1,200 @@
+name: github
+operations:
+- id: events.handle
+  method: POST
+  description: Handle GitHub App webhook callbacks and delegate repository events
+    to a Gestalt agent
+  visible: false
+- id: bot.commitFiles
+  method: POST
+  description: Create a Git commit on a branch using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: message
+    type: string
+    description: Commit message
+    required: true
+  - name: files
+    type: array
+    description: Files to create, update, or delete. Each item accepts path, content,
+      content_base64, delete, and executable.
+    required: true
+  - name: branch
+    type: string
+    description: Branch to create or update. Defaults to a generated branch.
+    default: ''
+  - name: base_branch
+    type: string
+    description: Base branch for a newly-created branch. Defaults to the repository
+      default branch.
+    default: ''
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      workload subject.
+    default: 0
+  - name: coauthors
+    type: array
+    description: Co-authors to append as commit trailers. Each item accepts name and
+      email.
+  - name: include_bot_coauthor
+    type: boolean
+    description: Append the configured GitHub App bot as a co-author when botEmail
+      is configured
+    default: true
+  - name: author_name
+    type: string
+    description: Optional Git commit author name
+    default: ''
+  - name: author_email
+    type: string
+    description: Optional Git commit author email
+    default: ''
+  - name: committer_name
+    type: string
+    description: Optional Git commit committer name
+    default: ''
+  - name: committer_email
+    type: string
+    description: Optional Git commit committer email
+    default: ''
+  - name: force
+    type: boolean
+    description: Force-update the branch ref
+    default: false
+  - name: allow_base_update
+    type: boolean
+    description: Allow updating the base branch directly
+    default: false
+- id: bot.openPullRequest
+  method: POST
+  description: Open a pull request using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: title
+    type: string
+    description: Pull request title
+    required: true
+  - name: head
+    type: string
+    description: Head branch name
+    required: true
+  - name: base
+    type: string
+    description: Base branch name
+    required: true
+  - name: body
+    type: string
+    description: Pull request body
+    default: ''
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      workload subject.
+    default: 0
+  - name: head_owner
+    type: string
+    description: Optional owner for cross-repository pull requests
+    default: ''
+  - name: draft
+    type: boolean
+    description: Create the pull request as a draft
+    default: false
+  - name: maintainer_can_modify
+    type: boolean
+    description: Allow maintainers to modify the pull request branch
+    default: true
+- id: bot.createPullRequest
+  method: POST
+  description: Commit file changes to a branch and open a pull request using a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: title
+    type: string
+    description: Pull request title
+    required: true
+  - name: message
+    type: string
+    description: Commit message
+    required: true
+  - name: files
+    type: array
+    description: Files to create, update, or delete. Each item accepts path, content,
+      content_base64, delete, and executable.
+    required: true
+  - name: body
+    type: string
+    description: Pull request body
+    default: ''
+  - name: branch
+    type: string
+    description: Head branch to create or update. Defaults to a generated branch.
+    default: ''
+  - name: base
+    type: string
+    description: Base branch. Defaults to the repository default branch.
+    default: ''
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      workload subject.
+    default: 0
+  - name: coauthors
+    type: array
+    description: Co-authors to append as commit trailers. Each item accepts name and
+      email.
+  - name: include_bot_coauthor
+    type: boolean
+    description: Append the configured GitHub App bot as a co-author when botEmail
+      is configured
+    default: true
+  - name: author_name
+    type: string
+    description: Optional Git commit author name
+    default: ''
+  - name: author_email
+    type: string
+    description: Optional Git commit author email
+    default: ''
+  - name: committer_name
+    type: string
+    description: Optional Git commit committer name
+    default: ''
+  - name: committer_email
+    type: string
+    description: Optional Git commit committer email
+    default: ''
+  - name: force
+    type: boolean
+    description: Force-update the head branch ref
+    default: false
+  - name: draft
+    type: boolean
+    description: Create the pull request as a draft
+    default: false
+  - name: maintainer_can_modify
+    type: boolean
+    description: Allow maintainers to modify the pull request branch
+    default: true
