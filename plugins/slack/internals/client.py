@@ -6,9 +6,12 @@ import urllib.error
 import urllib.request
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import urlsplit
 from urllib.parse import urlencode
 
 SLACK_BASE_URL = "https://slack.com/api"
+SLACK_FILE_DOWNLOAD_HOSTS = {"files.slack.com"}
+SLACK_FILE_DOWNLOAD_HOST_SUFFIXES = (".slack-files.com",)
 
 
 class SlackAPIError(RuntimeError):
@@ -33,6 +36,19 @@ def slack_get(endpoint: str, query: dict[str, str], token: str) -> dict[str, Any
     return get_json(url, token)
 
 
+def slack_post(endpoint: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        f"{slack_base_url()}/{endpoint.lstrip('/')}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    return _request_json(request)
+
+
 def get_json(url: str, token: str) -> dict[str, Any]:
     request = urllib.request.Request(
         url=url,
@@ -40,6 +56,63 @@ def get_json(url: str, token: str) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {token}"},
     )
     return _request_json(request)
+
+
+def get_bytes(url: str, token: str, max_bytes: int) -> tuple[bytes, bool]:
+    if not is_slack_file_download_url(url):
+        raise SlackClientError("slack file download URL must be a Slack HTTPS file URL")
+    request = urllib.request.Request(
+        url=url,
+        method="GET",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        opener = urllib.request.build_opener(_SlackFileRedirectHandler())
+        with opener.open(request, timeout=30) as response:
+            body = response.read(max_bytes + 1)
+    except urllib.error.HTTPError as exc:
+        raise SlackAPIError(exc.code, _decode_error_body(exc.read(), exc.code)) from exc
+    except urllib.error.URLError as exc:
+        raise SlackClientError(f"slack file download failed: {exc.reason}") from exc
+
+    truncated = len(body) > max_bytes
+    if truncated:
+        body = body[:max_bytes]
+    return body, truncated
+
+
+def is_slack_file_download_url(url: str) -> bool:
+    parsed = urlsplit(url)
+    hostname = parsed.hostname or ""
+    if parsed.scheme != "https" or not hostname:
+        return False
+    return hostname in SLACK_FILE_DOWNLOAD_HOSTS or hostname.endswith(
+        SLACK_FILE_DOWNLOAD_HOST_SUFFIXES
+    )
+
+
+class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(  # ty: ignore[invalid-method-override]
+        self,
+        req,
+        _fp,
+        code,
+        _msg,
+        _headers,
+        newurl,
+    ):
+        if not is_slack_file_download_url(newurl):
+            raise SlackClientError(
+                "slack file download redirected to a non-Slack URL"
+            )
+        authorization = req.get_header("Authorization") or dict(req.header_items()).get(
+            "Authorization", ""
+        )
+        return urllib.request.Request(
+            url=newurl,
+            method=req.get_method(),
+            headers={"Authorization": authorization},
+        )
 
 
 def _request_json(request: urllib.request.Request) -> dict[str, Any]:

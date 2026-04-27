@@ -32,8 +32,20 @@ class FakeHTTPResponse:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def read(self) -> bytes:
+    def read(self, size: int = -1) -> bytes:
+        if size >= 0:
+            return self._body[:size]
         return self._body
+
+
+class FakeOpener:
+    def __init__(self, callback: Any) -> None:
+        self._callback = callback
+
+    def open(
+        self, request: urllib.request.Request, timeout: float = 30
+    ) -> FakeHTTPResponse:
+        return self._callback(request, timeout)
 
 
 def make_http_error(url: str, status: int, body: str) -> urllib.error.HTTPError:
@@ -63,6 +75,10 @@ def agent_tool_ref_plugin(ref: Any) -> str:
     if "plugin" in ref.DESCRIPTOR.fields_by_name:
         return ref.plugin
     return ref.plugin_name
+
+
+def agent_tool_ref_operations(refs: Any) -> list[str]:
+    return [str(ref.operation) for ref in refs]
 
 
 class FakeAuthorization:
@@ -261,6 +277,14 @@ class SlackProviderTests(unittest.TestCase):
                 "channel_type": "channel",
                 "text": "<@UBOT> summarize deploy status",
                 "ts": "1712161829.000300",
+                "files": [
+                    {
+                        "id": "F123",
+                        "name": "diagram.png",
+                        "mimetype": "image/png",
+                        "size": 12,
+                    }
+                ],
             },
         }
         request = gestalt.Request(
@@ -308,12 +332,34 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             turn_request.tool_source, provider_module._agent_tool_source_native_search()
         )
-        self.assertEqual(len(turn_request.tool_refs), 1)
-        self.assertEqual(agent_tool_ref_plugin(turn_request.tool_refs[0]), "slack")
-        self.assertEqual(turn_request.tool_refs[0].operation, "events.reply")
+        self.assertEqual(
+            agent_tool_ref_operations(turn_request.tool_refs),
+            [
+                "events.reply",
+                "events.setStatus",
+                "events.deleteStatus",
+                "events.addReaction",
+                "events.removeReaction",
+                "conversations.getThreadContext",
+                "files.get",
+            ],
+        )
+        for tool_ref in turn_request.tool_refs:
+            self.assertEqual(agent_tool_ref_plugin(tool_ref), "slack")
         self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
         self.assertIn("slack.events.reply", turn_request.messages[0].text)
+        self.assertIn("slack.events.setStatus", turn_request.messages[0].text)
+        self.assertIn("slack.conversations.getThreadContext", turn_request.messages[0].text)
+        self.assertIn("slack.files.get", turn_request.messages[0].text)
         self.assertNotIn("slack.chat.postMessage", turn_request.messages[0].text)
+        self.assertIn(
+            "operation: slack.conversations.getThreadContext",
+            turn_request.messages[1].text,
+        )
+        self.assertIn(
+            "id=F123 name=diagram.png mimetype=image/png size=12",
+            turn_request.messages[1].text,
+        )
         self.assertIn(
             "reply_thread_ts: 1712161829.000300", turn_request.messages[1].text
         )
@@ -329,6 +375,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(metadata["slack"]["team_id"], "T123")
         self.assertEqual(metadata["slack"]["user_id"], "U456")
         self.assertEqual(metadata["slack"]["reply_thread_ts"], "1712161829.000300")
+        self.assertEqual(metadata["slack"]["file_ids"], ["F123"])
         provider_options = json_format.MessageToDict(turn_request.provider_options)
         self.assertEqual(provider_options["temperature"], 0)
 
@@ -406,7 +453,7 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "internals.agent.urllib.request.urlopen", side_effect=fake_urlopen
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
         ):
             result = provider_module.slack_events_reply(
                 provider_module.SlackEventReplyInput(
@@ -448,6 +495,156 @@ class SlackProviderTests(unittest.TestCase):
             denied_response.body,
             {"error": "reply_ref does not belong to this subject"},
         )
+
+    def test_slack_event_status_and_reactions_use_reply_ref_contract(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            payload = json.loads(cast(bytes, request.data).decode("utf-8"))
+            calls.append((parsed.path, payload))
+            if parsed.path == "/api/chat.postMessage":
+                return FakeHTTPResponse(
+                    '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+                )
+            if parsed.path == "/api/chat.update":
+                return FakeHTTPResponse(
+                    '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+                )
+            if parsed.path == "/api/chat.delete":
+                return FakeHTTPResponse(
+                    '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+                )
+            if parsed.path in {"/api/reactions.add", "/api/reactions.remove"}:
+                return FakeHTTPResponse('{"ok": true}')
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            created = provider_module.slack_events_set_status(
+                provider_module.SlackEventStatusInput(
+                    reply_ref=reply_ref,
+                    text="Working on it",
+                    unfurl_links=True,
+                    unfurl_media=False,
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            updated = provider_module.slack_events_set_status(
+                provider_module.SlackEventStatusInput(
+                    reply_ref=reply_ref,
+                    text="Still working",
+                    status_ts="1712161830.000400",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            added = provider_module.slack_events_add_reaction(
+                provider_module.SlackEventReactionInput(
+                    reply_ref=reply_ref,
+                    name="eyes",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            removed = provider_module.slack_events_remove_reaction(
+                provider_module.SlackEventReactionInput(
+                    reply_ref=reply_ref,
+                    name=":eyes:",
+                    target_ts="1712161830.000400",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            deleted = provider_module.slack_events_delete_status(
+                provider_module.SlackEventDeleteStatusInput(
+                    reply_ref=reply_ref,
+                    status_ts="1712161830.000400",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/chat.postMessage",
+                    {
+                        "channel": "C789",
+                        "text": "Working on it",
+                        "thread_ts": "1712161829.000300",
+                        "unfurl_links": True,
+                        "unfurl_media": False,
+                    },
+                ),
+                (
+                    "/api/chat.update",
+                    {
+                        "channel": "C789",
+                        "ts": "1712161830.000400",
+                        "text": "Still working",
+                    },
+                ),
+                (
+                    "/api/reactions.add",
+                    {
+                        "channel": "C789",
+                        "timestamp": "1712161829.000300",
+                        "name": "eyes",
+                    },
+                ),
+                (
+                    "/api/reactions.remove",
+                    {
+                        "channel": "C789",
+                        "timestamp": "1712161830.000400",
+                        "name": "eyes",
+                    },
+                ),
+                (
+                    "/api/chat.delete",
+                    {
+                        "channel": "C789",
+                        "ts": "1712161830.000400",
+                    },
+                ),
+            ],
+        )
+        self.assertEqual(created["created"], True)
+        self.assertEqual(created["status_ts"], "1712161830.000400")
+        self.assertEqual(updated["created"], False)
+        self.assertEqual(added["target_ts"], "1712161829.000300")
+        self.assertEqual(removed["removed"], True)
+        self.assertEqual(deleted["deleted_ts"], "1712161830.000400")
 
     def test_nested_agent_config_selects_route_by_channel(self) -> None:
         provider_module.configure(
@@ -507,12 +704,25 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(session_request.provider_name, "simple")
         self.assertEqual(session_request.model, "deep")
         self.assertEqual(turn_request.model, "deep")
-        self.assertEqual(len(turn_request.tool_refs), 1)
         self.assertEqual(
-            agent_tool_ref_plugin(turn_request.tool_refs[0]), "supportSlackbot"
+            agent_tool_ref_operations(turn_request.tool_refs),
+            [
+                "events.reply",
+                "events.setStatus",
+                "events.deleteStatus",
+                "events.addReaction",
+                "events.removeReaction",
+                "conversations.getThreadContext",
+                "files.get",
+            ],
         )
-        self.assertEqual(turn_request.tool_refs[0].operation, "events.reply")
+        for tool_ref in turn_request.tool_refs:
+            self.assertEqual(agent_tool_ref_plugin(tool_ref), "supportSlackbot")
         self.assertIn("supportSlackbot.events.reply", turn_request.messages[0].text)
+        self.assertIn(
+            "supportSlackbot.conversations.getThreadContext",
+            turn_request.messages[0].text,
+        )
         self.assertNotIn(
             "supportSlackbot.chat.postMessage", turn_request.messages[0].text
         )
@@ -904,6 +1114,204 @@ class SlackProviderTests(unittest.TestCase):
         second = data["participants"][1]
         self.assertEqual(second["message_count"], 2)
         self.assertEqual(second["display_name"], "bob")
+
+    def test_get_thread_context_returns_messages_participants_and_files_contract(
+        self,
+    ) -> None:
+        call_count = 0
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            nonlocal call_count
+            call_count += 1
+
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(authorization_header(request), "Bearer test-token")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            query = urllib.parse.parse_qs(parsed.query)
+
+            if call_count == 1:
+                self.assertEqual(parsed.path, "/api/conversations.replies")
+                self.assertEqual(
+                    query,
+                    {
+                        "channel": ["C123"],
+                        "ts": ["1.0"],
+                        "limit": ["25"],
+                        "cursor": ["cursor-in"],
+                    },
+                )
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "messages": [
+                        {
+                          "ts": "1.0",
+                          "user": "U1",
+                          "text": "parent <@U2>",
+                          "files": [
+                            {
+                              "id": "F1",
+                              "name": "notes.txt",
+                              "mimetype": "text/plain",
+                              "size": 12,
+                              "url_private": "https://files.slack.com/files-pri/T-F1/notes.txt"
+                            }
+                          ]
+                        },
+                        {"ts": "2.0", "user": "U2", "text": "reply"},
+                        {"ts": "3.0", "user": "U3", "bot_id": "B3", "text": "bot"}
+                      ],
+                      "response_metadata": {"next_cursor": "cursor-1"}
+                    }
+                    """
+                )
+
+            if call_count == 2:
+                self.assertEqual(parsed.netloc, "files.slack.com")
+                self.assertEqual(parsed.path, "/files-pri/T-F1/notes.txt")
+                return FakeHTTPResponse("hello thread")
+
+            if call_count == 3:
+                self.assertEqual(parsed.path, "/api/users.info")
+                self.assertEqual(query, {"user": ["U1"]})
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "user": {"real_name":"Alice","is_bot":false,"profile":{"display_name":"alice"}}
+                    }
+                    """
+                )
+
+            if call_count == 4:
+                self.assertEqual(parsed.path, "/api/users.info")
+                self.assertEqual(query, {"user": ["U2"]})
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "user": {"real_name":"Bob","is_bot":false,"profile":{"display_name":"bob"}}
+                    }
+                    """
+                )
+
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ), mock.patch(
+            "internals.client.urllib.request.build_opener",
+            return_value=FakeOpener(fake_urlopen),
+        ):
+            result = provider_module.conversations_get_thread_context(
+                provider_module.GetThreadContextInput(
+                    channel="C123",
+                    ts="1.0",
+                    cursor="cursor-in",
+                    limit=25,
+                    include_user_info=True,
+                    include_bots=False,
+                    include_files=True,
+                    include_file_content=True,
+                    max_file_bytes=64,
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        data = result["data"]
+        self.assertEqual(call_count, 4)
+        self.assertEqual(data["messages_returned"], 2)
+        self.assertEqual(data["participant_count"], 2)
+        self.assertEqual(data["file_count"], 1)
+        self.assertEqual(data["next_cursor"], "cursor-1")
+        self.assertEqual(data["root_message"]["mentions"], ["U2"])
+        self.assertEqual(data["participants"][1]["display_name"], "bob")
+        self.assertEqual(data["files"][0]["id"], "F1")
+        self.assertEqual(data["files"][0]["content"]["encoding"], "utf-8")
+        self.assertEqual(data["files"][0]["content"]["text"], "hello thread")
+
+    def test_files_get_rejects_non_slack_private_url_contract(self) -> None:
+        result = provider_module.files_get(
+            provider_module.GetFileInput(
+                url_private="https://example.com/files-pri/T-F1/notes.txt"
+            ),
+            gestalt.Request(token="test-token"),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(
+            response.body,
+            {"error": "url_private must be a Slack HTTPS file URL"},
+        )
+
+    def test_files_get_uses_files_info_and_private_download_contract(self) -> None:
+        call_count = 0
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            nonlocal call_count
+            call_count += 1
+
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(authorization_header(request), "Bearer test-token")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            query = urllib.parse.parse_qs(parsed.query)
+
+            if call_count == 1:
+                self.assertEqual(parsed.path, "/api/files.info")
+                self.assertEqual(query, {"file": ["FIMG"]})
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "file": {
+                        "id": "FIMG",
+                        "name": "diagram.png",
+                        "mimetype": "image/png",
+                        "size": 8,
+                        "url_private_download": "https://files.slack.com/files-pri/T-FIMG/diagram.png"
+                      }
+                    }
+                    """
+                )
+
+            if call_count == 2:
+                self.assertEqual(parsed.netloc, "files.slack.com")
+                self.assertEqual(parsed.path, "/files-pri/T-FIMG/diagram.png")
+                return FakeHTTPResponse("image-bytes")
+
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ), mock.patch(
+            "internals.client.urllib.request.build_opener",
+            return_value=FakeOpener(fake_urlopen),
+        ):
+            result = provider_module.files_get(
+                provider_module.GetFileInput(file_id="FIMG", max_bytes=64),
+                gestalt.Request(token="test-token"),
+            )
+
+        data = result["data"]
+        self.assertEqual(call_count, 2)
+        self.assertEqual(data["file"]["id"], "FIMG")
+        self.assertEqual(data["content"]["mime_type"], "image/png")
+        self.assertEqual(data["content"]["encoding"], "base64")
+        self.assertEqual(data["content"]["kind"], "image")
+        self.assertEqual(data["content"]["data"], "aW1hZ2UtYnl0ZXM=")
+        self.assertEqual(
+            data["content"]["data_uri"],
+            "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
+        )
 
     def test_get_message_propagates_slack_api_http_error(self) -> None:
         error = make_http_error(
