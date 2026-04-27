@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-agent-simple"
-version = "0.0.1a17"
+version = "0.0.1a18"
 requires-python = "==3.14.*"
 dependencies = [
   "gestalt-sdk",

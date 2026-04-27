@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -158,9 +159,14 @@ class ModelBackend:
         output_text_parts: list[str] = []
         tool_calls: list[BackendToolCall] = []
         tool_call_messages: list[dict[str, Any]] = []
+        anthropic_content_blocks: list[dict[str, Any]] = []
 
         for raw_block in content_blocks:
             block_type = self._block_type(raw_block)
+            anthropic_block = self._anthropic_content_block(raw_block)
+            if anthropic_block:
+                anthropic_content_blocks.append(anthropic_block)
+
             if block_type == "text":
                 text = self._block_text(raw_block)
                 if text:
@@ -181,6 +187,8 @@ class ModelBackend:
                 }
             )
 
+        if anthropic_content_blocks:
+            assistant_message["anthropic_content"] = anthropic_content_blocks
         output_text = "\n".join(part for part in output_text_parts if part)
         if output_text:
             assistant_message["content"] = output_text
@@ -253,6 +261,11 @@ class ModelBackend:
             flush_tool_results()
 
             if role == "assistant":
+                anthropic_content = self._message_anthropic_content(raw_message)
+                if anthropic_content:
+                    translated.append({"role": "assistant", "content": anthropic_content})
+                    continue
+
                 assistant_blocks: list[dict[str, Any]] = []
                 assistant_text = self._normalize_content(raw_message.get("content"))
                 if assistant_text:
@@ -301,6 +314,12 @@ class ModelBackend:
             return [tool_call for tool_call in raw_tool_calls if isinstance(tool_call, dict)]
         return []
 
+    def _message_anthropic_content(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        raw_content = message.get("anthropic_content")
+        if not isinstance(raw_content, list):
+            return []
+        return [deepcopy(block) for block in raw_content if isinstance(block, dict)]
+
     def _openai_tool_call_message(self, raw_tool_call: Any) -> dict[str, Any]:
         raw_arguments = getattr(raw_tool_call.function, "arguments", "") or "{}"
         return {
@@ -329,15 +348,24 @@ class ModelBackend:
         return calls
 
     def _request_options(self, *, option_provider_names: tuple[str, ...], provider_options: dict[str, Any]) -> dict[str, Any]:
-        options = {key: value for key, value in provider_options.items() if not isinstance(value, dict)}
+        options: dict[str, Any] = {}
+        self._merge_request_options(options, self._config.provider_options, option_provider_names=option_provider_names)
+        self._merge_request_options(options, provider_options, option_provider_names=option_provider_names)
+        return options
+
+    def _merge_request_options(
+        self, options: dict[str, Any], provider_options: dict[str, Any], *, option_provider_names: tuple[str, ...]
+    ) -> None:
+        for key, value in provider_options.items():
+            if not isinstance(value, dict):
+                options[key] = deepcopy(value)
         legacy = provider_options.get("litellm")
         if isinstance(legacy, dict):
-            options.update(legacy)
+            options.update(deepcopy(legacy))
         for provider_name in option_provider_names:
             nested = provider_options.get(provider_name)
             if isinstance(nested, dict):
-                options.update(nested)
-        return options
+                options.update(deepcopy(nested))
 
     def _resolve_model(self, model: str) -> ModelRoute:
         raw_model = model.strip()
@@ -415,3 +443,28 @@ class ModelBackend:
         if isinstance(block, dict):
             return block.get(key)
         return getattr(block, key, None)
+
+    def _anthropic_content_block(self, block: Any) -> dict[str, Any]:
+        if isinstance(block, dict):
+            return deepcopy(block)
+
+        model_dump = getattr(block, "model_dump", None)
+        if callable(model_dump):
+            try:
+                dumped = model_dump(exclude_none=True)
+            except TypeError:
+                dumped = model_dump()
+            if isinstance(dumped, dict):
+                return dumped
+
+        block_type = self._block_type(block)
+        if not block_type:
+            return {}
+        content_block: dict[str, Any] = {"type": block_type}
+        for key in ("text", "id", "name", "thinking", "signature", "data"):
+            value = self._block_value(block, key)
+            if value not in (None, ""):
+                content_block[key] = value
+        if block_type == "tool_use":
+            content_block["input"] = self._block_value(block, "input") or {}
+        return content_block
