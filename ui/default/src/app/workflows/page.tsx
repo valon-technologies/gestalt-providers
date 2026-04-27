@@ -625,7 +625,7 @@ function RunsPanel({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-primary">
-                          {run.target.plugin}.{run.target.operation}
+                          {targetLabel(run.target)}
                         </span>
                         <span className={runStatusClassName(run.status)}>
                           {run.status || "unknown"}
@@ -962,7 +962,7 @@ function SchedulesPanel({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-primary">
-                          {schedule.target.plugin}.{schedule.target.operation}
+                          {targetLabel(schedule.target)}
                         </span>
                         <span className={pausedStateClassName(schedule.paused)}>
                           {schedule.paused ? "paused" : "active"}
@@ -1480,7 +1480,7 @@ function TriggersPanel({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-primary">
-                          {trigger.target.plugin}.{trigger.target.operation}
+                          {targetLabel(trigger.target)}
                         </span>
                         <span className={pausedStateClassName(trigger.paused)}>
                           {trigger.paused ? "paused" : "active"}
@@ -1859,19 +1859,20 @@ function WorkflowTabButton({
 }
 
 function TargetDetails({ target }: { target: WorkflowTarget }) {
+  const plugin = target.plugin;
   return (
     <section>
       <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
       <div className="mt-3 rounded-md border border-alpha bg-background/65 p-4 text-sm dark:bg-background/20">
         <p className="font-medium text-primary">
-          {target.plugin}.{target.operation}
+          {targetLabel(target)}
         </p>
         <p className="mt-2 text-xs text-muted">
-          Connection: {target.connection || "-"} · Instance: {target.instance || "-"}
+          Connection: {plugin.connection || "-"} · Instance: {plugin.instance || "-"}
         </p>
-        {target.input && Object.keys(target.input).length > 0 ? (
+        {plugin.input && Object.keys(plugin.input).length > 0 ? (
           <pre className="mt-3 overflow-x-auto text-xs text-primary">
-            {prettyJSON(target.input)}
+            {prettyJSON(plugin.input)}
           </pre>
         ) : (
           <p className="mt-3 text-xs text-faint">No target input configured.</p>
@@ -1924,8 +1925,8 @@ function filterRuns(runs: WorkflowRun[], query: string, status: string): Workflo
     return [
       run.id,
       run.provider,
-      run.target.plugin,
-      run.target.operation,
+      run.target.plugin.name,
+      run.target.plugin.operation,
       run.trigger?.scheduleId,
       run.trigger?.triggerId,
     ]
@@ -1953,10 +1954,10 @@ function filterSchedules(
       schedule.provider,
       schedule.cron,
       schedule.timezone,
-      schedule.target.plugin,
-      schedule.target.operation,
-      schedule.target.connection,
-      schedule.target.instance,
+      schedule.target.plugin.name,
+      schedule.target.plugin.operation,
+      schedule.target.plugin.connection,
+      schedule.target.plugin.instance,
       scheduleCadenceLabel(schedule.cron),
     ]
       .filter(Boolean)
@@ -1984,10 +1985,10 @@ function filterTriggers(
       trigger.match.type,
       trigger.match.source,
       trigger.match.subject,
-      trigger.target.plugin,
-      trigger.target.operation,
-      trigger.target.connection,
-      trigger.target.instance,
+      trigger.target.plugin.name,
+      trigger.target.plugin.operation,
+      trigger.target.plugin.connection,
+      trigger.target.plugin.instance,
     ]
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(trimmedQuery));
@@ -2016,6 +2017,14 @@ function formatDate(value?: string): string {
 
 function prettyJSON(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2);
+}
+
+function targetLabel(target: WorkflowTarget): string {
+  const plugin = target.plugin;
+  if (plugin.name && plugin.operation) {
+    return `${plugin.name}.${plugin.operation}`;
+  }
+  return plugin.name || plugin.operation || "unknown";
 }
 
 function prettyResultBody(value: string): string {
@@ -2091,13 +2100,14 @@ function scheduleFormFromSchedule(
   browserTimezone: string,
 ): { form: ScheduleFormState; warning: string | null } {
   const preset = presetFromCron(schedule.cron);
+  const target = schedule.target.plugin;
   return {
     form: {
-      plugin: schedule.target.plugin,
-      operation: schedule.target.operation,
-      connection: schedule.target.connection || "",
-      instance: schedule.target.instance || "",
-      inputJSON: schedule.target.input ? prettyJSON(schedule.target.input) : "",
+      plugin: target.name,
+      operation: target.operation,
+      connection: target.connection || "",
+      instance: target.instance || "",
+      inputJSON: target.input ? prettyJSON(target.input) : "",
       cadence: preset.cadence,
       hour: preset.hour,
       weekday: preset.weekday,
@@ -2113,12 +2123,13 @@ function scheduleFormFromSchedule(
 }
 
 function triggerFormFromTrigger(trigger: WorkflowEventTrigger): TriggerFormState {
+  const target = trigger.target.plugin;
   return {
-    plugin: trigger.target.plugin,
-    operation: trigger.target.operation,
-    connection: trigger.target.connection || "",
-    instance: trigger.target.instance || "",
-    inputJSON: trigger.target.input ? prettyJSON(trigger.target.input) : "",
+    plugin: target.name,
+    operation: target.operation,
+    connection: target.connection || "",
+    instance: target.instance || "",
+    inputJSON: target.input ? prettyJSON(target.input) : "",
     type: trigger.match.type,
     source: trigger.match.source || "",
     subject: trigger.match.subject || "",
@@ -2140,11 +2151,13 @@ function scheduleFormToUpsert(
     cron,
     timezone: form.timezoneMode === "utc" ? "UTC" : browserTimezone,
     target: {
-      plugin: form.plugin.trim(),
-      operation: form.operation.trim(),
-      connection: emptyToUndefined(form.connection),
-      instance: emptyToUndefined(form.instance),
-      input: parseInputJSONObject(form.inputJSON),
+      plugin: {
+        name: form.plugin.trim(),
+        operation: form.operation.trim(),
+        connection: emptyToUndefined(form.connection),
+        instance: emptyToUndefined(form.instance),
+        input: parseInputJSONObject(form.inputJSON),
+      },
     },
     paused: form.paused,
   };
@@ -2162,11 +2175,13 @@ function triggerFormToUpsert(
       subject: emptyToUndefined(form.subject),
     },
     target: {
-      plugin: form.plugin.trim(),
-      operation: form.operation.trim(),
-      connection: emptyToUndefined(form.connection),
-      instance: emptyToUndefined(form.instance),
-      input: parseInputJSONObject(form.inputJSON),
+      plugin: {
+        name: form.plugin.trim(),
+        operation: form.operation.trim(),
+        connection: emptyToUndefined(form.connection),
+        instance: emptyToUndefined(form.instance),
+        input: parseInputJSONObject(form.inputJSON),
+      },
     },
     paused: form.paused,
   };

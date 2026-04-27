@@ -392,8 +392,10 @@ export async function mockWorkflowSchedules(
         cron: typeof body.cron === "string" ? body.cron : "* * * * *",
         timezone: typeof body.timezone === "string" ? body.timezone : undefined,
         target: (body.target as WorkflowSchedule["target"]) ?? {
-          plugin: "github",
-          operation: "issues.create",
+          plugin: {
+            name: "github",
+            operation: "issues.create",
+          },
         },
         paused: Boolean(body.paused),
         createdAt: "2026-04-21T00:00:00Z",
@@ -513,8 +515,10 @@ export async function mockWorkflowEventTriggers(
         provider: typeof body.provider === "string" ? body.provider : "basic",
         match: (body.match as WorkflowEventTrigger["match"]) ?? { type: "task.updated" },
         target: (body.target as WorkflowEventTrigger["target"]) ?? {
-          plugin: "github",
-          operation: "issues.create",
+          plugin: {
+            name: "github",
+            operation: "issues.create",
+          },
         },
         paused: Boolean(body.paused),
         createdAt: "2026-04-21T00:00:00Z",

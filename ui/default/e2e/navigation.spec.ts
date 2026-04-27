@@ -42,7 +42,7 @@ test.describe("Navigation", () => {
         id: "run_123",
         provider: "basic",
         status: "succeeded",
-        target: { plugin: "httpbin", operation: "get" },
+        target: { plugin: { name: "httpbin", operation: "get" } },
         trigger: { kind: "schedule", scheduleId: "sched_123" },
         createdAt: "2026-04-13T00:00:00Z",
       },
