@@ -37,10 +37,6 @@ type encodedKey struct {
 	hash  []byte
 }
 
-func usesGenericStorage(m *storeMeta) bool {
-	return m != nil && m.storageVersion == storageVersionGeneric
-}
-
 func encodeKeyValue(value any) (encodedKey, error) {
 	kv, err := gestalt.AnyToKeyValue(value)
 	if err != nil {
@@ -94,17 +90,6 @@ func coerceStringPrimaryKey(raw string, m *storeMeta) (any, error) {
 		return raw, nil
 	}
 	return coerceStoredValue(raw, columnType(m, m.pkCol))
-}
-
-func primaryKeyLookupArg(raw string, m *storeMeta) (any, error) {
-	value, err := coerceStringPrimaryKey(raw, m)
-	if err != nil {
-		return nil, err
-	}
-	if usesGenericStorage(m) {
-		return value, nil
-	}
-	return anyToSQLArg(value, columnType(m, m.pkCol))
 }
 
 func coerceStoredValue(value any, colType int32) (any, error) {
@@ -477,7 +462,7 @@ func (s *Store) reindexGenericStore(ctx context.Context, store string, schema *p
 	if err != nil {
 		return err
 	}
-	meta := newStoredSchema("", schema, storageVersionGeneric).toMeta(store)
+	meta := newStoredSchema(schema).toMeta(store)
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		if err := s.clearGenericStoreTables(txCtx, tx, store); err != nil {
 			return err

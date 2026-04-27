@@ -3,6 +3,7 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -226,8 +227,8 @@ func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
 	if got := s.metadataTable(); got != "analytics._gestalt_stores" {
 		t.Fatalf("metadataTable() = %q, want %q", got, "analytics._gestalt_stores")
 	}
-	if got := s.physicalTableName("widgets"); got != "analytics.tenant_widgets" {
-		t.Fatalf("physicalTableName() = %q, want %q", got, "analytics.tenant_widgets")
+	if got := s.genericRecordsTable(); got != "analytics.tenant__gestalt_records_v2" {
+		t.Fatalf("genericRecordsTable() = %q, want %q", got, "analytics.tenant__gestalt_records_v2")
 	}
 }
 
@@ -279,30 +280,11 @@ func sampleRecordsSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func legacyExecutionsSchema() *proto.ObjectStoreSchema {
+func intPrimaryKeySchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
-			{Name: "by_subject", KeyPath: []string{"subject_id"}},
-		},
 		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
-			{Name: "provider_name", Type: 0, NotNull: true},
-			{Name: "subject_id", Type: 0, NotNull: true},
-		},
-	}
-}
-
-func evolvedExecutionsSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
-			{Name: "by_subject", KeyPath: []string{"subject_id"}},
-			{Name: "by_subject_session", KeyPath: []string{"subject_id", "session_id"}},
-		},
-		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
-			{Name: "session_id", Type: 0, NotNull: true},
-			{Name: "provider_name", Type: 0, NotNull: true},
-			{Name: "subject_id", Type: 0, NotNull: true},
+			{Name: "id", Type: 1, PrimaryKey: true, NotNull: true},
+			{Name: "title", Type: 0},
 		},
 	}
 }
@@ -334,17 +316,11 @@ func makeSampleRecord(id string) *proto.Record {
 	return record
 }
 
-func makeExecutionRecord(t *testing.T, id, providerName, subjectID, sessionID string) *proto.Record {
-	t.Helper()
-	record, err := gestalt.RecordToProto(map[string]any{
-		"id":            id,
-		"provider_name": providerName,
-		"subject_id":    subjectID,
-		"session_id":    sessionID,
+func makeIntPrimaryKeyRecord(id int64, title string) *proto.Record {
+	record, _ := gestalt.RecordToProto(map[string]any{
+		"id":    id,
+		"title": title,
 	})
-	if err != nil {
-		t.Fatalf("RecordToProto(execution): %v", err)
-	}
 	return record
 }
 
@@ -446,7 +422,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 }
 
-func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
+func TestCreateObjectStoreUsesGenericTables(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
@@ -460,11 +436,8 @@ func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
-	if meta.table != defaultTablePrefix+"widgets" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, defaultTablePrefix+"widgets")
-	}
-	if meta.storageVersion != storageVersionGeneric {
-		t.Fatalf("meta.storageVersion = %d, want %d", meta.storageVersion, storageVersionGeneric)
+	if got := meta.name; got != "widgets" {
+		t.Fatalf("meta.name = %q, want widgets", got)
 	}
 	if _, err := s.tableColumns(ctx, s.genericRecordsTable()); err != nil {
 		t.Fatalf("tableColumns(records): %v", err)
@@ -472,103 +445,9 @@ func TestCreateObjectStoreUsesRequestedTableName(t *testing.T) {
 	if _, err := s.tableColumns(ctx, s.genericIndexTable()); err != nil {
 		t.Fatalf("tableColumns(index_entries): %v", err)
 	}
-	if meta.table != "widgets" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, "widgets")
-	}
 }
 
-func TestCreateObjectStoreMigratesLegacyStoreToGenericBeforeCreatingIndexes(t *testing.T) {
-	s := testStore(t)
-	ctx := context.Background()
-
-	tableName := s.physicalTableName("executions")
-	if err := s.ensureTable(ctx, tableName, legacyExecutionsSchema()); err != nil {
-		t.Fatalf("ensureTable(legacy): %v", err)
-	}
-	if err := s.persistStoreMetadata(ctx, "executions", tableName, legacyExecutionsSchema(), storageVersionLegacy); err != nil {
-		t.Fatalf("persistStoreMetadata(legacy): %v", err)
-	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
-		Store: "executions",
-		Record: func() *proto.Record {
-			record, err := gestalt.RecordToProto(map[string]any{
-				"id":            "run-legacy",
-				"provider_name": "simple",
-				"subject_id":    "subject-1",
-			})
-			if err != nil {
-				t.Fatalf("RecordToProto(legacy execution): %v", err)
-			}
-			return record
-		}(),
-	}); err != nil {
-		t.Fatalf("Add(legacy execution): %v", err)
-	}
-
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "executions", Schema: evolvedExecutionsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore(evolved): %v", err)
-	}
-
-	meta, err := s.getMeta("executions")
-	if err != nil {
-		t.Fatalf("getMeta(executions): %v", err)
-	}
-	if meta.storageVersion != storageVersionGeneric {
-		t.Fatalf("meta.storageVersion = %d, want %d", meta.storageVersion, storageVersionGeneric)
-	}
-	if meta.table != tableName {
-		t.Fatalf("meta.table = %q, want %q", meta.table, tableName)
-	}
-	cols, err := s.tableColumns(ctx, tableName)
-	if err != nil {
-		t.Fatalf("tableColumns(executions): %v", err)
-	}
-	if _, ok := cols["session_id"]; ok {
-		t.Fatalf("legacy table columns = %#v, want session_id to remain absent after generic migration", cols)
-	}
-
-	legacyResp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "executions", Id: "run-legacy"})
-	if err != nil {
-		t.Fatalf("Get(run-legacy): %v", err)
-	}
-	if got := legacyResp.GetRecord().GetFields()["provider_name"].GetStringValue(); got != "simple" {
-		t.Fatalf("legacy provider_name = %q, want simple", got)
-	}
-	if _, ok := legacyResp.GetRecord().GetFields()["session_id"]; ok {
-		t.Fatalf("legacy record unexpectedly gained session_id: %#v", legacyResp.GetRecord().GetFields()["session_id"])
-	}
-
-	if _, err := s.Put(ctx, &proto.RecordRequest{
-		Store:  "executions",
-		Record: makeExecutionRecord(t, "run-1", "simple", "subject-1", "session-1"),
-	}); err != nil {
-		t.Fatalf("Put(evolved execution): %v", err)
-	}
-
-	resp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
-		Store:  "executions",
-		Index:  "by_subject_session",
-		Values: []*proto.TypedValue{mustTypedValue(t, "subject-1"), mustTypedValue(t, "session-1")},
-	})
-	if err != nil {
-		t.Fatalf("IndexGet(by_subject_session): %v", err)
-	}
-	if got := resp.GetRecord().GetFields()["id"].GetStringValue(); got != "run-1" {
-		t.Fatalf("IndexGet(by_subject_session) id = %q, want run-1", got)
-	}
-
-	countResp, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "executions"})
-	if err != nil {
-		t.Fatalf("Count(executions): %v", err)
-	}
-	if got := countResp.GetCount(); got != 2 {
-		t.Fatalf("Count(executions) = %d, want 2", got)
-	}
-}
-
-func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
+func TestCreateObjectStorePersistsGenericRows(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
@@ -582,20 +461,116 @@ func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
 		t.Fatalf("Add record: %v", err)
 	}
 
-	meta, err := s.getMeta("sample_records")
-	if err != nil {
-		t.Fatalf("getMeta: %v", err)
-	}
-	if meta.table != "sample_records" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, "sample_records")
-	}
-
 	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "sample_records", Id: "row-1"})
 	if err != nil {
 		t.Fatalf("Get record: %v", err)
 	}
 	if got := resp.Record.Fields["payload"].GetStringValue(); got != "payload-a" {
 		t.Fatalf("payload = %q, want payload-a", got)
+	}
+}
+
+func TestGenericStoreIgnoresStaleLegacyMetadataFields(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "legacy-metadata-fields.sqlite")
+
+	s, err := NewStore(dsn)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	staleMetadata, err := json.Marshal(map[string]any{
+		"table":           "widgets",
+		"storage_version": 2,
+		"columns": []map[string]any{
+			{"name": "id", "type": 0, "primary_key": true, "not_null": true},
+			{"name": "code", "type": 0, "not_null": true, "unique": true},
+			{"name": "title", "type": 0},
+			{"name": "created_at", "type": 4},
+			{"name": "updated_at", "type": 4},
+		},
+		"indexes": []map[string]any{
+			{"name": "by_code", "key_path": []string{"code"}, "unique": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal stale metadata: %v", err)
+	}
+
+	db := openSQLiteDB(t, dsn)
+	if _, err := db.Exec(`UPDATE "_gestalt_stores" SET "schema_json" = ? WHERE "name" = ?`, string(staleMetadata), "widgets"); err != nil {
+		t.Fatalf("update stale metadata: %v", err)
+	}
+
+	reopened, err := NewStore(dsn)
+	if err != nil {
+		t.Fatalf("NewStore(reopen): %v", err)
+	}
+	defer reopened.Close()
+
+	resp, err := reopened.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	if err != nil {
+		t.Fatalf("Get after stale metadata reload: %v", err)
+	}
+	if got := resp.Record.Fields["title"].GetStringValue(); got != "Alpha Widget" {
+		t.Fatalf("title after stale metadata reload = %q, want Alpha Widget", got)
+	}
+	if _, err := reopened.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore after stale metadata reload: %v", err)
+	}
+}
+
+func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "int_keys", Schema: intPrimaryKeySchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "int_keys", Record: makeIntPrimaryKeyRecord(42, "The Answer"),
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "int_keys", Id: "42"})
+	if err != nil {
+		t.Fatalf("Get typed primary key: %v", err)
+	}
+	id, err := gestalt.AnyFromTypedValue(resp.Record.Fields["id"])
+	if err != nil {
+		t.Fatalf("AnyFromTypedValue(id): %v", err)
+	}
+	if got, ok := id.(int64); !ok || got != 42 {
+		t.Fatalf("id = %#v (%T), want int64(42)", id, id)
+	}
+
+	if _, err := s.Delete(ctx, &proto.ObjectStoreRequest{Store: "int_keys", Id: "42"}); err != nil {
+		t.Fatalf("Delete typed primary key: %v", err)
+	}
+	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "int_keys"})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if got := count.GetCount(); got != 0 {
+		t.Fatalf("Count after delete = %d, want 0", got)
 	}
 }
 
@@ -660,11 +635,10 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 		id     string
 		code   string
 		title  string
-		table  string
 		prefix string
 	}{
-		{store: alpha, id: "a1", code: "A-001", title: "Alpha Task", table: "alpha_tasks", prefix: "alpha_"},
-		{store: beta, id: "b1", code: "B-001", title: "Beta Task", table: "beta_tasks", prefix: "beta_"},
+		{store: alpha, id: "a1", code: "A-001", title: "Alpha Task", prefix: "alpha_"},
+		{store: beta, id: "b1", code: "B-001", title: "Beta Task", prefix: "beta_"},
 	} {
 		if _, err := tc.store.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
 			Name: "tasks", Schema: widgetsSchema(),
@@ -680,11 +654,8 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 		if err != nil {
 			t.Fatalf("getMeta(%s): %v", tc.prefix, err)
 		}
-		if meta.table != tc.table {
-			t.Fatalf("meta.table(%s) = %q, want %q", tc.prefix, meta.table, tc.table)
-		}
-		if meta.storageVersion != storageVersionGeneric {
-			t.Fatalf("meta.storageVersion(%s) = %d, want %d", tc.prefix, meta.storageVersion, storageVersionGeneric)
+		if meta.name != "tasks" {
+			t.Fatalf("meta.name(%s) = %q, want tasks", tc.prefix, meta.name)
 		}
 	}
 
@@ -763,8 +734,8 @@ func TestCreateObjectStoreIgnoresOrphanedLegacyPrefixedTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
-	if meta.table != "sample_records" {
-		t.Fatalf("meta.table = %q, want %q", meta.table, "sample_records")
+	if meta.name != "sample_records" {
+		t.Fatalf("meta.name = %q, want sample_records", meta.name)
 	}
 }
 
@@ -832,34 +803,6 @@ func TestRebind(t *testing.T) {
 	}
 }
 
-func TestCreateTableSQLMySQLUsesMySQLSafeTypes(t *testing.T) {
-	got := createTableSQL(dialectMySQL, "widgets", widgetsSchema())
-	if strings.Contains(got, `"`) {
-		t.Fatalf("createTableSQL(mysql) used double quotes: %s", got)
-	}
-	if !strings.Contains(got, "`id` VARCHAR(255) NOT NULL PRIMARY KEY") {
-		t.Fatalf("createTableSQL(mysql) missing varchar primary key: %s", got)
-	}
-	if !strings.Contains(got, "`code` VARCHAR(255) NOT NULL UNIQUE") {
-		t.Fatalf("createTableSQL(mysql) missing varchar unique column: %s", got)
-	}
-	if !strings.Contains(got, "`title` LONGTEXT") {
-		t.Fatalf("createTableSQL(mysql) should keep non-indexed strings as LONGTEXT: %s", got)
-	}
-}
-
-func TestCreateIndexSQLMySQLOmitsIfNotExists(t *testing.T) {
-	got := createIndexSQL(dialectMySQL, "widgets", &proto.IndexSchema{
-		Name: "by_code", KeyPath: []string{"code"}, Unique: true,
-	}, widgetsSchema())
-	if strings.Contains(got, "IF NOT EXISTS") {
-		t.Fatalf("createIndexSQL(mysql) should omit IF NOT EXISTS: %s", got)
-	}
-	if !strings.Contains(got, "CREATE UNIQUE INDEX `idx_widgets_by_code` ON `widgets` (`code`)") {
-		t.Fatalf("createIndexSQL(mysql) unexpected SQL: %s", got)
-	}
-}
-
 func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
 	got := metadataTableSQL(dialectMySQL, metadataTableName)
 	if strings.Contains(got, `"`) {
@@ -870,79 +813,6 @@ func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
 	}
 	if !strings.Contains(got, "`schema_json` LONGTEXT NOT NULL") {
 		t.Fatalf("metadataTableSQL(mysql) missing longtext schema column: %s", got)
-	}
-}
-
-func TestCreateTableSQLMySQLUsesNativeTimeType(t *testing.T) {
-	got := createTableSQL(dialectMySQL, "widgets", widgetsSchema())
-	if !strings.Contains(got, "`created_at` DATETIME(6)") {
-		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
-	}
-	if !strings.Contains(got, "`updated_at` DATETIME(6)") {
-		t.Fatalf("createTableSQL(mysql) missing native datetime type: %s", got)
-	}
-}
-
-func TestCreateTableSQLSupportsQualifiedNames(t *testing.T) {
-	got := createTableSQL(dialectPostgres, "analytics.widgets", widgetsSchema())
-	if !strings.Contains(got, `CREATE TABLE IF NOT EXISTS "analytics"."widgets"`) {
-		t.Fatalf("createTableSQL(postgres) should quote qualified table names: %s", got)
-	}
-}
-
-func TestCreateIndexSQLUsesBaseTableNameForQualifiedTables(t *testing.T) {
-	got := createIndexSQL(dialectPostgres, "analytics.widgets", &proto.IndexSchema{
-		Name: "by_code", KeyPath: []string{"code"}, Unique: true,
-	}, widgetsSchema())
-	if !strings.Contains(got, `CREATE UNIQUE INDEX IF NOT EXISTS "idx_widgets_by_code"`) {
-		t.Fatalf("createIndexSQL(postgres) should derive index name from base table name: %s", got)
-	}
-	if !strings.Contains(got, `ON "analytics"."widgets" ("code")`) {
-		t.Fatalf("createIndexSQL(postgres) should target the qualified table name: %s", got)
-	}
-}
-
-func TestCreateIndexSQLMySQLUsesPrefixLengthsForCompositeStringIndexes(t *testing.T) {
-	got := createIndexSQL(dialectMySQL, "sample_records", &proto.IndexSchema{
-		Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"},
-	}, sampleRecordsSchema())
-	for _, col := range []string{"owner_id", "category", "region", "variant"} {
-		if !strings.Contains(got, "`"+col+"`(128)") {
-			t.Fatalf("createIndexSQL(mysql) missing prefix length for %s: %s", col, got)
-		}
-	}
-}
-
-func TestAnyToSQLArgTypeTimeUsesNativeTime(t *testing.T) {
-	timestamp := time.Date(2026, time.April, 12, 1, 27, 45, 123456000, time.FixedZone("test", -5*60*60))
-	arg, err := anyToSQLArg(timestamp, 4)
-	if err != nil {
-		t.Fatalf("anyToSQLArg(time.Time): %v", err)
-	}
-	got, ok := arg.(time.Time)
-	if !ok {
-		t.Fatalf("anyToSQLArg(time.Time) type = %T, want time.Time", arg)
-	}
-	if !got.Equal(timestamp.UTC()) {
-		t.Fatalf("anyToSQLArg(time.Time) = %s, want %s", got.Format(time.RFC3339Nano), timestamp.UTC().Format(time.RFC3339Nano))
-	}
-
-	arg, err = anyToSQLArg("2026-04-12T01:27:45Z", 4)
-	if err != nil {
-		t.Fatalf("anyToSQLArg(string): %v", err)
-	}
-	got, ok = arg.(time.Time)
-	if !ok {
-		t.Fatalf("anyToSQLArg(string) type = %T, want time.Time", arg)
-	}
-	if got.Format(time.RFC3339Nano) != "2026-04-12T01:27:45Z" {
-		t.Fatalf("anyToSQLArg(string) = %s, want 2026-04-12T01:27:45Z", got.Format(time.RFC3339Nano))
-	}
-}
-
-func TestAnyToSQLArgTypeTimeRejectsInvalidString(t *testing.T) {
-	if _, err := anyToSQLArg("definitely-not-a-time", 4); err == nil {
-		t.Fatal("expected invalid time error, got nil")
 	}
 }
 
