@@ -16,7 +16,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -169,7 +168,7 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	}
 }
 
-func TestProviderGetRunMigratesStoredFlatPluginTarget(t *testing.T) {
+func TestProviderGetRunReadsStoredNestedPluginTarget(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
@@ -181,22 +180,22 @@ func TestProviderGetRunMigratesStoredFlatPluginTarget(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if err := provider.runStore.Put(ctx, gestalt.Record{
-		"id":           "legacy-flat-run",
+		"id":           "nested-run",
 		"plugin_name":  "roadmap",
 		"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED),
 		"operation":    "sync",
-		"target_json":  `{"pluginName":"roadmap","operation":"sync","connection":"prod","instance":"main","input":{"mode":"legacy"}}`,
+		"target_json":  `{"plugin":{"pluginName":"roadmap","operation":"sync","connection":"prod","instance":"main","input":{"mode":"nested"}}}`,
 		"trigger_kind": triggerKindManual,
 		"created_at":   time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC),
 		"result_body":  `{"ok":true}`,
 		"created_by":   map[string]any{"subject_id": "user:123"},
 	}); err != nil {
-		t.Fatalf("Put(legacy run): %v", err)
+		t.Fatalf("Put(nested run): %v", err)
 	}
 
-	run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "legacy-flat-run"})
+	run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "nested-run"})
 	if err != nil {
-		t.Fatalf("GetRun(legacy flat): %v", err)
+		t.Fatalf("GetRun(nested): %v", err)
 	}
 	plugin := run.GetTarget().GetPlugin()
 	if plugin.GetPluginName() != "roadmap" ||
@@ -205,8 +204,8 @@ func TestProviderGetRunMigratesStoredFlatPluginTarget(t *testing.T) {
 		plugin.GetInstance() != "main" {
 		t.Fatalf("target.plugin = %#v", plugin)
 	}
-	if got := plugin.GetInput().AsMap()["mode"]; got != "legacy" {
-		t.Fatalf("target.plugin.input.mode = %v, want legacy", got)
+	if got := plugin.GetInput().AsMap()["mode"]; got != "nested" {
+		t.Fatalf("target.plugin.input.mode = %v, want nested", got)
 	}
 
 	if err := provider.runStore.Put(ctx, gestalt.Record{
@@ -724,20 +723,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 			},
 		},
 		{
-			name: "agent and legacy flat plugin fields",
-			target: func() *proto.BoundWorkflowTarget {
-				target := &proto.BoundWorkflowTarget{
-					Agent: &proto.BoundWorkflowAgentTarget{
-						ProviderName: "managed",
-						Prompt:       "send a Slack reminder",
-					},
-				}
-				setLegacyFlatStringField(target, 1, "roadmap")
-				setLegacyFlatStringField(target, 2, "sync")
-				return target
-			}(),
-		},
-		{
 			name: "negative timeout",
 			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
 				ProviderName:   "managed",
@@ -766,97 +751,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				t.Fatal("UpsertSchedule succeeded, want error")
 			}
 		})
-	}
-}
-
-func TestProviderRejectsFlatPluginTarget(t *testing.T) {
-	ctx := context.Background()
-	startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
-
-	provider := New()
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	target := &proto.BoundWorkflowTarget{}
-	setLegacyFlatStringField(target, 1, "roadmap")
-	setLegacyFlatStringField(target, 2, "sync")
-
-	_, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: target})
-	if err == nil {
-		t.Fatal("StartRun succeeded, want error")
-	}
-	if !strings.Contains(err.Error(), "target.plugin.plugin_name is required") {
-		t.Fatalf("StartRun error = %v, want target.plugin.plugin_name validation", err)
-	}
-}
-
-func TestTargetFromRecordValueMigratesLegacyAgentToolRefs(t *testing.T) {
-	target := targetFromRecordValue(`{
-		"agent": {
-			"providerName": "managed",
-			"prompt": "send a Slack reminder",
-			"toolSource": "AGENT_TOOL_SOURCE_MODE_EXPLICIT",
-			"toolRefs": [
-				{"pluginName": "slack", "operation": "chat.postMessage"},
-				{"pluginName": "linear"}
-			]
-		}
-	}`)
-	agent := target.GetAgent()
-	if agent.GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
-		t.Fatalf("tool_source = %v, want native search", agent.GetToolSource())
-	}
-	refs := agent.GetToolRefs()
-	if len(refs) != 2 ||
-		refs[0].GetPlugin() != "slack" ||
-		refs[0].GetOperation() != "chat.postMessage" ||
-		refs[1].GetPlugin() != "linear" ||
-		refs[1].GetOperation() != "" {
-		t.Fatalf("tool refs = %#v", refs)
-	}
-}
-
-func TestTargetFromRecordValueFailsClosedForLegacyExplicitWithoutToolRefs(t *testing.T) {
-	target := targetFromRecordValue(`{
-		"agent": {
-			"providerName": "managed",
-			"prompt": "summarize this",
-			"toolSource": "AGENT_TOOL_SOURCE_MODE_EXPLICIT"
-		}
-	}`)
-	agent := target.GetAgent()
-	if agent.GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
-		t.Fatalf("tool_source = %v, want native search", agent.GetToolSource())
-	}
-	refs := agent.GetToolRefs()
-	if len(refs) != 1 || refs[0].GetPlugin() != legacyExplicitNoToolsPlugin {
-		t.Fatalf("tool refs = %#v, want fail-closed legacy ref", refs)
-	}
-}
-
-func TestExecutionReferenceRecordMigratesLegacyAgentTargetFingerprint(t *testing.T) {
-	record, err := executionReferenceRecordFromRecord(gestalt.Record{
-		"id":                    "ref-1",
-		"provider_name":         "indexeddb",
-		"target_plugin":         "agent:managed",
-		"target_json":           `{"agent":{"providerName":"managed","prompt":"send a Slack reminder","toolSource":"AGENT_TOOL_SOURCE_MODE_EXPLICIT","toolRefs":[{"pluginName":"slack","operation":"chat.postMessage"}]}}`,
-		"target_fingerprint":    "legacy-fingerprint",
-		"subject_id":            "user-123",
-		"credential_subject_id": "user-123",
-		"permissions_json":      "[]",
-	})
-	if err != nil {
-		t.Fatalf("executionReferenceRecordFromRecord: %v", err)
-	}
-	expected, err := workflowTargetFingerprint(record.Target)
-	if err != nil {
-		t.Fatalf("workflowTargetFingerprint: %v", err)
-	}
-	if record.TargetFingerprint != expected || record.TargetFingerprint == "legacy-fingerprint" {
-		t.Fatalf("target_fingerprint = %q, want migrated %q", record.TargetFingerprint, expected)
 	}
 }
 
@@ -1201,19 +1095,6 @@ func protoBoundTarget(t *testing.T, pluginName, operation string, input map[stri
 			Input:      mustStruct(t, input),
 		},
 	}
-}
-
-func setLegacyFlatStringField(target *proto.BoundWorkflowTarget, number protoreflect.FieldNumber, value string) {
-	message := target.ProtoReflect()
-	field := message.Descriptor().Fields().ByNumber(number)
-	if field != nil {
-		message.Set(field, protoreflect.ValueOfString(value))
-		return
-	}
-	raw := append([]byte(nil), message.GetUnknown()...)
-	raw = protowire.AppendTag(raw, protowire.Number(number), protowire.BytesType)
-	raw = protowire.AppendString(raw, value)
-	message.SetUnknown(raw)
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {
