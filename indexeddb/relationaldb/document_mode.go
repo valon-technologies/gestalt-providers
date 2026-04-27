@@ -1,8 +1,6 @@
 package relationaldb
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -13,28 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
 )
-
-const documentPayloadColumn = "_gestalt_record"
-
-var documentStorageColumns = []*proto.ColumnDef{
-	{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
-	{Name: documentPayloadColumn, Type: 5, NotNull: true},
-}
-
-func usesDocumentSchema(schema *proto.ObjectStoreSchema) bool {
-	return len(schema.GetColumns()) == 0
-}
-
-func isDocumentStore(m *storeMeta) bool {
-	return m != nil && m.storageVersion == storageVersionLegacy && len(m.columns) == 0
-}
-
-func storageSchema(schema *proto.ObjectStoreSchema) *proto.ObjectStoreSchema {
-	if !usesDocumentSchema(schema) {
-		return schema
-	}
-	return &proto.ObjectStoreSchema{Columns: documentStorageColumns}
-}
 
 func extractStringID(record *proto.Record) (string, error) {
 	value, err := recordFieldAny(record, "id")
@@ -114,35 +90,6 @@ func indexKeyFromRecord(record *proto.Record, idx *proto.IndexSchema) (any, bool
 	return parts, true, nil
 }
 
-func loadDocumentStoreRecords(ctx context.Context, db *sqlStoreView, m *storeMeta, reqRange *proto.KeyRange) ([]*proto.Record, error) {
-	query, args, err := selectDocumentPayloadsWithRange(db.dialect, m, reqRange)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := db.query(ctx, query, args...)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "document query: %v", err)
-	}
-	defer rows.Close()
-
-	var records []*proto.Record
-	for rows.Next() {
-		var payload []byte
-		if err := rows.Scan(&payload); err != nil {
-			return nil, status.Errorf(codes.Internal, "document scan: %v", err)
-		}
-		record, err := unmarshalRecordBlob(payload)
-		if err != nil {
-			return nil, err
-		}
-		records = append(records, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "document rows: %v", err)
-	}
-	return records, nil
-}
-
 func filterEntriesByPrefix(entries []cursorutil.Entry, values []*proto.TypedValue) ([]cursorutil.Entry, error) {
 	if len(values) == 0 {
 		return entries, nil
@@ -203,65 +150,9 @@ func applyKeyRangeToEntries(entries []cursorutil.Entry, keyRange *proto.KeyRange
 	return filtered, nil
 }
 
-func checkDocumentUniqueIndexConflicts(ctx context.Context, s *Store, m *storeMeta, record *proto.Record, ignoreID string) error {
-	records, err := loadDocumentStoreRecords(ctx, &sqlStoreView{db: s.db, conn: s.conn, dialect: s.dialect, bind: s.bind}, m, nil)
-	if err != nil {
-		return err
-	}
-
-	id, err := extractStringID(record)
-	if err != nil {
-		return err
-	}
-	for _, idx := range m.indexes {
-		if !idx.GetUnique() {
-			continue
-		}
-		targetKey, ok, err := indexKeyFromRecord(record, idx)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		for _, existing := range records {
-			existingID, err := extractStringID(existing)
-			if err != nil {
-				return err
-			}
-			if existingID == id || (ignoreID != "" && existingID == ignoreID) {
-				continue
-			}
-			existingKey, ok, err := indexKeyFromRecord(existing, idx)
-			if err != nil {
-				return err
-			}
-			if ok && cursorutil.CompareValues(normalizeDocumentBound(existingKey), normalizeDocumentBound(targetKey)) == 0 {
-				return status.Error(codes.AlreadyExists, "unique index conflict")
-			}
-		}
-	}
-	return nil
-}
-
 func normalizeDocumentBound(value any) []any {
 	if parts, ok := value.([]any); ok {
 		return parts
 	}
 	return []any{value}
-}
-
-type sqlStoreView struct {
-	db      *sql.DB
-	conn    connectionOptions
-	dialect dialect
-	bind    bindStyle
-}
-
-func (v *sqlStoreView) q(query string) string {
-	return rebind(v.bind, query)
-}
-
-func (v *sqlStoreView) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return queryWithRetry(ctx, v.db, v.conn, v.q(query), args...)
 }

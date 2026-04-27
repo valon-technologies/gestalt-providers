@@ -3,8 +3,6 @@ package relationaldb
 import (
 	"fmt"
 	"strings"
-
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
 // bindStyle controls how query placeholders are rendered.
@@ -158,94 +156,6 @@ func metadataTableSQL(d dialect, table string) string {
 	)
 }
 
-func indexedColumns(schema *proto.ObjectStoreSchema) map[string]struct{} {
-	cols := make(map[string]struct{}, len(schema.GetIndexes()))
-	for _, idx := range schema.GetIndexes() {
-		for _, key := range idx.GetKeyPath() {
-			cols[key] = struct{}{}
-		}
-	}
-	return cols
-}
-
-type columnSQLOptions struct {
-	IncludePrimaryKey bool
-	IncludeUnique     bool
-	IncludeNotNull    bool
-}
-
-func columnSQLDef(d dialect, col *proto.ColumnDef, schema *proto.ObjectStoreSchema, options columnSQLOptions) string {
-	indexed := indexedColumns(schema)
-	_, participatesInIndex := indexed[col.Name]
-	def := quoteIdent(d, col.Name) + " " + sqlType(d, col.Type, col.PrimaryKey || col.Unique || participatesInIndex)
-	if options.IncludeNotNull && (col.NotNull || col.PrimaryKey) {
-		def += " NOT NULL"
-	}
-	if options.IncludePrimaryKey && col.PrimaryKey {
-		def += " PRIMARY KEY"
-	}
-	if options.IncludeUnique && col.Unique && !col.PrimaryKey {
-		def += " UNIQUE"
-	}
-	return def
-}
-
-func createTableSQL(d dialect, table string, schema *proto.ObjectStoreSchema) string {
-	if len(schema.GetColumns()) == 0 {
-		if d == dialectSQLServer {
-			return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s %s NOT NULL PRIMARY KEY)",
-				table, quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
-		}
-		return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s %s NOT NULL PRIMARY KEY)",
-			quoteTableName(d, table), quoteIdent(d, "id"), sqlType(d, 0, true))
-	}
-
-	defs := make([]string, len(schema.GetColumns()))
-	for i, col := range schema.GetColumns() {
-		defs[i] = columnSQLDef(d, col, schema, columnSQLOptions{
-			IncludePrimaryKey: true,
-			IncludeUnique:     true,
-			IncludeNotNull:    true,
-		})
-	}
-	if d == dialectSQLServer {
-		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
-			table, quoteTableName(d, table), strings.Join(defs, ", "))
-	}
-	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
-		quoteTableName(d, table), strings.Join(defs, ", "))
-}
-
-func createIndexSQL(d dialect, table string, idx *proto.IndexSchema, schema *proto.ObjectStoreSchema) string {
-	unique := ""
-	if idx.Unique {
-		unique = "UNIQUE "
-	}
-	columnTypes := make(map[string]int32, len(schema.GetColumns()))
-	for _, col := range schema.GetColumns() {
-		columnTypes[col.Name] = col.Type
-	}
-	cols := make([]string, len(idx.KeyPath))
-	for i, c := range idx.KeyPath {
-		colSQL := quoteIdent(d, c)
-		if d == dialectMySQL && !idx.Unique && len(idx.KeyPath) > 1 && columnTypes[c] == 0 {
-			colSQL += "(128)"
-		}
-		cols[i] = colSQL
-	}
-	indexName := fmt.Sprintf("idx_%s_%s", baseTableName(table), idx.Name)
-	createStmt := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
-		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
-	if d == dialectMySQL {
-		return createStmt
-	}
-	if d == dialectSQLServer {
-		return sqlServerCreateIndexIfMissing(table, indexName, createStmt)
-	}
-	return fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)",
-		unique, quoteIdent(d, indexName), quoteTableName(d, table), strings.Join(cols, ", "))
-}
-
 func createGenericRecordsTableSQL(d dialect, table string) string {
 	defs := []string{
 		quoteIdent(d, "store_name") + " " + sqlType(d, 0, true) + " NOT NULL",
@@ -357,66 +267,4 @@ func sqlServerObjectName(table string) string {
 		quoted = append(quoted, "["+strings.ReplaceAll(part, "]", "]]")+"]")
 	}
 	return strings.Join(quoted, ".")
-}
-
-func dropTableSQL(d dialect, table string) string {
-	return fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteTableName(d, table))
-}
-
-func colList(d dialect, cols []*proto.ColumnDef) string {
-	if len(cols) == 0 {
-		return quoteIdent(d, "id")
-	}
-	parts := make([]string, len(cols))
-	for i, c := range cols {
-		parts[i] = quoteIdent(d, c.Name)
-	}
-	return strings.Join(parts, ", ")
-}
-
-func selectByPK(d dialect, table, pkCol string, cols []*proto.ColumnDef) string {
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		colList(d, cols), quoteTableName(d, table), quoteIdent(d, pkCol))
-}
-
-func selectKeyByPK(d dialect, table, pkCol string) string {
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		quoteIdent(d, pkCol), quoteTableName(d, table), quoteIdent(d, pkCol))
-}
-
-func insertSQL(d dialect, table string, cols []*proto.ColumnDef) string {
-	placeholders := make([]string, len(cols))
-	for i := range cols {
-		placeholders[i] = "?"
-	}
-	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		quoteTableName(d, table), colList(d, cols), strings.Join(placeholders, ", "))
-}
-
-func deleteByPK(d dialect, table, pkCol string) string {
-	return fmt.Sprintf("DELETE FROM %s WHERE %s = ?", quoteTableName(d, table), quoteIdent(d, pkCol))
-}
-
-func deleteAll(d dialect, table string) string {
-	return fmt.Sprintf("DELETE FROM %s", quoteTableName(d, table))
-}
-
-func selectDocumentPayloadByPK(d dialect, table, pkCol string) string {
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		quoteIdent(d, documentPayloadColumn),
-		quoteTableName(d, table),
-		quoteIdent(d, pkCol),
-	)
-}
-
-func selectDocumentPayloadsWithRange(d dialect, m *storeMeta, kr *proto.KeyRange) (string, []any, error) {
-	where, args, err := keyRangeWhere(d, m, kr)
-	if err != nil {
-		return "", nil, err
-	}
-	selectExpr := quoteIdent(d, documentPayloadColumn)
-	if where == "" {
-		return fmt.Sprintf("SELECT %s FROM %s", selectExpr, quoteTableName(d, m.table)), args, nil
-	}
-	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", selectExpr, quoteTableName(d, m.table), where), args, nil
 }
