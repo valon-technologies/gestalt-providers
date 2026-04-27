@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.7"
+	providerVersion     = "0.0.1-alpha.8"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
@@ -230,7 +230,14 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
 	}
 
+	scheduleStore := db.ObjectStore(storeSchedules)
+	eventTriggerStore := db.ObjectStore(storeEventTriggers)
 	runStore := db.ObjectStore(storeRuns)
+	executionRefStore := db.ObjectStore(storeExecutionRefs)
+	if err := backfillStoredWorkflowTargets(ctx, scheduleStore, eventTriggerStore, runStore, executionRefStore); err != nil {
+		cleanup()
+		return fmt.Errorf("indexeddb workflow: backfill stored workflow targets: %w", err)
+	}
 	if err := markStaleRunningRunsFailed(ctx, runStore, p.clock().UTC()); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: recover stale runs: %w", err)
@@ -245,11 +252,11 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.adminConn = adminConn
 	p.admin = admin
 	p.host = host
-	p.scheduleStore = db.ObjectStore(storeSchedules)
-	p.eventTriggerStore = db.ObjectStore(storeEventTriggers)
+	p.scheduleStore = scheduleStore
+	p.eventTriggerStore = eventTriggerStore
 	p.runStore = runStore
 	p.idempotencyStore = db.ObjectStore(storeIdempotency)
-	p.executionRefStore = db.ObjectStore(storeExecutionRefs)
+	p.executionRefStore = executionRefStore
 	p.wake = make(chan struct{}, 1)
 	p.pollDone = make(chan struct{})
 
@@ -1505,6 +1512,54 @@ func markStaleRunningRunsFailed(ctx context.Context, store *gestalt.ObjectStoreC
 		run.StatusMessage = "workflow provider restarted while run was in progress"
 		if err := store.Put(ctx, run.toRecord()); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func backfillStoredWorkflowTargets(ctx context.Context, scheduleStore, eventTriggerStore, runStore, executionRefStore *gestalt.ObjectStoreClient) error {
+	stores := []struct {
+		name              string
+		store             *gestalt.ObjectStoreClient
+		updateFingerprint bool
+	}{
+		{name: storeSchedules, store: scheduleStore},
+		{name: storeEventTriggers, store: eventTriggerStore},
+		{name: storeRuns, store: runStore},
+		{name: storeExecutionRefs, store: executionRefStore, updateFingerprint: true},
+	}
+	for _, value := range stores {
+		if err := backfillStoreTargetJSON(ctx, value.name, value.store, value.updateFingerprint); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func backfillStoreTargetJSON(ctx context.Context, storeName string, store *gestalt.ObjectStoreClient, updateFingerprint bool) error {
+	records, err := store.GetAll(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("%s: list records: %w", storeName, err)
+	}
+	for _, record := range records {
+		target, migrated := targetFromRecordValueWithMigration(record["target_json"])
+		if !migrated {
+			continue
+		}
+		targetData, err := workflowTargetJSON.Marshal(target)
+		if err != nil {
+			return fmt.Errorf("%s %q: marshal target_json: %w", storeName, stringField(record, "id"), err)
+		}
+		record["target_json"] = string(targetData)
+		if updateFingerprint && target.GetAgent() != nil {
+			fingerprint, err := workflowTargetFingerprint(target)
+			if err != nil {
+				return fmt.Errorf("%s %q: target fingerprint: %w", storeName, stringField(record, "id"), err)
+			}
+			record["target_fingerprint"] = fingerprint
+		}
+		if err := store.Put(ctx, record); err != nil {
+			return fmt.Errorf("%s %q: update target_json: %w", storeName, stringField(record, "id"), err)
 		}
 	}
 	return nil

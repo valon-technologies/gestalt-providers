@@ -2,6 +2,7 @@ package indexeddb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -228,6 +229,118 @@ func TestProviderGetRunMigratesStoredFlatPluginTarget(t *testing.T) {
 	partialPlugin := partial.GetTarget().GetPlugin()
 	if partialPlugin.GetPluginName() != "" || partialPlugin.GetOperation() != "sync" {
 		t.Fatalf("partial target.plugin = %#v", partialPlugin)
+	}
+}
+
+func TestProviderConfigureBackfillsStoredLegacyTargetJSON(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	seed := New()
+	if err := seed.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(seed): %v", err)
+	}
+	stopProviderWorker(t, seed)
+
+	now := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	legacyPluginTarget := `{"pluginName":"roadmap","operation":"sync","connection":"prod","instance":"main","input":{"mode":"legacy"}}`
+	if err := seed.scheduleStore.Put(ctx, gestalt.Record{
+		"id":          "legacy-schedule",
+		"plugin_name": "roadmap",
+		"cron":        "*/5 * * * *",
+		"timezone":    "UTC",
+		"operation":   "sync",
+		"target_json": legacyPluginTarget,
+		"created_at":  now,
+		"updated_at":  now,
+	}); err != nil {
+		t.Fatalf("Put(legacy schedule): %v", err)
+	}
+	if err := seed.eventTriggerStore.Put(ctx, gestalt.Record{
+		"id":            "legacy-event-trigger",
+		"plugin_name":   "roadmap",
+		"match_type":    "task.updated",
+		"match_source":  "linear",
+		"match_subject": "issue:AIT-1",
+		"operation":     "sync",
+		"target_json":   legacyPluginTarget,
+		"created_at":    now,
+		"updated_at":    now,
+	}); err != nil {
+		t.Fatalf("Put(legacy event trigger): %v", err)
+	}
+	if err := seed.runStore.Put(ctx, gestalt.Record{
+		"id":           "legacy-run",
+		"plugin_name":  "roadmap",
+		"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED),
+		"operation":    "sync",
+		"target_json":  legacyPluginTarget,
+		"trigger_kind": triggerKindManual,
+		"created_at":   now,
+	}); err != nil {
+		t.Fatalf("Put(legacy run): %v", err)
+	}
+	if err := seed.executionRefStore.Put(ctx, gestalt.Record{
+		"id":                    "legacy-agent-ref",
+		"provider_name":         "indexeddb",
+		"target_plugin":         "agent:managed",
+		"target_operation":      "",
+		"target_connection":     "",
+		"target_instance":       "",
+		"target_json":           `{"agent":{"providerName":"managed","prompt":"send a Slack reminder","toolSource":"AGENT_TOOL_SOURCE_MODE_EXPLICIT","toolRefs":[{"pluginName":"slack","operation":"chat.postMessage"}]}}`,
+		"target_fingerprint":    "legacy-fingerprint",
+		"subject_id":            "user-123",
+		"credential_subject_id": "user-123",
+		"permissions_json":      "[]",
+		"created_at":            now,
+	}); err != nil {
+		t.Fatalf("Put(legacy execution ref): %v", err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatalf("Close(seed): %v", err)
+	}
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(backfill): %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	stopProviderWorker(t, provider)
+
+	schedule, err := provider.scheduleStore.Get(ctx, "legacy-schedule")
+	if err != nil {
+		t.Fatalf("Get(legacy schedule): %v", err)
+	}
+	assertCanonicalPluginTargetJSON(t, schedule["target_json"], "roadmap", "sync", "prod", "main", "legacy")
+
+	trigger, err := provider.eventTriggerStore.Get(ctx, "legacy-event-trigger")
+	if err != nil {
+		t.Fatalf("Get(legacy event trigger): %v", err)
+	}
+	assertCanonicalPluginTargetJSON(t, trigger["target_json"], "roadmap", "sync", "prod", "main", "legacy")
+
+	run, err := provider.runStore.Get(ctx, "legacy-run")
+	if err != nil {
+		t.Fatalf("Get(legacy run): %v", err)
+	}
+	assertCanonicalPluginTargetJSON(t, run["target_json"], "roadmap", "sync", "prod", "main", "legacy")
+
+	ref, err := provider.executionRefStore.Get(ctx, "legacy-agent-ref")
+	if err != nil {
+		t.Fatalf("Get(legacy execution ref): %v", err)
+	}
+	target := assertCanonicalAgentTargetJSON(t, ref["target_json"])
+	const expectedCanonicalAgentFingerprint = "0b37d18bd1644256e27050808ad58c42d0759b5e195ece283b637859aeef8167"
+	expectedFingerprint, err := workflowTargetFingerprint(target)
+	if err != nil {
+		t.Fatalf("workflowTargetFingerprint: %v", err)
+	}
+	if expectedFingerprint != expectedCanonicalAgentFingerprint {
+		t.Fatalf("workflowTargetFingerprint = %q, want contract fingerprint %q", expectedFingerprint, expectedCanonicalAgentFingerprint)
+	}
+	if got := stringField(ref, "target_fingerprint"); got != expectedFingerprint || got == "legacy-fingerprint" {
+		t.Fatalf("target_fingerprint = %q, want rewritten %q", got, expectedFingerprint)
 	}
 }
 
@@ -1190,6 +1303,82 @@ func startTestWorkflowHost(t *testing.T, host proto.WorkflowHostServer) {
 		_ = os.Remove(socketPath)
 	})
 	t.Setenv(gestalt.EnvWorkflowHostSocket, socketPath)
+}
+
+func assertCanonicalPluginTargetJSON(t *testing.T, raw any, pluginName, operation, connection, instance, mode string) {
+	t.Helper()
+	payload := targetJSONMap(t, raw)
+	for _, key := range []string{"pluginName", "plugin_name", "operation", "input", "connection", "instance"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("target_json has legacy top-level %q: %v", key, payload)
+		}
+	}
+	plugin, ok := payload["plugin"].(map[string]any)
+	if !ok {
+		t.Fatalf("target_json.plugin = %#v, want object", payload["plugin"])
+	}
+	if got := stringField(plugin, "pluginName"); got != pluginName {
+		t.Fatalf("target_json.plugin.pluginName = %q, want %q", got, pluginName)
+	}
+	if got := stringField(plugin, "operation"); got != operation {
+		t.Fatalf("target_json.plugin.operation = %q, want %q", got, operation)
+	}
+	if got := stringField(plugin, "connection"); got != connection {
+		t.Fatalf("target_json.plugin.connection = %q, want %q", got, connection)
+	}
+	if got := stringField(plugin, "instance"); got != instance {
+		t.Fatalf("target_json.plugin.instance = %q, want %q", got, instance)
+	}
+	input, ok := plugin["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("target_json.plugin.input = %#v, want object", plugin["input"])
+	}
+	if got := stringField(input, "mode"); got != mode {
+		t.Fatalf("target_json.plugin.input.mode = %q, want %q", got, mode)
+	}
+}
+
+func assertCanonicalAgentTargetJSON(t *testing.T, raw any) *proto.BoundWorkflowTarget {
+	t.Helper()
+	payload := targetJSONMap(t, raw)
+	agent, ok := payload["agent"].(map[string]any)
+	if !ok {
+		t.Fatalf("target_json.agent = %#v, want object", payload["agent"])
+	}
+	if got := stringField(agent, "toolSource"); got != "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH" {
+		t.Fatalf("target_json.agent.toolSource = %q, want native search", got)
+	}
+	refs, ok := agent["toolRefs"].([]any)
+	if !ok || len(refs) != 1 {
+		t.Fatalf("target_json.agent.toolRefs = %#v, want one ref", agent["toolRefs"])
+	}
+	ref, ok := refs[0].(map[string]any)
+	if !ok {
+		t.Fatalf("target_json.agent.toolRefs[0] = %#v, want object", refs[0])
+	}
+	if _, ok := ref["pluginName"]; ok {
+		t.Fatalf("target_json.agent.toolRefs[0] has legacy pluginName: %v", ref)
+	}
+	if got := stringField(ref, "plugin"); got != "slack" {
+		t.Fatalf("target_json.agent.toolRefs[0].plugin = %q, want slack", got)
+	}
+	if got := stringField(ref, "operation"); got != "chat.postMessage" {
+		t.Fatalf("target_json.agent.toolRefs[0].operation = %q, want chat.postMessage", got)
+	}
+	target := targetFromRecordValue(raw)
+	if target.GetAgent() == nil {
+		t.Fatalf("targetFromRecordValue(%v).agent is nil", raw)
+	}
+	return target
+}
+
+func targetJSONMap(t *testing.T, raw any) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stringValue(raw)), &payload); err != nil {
+		t.Fatalf("json.Unmarshal(target_json): %v", err)
+	}
+	return payload
 }
 
 func protoBoundTarget(t *testing.T, pluginName, operation string, input map[string]any) *proto.BoundWorkflowTarget {
