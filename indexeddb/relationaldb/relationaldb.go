@@ -490,6 +490,14 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 			if err := s.ensureGenericTables(ctx); err != nil {
 				return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
 			}
+			if genericStoreSchemaMatches(existing, schema) {
+				if existing.table != tableName {
+					if err := s.persistStoreMetadata(ctx, req.Name, tableName, schema, storageVersionGeneric); err != nil {
+						return nil, err
+					}
+				}
+				return &emptypb.Empty{}, nil
+			}
 			if err := s.reindexGenericStore(ctx, req.Name, schema); err != nil {
 				return nil, err
 			}
@@ -529,6 +537,71 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func genericStoreSchemaMatches(existing *storeMeta, schema *proto.ObjectStoreSchema) bool {
+	if existing == nil {
+		return false
+	}
+	next := newStoredSchema("", schema, storageVersionGeneric).toMeta(existing.name)
+	return columnsMatch(existing.columns, next.columns) && indexesMatch(existing.indexes, next.indexes)
+}
+
+func columnsMatch(left, right []*proto.ColumnDef) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	byName := make(map[string]*proto.ColumnDef, len(left))
+	for _, col := range left {
+		if col == nil {
+			return false
+		}
+		byName[col.Name] = col
+	}
+	for _, col := range right {
+		if col == nil {
+			return false
+		}
+		existing, ok := byName[col.Name]
+		if !ok {
+			return false
+		}
+		if existing.Type != col.Type ||
+			existing.PrimaryKey != col.PrimaryKey ||
+			existing.NotNull != col.NotNull ||
+			existing.Unique != col.Unique {
+			return false
+		}
+	}
+	return true
+}
+
+func indexesMatch(left, right []*proto.IndexSchema) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	byName := make(map[string]*proto.IndexSchema, len(left))
+	for _, idx := range left {
+		if idx == nil {
+			return false
+		}
+		byName[idx.Name] = idx
+	}
+	for _, idx := range right {
+		if idx == nil {
+			return false
+		}
+		existing, ok := byName[idx.Name]
+		if !ok || existing.Unique != idx.Unique || len(existing.KeyPath) != len(idx.KeyPath) {
+			return false
+		}
+		for i := range idx.KeyPath {
+			if existing.KeyPath[i] != idx.KeyPath[i] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {

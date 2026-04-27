@@ -599,6 +599,55 @@ func TestCreateObjectStoreUsesRequestedGenericTableName(t *testing.T) {
 	}
 }
 
+func TestCreateObjectStoreSkipsGenericReindexWhenSchemaUnchanged(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
+	}); err != nil {
+		t.Fatalf("Add record: %v", err)
+	}
+
+	indexKey, err := encodeKeyValue("sentinel-index")
+	if err != nil {
+		t.Fatalf("encode sentinel index key: %v", err)
+	}
+	primary, err := encodeKeyValue("sentinel-pk")
+	if err != nil {
+		t.Fatalf("encode sentinel primary key: %v", err)
+	}
+	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		return s.insertGenericIndexRows(txCtx, tx, s.genericIndexTable(), "widgets", []genericIndexRow{{
+			indexName:     "__sentinel",
+			indexKeyHash:  indexKey.hash,
+			indexKeyBytes: indexKey.raw,
+			pkHash:        primary.hash,
+			pkBytes:       primary.raw,
+		}})
+	}); err != nil {
+		t.Fatalf("insert sentinel index row: %v", err)
+	}
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore unchanged: %v", err)
+	}
+
+	rows, err := s.loadGenericIndexRows(ctx, s.genericIndexTable(), "widgets", "__sentinel")
+	if err != nil {
+		t.Fatalf("load sentinel index rows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("sentinel index rows = %d, want 1", len(rows))
+	}
+}
+
 func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 	ctx := context.Background()
 	dsn := "file:" + filepath.Join(t.TempDir(), "namespaced-metadata.sqlite")
