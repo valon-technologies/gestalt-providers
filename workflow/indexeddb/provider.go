@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.5"
+	providerVersion     = "0.0.1-alpha.7"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
@@ -1545,13 +1545,13 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 		pluginName = targetPlugin
 	}
 	if pluginName == "" {
-		return scopedTarget{}, errors.New("plugin_name is required")
+		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
 	if targetPlugin != "" && targetPlugin != pluginName {
-		return scopedTarget{}, fmt.Errorf("target.plugin_name %q is outside scoped plugin %q", targetPlugin, pluginName)
+		return scopedTarget{}, fmt.Errorf("target.plugin.plugin_name %q is outside scoped plugin %q", targetPlugin, pluginName)
 	}
 	if operation == "" {
-		return scopedTarget{}, errors.New("target.operation is required")
+		return scopedTarget{}, errors.New("target.plugin.operation is required")
 	}
 	normalized := pluginTargetProto(pluginName, operation, connection, instance, input)
 	return scopedTarget{
@@ -2013,10 +2013,7 @@ func pluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetF
 	if target == nil {
 		return workflowPluginTargetFields{}
 	}
-	if plugin := target.GetPlugin(); plugin != nil {
-		return pluginMessageTargetFields(plugin)
-	}
-	return workflowPluginTargetFields{}
+	return pluginMessageTargetFields(target.GetPlugin())
 }
 
 func hasLegacyFlatPluginTargetFields(target *proto.BoundWorkflowTarget) bool {
