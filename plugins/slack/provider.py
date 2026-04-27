@@ -45,35 +45,7 @@ channel and reply_thread_ts. Omit thread_ts when reply_thread_ts is empty.
 After posting to Slack, return a concise final summary of what you did.
 """.strip()
 
-plugin = gestalt.Plugin(
-    "slack",
-    securitySchemes={
-        "slack": {
-            "type": "hmac",
-            "secret": {"env": "SLACK_SIGNING_SECRET"},
-            "signatureHeader": "X-Slack-Signature",
-            "signaturePrefix": "v0=",
-            "payloadTemplate": "v0:{header:X-Slack-Request-Timestamp}:{raw_body}",
-            "timestampHeader": "X-Slack-Request-Timestamp",
-            "maxAgeSeconds": 300,
-        }
-    },
-    http={
-        "event": {
-            "path": "/event",
-            "method": "POST",
-            "credentialMode": "none",
-            "security": "slack",
-            "target": SLACK_EVENT_OPERATION,
-            "requestBody": {
-                "required": True,
-                "content": {
-                    "application/json": {},
-                },
-            },
-        },
-    },
-)
+plugin = gestalt.Plugin("slack")
 
 
 @dataclass(slots=True)
@@ -645,7 +617,7 @@ def _agent_config_from_provider_config(
     provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
     model = _config_string(agent, "model", "agentModel", "agent_model")
     system_prompt = _config_string(
-        agent, "systemPrompt", "system_prompt", "agentSystemPrompt"
+        agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
     )
     provider_options = _config_dict(
         agent, "providerOptions", "provider_options", "agentProviderOptions"
@@ -658,7 +630,7 @@ def _agent_config_from_provider_config(
         or _config_string(config, "agentProvider", "agent_provider"),
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
         agent_system_prompt=system_prompt
-        or _config_string(config, "agentSystemPrompt", "agent_system_prompt"),
+        or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
         agent_provider_options=provider_options
         or _config_dict(config, "agentProviderOptions", "agent_provider_options"),
         routes=routes,
@@ -683,7 +655,7 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
     provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
     model = _config_string(agent, "model", "agentModel", "agent_model")
     system_prompt = _config_string(
-        agent, "systemPrompt", "system_prompt", "agentSystemPrompt"
+        agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
     )
     provider_options = _config_dict(
         agent, "providerOptions", "provider_options", "agentProviderOptions"
@@ -697,7 +669,7 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
         agent_model=model
         or _config_string(config, "model", "agentModel", "agent_model"),
         agent_system_prompt=system_prompt
-        or _config_string(config, "systemPrompt", "agentSystemPrompt"),
+        or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
         agent_provider_options=provider_options
         or _config_dict(config, "providerOptions", "agentProviderOptions"),
     )
@@ -705,17 +677,31 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
 
 def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:
     return SlackAgentRouteMatch(
-        team_ids=_config_string_tuple(config, "teams", "teamIds", "team_ids"),
+        team_ids=_config_string_tuple(
+            config, "team", "teams", "teamId", "teamIds", "team_id", "team_ids"
+        ),
         channel_ids=_config_string_tuple(
-            config, "channels", "channelIds", "channel_ids"
+            config,
+            "channel",
+            "channels",
+            "channelId",
+            "channelIds",
+            "channel_id",
+            "channel_ids",
         ),
         channel_types=_lower_tuple(
-            _config_string_tuple(config, "channelTypes", "channel_types")
+            _config_string_tuple(
+                config, "channelType", "channelTypes", "channel_type", "channel_types"
+            )
         ),
         event_types=_lower_tuple(
-            _config_string_tuple(config, "eventTypes", "event_types")
+            _config_string_tuple(
+                config, "eventType", "eventTypes", "event_type", "event_types"
+            )
         ),
-        user_ids=_config_string_tuple(config, "users", "userIds", "user_ids"),
+        user_ids=_config_string_tuple(
+            config, "user", "users", "userId", "userIds", "user_id", "user_ids"
+        ),
     )
 
 

@@ -265,11 +265,11 @@ class SlackProviderTests(unittest.TestCase):
                         {
                             "id": "triage",
                             "match": {
-                                "channels": ["C_SUPPORT"],
-                                "eventTypes": ["message"],
+                                "channel": "C_SUPPORT",
+                                "eventType": "message",
                             },
                             "agent": {
-                                "systemPrompt": "Triage support requests.",
+                                "prompt": "Triage support requests.",
                                 "providerOptions": {"max_output_tokens": 2000},
                             },
                         }

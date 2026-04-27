@@ -51,9 +51,10 @@ plugins:
 ```
 
 Slack should send Events API requests to `POST /api/v1/slack/event`. The route
-validates Slack HMAC signatures with `SLACK_SIGNING_SECRET`, resolves the Slack
-team/user through the managed `external_identity` authorization relationship,
-and starts a Gestalt agent run with `toolSource=INHERIT_INVOKES`.
+is declared in `manifest.yaml` under `spec.http.event`, validates Slack HMAC
+signatures with `SLACK_SIGNING_SECRET`, resolves the Slack team/user through the
+managed `external_identity` authorization relationship, and starts a Gestalt
+agent run with `toolSource=INHERIT_INVOKES`.
 
 If `agent.routes` is omitted, the provider uses its default behavior:
 `app_mention` events and direct-message `message` events start an agent run.
@@ -100,10 +101,10 @@ plugins:
 ```
 
 When `agent.routes` is present, only matching routes start an agent run. Match
-rules support `teams`/`teamIds`, `channels`/`channelIds`, `channelTypes`,
-`eventTypes`, and `users`/`userIds`. Route-level `agent` fields override the
-top-level agent settings, and `providerOptions` are merged with route-level
-values taking precedence.
+rules support singular or plural forms of `team`, `channel`, `channelType`,
+`eventType`, and `user`. Route-level `agent` fields override the top-level
+agent settings, `prompt` is accepted as an alias for `systemPrompt`, and
+`providerOptions` are merged with route-level values taking precedence.
 
 ## Documentation
 
