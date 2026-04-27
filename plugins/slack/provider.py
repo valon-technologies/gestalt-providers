@@ -571,7 +571,13 @@ def _build_agent_turn_request(
             agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
             agent_pb2.AgentMessage(role="user", text=_agent_user_prompt(event)),
         ],
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES,
+        tool_refs=[
+            agent_pb2.AgentToolRef(
+                plugin=_agent_config.plugin_name,
+                operation="chat.postMessage",
+            )
+        ],
+        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
         idempotency_key=_agent_turn_idempotency_key(event),
     )
     request.metadata.CopyFrom(_agent_metadata(event, route))
