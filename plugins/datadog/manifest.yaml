@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/datadog
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Datadog
 description: Manage dashboards, monitors, incidents, logs, RUM, and CI Visibility.
 iconFile: assets/icon.svg
@@ -8,3 +8,40 @@ spec:
   surfaces:
     openapi:
       document: openapi.yaml
+  connections:
+    default:
+      auth:
+        type: manual
+        credentials:
+          - name: api_key
+            label: API Key
+            description: Retrieve from [API Keys](https://us5.datadoghq.com/organization-settings/api-keys)
+          - name: app_key
+            label: Application Key
+            description: Generate your own in [Application Keys](https://us5.datadoghq.com/organization-settings/application-keys)
+        scopes:
+          # Required by operations exposed in openapi.yaml.
+          - ci_visibility_read
+          - dashboards_read
+          - dashboards_write
+          - logs_read_data
+          - metrics_read
+          - monitors_read
+          - rum_apps_read
+          # Optional reads for related Datadog products. Granting these now
+          # avoids re-issuing the Application key when read-side ops for these
+          # products land in future plugin versions.
+          - apm_read
+          - cd_visibility_read
+          - cloud_cost_management_read
+          - dora_metrics_read
+          - logs_live_tail
+          - logs_read_archives
+          - logs_read_config
+          - logs_read_index_data
+          - logs_read_workspaces
+          - synthetics_default_settings_read
+          - synthetics_global_variable_read
+          - synthetics_private_location_read
+          - synthetics_read
+          - timeseries_query
