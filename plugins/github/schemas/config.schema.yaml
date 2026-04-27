@@ -53,20 +53,20 @@ properties:
       botEmail-derived bot login. Defaults to true.
   agent:
     type: object
-    description: Agent configuration for GitHub App webhook-triggered runs.
+    description: Agent configuration for GitHub App webhook-triggered turns.
     additionalProperties: false
     properties:
       provider:
         type: string
-        description: Agent provider used for GitHub App webhook-triggered runs.
+        description: Agent provider used for GitHub App webhook-triggered turns.
       model:
         type: string
-        description: Agent model used for GitHub App webhook-triggered runs.
+        description: Agent model used for GitHub App webhook-triggered turns.
       systemPrompt:
         type: string
-        description: Additional system prompt appended for GitHub App webhook-triggered runs.
+        description: Additional system prompt appended for GitHub App webhook-triggered turns.
       providerOptions:
         type: object
-        description: Provider-specific options for GitHub App webhook-triggered runs.
+        description: Provider-specific options for GitHub App webhook-triggered turns.
         additionalProperties: true
 additionalProperties: false

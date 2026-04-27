@@ -68,7 +68,7 @@ plugins:
 
 `clientId` and `clientSecret` are only needed when using the OAuth-backed
 OpenAPI or GraphQL surfaces. They are not required for webhook-triggered agent
-runs or bot operations.
+turns or bot operations.
 
 The private key can also be supplied with `appPrivateKey`,
 `appPrivateKeyPath`, `GITHUB_APP_PRIVATE_KEY`, or
@@ -88,7 +88,7 @@ By default, webhook-triggered agents are started for `check_run`, `check_suite`,
 `issue_comment`, `issues`, `pull_request`, `pull_request_review`,
 `pull_request_review_comment`, and `workflow_run`. `push` is intentionally not
 enabled by default so commits created by the bot do not recursively start new
-agent runs. Set `webhookEvents` to override the allowlist.
+agent turns. Set `webhookEvents` to override the allowlist.
 
 ## Bot Operation Interfaces
 

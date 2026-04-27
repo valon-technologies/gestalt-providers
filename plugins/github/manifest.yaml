@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/github
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.4
 displayName: GitHub
 description: Repository, issue, pull request, workflow, and code search operations.
 iconFile: assets/icon.svg
@@ -7,6 +7,25 @@ kind: plugin
 spec:
   defaultConnection: default
   configSchemaPath: schemas/config.schema.yaml
+  securitySchemes:
+    github_app:
+      type: hmac
+      secret:
+        env: GITHUB_WEBHOOK_SECRET
+      signatureHeader: X-Hub-Signature-256
+      signaturePrefix: sha256=
+      payloadTemplate: "{raw_body}"
+  http:
+    event:
+      path: /event
+      method: POST
+      credentialMode: none
+      security: github_app
+      target: events.handle
+      requestBody:
+        required: true
+        content:
+          application/json: {}
   surfaces:
     openapi:
       connection: default
