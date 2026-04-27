@@ -1,6 +1,14 @@
 from typing import Any
 
-from .client import draft_url, full_message_url, get_json, gmail_base_url, metadata_message_url, post_json, put_json
+from .client import (
+    draft_url,
+    full_message_url,
+    get_json,
+    gmail_base_url,
+    metadata_message_url,
+    post_json,
+    put_json,
+)
 from .mime import (
     MIMEParams,
     build_mime,
@@ -12,32 +20,14 @@ from .mime import (
 )
 
 
-def send_message(token: str, to: str, subject: str, body: str, cc: str, bcc: str, html_body: str) -> dict[str, Any]:
-    raw = build_mime(
-        MIMEParams(
-            to=to,
-            subject=subject,
-            body=body,
-            cc=cc,
-            bcc=bcc,
-            html_body=html_body,
-        )
-    )
+def send_message(token: str, params: MIMEParams) -> dict[str, Any]:
+    raw = build_mime(params)
     message = post_json(f"{gmail_base_url()}/messages/send", {"raw": raw}, token)
     return {"data": {"message": message}}
 
 
-def create_draft(token: str, to: str, subject: str, body: str, cc: str, bcc: str, html_body: str) -> dict[str, Any]:
-    raw = build_mime(
-        MIMEParams(
-            to=to,
-            subject=subject,
-            body=body,
-            cc=cc,
-            bcc=bcc,
-            html_body=html_body,
-        )
-    )
+def create_draft(token: str, params: MIMEParams) -> dict[str, Any]:
+    raw = build_mime(params)
     draft = post_json(
         f"{gmail_base_url()}/drafts",
         {"message": {"raw": raw}},
@@ -46,17 +36,12 @@ def create_draft(token: str, to: str, subject: str, body: str, cc: str, bcc: str
     return {"data": {"draft": draft}}
 
 
-def update_draft(token: str, draft_id: str, to: str, subject: str, body: str, cc: str, bcc: str, html_body: str) -> dict[str, Any]:
-    raw = build_mime(
-        MIMEParams(
-            to=to,
-            subject=subject,
-            body=body,
-            cc=cc,
-            bcc=bcc,
-            html_body=html_body,
-        )
-    )
+def update_draft(
+    token: str,
+    draft_id: str,
+    params: MIMEParams,
+) -> dict[str, Any]:
+    raw = build_mime(params)
     draft = put_json(
         draft_url(draft_id),
         {"id": draft_id, "message": {"raw": raw}},
@@ -74,7 +59,15 @@ def send_draft(token: str, draft_id: str) -> dict[str, Any]:
     return {"data": {"message": message}}
 
 
-def reply_message(token: str, message_id: str, body: str, cc: str, reply_all: bool, html_body: str) -> dict[str, Any]:
+def reply_message(
+    token: str,
+    *,
+    message_id: str,
+    body: str,
+    cc: str = "",
+    reply_all: bool = False,
+    html_body: str = "",
+) -> dict[str, Any]:
     original = get_json(metadata_message_url(message_id), token)
 
     payload = original.get("payload")
@@ -118,7 +111,14 @@ def reply_message(token: str, message_id: str, body: str, cc: str, reply_all: bo
     return {"data": {"message": message}}
 
 
-def forward_message(token: str, message_id: str, to: str, additional_text: str, cc: str) -> dict[str, Any]:
+def forward_message(
+    token: str,
+    *,
+    message_id: str,
+    to: str,
+    additional_text: str = "",
+    cc: str = "",
+) -> dict[str, Any]:
     original = get_json(full_message_url(message_id), token)
 
     payload = original.get("payload")

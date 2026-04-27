@@ -22,6 +22,14 @@ plugin = "provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
+  "CREATED_DATE",
+  "EVIDENCE_COUNT",
+  "LAST_SOURCE_ADDED_DATE",
+  "ASC",
+  "DESC",
+  "OPEN",
+  "IN_PROGRESS",
+  "RESOLVED",
   "project_export",
   "project_import",
   "project_run_draft",

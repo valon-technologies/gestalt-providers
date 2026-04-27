@@ -5,7 +5,16 @@ from typing import Any, TypeAlias
 
 import gestalt
 
-from internals import create_draft, forward_message, reply_message, send_draft, send_message, update_draft
+from internals.client import GmailAPIError, GmailClientError
+from internals.mime import MIMEParams
+from internals.operations import (
+    create_draft,
+    forward_message,
+    reply_message,
+    send_draft,
+    send_message,
+    update_draft,
+)
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
@@ -15,8 +24,12 @@ class SendMessageInput(gestalt.Model):
     to: str = gestalt.field(description="Recipient email address")
     subject: str = gestalt.field(description="Email subject")
     body: str = gestalt.field(description="Plain text body")
-    cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
-    bcc: str = gestalt.field(description="BCC recipients (comma-separated)", default="", required=False)
+    cc: str = gestalt.field(
+        description="CC recipients (comma-separated)", default="", required=False
+    )
+    bcc: str = gestalt.field(
+        description="BCC recipients (comma-separated)", default="", required=False
+    )
     html_body: str = gestalt.field(
         description="HTML body (sent as alternative to plain text)",
         default="",
@@ -28,8 +41,12 @@ class CreateDraftInput(gestalt.Model):
     to: str = gestalt.field(description="Recipient email address")
     subject: str = gestalt.field(description="Email subject")
     body: str = gestalt.field(description="Plain text body")
-    cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
-    bcc: str = gestalt.field(description="BCC recipients (comma-separated)", default="", required=False)
+    cc: str = gestalt.field(
+        description="CC recipients (comma-separated)", default="", required=False
+    )
+    bcc: str = gestalt.field(
+        description="BCC recipients (comma-separated)", default="", required=False
+    )
     html_body: str = gestalt.field(description="HTML body", default="", required=False)
 
 
@@ -38,8 +55,12 @@ class UpdateDraftInput(gestalt.Model):
     to: str = gestalt.field(description="Recipient email address")
     subject: str = gestalt.field(description="Email subject")
     body: str = gestalt.field(description="Plain text body")
-    cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
-    bcc: str = gestalt.field(description="BCC recipients (comma-separated)", default="", required=False)
+    cc: str = gestalt.field(
+        description="CC recipients (comma-separated)", default="", required=False
+    )
+    bcc: str = gestalt.field(
+        description="BCC recipients (comma-separated)", default="", required=False
+    )
     html_body: str = gestalt.field(description="HTML body", default="", required=False)
 
 
@@ -50,8 +71,12 @@ class SendDraftInput(gestalt.Model):
 class ReplyMessageInput(gestalt.Model):
     message_id: str = gestalt.field(description="Original message ID")
     body: str = gestalt.field(description="Reply body")
-    cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
-    reply_all: bool = gestalt.field(description="Reply to all recipients", default=False, required=False)
+    cc: str = gestalt.field(
+        description="CC recipients (comma-separated)", default="", required=False
+    )
+    reply_all: bool = gestalt.field(
+        description="Reply to all recipients", default=False, required=False
+    )
     html_body: str = gestalt.field(description="HTML body", default="", required=False)
 
 
@@ -63,7 +88,9 @@ class ForwardMessageInput(gestalt.Model):
         default="",
         required=False,
     )
-    cc: str = gestalt.field(description="CC recipients (comma-separated)", default="", required=False)
+    cc: str = gestalt.field(
+        description="CC recipients (comma-separated)", default="", required=False
+    )
 
 
 @gestalt.operation(
@@ -79,8 +106,10 @@ def messages_send(input: SendMessageInput, req: gestalt.Request) -> OperationRes
         return _bad_request("to, subject, and body are required")
 
     try:
-        return send_message(req.token, input.to, input.subject, input.body, input.cc, input.bcc, input.html_body)
-    except RuntimeError as err:
+        return send_message(req.token, _mime_params_from_input(input))
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except GmailClientError as err:
         return _server_error(str(err))
 
 
@@ -97,8 +126,10 @@ def drafts_create(input: CreateDraftInput, req: gestalt.Request) -> OperationRes
         return _bad_request("to, subject, and body are required")
 
     try:
-        return create_draft(req.token, input.to, input.subject, input.body, input.cc, input.bcc, input.html_body)
-    except RuntimeError as err:
+        return create_draft(req.token, _mime_params_from_input(input))
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except GmailClientError as err:
         return _server_error(str(err))
 
 
@@ -115,8 +146,10 @@ def drafts_update(input: UpdateDraftInput, req: gestalt.Request) -> OperationRes
         return _bad_request("id, to, subject, and body are required")
 
     try:
-        return update_draft(req.token, input.id, input.to, input.subject, input.body, input.cc, input.bcc, input.html_body)
-    except RuntimeError as err:
+        return update_draft(req.token, input.id, _mime_params_from_input(input))
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except GmailClientError as err:
         return _server_error(str(err))
 
 
@@ -134,7 +167,9 @@ def drafts_send(input: SendDraftInput, req: gestalt.Request) -> OperationResult:
 
     try:
         return send_draft(req.token, input.id)
-    except RuntimeError as err:
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except GmailClientError as err:
         return _server_error(str(err))
 
 
@@ -151,8 +186,17 @@ def messages_reply(input: ReplyMessageInput, req: gestalt.Request) -> OperationR
         return _bad_request("message_id and body are required")
 
     try:
-        return reply_message(req.token, input.message_id, input.body, input.cc, input.reply_all, input.html_body)
-    except RuntimeError as err:
+        return reply_message(
+            req.token,
+            message_id=input.message_id,
+            body=input.body,
+            cc=input.cc,
+            reply_all=input.reply_all,
+            html_body=input.html_body,
+        )
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except GmailClientError as err:
         return _server_error(str(err))
 
 
@@ -161,7 +205,9 @@ def messages_reply(input: ReplyMessageInput, req: gestalt.Request) -> OperationR
     method="POST",
     description="Forward a message to new recipients",
 )
-def messages_forward(input: ForwardMessageInput, req: gestalt.Request) -> OperationResult:
+def messages_forward(
+    input: ForwardMessageInput, req: gestalt.Request
+) -> OperationResult:
     token_error = _validate_token(req)
     if token_error is not None:
         return token_error
@@ -169,15 +215,38 @@ def messages_forward(input: ForwardMessageInput, req: gestalt.Request) -> Operat
         return _bad_request("message_id and to are required")
 
     try:
-        return forward_message(req.token, input.message_id, input.to, input.additional_text, input.cc)
-    except RuntimeError as err:
+        return forward_message(
+            req.token,
+            message_id=input.message_id,
+            to=input.to,
+            additional_text=input.additional_text,
+            cc=input.cc,
+        )
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except GmailClientError as err:
         return _server_error(str(err))
 
 
 def _validate_token(req: gestalt.Request) -> ErrorResponse | None:
     if not req.token.strip():
-        return gestalt.Response(status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"})
+        return gestalt.Response(
+            status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"}
+        )
     return None
+
+
+def _mime_params_from_input(
+    input: SendMessageInput | CreateDraftInput | UpdateDraftInput,
+) -> MIMEParams:
+    return MIMEParams(
+        to=input.to,
+        subject=input.subject,
+        body=input.body,
+        cc=input.cc,
+        bcc=input.bcc,
+        html_body=input.html_body,
+    )
 
 
 def _bad_request(message: str) -> ErrorResponse:
@@ -185,4 +254,6 @@ def _bad_request(message: str) -> ErrorResponse:
 
 
 def _server_error(message: str) -> ErrorResponse:
-    return gestalt.Response(status=HTTPStatus.INTERNAL_SERVER_ERROR, body={"error": message})
+    return gestalt.Response(
+        status=HTTPStatus.INTERNAL_SERVER_ERROR, body={"error": message}
+    )

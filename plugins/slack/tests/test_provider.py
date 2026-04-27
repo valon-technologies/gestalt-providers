@@ -116,9 +116,9 @@ class SlackProviderTests(unittest.TestCase):
         class LegacyAgentPB:
             AGENT_TOOL_SOURCE_MODE_EXPLICIT = 1
 
-        with mock.patch.object(provider_module, "agent_pb2", NativeAgentPB):
+        with mock.patch("internals.agent.agent_pb2", NativeAgentPB):
             self.assertEqual(provider_module._agent_tool_source_native_search(), 7)
-        with mock.patch.object(provider_module, "agent_pb2", LegacyAgentPB):
+        with mock.patch("internals.agent.agent_pb2", LegacyAgentPB):
             self.assertEqual(provider_module._agent_tool_source_native_search(), 1)
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
@@ -139,7 +139,9 @@ class SlackProviderTests(unittest.TestCase):
                 """
             )
 
-        with mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.agent.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             metadata = provider_module.post_connect(
                 gestalt.ConnectedToken(
                     access_token="user-token",
@@ -159,7 +161,7 @@ class SlackProviderTests(unittest.TestCase):
         )
 
     def test_post_connect_skips_bot_connection(self) -> None:
-        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+        with mock.patch("internals.agent.urllib.request.urlopen") as urlopen:
             metadata = provider_module.post_connect(
                 gestalt.ConnectedToken(
                     access_token="bot-token", connection="bot", subject_id="subject-1"
@@ -176,7 +178,9 @@ class SlackProviderTests(unittest.TestCase):
             self.assertEqual(timeout, 30)
             return FakeHTTPResponse('{"ok": false, "error": "invalid_auth"}')
 
-        with mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.agent.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             with self.assertRaisesRegex(
                 RuntimeError, "slack auth.test failed: invalid_auth"
             ):
@@ -401,7 +405,9 @@ class SlackProviderTests(unittest.TestCase):
                 '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
             )
 
-        with mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.agent.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.slack_events_reply(
                 provider_module.SlackEventReplyInput(
                     reply_ref=reply_ref, text="Here is the answer"
@@ -914,13 +920,8 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
-        self.assertEqual(
-            response.body,
-            {
-                "error": 'slack API error (status 429): {"ok": false, "error": "rate_limited"}'
-            },
-        )
+        self.assertEqual(response.status, HTTPStatus.TOO_MANY_REQUESTS)
+        self.assertEqual(response.body, {"error": "rate_limited"})
 
 
 if __name__ == "__main__":

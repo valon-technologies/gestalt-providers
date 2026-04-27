@@ -19,6 +19,7 @@ plugin = "provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
+  "PUBLIC",
   "blob_put",
   "blob_get",
   "blob_head",

@@ -128,7 +128,9 @@ def ensure_forward_prefix(subject: str) -> str:
     return f"Fwd: {subject}"
 
 
-def extract_plain_text(parts: list[dict[str, Any]], body_data: str, mime_type: str) -> str:
+def extract_plain_text(
+    parts: list[dict[str, Any]], body_data: str, mime_type: str
+) -> str:
     for part in parts:
         if part.get("mimeType") != "text/plain":
             continue

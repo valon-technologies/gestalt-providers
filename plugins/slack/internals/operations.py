@@ -1,10 +1,13 @@
 import re
+from http import HTTPStatus
 from typing import Any
 
-from .client import slack_get
+from .client import SlackAPIError, SlackClientError, slack_get
 from .helpers import bool_field, map_field, map_slice, string_field
 
-SLACK_MESSAGE_URL_PATTERN = re.compile(r"https?://[^/]+\.slack\.com/archives/([A-Z0-9]+)/p(\d{10})(\d+)")
+SLACK_MESSAGE_URL_PATTERN = re.compile(
+    r"https?://[^/]+\.slack\.com/archives/([A-Z0-9]+)/p(\d{10})(\d+)"
+)
 USER_MENTION_PATTERN = re.compile(r"<@(U[A-Z0-9]+)>")
 
 
@@ -31,7 +34,9 @@ def get_message(token: str, channel: str, ts: str) -> dict[str, Any]:
     )
     messages = map_slice(data.get("messages"))
     if not messages:
-        raise RuntimeError(f"no message found at timestamp {ts}")
+        raise SlackAPIError(
+            HTTPStatus.NOT_FOUND, {"error": f"no message found at timestamp {ts}"}
+        )
     return {"data": {"message": messages[0]}}
 
 
@@ -126,13 +131,20 @@ def get_thread_participants(
         participant["message_count"] = int(participant["message_count"]) + 1
 
     participants = list(participants_by_user.values())
-    participants.sort(key=lambda participant: (str(participant["first_reply_ts"]), str(participant["user_id"])))
+    participants.sort(
+        key=lambda participant: (
+            str(participant["first_reply_ts"]),
+            str(participant["user_id"]),
+        )
+    )
 
     if include_user_info:
         for participant in participants:
             try:
-                user_data = slack_get("users.info", {"user": str(participant["user_id"])}, token)
-            except RuntimeError:
+                user_data = slack_get(
+                    "users.info", {"user": str(participant["user_id"])}, token
+                )
+            except SlackAPIError, SlackClientError:
                 continue
             user = map_field(user_data, "user")
             profile = map_field(user, "profile")

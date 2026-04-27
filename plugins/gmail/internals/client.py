@@ -10,6 +10,17 @@ from urllib.parse import quote, urlencode
 GMAIL_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
+class GmailAPIError(RuntimeError):
+    def __init__(self, status: int, message: str) -> None:
+        self.status = status
+        self.body = {"error": message}
+        super().__init__(message)
+
+
+class GmailClientError(RuntimeError):
+    pass
+
+
 def gmail_base_url() -> str:
     return os.environ.get("GMAIL_BASE_URL", GMAIL_BASE_URL).rstrip("/")
 
@@ -54,19 +65,39 @@ def _request_json(request: urllib.request.Request) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=30) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
-        message = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"gmail API error (status {exc.code}): {message}") from exc
+        message = _decode_error_message(exc.read(), exc.code)
+        raise GmailAPIError(exc.code, message) from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(str(exc.reason)) from exc
+        raise GmailClientError(f"gmail API request failed: {exc.reason}") from exc
 
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"parsing gmail API response: {exc}") from exc
+        raise GmailClientError(f"parsing gmail API response: {exc}") from exc
 
     if not isinstance(payload, dict):
-        raise RuntimeError("parsing gmail API response: expected object")
+        raise GmailClientError("parsing gmail API response: expected object")
     return payload
+
+
+def _decode_error_message(body: bytes, status: int) -> str:
+    text = body.decode("utf-8", errors="replace").strip()
+    if not text:
+        return f"gmail API error (status {status})"
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return f"gmail API error (status {status}): {text}"
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message:
+                return message
+        message = payload.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return f"gmail API error (status {status}): {text}"
 
 
 def metadata_message_url(message_id: str) -> str:

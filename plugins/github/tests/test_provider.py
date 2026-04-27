@@ -17,6 +17,10 @@ from google.protobuf import json_format
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 import yaml
 
+import internals.client as client_module
+import internals.operations as operations_module
+from internals.config import GitHubBotIdentity
+from internals.errors import GitHubAPIError
 import provider as provider_module
 
 agent_pb2: Any = _agent_pb2
@@ -167,11 +171,13 @@ class GitHubProviderTests(unittest.TestCase):
             self.fail(f"unexpected request {path}")
 
         with (
-            mock.patch("provider._create_app_jwt", return_value="app-jwt"),
-            mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
         ):
-            identity = provider_module._bot_identity()
-            cached_identity = provider_module._bot_identity()
+            identity = client_module.bot_identity()
+            cached_identity = client_module.bot_identity()
 
         self.assertEqual(identity, cached_identity)
         self.assertEqual(identity.name, "Example App Bot")
@@ -186,13 +192,16 @@ class GitHubProviderTests(unittest.TestCase):
 
     def test_commit_message_skips_bot_identity_when_bot_coauthor_disabled(self) -> None:
         with mock.patch(
-            "provider._bot_identity", side_effect=AssertionError("unexpected lookup")
+            "internals.client.bot_identity",
+            side_effect=AssertionError("unexpected lookup"),
         ):
-            message = provider_module._commit_message_with_coauthors(
+            message = operations_module.commit_message_with_coauthors(
                 "Update README",
-                coauthors=provider_module._normalize_coauthors(
-                    [provider_module.CoAuthorInput(name="Ada", email="ada@example.com")]
-                ),
+                coauthors=[
+                    operations_module.GitHubCoAuthor(
+                        name="Ada", email="ada@example.com"
+                    )
+                ],
                 include_bot=False,
             )
 
@@ -201,7 +210,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
 
     def test_invalid_coauthors_are_rejected_before_github_calls(self) -> None:
-        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_commit_files(
                 provider_module.CommitFilesInput(
                     owner="acme",
@@ -246,11 +255,13 @@ class GitHubProviderTests(unittest.TestCase):
             self.fail(f"unexpected request {path}")
 
         with (
-            mock.patch("provider._create_app_jwt", return_value="app-jwt"),
-            mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
         ):
-            partial_identity = provider_module._bot_identity()
-            full_identity = provider_module._bot_identity()
+            partial_identity = client_module.bot_identity()
+            full_identity = client_module.bot_identity()
 
         self.assertEqual(partial_identity.login, "example-app[bot]")
         self.assertEqual(partial_identity.email, "")
@@ -420,8 +431,10 @@ class GitHubProviderTests(unittest.TestCase):
             self.fail(f"unexpected request {method} {path}")
 
         with (
-            mock.patch("provider._create_app_jwt", return_value="app-jwt"),
-            mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
         ):
             result = provider_module.bot_commit_files(
                 provider_module.CommitFilesInput(
@@ -507,8 +520,10 @@ class GitHubProviderTests(unittest.TestCase):
             self.fail(f"unexpected request {method} {path}")
 
         with (
-            mock.patch("provider._create_app_jwt", return_value="app-jwt"),
-            mock.patch("provider.urllib.request.urlopen", side_effect=fake_urlopen),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
         ):
             result = provider_module.bot_create_pull_request(
                 provider_module.CreatePullRequestInput(
@@ -536,7 +551,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
 
     def test_commit_files_rejects_invalid_inputs_before_github_calls(self) -> None:
-        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_commit_files(
                 provider_module.CommitFilesInput(
                     owner="acme",
@@ -560,7 +575,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("branch", response.body["error"])
         urlopen.assert_not_called()
 
-        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_commit_files(
                 provider_module.CommitFilesInput(
                     owner="acme",
@@ -587,7 +602,7 @@ class GitHubProviderTests(unittest.TestCase):
         urlopen.assert_not_called()
 
     def test_bot_operations_require_matching_installation_subject(self) -> None:
-        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_open_pull_request(
                 provider_module.OpenPullRequestInput(
                     owner="acme",
@@ -606,7 +621,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("installation_id", response.body["error"])
         urlopen.assert_not_called()
 
-        with mock.patch("provider.urllib.request.urlopen") as urlopen:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_open_pull_request(
                 provider_module.OpenPullRequestInput(
                     owner="acme",
@@ -648,8 +663,8 @@ class GitHubProviderTests(unittest.TestCase):
                 gestalt.Request, "agent_manager", return_value=agent_manager
             ),
             mock.patch(
-                "provider._bot_identity",
-                return_value=provider_module.GitHubBotIdentity(
+                "internals.webhook.bot_identity",
+                return_value=GitHubBotIdentity(
                     name="Example App Bot",
                     login="example-app[bot]",
                     user_id="12345678",
@@ -687,8 +702,8 @@ class GitHubProviderTests(unittest.TestCase):
                 gestalt.Request, "agent_manager", return_value=agent_manager
             ),
             mock.patch(
-                "provider._bot_identity",
-                side_effect=provider_module.GitHubAPIError(502, "unavailable"),
+                "internals.webhook.bot_identity",
+                side_effect=GitHubAPIError(502, "unavailable"),
             ),
         ):
             result = provider_module.github_events_handle(payload, gestalt.Request())

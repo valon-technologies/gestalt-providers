@@ -1,9 +1,27 @@
+from enum import StrEnum
 from typing import Any
 
 from .client import encode_path_component, get_json, post_json
 
 
-def export_project(token: str, project_id: str, version: str) -> dict[str, Any]:
+class HexSuggestionSortBy(StrEnum):
+    CREATED_DATE = "CREATED_DATE"
+    EVIDENCE_COUNT = "EVIDENCE_COUNT"
+    LAST_SOURCE_ADDED_DATE = "LAST_SOURCE_ADDED_DATE"
+
+
+class HexSortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class HexSuggestionStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+
+
+def export_project(token: str, *, project_id: str, version: str) -> dict[str, Any]:
     return post_json(
         "/projects/export",
         {
@@ -18,7 +36,9 @@ def import_project(token: str, content: str) -> dict[str, Any]:
     return post_json("/projects/import", {"content": content}, token)
 
 
-def run_draft(token: str, project_id: str, use_cached_sql_results: bool | None) -> dict[str, Any]:
+def run_draft(
+    token: str, *, project_id: str, use_cached_sql_results: bool | None = None
+) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if use_cached_sql_results is not None:
         payload["useCachedSqlResults"] = use_cached_sql_results
@@ -30,7 +50,7 @@ def run_draft(token: str, project_id: str, use_cached_sql_results: bool | None) 
     )
 
 
-def run_cell(token: str, cell_id: str, dry_run: bool) -> dict[str, Any]:
+def run_cell(token: str, *, cell_id: str, dry_run: bool = False) -> dict[str, Any]:
     return post_json(
         f"/cells/{encode_path_component(cell_id)}/run",
         {"dryRun": dry_run},
@@ -44,9 +64,9 @@ def list_suggestions(
     limit: int,
     after: str | None = None,
     before: str | None = None,
-    sort_by: str | None = None,
-    sort_direction: str | None = None,
-    status: str | None = None,
+    sort_by: HexSuggestionSortBy | None = None,
+    sort_direction: HexSortDirection | None = None,
+    status: HexSuggestionStatus | None = None,
 ) -> dict[str, Any]:
     return get_json(
         "/suggestions",
@@ -66,14 +86,14 @@ def get_suggestion(token: str, suggestion_id: str) -> dict[str, Any]:
     return get_json(f"/suggestions/{encode_path_component(suggestion_id)}", token)
 
 
-def create_context_version(token: str, external_source: dict[str, Any]) -> dict[str, Any]:
+def create_context_version(
+    token: str, external_source: dict[str, Any]
+) -> dict[str, Any]:
     return post_json("/context/version", {"externalSource": external_source}, token)
 
 
 def update_context_version(
-    token: str,
-    context_version_id: str,
-    operation: dict[str, Any],
+    token: str, *, context_version_id: str, operation: dict[str, Any]
 ) -> dict[str, Any]:
     return post_json(
         f"/context/version/{encode_path_component(context_version_id)}",
@@ -84,8 +104,8 @@ def update_context_version(
 
 def publish_context_version(
     token: str,
-    context_version_id: str,
     *,
+    context_version_id: str,
     update_latest_version: bool,
     title: str | None = None,
     description: str | None = None,
