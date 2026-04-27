@@ -760,13 +760,6 @@ def _build_agent_turn_request(
             ),
         ],
         tool_source=_agent_tool_source_native_search(),
-        tool_refs=[
-            _agent_tool_ref(
-                plugin=_agent_config.plugin_name,
-                operation=operation,
-            )
-            for operation in _agent_tool_operations()
-        ],
         idempotency_key=_agent_turn_idempotency_key(event),
     )
     request.metadata.CopyFrom(_agent_metadata(event, route))
@@ -781,28 +774,6 @@ def _agent_tool_source_native_search() -> int:
     if native_value is not None:
         return int(native_value)
     return int(agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT)
-
-
-def _agent_tool_ref(*, plugin: str, operation: str) -> Any:
-    fields = agent_pb2.AgentToolRef.DESCRIPTOR.fields_by_name
-    kwargs = {"operation": operation}
-    if "plugin" in fields:
-        kwargs["plugin"] = plugin
-    else:
-        kwargs["plugin_name"] = plugin
-    return agent_pb2.AgentToolRef(**kwargs)
-
-
-def _agent_tool_operations() -> tuple[str, ...]:
-    return (
-        SLACK_REPLY_OPERATION,
-        SLACK_STATUS_OPERATION,
-        SLACK_DELETE_STATUS_OPERATION,
-        SLACK_ADD_REACTION_OPERATION,
-        SLACK_REMOVE_REACTION_OPERATION,
-        SLACK_CONTEXT_OPERATION,
-        SLACK_FILE_GET_OPERATION,
-    )
 
 
 def _agent_session_metadata(event: SlackAgentEvent) -> Any:

@@ -91,10 +91,8 @@ Slack should send Events API requests to `POST /api/v1/slack/event`. The route
 is declared in `manifest.yaml` under `spec.http.event`, validates Slack HMAC
 signatures with `SLACK_SIGNING_SECRET`, resolves the Slack team/user through the
 managed `external_identity` authorization relationship, and starts a Gestalt
-agent run with `toolSource=native_search` scoped to the Slack event helper,
-thread context, and file reader tool refs. The platform applies declared
-`credentialMode` settings from this plugin's `invokes` entries when resolving
-those tools.
+agent run with `toolSource=native_search` and no explicit tool refs, so native
+search can discover every tool available to the resolved Gestalt user.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, and `events.removeReaction` are hidden operations

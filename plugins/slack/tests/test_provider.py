@@ -71,16 +71,6 @@ def prompt_value(prompt: str, prefix: str) -> str:
     raise AssertionError(f"prompt missing line prefix {prefix!r}")
 
 
-def agent_tool_ref_plugin(ref: Any) -> str:
-    if "plugin" in ref.DESCRIPTOR.fields_by_name:
-        return ref.plugin
-    return ref.plugin_name
-
-
-def agent_tool_ref_operations(refs: Any) -> list[str]:
-    return [str(ref.operation) for ref in refs]
-
-
 class FakeAuthorization:
     def __init__(self, subjects: list[Any]) -> None:
         self.subjects = subjects
@@ -254,7 +244,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(request.action.name, "assume")
         self.assertEqual(request.subject_type, "user")
 
-    def test_slack_event_handler_starts_agent_run_with_inherited_tools(self) -> None:
+    def test_slack_event_handler_starts_agent_run_with_user_tool_search(self) -> None:
         provider_module.configure(
             "slack",
             {
@@ -332,20 +322,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             turn_request.tool_source, provider_module._agent_tool_source_native_search()
         )
-        self.assertEqual(
-            agent_tool_ref_operations(turn_request.tool_refs),
-            [
-                "events.reply",
-                "events.setStatus",
-                "events.deleteStatus",
-                "events.addReaction",
-                "events.removeReaction",
-                "conversations.getThreadContext",
-                "files.get",
-            ],
-        )
-        for tool_ref in turn_request.tool_refs:
-            self.assertEqual(agent_tool_ref_plugin(tool_ref), "slack")
+        self.assertEqual(list(turn_request.tool_refs), [])
         self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
         self.assertIn("slack.events.reply", turn_request.messages[0].text)
         self.assertIn("slack.events.setStatus", turn_request.messages[0].text)
@@ -704,20 +681,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(session_request.provider_name, "simple")
         self.assertEqual(session_request.model, "deep")
         self.assertEqual(turn_request.model, "deep")
-        self.assertEqual(
-            agent_tool_ref_operations(turn_request.tool_refs),
-            [
-                "events.reply",
-                "events.setStatus",
-                "events.deleteStatus",
-                "events.addReaction",
-                "events.removeReaction",
-                "conversations.getThreadContext",
-                "files.get",
-            ],
-        )
-        for tool_ref in turn_request.tool_refs:
-            self.assertEqual(agent_tool_ref_plugin(tool_ref), "supportSlackbot")
+        self.assertEqual(list(turn_request.tool_refs), [])
         self.assertIn("supportSlackbot.events.reply", turn_request.messages[0].text)
         self.assertIn(
             "supportSlackbot.conversations.getThreadContext",
