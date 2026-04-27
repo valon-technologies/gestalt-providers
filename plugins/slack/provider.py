@@ -37,10 +37,10 @@ EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
 EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
 EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
-DEFAULT_AGENT_SYSTEM_PROMPT = """
+DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
-When you answer the Slack user, call slack.chat.postMessage with the provided
+When you answer the Slack user, call {post_message_tool} with the provided
 channel and reply_thread_ts. Omit thread_ts when reply_thread_ts is empty.
 After posting to Slack, return a concise final summary of what you did.
 """.strip()
@@ -77,11 +77,45 @@ plugin = gestalt.Plugin(
 
 
 @dataclass(slots=True)
-class SlackAgentConfig:
+class SlackAgentRouteMatch:
+    team_ids: tuple[str, ...] = ()
+    channel_ids: tuple[str, ...] = ()
+    channel_types: tuple[str, ...] = ()
+    event_types: tuple[str, ...] = ()
+    user_ids: tuple[str, ...] = ()
+
+    def matches(self, event: SlackAgentEvent) -> bool:
+        if self.team_ids and event.team_id not in self.team_ids:
+            return False
+        if self.channel_ids and event.channel_id not in self.channel_ids:
+            return False
+        if self.channel_types and event.channel_type.lower() not in self.channel_types:
+            return False
+        if self.event_types and event.event_type.lower() not in self.event_types:
+            return False
+        if self.user_ids and event.user_id not in self.user_ids:
+            return False
+        return True
+
+
+@dataclass(slots=True)
+class SlackAgentRoute:
+    id: str = ""
+    match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_provider_options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class SlackAgentConfig:
+    plugin_name: str = "slack"
+    agent_provider: str = ""
+    agent_model: str = ""
+    agent_system_prompt: str = ""
+    agent_provider_options: dict[str, Any] = field(default_factory=dict)
+    routes: tuple[SlackAgentRoute, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,19 +137,10 @@ _agent_config = SlackAgentConfig()
 
 
 @plugin.configure
-def configure(_name: str, config: dict[str, Any]) -> None:
+def configure(name: str, config: dict[str, Any]) -> None:
     global _agent_config
 
-    _agent_config = SlackAgentConfig(
-        agent_provider=_config_string(config, "agentProvider", "agent_provider"),
-        agent_model=_config_string(config, "agentModel", "agent_model"),
-        agent_system_prompt=_config_string(
-            config, "agentSystemPrompt", "agent_system_prompt"
-        ),
-        agent_provider_options=_config_dict(
-            config, "agentProviderOptions", "agent_provider_options"
-        ),
-    )
+    _agent_config = _agent_config_from_provider_config(name, config)
 
 
 class GetMessageInput(gestalt.Model):
@@ -192,6 +217,9 @@ def resolve_http_subject(
     event, ignored_reason = _slack_agent_event_from_payload(payload)
     if event is None:
         return None
+    _route, ignored_reason = _select_agent_route(event)
+    if ignored_reason:
+        return None
     if not event.team_id or not event.user_id:
         raise gestalt.http_subject_error(
             HTTPStatus.BAD_REQUEST, "Slack event is missing team_id or user"
@@ -206,8 +234,6 @@ def resolve_http_subject(
         raise gestalt.http_subject_error(
             HTTPStatus.FORBIDDEN, "Slack user is not linked to a Gestalt subject"
         )
-    if ignored_reason:
-        return None
     return subject
 
 
@@ -225,12 +251,16 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
     if event is None:
         return {"ok": True, "ignored": ignored_reason}
 
+    route, ignored_reason = _select_agent_route(event)
+    if ignored_reason:
+        return {"ok": True, "ignored": ignored_reason}
+
     if not req.subject.id or req.subject.id.startswith("system:"):
         return gestalt.Response(
             status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
         )
 
-    run_request = _build_agent_run_request(event)
+    run_request = _build_agent_run_request(event, route)
     try:
         with req.agent_manager() as agent_manager:
             managed = agent_manager.run(run_request)
@@ -376,7 +406,7 @@ def _json_payload_from_http_request(
         return {}
     try:
         payload = json.loads(request.raw_body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -398,10 +428,7 @@ def _slack_agent_event_from_payload(
 
     event_type = str(event.get("type") or "").strip()
     channel_type = str(event.get("channel_type") or "").strip()
-    supported = event_type == "app_mention" or (
-        event_type == "message" and channel_type in {"im", "mpim"}
-    )
-    if not supported:
+    if event_type not in {"app_mention", "message"}:
         return None, "unsupported_event_type"
 
     team_id = _slack_team_id(payload, event)
@@ -523,8 +550,26 @@ def _subject_display_name(subject: Any) -> str:
     return str(getattr(subject, "id", "") or "").strip()
 
 
+def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None, str]:
+    if _agent_config.routes:
+        for route in _agent_config.routes:
+            if route.match.matches(event):
+                return route, ""
+        return None, "no_matching_agent_route"
+    if _default_agent_route_matches(event):
+        return None, ""
+    return None, "unsupported_event_type"
+
+
+def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
+    return event.event_type == "app_mention" or (
+        event.event_type == "message" and event.channel_type in {"im", "mpim"}
+    )
+
+
 def _build_agent_run_request(
     event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
 ) -> Any:
     metadata = _dict_to_struct(
         {
@@ -539,14 +584,15 @@ def _build_agent_run_request(
                 "message_ts": event.message_ts,
                 "thread_ts": event.thread_ts,
                 "reply_thread_ts": event.reply_thread_ts,
+                "agent_route_id": route.id if route is not None else "",
             }
         }
     )
     request = agent_pb2.AgentManagerRunRequest(
-        provider_name=_agent_config.agent_provider,
-        model=_agent_config.agent_model,
+        provider_name=_agent_provider(route),
+        model=_agent_model(route),
         messages=[
-            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt()),
+            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
             agent_pb2.AgentMessage(role="user", text=_agent_user_prompt(event)),
         ],
         tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES,
@@ -554,18 +600,122 @@ def _build_agent_run_request(
         idempotency_key=_agent_idempotency_key(event),
     )
     request.metadata.CopyFrom(metadata)
-    if _agent_config.agent_provider_options:
-        request.provider_options.CopyFrom(
-            _dict_to_struct(_agent_config.agent_provider_options)
-        )
+    provider_options = _agent_provider_options(route)
+    if provider_options:
+        request.provider_options.CopyFrom(_dict_to_struct(provider_options))
     return request
 
 
-def _agent_system_prompt() -> str:
-    if not _agent_config.agent_system_prompt:
-        return DEFAULT_AGENT_SYSTEM_PROMPT
-    return (
-        DEFAULT_AGENT_SYSTEM_PROMPT + "\n\n" + _agent_config.agent_system_prompt.strip()
+def _agent_provider(route: SlackAgentRoute | None) -> str:
+    if route is not None and route.agent_provider:
+        return route.agent_provider
+    return _agent_config.agent_provider
+
+
+def _agent_model(route: SlackAgentRoute | None) -> str:
+    if route is not None and route.agent_model:
+        return route.agent_model
+    return _agent_config.agent_model
+
+
+def _agent_provider_options(route: SlackAgentRoute | None) -> dict[str, Any]:
+    options = dict(_agent_config.agent_provider_options)
+    if route is not None and route.agent_provider_options:
+        options.update(route.agent_provider_options)
+    return options
+
+
+def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
+    parts = [
+        DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
+            post_message_tool=f"{_agent_config.plugin_name}.chat.postMessage"
+        )
+    ]
+    if _agent_config.agent_system_prompt:
+        parts.append(_agent_config.agent_system_prompt.strip())
+    if route is not None and route.agent_system_prompt:
+        parts.append(route.agent_system_prompt.strip())
+    return "\n\n".join(parts)
+
+
+def _agent_config_from_provider_config(
+    plugin_name: str, config: dict[str, Any]
+) -> SlackAgentConfig:
+    agent = _config_dict(config, "agent")
+    provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
+    model = _config_string(agent, "model", "agentModel", "agent_model")
+    system_prompt = _config_string(
+        agent, "systemPrompt", "system_prompt", "agentSystemPrompt"
+    )
+    provider_options = _config_dict(
+        agent, "providerOptions", "provider_options", "agentProviderOptions"
+    )
+    routes = _agent_routes_from_provider_config(config, agent)
+
+    return SlackAgentConfig(
+        plugin_name=plugin_name.strip() or "slack",
+        agent_provider=provider
+        or _config_string(config, "agentProvider", "agent_provider"),
+        agent_model=model or _config_string(config, "agentModel", "agent_model"),
+        agent_system_prompt=system_prompt
+        or _config_string(config, "agentSystemPrompt", "agent_system_prompt"),
+        agent_provider_options=provider_options
+        or _config_dict(config, "agentProviderOptions", "agent_provider_options"),
+        routes=routes,
+    )
+
+
+def _agent_routes_from_provider_config(
+    config: dict[str, Any], agent: dict[str, Any]
+) -> tuple[SlackAgentRoute, ...]:
+    raw_routes = _config_list(agent, "routes")
+    if not raw_routes:
+        raw_routes = _config_list(config, "agentRoutes", "agent_routes")
+    routes: list[SlackAgentRoute] = []
+    for index, raw_route in enumerate(raw_routes, start=1):
+        if isinstance(raw_route, dict):
+            routes.append(_agent_route_from_config(raw_route, index))
+    return tuple(routes)
+
+
+def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRoute:
+    agent = _config_dict(config, "agent")
+    provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
+    model = _config_string(agent, "model", "agentModel", "agent_model")
+    system_prompt = _config_string(
+        agent, "systemPrompt", "system_prompt", "agentSystemPrompt"
+    )
+    provider_options = _config_dict(
+        agent, "providerOptions", "provider_options", "agentProviderOptions"
+    )
+
+    return SlackAgentRoute(
+        id=_config_string(config, "id", "name") or f"route_{index}",
+        match=_agent_route_match_from_config(_config_dict(config, "match")),
+        agent_provider=provider
+        or _config_string(config, "provider", "agentProvider", "agent_provider"),
+        agent_model=model
+        or _config_string(config, "model", "agentModel", "agent_model"),
+        agent_system_prompt=system_prompt
+        or _config_string(config, "systemPrompt", "agentSystemPrompt"),
+        agent_provider_options=provider_options
+        or _config_dict(config, "providerOptions", "agentProviderOptions"),
+    )
+
+
+def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:
+    return SlackAgentRouteMatch(
+        team_ids=_config_string_tuple(config, "teams", "teamIds", "team_ids"),
+        channel_ids=_config_string_tuple(
+            config, "channels", "channelIds", "channel_ids"
+        ),
+        channel_types=_lower_tuple(
+            _config_string_tuple(config, "channelTypes", "channel_types")
+        ),
+        event_types=_lower_tuple(
+            _config_string_tuple(config, "eventTypes", "event_types")
+        ),
+        user_ids=_config_string_tuple(config, "users", "userIds", "user_ids"),
     )
 
 
@@ -619,6 +769,38 @@ def _config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return dict(value)
     return {}
+
+
+def _config_list(config: dict[str, Any], *keys: str) -> list[Any]:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, list):
+            return list(value)
+    return []
+
+
+def _config_string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+            if value:
+                values.append(value)
+            break
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, str):
+                    continue
+                item_value = item.strip()
+                if item_value:
+                    values.append(item_value)
+            break
+    return tuple(dict.fromkeys(values))
+
+
+def _lower_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(value.lower() for value in values)
 
 
 def _auth_test(access_token: str) -> PostConnectMetadata:
