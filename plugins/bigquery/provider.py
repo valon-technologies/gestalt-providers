@@ -5,7 +5,7 @@ import gestalt
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud.bigquery import SchemaField
 
-from internals import google_api_message, google_api_status, query_operation
+from internals.client import google_api_message, google_api_status, query_operation
 
 
 class QueryInput(gestalt.Model):
@@ -45,6 +45,7 @@ class QueryOutput(gestalt.Model):
     total_rows: int
     job_complete: bool
 
+
 QueryResult = QueryOutput | gestalt.Response[dict[str, str]]
 
 
@@ -52,12 +53,16 @@ QueryResult = QueryOutput | gestalt.Response[dict[str, str]]
 def query(input: QueryInput, req: gestalt.Request) -> QueryResult:
     project_id = input.project_id.strip()
     if not project_id:
-        return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "project_id is required"})
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST, body={"error": "project_id is required"}
+        )
 
     dataset = input.dataset.strip() if input.dataset else None
     query_text = input.query.strip()
     if not query_text:
-        return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": "query is required"})
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST, body={"error": "query is required"}
+        )
 
     try:
         result = query_operation(
@@ -79,6 +84,11 @@ def query(input: QueryInput, req: gestalt.Request) -> QueryResult:
         return gestalt.Response(
             status=google_api_status(err),
             body={"error": google_api_message(err)},
+        )
+    except ValueError as err:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST,
+            body={"error": str(err)},
         )
 
 

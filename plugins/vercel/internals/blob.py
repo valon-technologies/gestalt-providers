@@ -1,12 +1,13 @@
 import base64
-import dataclasses
 import json
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from enum import StrEnum
 from typing import Any
 
 DEFAULT_BLOB_API_URL = "https://vercel.com/api/blob"
@@ -25,7 +26,16 @@ class VercelBlobAPIError(RuntimeError):
         super().__init__(message)
 
 
-@dataclasses.dataclass(slots=True)
+class VercelBlobClientError(RuntimeError):
+    pass
+
+
+class VercelBlobAccess(StrEnum):
+    PRIVATE = "private"
+    PUBLIC = "public"
+
+
+@dataclass(frozen=True, slots=True)
 class VercelBlobConfig:
     token: str = ""
 
@@ -37,9 +47,11 @@ class VercelBlobConfig:
         return cls()
 
     def require_token(self) -> str:
-        token = self.token or os.getenv("BLOB_READ_WRITE_TOKEN", "").strip() or os.getenv(
-            "VERCEL_BLOB_READ_WRITE_TOKEN", ""
-        ).strip()
+        token = (
+            self.token
+            or os.getenv("BLOB_READ_WRITE_TOKEN", "").strip()
+            or os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN", "").strip()
+        )
         if not token:
             raise VercelBlobConfigurationError("blobReadWriteToken is not configured")
         return token
@@ -51,11 +63,11 @@ def put_blob(
     pathname: str,
     body: str,
     body_base64: str,
-    access: str,
-    content_type: str,
-    add_random_suffix: bool,
-    overwrite: bool,
-    cache_control_max_age: int | None,
+    access: VercelBlobAccess,
+    content_type: str = "",
+    add_random_suffix: bool = False,
+    overwrite: bool = False,
+    cache_control_max_age: int | None = None,
 ) -> dict[str, Any]:
     token = config.require_token()
     _validate_path(pathname)
@@ -84,10 +96,10 @@ def get_blob(
     config: VercelBlobConfig,
     *,
     url_or_path: str,
-    access: str,
-    if_none_match: str,
-    timeout_seconds: float | None,
-    use_cache: bool,
+    access: VercelBlobAccess,
+    if_none_match: str = "",
+    timeout_seconds: float | None = None,
+    use_cache: bool = True,
 ) -> dict[str, Any]:
     token = config.require_token()
     _validate_access(access)
@@ -97,23 +109,33 @@ def get_blob(
         if store_id:
             target_url = _construct_blob_url(store_id, target_url, access)
         else:
-            target_url = head_blob(config, url_or_path=url_or_path)["data"]["blob"]["url"]
+            target_url = head_blob(config, url_or_path=url_or_path)["data"]["blob"][
+                "url"
+            ]
     download_url = _download_url(target_url)
     if not use_cache:
         target_url = _cache_bypass_url(target_url)
 
     headers: dict[str, str] = {}
-    if access == "private":
+    if access == VercelBlobAccess.PRIVATE:
         headers["authorization"] = f"Bearer {token}"
     if if_none_match:
         headers["if-none-match"] = if_none_match
 
-    request = urllib.request.Request(target_url, headers=headers, method="GET")
+    http_request = urllib.request.Request(target_url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds or 30.0) as response:
+        with urllib.request.urlopen(
+            http_request, timeout=timeout_seconds or 30.0
+        ) as response:
             content = response.read()
             status = getattr(response, "status", 200)
-            return {"data": {"blob": _download_result(target_url, download_url, response.headers, content, status)}}
+            return {
+                "data": {
+                    "blob": _download_result(
+                        target_url, download_url, response.headers, content, status
+                    )
+                }
+            }
     except urllib.error.HTTPError as err:
         if err.code == 304:
             return {
@@ -128,6 +150,10 @@ def get_blob(
                 }
             }
         raise _blob_error_from_http_error(err) from err
+    except urllib.error.URLError as err:
+        raise VercelBlobClientError(
+            f"Vercel Blob download failed: {err.reason}"
+        ) from err
 
 
 def head_blob(config: VercelBlobConfig, *, url_or_path: str) -> dict[str, Any]:
@@ -139,10 +165,10 @@ def head_blob(config: VercelBlobConfig, *, url_or_path: str) -> dict[str, Any]:
 def list_blobs(
     config: VercelBlobConfig,
     *,
-    limit: int | None,
-    prefix: str,
-    cursor: str,
-    mode: str,
+    limit: int | None = None,
+    prefix: str = "",
+    cursor: str = "",
+    mode: str = "",
 ) -> dict[str, Any]:
     token = config.require_token()
     params: dict[str, Any] = {}
@@ -183,18 +209,20 @@ def copy_blob(
     *,
     source_url_or_path: str,
     destination_path: str,
-    access: str,
-    content_type: str,
-    add_random_suffix: bool,
-    overwrite: bool,
-    cache_control_max_age: int | None,
+    access: VercelBlobAccess,
+    content_type: str = "",
+    add_random_suffix: bool = False,
+    overwrite: bool = False,
+    cache_control_max_age: int | None = None,
 ) -> dict[str, Any]:
     token = config.require_token()
     _validate_path(destination_path)
     _validate_access(access)
     source_url = source_url_or_path
     if not _is_url(source_url):
-        source_url = head_blob(config, url_or_path=source_url_or_path)["data"]["blob"]["url"]
+        source_url = head_blob(config, url_or_path=source_url_or_path)["data"]["blob"][
+            "url"
+        ]
     headers = {
         "x-vercel-blob-access": access,
         "x-add-random-suffix": "1" if add_random_suffix else "0",
@@ -223,7 +251,9 @@ def _request_json(
     body: bytes | None = None,
     decode_json: bool = True,
 ) -> dict[str, Any]:
-    query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
+    query = urllib.parse.urlencode(
+        {k: v for k, v in (params or {}).items() if v is not None}
+    )
     url = _api_url(path)
     if query:
         url = f"{url}?{query}"
@@ -234,14 +264,28 @@ def _request_json(
     }
     if headers:
         request_headers.update(headers)
-    request = urllib.request.Request(url, headers=request_headers, data=request_body, method=method)
+    request = urllib.request.Request(
+        url, headers=request_headers, data=request_body, method=method
+    )
     try:
         with urllib.request.urlopen(request, timeout=30.0) as response:
             if not decode_json:
                 return {}
-            return json.loads(response.read().decode("utf-8"))
+            payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
         raise _blob_error_from_http_error(err) from err
+    except urllib.error.URLError as err:
+        raise VercelBlobClientError(
+            f"Vercel Blob request failed: {err.reason}"
+        ) from err
+    except json.JSONDecodeError as err:
+        raise VercelBlobClientError(
+            f"Vercel Blob returned invalid JSON: {err}"
+        ) from err
+
+    if not isinstance(payload, dict):
+        raise VercelBlobClientError("Vercel Blob returned a non-object JSON response")
+    return payload
 
 
 def _blob_error_from_http_error(err: urllib.error.HTTPError) -> VercelBlobAPIError:
@@ -259,11 +303,16 @@ def _blob_error_from_http_error(err: urllib.error.HTTPError) -> VercelBlobAPIErr
 
     lowered = code.lower()
     if lowered == "forbidden":
-        return VercelBlobAPIError(403, "Vercel Blob: Access denied, please provide a valid token for this resource.")
+        return VercelBlobAPIError(
+            403,
+            "Vercel Blob: Access denied, please provide a valid token for this resource.",
+        )
     if lowered == "not_found":
         return VercelBlobAPIError(404, "Vercel Blob: The requested blob does not exist")
     if lowered == "store_not_found":
-        return VercelBlobAPIError(404, "Vercel Blob: The requested blob store does not exist")
+        return VercelBlobAPIError(
+            404, "Vercel Blob: The requested blob store does not exist"
+        )
     if lowered == "content_type_not_allowed":
         return VercelBlobAPIError(400, f"Vercel Blob: {message}")
     if lowered == "file_too_large":
@@ -273,7 +322,10 @@ def _blob_error_from_http_error(err: urllib.error.HTTPError) -> VercelBlobAPIErr
     if lowered in {"store_suspended", "service_unavailable"}:
         return VercelBlobAPIError(503, f"Vercel Blob: {message}")
     if err.code == 403:
-        return VercelBlobAPIError(403, "Vercel Blob: Access denied, please provide a valid token for this resource.")
+        return VercelBlobAPIError(
+            403,
+            "Vercel Blob: Access denied, please provide a valid token for this resource.",
+        )
     if err.code == 404:
         return VercelBlobAPIError(404, "Vercel Blob: The requested blob does not exist")
     return VercelBlobAPIError(err.code, f"Vercel Blob: {message}")
@@ -384,15 +436,17 @@ def _cache_bypass_url(blob_url: str) -> str:
     parsed = urllib.parse.urlparse(blob_url)
     params = dict(urllib.parse.parse_qsl(parsed.query))
     params["cache"] = "0"
-    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(params)))
+    return urllib.parse.urlunparse(
+        parsed._replace(query=urllib.parse.urlencode(params))
+    )
 
 
 def _is_url(value: str) -> bool:
     return value.startswith("http://") or value.startswith("https://")
 
 
-def _validate_access(access: str) -> None:
-    if access not in {"private", "public"}:
+def _validate_access(access: VercelBlobAccess) -> None:
+    if access not in set(VercelBlobAccess):
         raise ValueError("access must be either private or public")
 
 
@@ -400,7 +454,9 @@ def _validate_path(path: str) -> None:
     if not path:
         raise ValueError("pathname is required")
     if len(path) > MAXIMUM_PATHNAME_LENGTH:
-        raise ValueError(f"pathname exceeds the maximum length of {MAXIMUM_PATHNAME_LENGTH}")
+        raise ValueError(
+            f"pathname exceeds the maximum length of {MAXIMUM_PATHNAME_LENGTH}"
+        )
     if "//" in path:
         raise ValueError('pathname cannot contain "//"')
 
@@ -421,7 +477,7 @@ def _parse_last_modified(value: str | None) -> datetime:
         return datetime.now(tz=UTC)
     try:
         return parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return datetime.now(tz=UTC)
 
 

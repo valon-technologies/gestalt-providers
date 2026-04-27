@@ -44,7 +44,9 @@ class QueryProviderTests(unittest.TestCase):
             client_cls.return_value.__enter__.return_value = client
 
             result = provider_module.query(
-                provider_module.QueryInput(project_id="serviceone", query="SELECT COUNT(1) FROM loans"),
+                provider_module.QueryInput(
+                    project_id="serviceone", query="SELECT COUNT(1) FROM loans"
+                ),
                 gestalt.Request(token="token"),
             )
 
@@ -53,7 +55,9 @@ class QueryProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(
             response.body,
-            {"error": 'Table "loans" must be qualified with a dataset (e.g. dataset.table).'},
+            {
+                "error": 'Table "loans" must be qualified with a dataset (e.g. dataset.table).'
+            },
         )
 
     def test_query_returns_generic_google_api_failure_as_500(self) -> None:
@@ -108,12 +112,18 @@ class QueryProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(client_module.bigquery, "Client") as client_cls,
-            mock.patch.object(client_module, "QueryJobConfig", side_effect=lambda **kwargs: kwargs) as query_job_config,
+            mock.patch.object(
+                client_module, "QueryJobConfig", side_effect=lambda **kwargs: kwargs
+            ) as query_job_config,
         ):
             client_cls.return_value.__enter__.return_value = client
 
             provider_module.query(
-                provider_module.QueryInput(project_id="serviceone", dataset=" reporting ", query="SELECT * FROM loans"),
+                provider_module.QueryInput(
+                    project_id="serviceone",
+                    dataset=" reporting ",
+                    query="SELECT * FROM loans",
+                ),
                 gestalt.Request(token="token"),
             )
 
@@ -131,12 +141,16 @@ class QueryProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(client_module.bigquery, "Client") as client_cls,
-            mock.patch.object(client_module, "QueryJobConfig", side_effect=lambda **kwargs: kwargs) as query_job_config,
+            mock.patch.object(
+                client_module, "QueryJobConfig", side_effect=lambda **kwargs: kwargs
+            ) as query_job_config,
         ):
             client_cls.return_value.__enter__.return_value = client
 
             provider_module.query(
-                provider_module.QueryInput(project_id="serviceone", query="SELECT * FROM reporting.loans"),
+                provider_module.QueryInput(
+                    project_id="serviceone", query="SELECT * FROM reporting.loans"
+                ),
                 gestalt.Request(token="token"),
             )
 
@@ -144,7 +158,9 @@ class QueryProviderTests(unittest.TestCase):
 
 
 class FakeIterator:
-    def __init__(self, rows: list[dict[str, object]], schema: list[SchemaField], total_rows: int) -> None:
+    def __init__(
+        self, rows: list[dict[str, object]], schema: list[SchemaField], total_rows: int
+    ) -> None:
         self._rows = rows
         self.schema = schema
         self.total_rows = total_rows

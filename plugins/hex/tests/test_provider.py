@@ -73,16 +73,28 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(response.body, {"error": "token is required"})
 
     def test_project_export_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/projects/export")
-            self.assertEqual(header_value(request, "Authorization"), "Bearer test-token")
+            self.assertEqual(
+                request.full_url, "https://app.hex.tech/api/v1/projects/export"
+            )
+            self.assertEqual(
+                header_value(request, "Authorization"), "Bearer test-token"
+            )
             self.assertEqual(header_value(request, "api-version"), "1.0.0")
-            self.assertEqual(request_json_body(request), {"projectId": "proj-1", "version": "draft"})
-            return FakeHTTPResponse('{"content":"projectId: proj-1\\n","filename":"project.yaml"}')
+            self.assertEqual(
+                request_json_body(request), {"projectId": "proj-1", "version": "draft"}
+            )
+            return FakeHTTPResponse(
+                '{"content":"projectId: proj-1\\n","filename":"project.yaml"}'
+            )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.project_export(
                 provider_module.ProjectExportInput(project_id="proj-1"),
                 gestalt.Request(token="test-token"),
@@ -92,28 +104,42 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(result["filename"], "project.yaml")
 
     def test_project_export_coerces_numeric_version(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
-            self.assertEqual(request_json_body(request), {"projectId": "proj-1", "version": 2})
+            self.assertEqual(
+                request_json_body(request), {"projectId": "proj-1", "version": 2}
+            )
             return FakeHTTPResponse('{"content":"ok","filename":"project.yaml"}')
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             provider_module.project_export(
                 provider_module.ProjectExportInput(project_id="proj-1", version="2"),
                 gestalt.Request(token="test-token"),
             )
 
     def test_project_import_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/projects/import")
-            self.assertEqual(request_json_body(request), {"content": "title: My Project\n"})
+            self.assertEqual(
+                request.full_url, "https://app.hex.tech/api/v1/projects/import"
+            )
+            self.assertEqual(
+                request_json_body(request), {"content": "title: My Project\n"}
+            )
             return FakeHTTPResponse(
                 '{"projectId":"proj-1","hexVersionId":"ver-1","warnings":{"projectTitle":"Title mismatch"}}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.project_import(
                 provider_module.ProjectImportInput(content="title: My Project\n"),
                 gestalt.Request(token="test-token"),
@@ -124,16 +150,23 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(result["warnings"]["projectTitle"], "Title mismatch")
 
     def test_project_run_draft_omits_cache_flag_when_unspecified(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/projects/proj-1/notebook/run")
+            self.assertEqual(
+                request.full_url,
+                "https://app.hex.tech/api/v1/projects/proj-1/notebook/run",
+            )
             self.assertEqual(request_json_body(request), {})
             return FakeHTTPResponse(
                 '{"projectId":"proj-1","runId":"run-1","status":"PENDING","traceId":"trace-1","url":"https://app.hex.tech/run/1"}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.project_run_draft(
                 provider_module.ProjectRunDraftInput(project_id="proj-1"),
                 gestalt.Request(token="test-token"),
@@ -143,30 +176,42 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(result["status"], "PENDING")
 
     def test_project_run_draft_includes_cache_flag_when_specified(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request_json_body(request), {"useCachedSqlResults": False})
             return FakeHTTPResponse(
                 '{"projectId":"proj-1","runId":"run-1","status":"RUNNING","traceId":"trace-1","url":"https://app.hex.tech/run/1"}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             provider_module.project_run_draft(
-                provider_module.ProjectRunDraftInput(project_id="proj-1", use_cached_sql_results=False),
+                provider_module.ProjectRunDraftInput(
+                    project_id="proj-1", use_cached_sql_results=False
+                ),
                 gestalt.Request(token="test-token"),
             )
 
     def test_cell_run_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/cells/cell-1/run")
+            self.assertEqual(
+                request.full_url, "https://app.hex.tech/api/v1/cells/cell-1/run"
+            )
             self.assertEqual(request_json_body(request), {"dryRun": True})
             return FakeHTTPResponse(
                 '{"cellId":"cell-1","dryRun":true,"runId":null,"runStatusUrl":null,"runUrl":null,"status":"PENDING","traceId":"trace-2"}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.cell_run(
                 provider_module.CellRunInput(cell_id="cell-1", dry_run=True),
                 gestalt.Request(token="test-token"),
@@ -176,7 +221,9 @@ class HexProviderTests(unittest.TestCase):
         self.assertTrue(result["dryRun"])
 
     def test_suggestions_list_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "GET")
             self.assertEqual(
@@ -189,7 +236,9 @@ class HexProviderTests(unittest.TestCase):
                 '"summary":"Summary","status":"OPEN","createdDate":"2026-04-10T00:00:00Z","lastSourceAddedDate":null}]}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.suggestions_list(
                 provider_module.SuggestionsListInput(
                     limit=25,
@@ -204,7 +253,9 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(result["values"][0]["title"], "Title")
 
     def test_suggestions_get_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "GET")
             self.assertEqual(
@@ -216,19 +267,27 @@ class HexProviderTests(unittest.TestCase):
                 '"status":"RESOLVED","createdDate":"2026-04-10T00:00:00Z","lastSourceAddedDate":null,"sources":[]}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.suggestions_get(
-                provider_module.SuggestionsGetInput(suggestion_id="11111111-1111-1111-1111-111111111111"),
+                provider_module.SuggestionsGetInput(
+                    suggestion_id="11111111-1111-1111-1111-111111111111"
+                ),
                 gestalt.Request(token="test-token"),
             )
 
         self.assertEqual(result["status"], "RESOLVED")
 
     def test_context_version_create_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/context/version")
+            self.assertEqual(
+                request.full_url, "https://app.hex.tech/api/v1/context/version"
+            )
             self.assertEqual(
                 request_json_body(request),
                 {
@@ -241,9 +300,13 @@ class HexProviderTests(unittest.TestCase):
                     }
                 },
             )
-            return FakeHTTPResponse('{"contextVersionId":"ctx-1","orgId":"org-1","traceId":"trace-4"}')
+            return FakeHTTPResponse(
+                '{"contextVersionId":"ctx-1","orgId":"org-1","traceId":"trace-4"}'
+            )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.context_version_create(
                 provider_module.ContextVersionCreateInput(
                     external_source={
@@ -260,10 +323,14 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(result["contextVersionId"], "ctx-1")
 
     def test_context_version_update_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/context/version/ctx-1")
+            self.assertEqual(
+                request.full_url, "https://app.hex.tech/api/v1/context/version/ctx-1"
+            )
             self.assertEqual(
                 request_json_body(request),
                 {
@@ -277,11 +344,16 @@ class HexProviderTests(unittest.TestCase):
                 '{"contextVersionId":"ctx-1","traceId":"trace-5","result":{"type":"upsert_guide","files":[],"noops":[],"warnings":[]}}'
             )
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.context_version_update(
                 provider_module.ContextVersionUpdateInput(
                     context_version_id="ctx-1",
-                    operation={"type": "upsert_guide", "files": [{"filePath": "guide.md", "contents": "# Guide"}]},
+                    operation={
+                        "type": "upsert_guide",
+                        "files": [{"filePath": "guide.md", "contents": "# Guide"}],
+                    },
                 ),
                 gestalt.Request(token="test-token"),
             )
@@ -289,10 +361,15 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(result["result"]["type"], "upsert_guide")
 
     def test_context_version_publish_uses_cli_endpoint_contract(self) -> None:
-        def fake_urlopen(request: urllib.request.Request, timeout: float = 30) -> FakeHTTPResponse:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, "https://app.hex.tech/api/v1/context/version/ctx-1/publish")
+            self.assertEqual(
+                request.full_url,
+                "https://app.hex.tech/api/v1/context/version/ctx-1/publish",
+            )
             self.assertEqual(
                 request_json_body(request),
                 {
@@ -303,7 +380,9 @@ class HexProviderTests(unittest.TestCase):
             )
             return FakeHTTPResponse('{"contextVersionId":"ctx-1"}')
 
-        with mock.patch("internals.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
             result = provider_module.context_version_publish(
                 provider_module.ContextVersionPublishInput(
                     context_version_id="ctx-1",
@@ -358,14 +437,18 @@ class HexProviderTests(unittest.TestCase):
 
     def test_project_export_rejects_invalid_version(self) -> None:
         result = provider_module.project_export(
-            provider_module.ProjectExportInput(project_id="proj-1", version="not-a-version"),
+            provider_module.ProjectExportInput(
+                project_id="proj-1", version="not-a-version"
+            ),
             gestalt.Request(token="test-token"),
         )
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, Any]], result)
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
-        self.assertEqual(response.body, {"error": "version must be 'draft' or a version number"})
+        self.assertEqual(
+            response.body, {"error": "version must be 'draft' or a version number"}
+        )
 
 
 if __name__ == "__main__":

@@ -17,6 +17,10 @@ class HexAPIError(RuntimeError):
         super().__init__(_message_from_error_body(status, body))
 
 
+class HexClientError(RuntimeError):
+    pass
+
+
 def hex_api_base() -> str:
     return os.environ.get("HEX_API_BASE", HEX_API_BASE).rstrip("/")
 
@@ -25,7 +29,9 @@ def encode_path_component(value: str) -> str:
     return quote(value, safe="")
 
 
-def get_json(path: str, token: str, query: dict[str, Any] | None = None) -> dict[str, Any]:
+def get_json(
+    path: str, token: str, query: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return request_json("GET", path, token, query=query)
 
 
@@ -43,7 +49,9 @@ def request_json(
 ) -> dict[str, Any]:
     url = f"{hex_api_base()}/{path.lstrip('/')}"
     if query:
-        encoded_query = urlencode({key: value for key, value in query.items() if value is not None})
+        encoded_query = urlencode(
+            {key: value for key, value in query.items() if value is not None}
+        )
         if encoded_query:
             url = f"{url}?{encoded_query}"
 
@@ -76,15 +84,15 @@ def _request_json(request: urllib.request.Request) -> dict[str, Any]:
         error_body = _decode_error_body(exc.read(), exc.code)
         raise HexAPIError(exc.code, error_body) from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(str(exc.reason)) from exc
+        raise HexClientError(f"hex API request failed: {exc.reason}") from exc
 
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"parsing hex API response: {exc}") from exc
+        raise HexClientError(f"parsing hex API response: {exc}") from exc
 
     if not isinstance(payload, dict):
-        raise RuntimeError("parsing hex API response: expected object")
+        raise HexClientError("parsing hex API response: expected object")
 
     return payload
 

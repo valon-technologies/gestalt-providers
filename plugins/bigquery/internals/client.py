@@ -10,7 +10,7 @@ from google.cloud.bigquery import DatasetReference, QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class QueryExecutionResult:
     schema: list[SchemaField]
     rows: list[dict[str, Any]]
@@ -29,7 +29,9 @@ def query_operation(
 ) -> QueryExecutionResult:
     max_results = max(0, max_results)
     query_timeout = timeout_seconds if timeout_seconds > 0 else None
-    with bigquery.Client(project=project_id, credentials=Credentials(token=access_token)) as client:
+    with bigquery.Client(
+        project=project_id, credentials=Credentials(token=access_token)
+    ) as client:
         job = client.query(
             query,
             job_config=QueryJobConfig(
@@ -46,7 +48,11 @@ def query_operation(
                 break
             rows.append(sanitize_row(dict(row.items())))
 
-        return QueryExecutionResult(schema=list(iterator.schema), rows=rows, total_rows=int(iterator.total_rows or 0))
+        return QueryExecutionResult(
+            schema=list(iterator.schema),
+            rows=rows,
+            total_rows=int(iterator.total_rows or 0),
+        )
 
 
 def sanitize_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -78,7 +84,10 @@ def google_api_status(err: GoogleAPICallError) -> HTTPStatus:
     if isinstance(code, HTTPStatus):
         status = code
     elif isinstance(code, int):
-        status = HTTPStatus(code)
+        try:
+            status = HTTPStatus(code)
+        except ValueError:
+            return HTTPStatus.INTERNAL_SERVER_ERROR
     else:
         return HTTPStatus.INTERNAL_SERVER_ERROR
     if status < HTTPStatus.BAD_REQUEST:

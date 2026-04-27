@@ -1,0 +1,559 @@
+from __future__ import annotations
+
+import base64
+import binascii
+import datetime as dt
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from .client import (
+    bot_identity_or_none,
+    commit_url,
+    get_branch_ref,
+    github_json,
+    installation_token,
+    object_sha,
+    repo_path,
+    repository_default_branch,
+    require_branch_ref,
+)
+from .constants import (
+    GITHUB_INSTALLATION_SUBJECT_PREFIX,
+    GITHUB_REPOSITORY_SUBJECT_SEPARATOR,
+)
+from .errors import GitHubAPIError, GitHubAuthorizationError
+from .helpers import (
+    nested_str,
+    optional_slug,
+    require_branch_name,
+    require_slug,
+    require_text,
+    str_field,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubFileChange:
+    path: str
+    content: str = ""
+    content_base64: str = ""
+    delete: bool = False
+    executable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCoAuthor:
+    name: str
+    email: str
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCommitRequest:
+    owner: str
+    repo: str
+    message: str
+    files: list[GitHubFileChange]
+    branch: str = ""
+    base_branch: str = ""
+    installation_id: int = 0
+    coauthors: list[GitHubCoAuthor] = field(default_factory=list)
+    include_bot_coauthor: bool = True
+    author_name: str = ""
+    author_email: str = ""
+    committer_name: str = ""
+    committer_email: str = ""
+    force: bool = False
+    allow_base_update: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubOpenPullRequestRequest:
+    owner: str
+    repo: str
+    title: str
+    head: str
+    base: str
+    body: str = ""
+    installation_id: int = 0
+    head_owner: str = ""
+    draft: bool = False
+    maintainer_can_modify: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreatePullRequestRequest:
+    owner: str
+    repo: str
+    title: str
+    message: str
+    files: list[GitHubFileChange]
+    body: str = ""
+    branch: str = ""
+    base: str = ""
+    installation_id: int = 0
+    coauthors: list[GitHubCoAuthor] = field(default_factory=list)
+    include_bot_coauthor: bool = True
+    author_name: str = ""
+    author_email: str = ""
+    committer_name: str = ""
+    committer_email: str = ""
+    force: bool = False
+    draft: bool = False
+    maintainer_can_modify: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    owner: str
+    repo: str
+    branch: str
+    base_branch: str
+    installation_id: int
+    commit_sha: str
+    commit_url: str
+    tree_sha: str
+    branch_created: bool
+    files_changed: int
+
+
+@dataclass(frozen=True, slots=True)
+class CreatePullRequestResult:
+    commit: CommitResult
+    pull_request: dict[str, Any]
+
+
+def commit_files(
+    request: GitHubCommitRequest, *, subject: Any, pull_request_permissions: bool
+) -> CommitResult:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    message = commit_message_with_coauthors(
+        require_text(request.message, "message"),
+        coauthors=request.coauthors,
+        include_bot=request.include_bot_coauthor,
+    )
+    files = normalize_file_changes(request.files)
+    if not files:
+        raise ValueError("files must contain at least one change")
+
+    base_branch = (
+        require_branch_name(request.base_branch, "base_branch")
+        if request.base_branch.strip()
+        else ""
+    )
+    branch = (
+        require_branch_name(request.branch, "branch")
+        if request.branch.strip()
+        else generated_branch_name(request.message)
+    )
+
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    permissions = {"contents": "write"}
+    if pull_request_permissions:
+        permissions["pull_requests"] = "write"
+    token = installation_token(
+        installation_id, repositories=[repo], permissions=permissions
+    )
+
+    if not base_branch:
+        base_branch = repository_default_branch(token, owner, repo)
+    if branch == base_branch and not request.allow_base_update:
+        raise ValueError(
+            "branch must differ from base_branch unless allow_base_update is true"
+        )
+
+    branch_ref = get_branch_ref(token, owner, repo, branch)
+    branch_created = branch_ref is None
+    parent_ref = branch_ref or require_branch_ref(
+        token, owner, repo, base_branch, "base_branch"
+    )
+    parent_sha = object_sha(parent_ref, "parent ref")
+    parent_commit = github_json(
+        "GET",
+        repo_path(owner, repo, "git", "commits", parent_sha),
+        token,
+    )
+    base_tree_sha = nested_str(parent_commit, "tree", "sha")
+    if not base_tree_sha:
+        raise GitHubAPIError(502, "GitHub commit response did not include tree.sha")
+
+    tree_entries = [
+        tree_entry_for_file(token, owner=owner, repo=repo, change=change)
+        for change in files
+    ]
+    tree = github_json(
+        "POST",
+        repo_path(owner, repo, "git", "trees"),
+        token,
+        {
+            "base_tree": base_tree_sha,
+            "tree": tree_entries,
+        },
+    )
+    tree_sha = str_field(tree, "sha")
+    if not tree_sha:
+        raise GitHubAPIError(502, "GitHub tree response did not include sha")
+
+    commit_payload: dict[str, Any] = {
+        "message": message,
+        "tree": tree_sha,
+        "parents": [parent_sha],
+    }
+    author = git_identity(request.author_name, request.author_email)
+    if author:
+        commit_payload["author"] = author
+    committer = git_identity(request.committer_name, request.committer_email)
+    if committer:
+        commit_payload["committer"] = committer
+
+    commit = github_json(
+        "POST",
+        repo_path(owner, repo, "git", "commits"),
+        token,
+        commit_payload,
+    )
+    commit_sha = str_field(commit, "sha")
+    if not commit_sha:
+        raise GitHubAPIError(502, "GitHub commit response did not include sha")
+
+    if branch_created:
+        github_json(
+            "POST",
+            repo_path(owner, repo, "git", "refs"),
+            token,
+            {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+        )
+    else:
+        github_json(
+            "PATCH",
+            repo_path(owner, repo, "git", "refs", "heads", branch, safe_last="/"),
+            token,
+            {"sha": commit_sha, "force": bool(request.force)},
+        )
+
+    return CommitResult(
+        owner=owner,
+        repo=repo,
+        branch=branch,
+        base_branch=base_branch,
+        installation_id=installation_id,
+        commit_sha=commit_sha,
+        commit_url=commit_url(owner, repo, commit_sha),
+        tree_sha=tree_sha,
+        branch_created=branch_created,
+        files_changed=len(files),
+    )
+
+
+def open_pull_request(
+    request: GitHubOpenPullRequestRequest, *, subject: Any
+) -> dict[str, Any]:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    title = require_text(request.title, "title")
+    head = require_branch_name(request.head, "head")
+    base = require_branch_name(request.base, "base")
+    head_owner = optional_slug(request.head_owner, "head_owner")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = installation_token(
+        installation_id,
+        repositories=[repo],
+        permissions={"pull_requests": "write"},
+    )
+    return create_pull_request_on_github(
+        token,
+        owner=owner,
+        repo=repo,
+        title=title,
+        head=head,
+        base=base,
+        body=request.body,
+        head_owner=head_owner,
+        draft=request.draft,
+        maintainer_can_modify=request.maintainer_can_modify,
+    )
+
+
+def create_pull_request_with_files(
+    request: GitHubCreatePullRequestRequest, *, subject: Any
+) -> CreatePullRequestResult:
+    commit = commit_files(
+        GitHubCommitRequest(
+            owner=request.owner,
+            repo=request.repo,
+            message=request.message,
+            files=request.files,
+            branch=request.branch,
+            base_branch=request.base,
+            installation_id=request.installation_id,
+            coauthors=request.coauthors,
+            include_bot_coauthor=request.include_bot_coauthor,
+            author_name=request.author_name,
+            author_email=request.author_email,
+            committer_name=request.committer_name,
+            committer_email=request.committer_email,
+            force=request.force,
+            allow_base_update=False,
+        ),
+        subject=subject,
+        pull_request_permissions=True,
+    )
+    token = installation_token(
+        commit.installation_id,
+        repositories=[commit.repo],
+        permissions={"pull_requests": "write"},
+    )
+    pull = create_pull_request_on_github(
+        token,
+        owner=commit.owner,
+        repo=commit.repo,
+        title=require_text(request.title, "title"),
+        head=commit.branch,
+        base=commit.base_branch,
+        body=request.body,
+        head_owner="",
+        draft=request.draft,
+        maintainer_can_modify=request.maintainer_can_modify,
+    )
+    return CreatePullRequestResult(commit=commit, pull_request=pull)
+
+
+def create_pull_request_on_github(
+    token: str,
+    *,
+    owner: str,
+    repo: str,
+    title: str,
+    head: str,
+    base: str,
+    body: str,
+    head_owner: str,
+    draft: bool,
+    maintainer_can_modify: bool,
+) -> dict[str, Any]:
+    normalized_head = head.strip()
+    if head_owner.strip():
+        normalized_head = f"{head_owner.strip()}:{normalized_head}"
+    payload = {
+        "title": title,
+        "head": normalized_head,
+        "base": base,
+        "body": body,
+        "draft": bool(draft),
+        "maintainer_can_modify": bool(maintainer_can_modify),
+    }
+    return github_json("POST", repo_path(owner, repo, "pulls"), token, payload)
+
+
+def tree_entry_for_file(
+    token: str, *, owner: str, repo: str, change: GitHubFileChange
+) -> dict[str, Any]:
+    mode = "100755" if change.executable else "100644"
+    if change.delete:
+        return {
+            "path": change.path,
+            "mode": mode,
+            "type": "blob",
+            "sha": None,
+        }
+    if change.content and change.content_base64:
+        raise ValueError(
+            f"{change.path}: content and content_base64 are mutually exclusive"
+        )
+    if change.content_base64:
+        blob = github_json(
+            "POST",
+            repo_path(owner, repo, "git", "blobs"),
+            token,
+            {
+                "content": change.content_base64,
+                "encoding": "base64",
+            },
+        )
+        blob_sha = str_field(blob, "sha")
+        if not blob_sha:
+            raise GitHubAPIError(502, "GitHub blob response did not include sha")
+        return {
+            "path": change.path,
+            "mode": mode,
+            "type": "blob",
+            "sha": blob_sha,
+        }
+    return {
+        "path": change.path,
+        "mode": mode,
+        "type": "blob",
+        "content": change.content,
+    }
+
+
+def normalize_file_changes(files: list[GitHubFileChange]) -> list[GitHubFileChange]:
+    normalized: list[GitHubFileChange] = []
+    seen: set[str] = set()
+    for item in files:
+        path = item.path.strip().lstrip("/")
+        if not path:
+            raise ValueError("file path is required")
+        if path in {".", ".."} or "/../" in f"/{path}/":
+            raise ValueError(f"{path}: path must not contain '..'")
+        if path in seen:
+            raise ValueError(f"{path}: duplicate file path")
+        content_base64 = item.content_base64.strip()
+        if item.delete and (item.content or content_base64):
+            raise ValueError(f"{path}: delete cannot include content")
+        if item.content and content_base64:
+            raise ValueError(
+                f"{path}: content and content_base64 are mutually exclusive"
+            )
+        if content_base64:
+            try:
+                base64.b64decode(content_base64, validate=True)
+            except (binascii.Error, ValueError) as err:
+                raise ValueError(
+                    f"{path}: content_base64 must be valid base64"
+                ) from err
+        seen.add(path)
+        normalized.append(
+            GitHubFileChange(
+                path=path,
+                content=item.content,
+                content_base64=content_base64,
+                delete=bool(item.delete),
+                executable=bool(item.executable),
+            )
+        )
+    return normalized
+
+
+def scoped_installation_id(
+    subject: Any, *, owner: str, repo: str, explicit: int
+) -> int:
+    subject_installation_id, subject_repo = github_scope_from_subject(subject)
+    if subject_installation_id <= 0:
+        raise GitHubAuthorizationError(
+            "GitHub bot operations require a GitHub App installation workload subject"
+        )
+    if explicit > 0 and explicit != subject_installation_id:
+        raise GitHubAuthorizationError(
+            "installation_id must match the caller's GitHub App installation subject"
+        )
+    requested_repo = f"{owner}/{repo}".lower()
+    if not subject_repo:
+        raise GitHubAuthorizationError(
+            "GitHub bot operations require a repository-scoped webhook workload subject"
+        )
+    if subject_repo.lower() != requested_repo:
+        raise GitHubAuthorizationError(
+            "repository must match the caller's GitHub App webhook subject"
+        )
+    return explicit or subject_installation_id
+
+
+def github_scope_from_subject(subject: Any) -> tuple[int, str]:
+    if subject.kind != "workload" or subject.auth_source != "github_app_webhook":
+        return 0, ""
+    if not subject.id.startswith(GITHUB_INSTALLATION_SUBJECT_PREFIX):
+        return 0, ""
+    value = subject.id.removeprefix(GITHUB_INSTALLATION_SUBJECT_PREFIX)
+    installation_text, separator, repo = value.partition(
+        GITHUB_REPOSITORY_SUBJECT_SEPARATOR
+    )
+    if installation_text.isdigit():
+        return int(installation_text), repo if separator else ""
+    return 0, ""
+
+
+def commit_message_with_coauthors(
+    message: str, *, coauthors: list[GitHubCoAuthor], include_bot: bool
+) -> str:
+    trailers: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for coauthor in coauthors:
+        name = coauthor.name.strip()
+        email = coauthor.email.strip()
+        if not name or not email:
+            raise ValueError("coauthor name and email are required")
+        key = (name, email)
+        if key not in seen:
+            seen.add(key)
+            trailers.append(f"Co-authored-by: {name} <{email}>")
+
+    if include_bot:
+        bot = bot_coauthor()
+        if bot is not None and bot not in seen:
+            seen.add(bot)
+            trailers.append(f"Co-authored-by: {bot[0]} <{bot[1]}>")
+
+    if not trailers:
+        return message
+    return message.rstrip() + "\n\n" + "\n".join(trailers)
+
+
+def bot_coauthor() -> tuple[str, str] | None:
+    identity = bot_identity_or_none()
+    if identity is None or not identity.name or not identity.email:
+        return None
+    return identity.name, identity.email
+
+
+def git_identity(name: str, email: str) -> dict[str, str] | None:
+    name = name.strip()
+    email = email.strip()
+    if not name and not email:
+        return None
+    if not name or not email:
+        raise ValueError(
+            "git author/committer name and email must be provided together"
+        )
+    return {"name": name, "email": email}
+
+
+def commit_result_dict(commit: CommitResult) -> dict[str, Any]:
+    return {
+        "owner": commit.owner,
+        "repo": commit.repo,
+        "branch": commit.branch,
+        "base_branch": commit.base_branch,
+        "installation_id": commit.installation_id,
+        "sha": commit.commit_sha,
+        "html_url": commit.commit_url,
+        "tree_sha": commit.tree_sha,
+        "branch_created": commit.branch_created,
+        "files_changed": commit.files_changed,
+    }
+
+
+def pull_request_summary(pull: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "number": int_field_safe(pull, "number"),
+        "title": str_field(pull, "title"),
+        "state": str_field(pull, "state"),
+        "html_url": str_field(pull, "html_url"),
+        "url": str_field(pull, "url"),
+        "head": nested_str(pull, "head", "ref"),
+        "base": nested_str(pull, "base", "ref"),
+    }
+
+
+def int_field_safe(data: dict[str, Any], field_name: str) -> int:
+    value = data.get(field_name)
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return 0
+
+
+def generated_branch_name(message: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", message.strip().lower())
+    slug = re.sub(r"\.+", ".", slug)
+    slug = slug.replace("..", ".").strip("-/.")[:48] or "changes"
+    timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+    return f"gestalt/{slug}-{timestamp}"
