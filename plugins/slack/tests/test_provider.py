@@ -63,7 +63,9 @@ class FakeAuthorization:
 
 class FakeAgentManager:
     def __init__(self) -> None:
-        self.requests: list[Any] = []
+        self.session_requests: list[Any] = []
+        self.turn_requests: list[Any] = []
+        self.requests = self.turn_requests
 
     def __enter__(self) -> FakeAgentManager:
         return self
@@ -71,13 +73,24 @@ class FakeAgentManager:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def run(self, request: Any) -> Any:
-        self.requests.append(request)
-        return agent_pb2.ManagedAgentRun(
+    def create_session(self, request: Any) -> Any:
+        self.session_requests.append(request)
+        return agent_pb2.AgentSession(
+            id="session-123",
             provider_name=request.provider_name or "simple",
-            run=agent_pb2.BoundAgentRun(
-                id="run-123", status=agent_pb2.AGENT_RUN_STATUS_RUNNING
-            ),
+            model=request.model,
+            client_ref=request.client_ref,
+            state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+        )
+
+    def create_turn(self, request: Any) -> Any:
+        self.turn_requests.append(request)
+        return agent_pb2.AgentTurn(
+            id="turn-123",
+            session_id=request.session_id,
+            provider_name="simple",
+            model=request.model,
+            status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
         )
 
 
@@ -229,27 +242,50 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(response["ok"], True)
-        self.assertEqual(response["agent_run_id"], "run-123")
-        self.assertEqual(len(agent_manager.requests), 1)
+        self.assertEqual(response["agent_session_id"], "session-123")
+        self.assertEqual(response["agent_turn_id"], "turn-123")
+        self.assertEqual(response["status"], "AGENT_EXECUTION_STATUS_RUNNING")
+        self.assertEqual(len(agent_manager.session_requests), 1)
+        self.assertEqual(len(agent_manager.turn_requests), 1)
 
-        run_request = agent_manager.requests[0]
-        self.assertEqual(run_request.provider_name, "simple")
-        self.assertEqual(run_request.model, "deep")
+        session_request = agent_manager.session_requests[0]
+        self.assertEqual(session_request.provider_name, "simple")
+        self.assertEqual(session_request.model, "deep")
         self.assertEqual(
-            run_request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES
+            session_request.client_ref, "slack:T123:C789:1712161829.000300"
         )
-        self.assertEqual(run_request.idempotency_key, "slack:event:Ev123")
-        self.assertEqual(run_request.session_ref, "slack:T123:C789:1712161829.000300")
-        self.assertIn("slack.chat.postMessage", run_request.messages[0].text)
+        self.assertEqual(
+            session_request.idempotency_key,
+            "slack:session:slack:T123:C789:1712161829.000300",
+        )
+        session_metadata = json_format.MessageToDict(session_request.metadata)
+        self.assertEqual(session_metadata["slack"]["team_id"], "T123")
+        self.assertEqual(session_metadata["slack"]["channel_id"], "C789")
+        self.assertEqual(
+            session_metadata["slack"]["root_message_ts"], "1712161829.000300"
+        )
+        self.assertNotIn("event_id", session_metadata["slack"])
+        self.assertNotIn("user_id", session_metadata["slack"])
+        self.assertNotIn("reply_thread_ts", session_metadata["slack"])
+        self.assertEqual(json_format.MessageToDict(session_request.provider_options), {})
+
+        turn_request = agent_manager.turn_requests[0]
+        self.assertEqual(turn_request.session_id, "session-123")
+        self.assertEqual(turn_request.model, "deep")
+        self.assertEqual(
+            turn_request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES
+        )
+        self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
+        self.assertIn("slack.chat.postMessage", turn_request.messages[0].text)
         self.assertIn(
-            "reply_thread_ts: 1712161829.000300", run_request.messages[1].text
+            "reply_thread_ts: 1712161829.000300", turn_request.messages[1].text
         )
 
-        metadata = json_format.MessageToDict(run_request.metadata)
+        metadata = json_format.MessageToDict(turn_request.metadata)
         self.assertEqual(metadata["slack"]["team_id"], "T123")
         self.assertEqual(metadata["slack"]["user_id"], "U456")
         self.assertEqual(metadata["slack"]["reply_thread_ts"], "1712161829.000300")
-        provider_options = json_format.MessageToDict(run_request.provider_options)
+        provider_options = json_format.MessageToDict(turn_request.provider_options)
         self.assertEqual(provider_options["temperature"], 0)
 
     def test_nested_agent_config_selects_route_by_channel(self) -> None:
@@ -302,19 +338,96 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(response["ok"], True)
-        self.assertEqual(len(agent_manager.requests), 1)
-        run_request = agent_manager.requests[0]
-        self.assertEqual(run_request.provider_name, "simple")
-        self.assertEqual(run_request.model, "deep")
-        self.assertIn("supportSlackbot.chat.postMessage", run_request.messages[0].text)
-        self.assertIn("Follow the global Slack policy.", run_request.messages[0].text)
-        self.assertIn("Triage support requests.", run_request.messages[0].text)
+        self.assertEqual(len(agent_manager.session_requests), 1)
+        self.assertEqual(len(agent_manager.turn_requests), 1)
+        session_request = agent_manager.session_requests[0]
+        turn_request = agent_manager.turn_requests[0]
+        self.assertEqual(session_request.provider_name, "simple")
+        self.assertEqual(session_request.model, "deep")
+        self.assertEqual(turn_request.model, "deep")
+        self.assertIn("supportSlackbot.chat.postMessage", turn_request.messages[0].text)
+        self.assertIn("Follow the global Slack policy.", turn_request.messages[0].text)
+        self.assertIn("Triage support requests.", turn_request.messages[0].text)
 
-        metadata = json_format.MessageToDict(run_request.metadata)
+        metadata = json_format.MessageToDict(turn_request.metadata)
         self.assertEqual(metadata["slack"]["agent_route_id"], "triage")
-        provider_options = json_format.MessageToDict(run_request.provider_options)
+        provider_options = json_format.MessageToDict(turn_request.provider_options)
         self.assertEqual(provider_options["temperature"], 0)
         self.assertEqual(provider_options["max_output_tokens"], 2000)
+
+    def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {"agent": {"provider": "simple", "model": "deep"}},
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        agent_manager = FakeAgentManager()
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        first = {
+            "type": "event_callback",
+            "event_id": "EvFirst",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> first",
+                "ts": "1712161829.000300",
+            },
+        }
+        second = {
+            "type": "event_callback",
+            "event_id": "EvSecond",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U999",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> follow up",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "agent_manager", return_value=agent_manager
+        ):
+            provider_module.slack_events_handle(first, request)
+            provider_module.slack_events_handle(second, request)
+
+        self.assertEqual(len(agent_manager.session_requests), 2)
+        self.assertEqual(len(agent_manager.turn_requests), 2)
+        self.assertEqual(
+            agent_manager.session_requests[0].idempotency_key,
+            agent_manager.session_requests[1].idempotency_key,
+        )
+        for session_request in agent_manager.session_requests:
+            session_metadata = json_format.MessageToDict(session_request.metadata)
+            self.assertEqual(
+                session_metadata["slack"]["root_message_ts"], "1712161829.000300"
+            )
+            self.assertNotIn("event_id", session_metadata["slack"])
+            self.assertNotIn("user_id", session_metadata["slack"])
+
+        self.assertEqual(
+            agent_manager.turn_requests[0].idempotency_key, "slack:event:EvFirst"
+        )
+        self.assertEqual(
+            agent_manager.turn_requests[1].idempotency_key, "slack:event:EvSecond"
+        )
+        first_metadata = json_format.MessageToDict(agent_manager.turn_requests[0].metadata)
+        second_metadata = json_format.MessageToDict(agent_manager.turn_requests[1].metadata)
+        self.assertEqual(first_metadata["slack"]["user_id"], "U456")
+        self.assertEqual(second_metadata["slack"]["user_id"], "U999")
+        self.assertEqual(
+            second_metadata["slack"]["message_ts"], "1712161835.000400"
+        )
 
     def test_configured_routes_ignore_non_matching_channels(self) -> None:
         provider_module.configure(
