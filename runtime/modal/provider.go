@@ -312,9 +312,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	bindings := cloneStringMap(session.bindings)
 	logs := newSessionLogSink(session.id, &session.logSeq, nil)
 	p.mu.Unlock()
-	logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, fmt.Sprintf("starting plugin %q", req.GetPluginName()), time.Now())
+	logRuntimePhase(logs, "starting plugin %q", req.GetPluginName())
 
-	sandbox, tunnel, err := p.ensureSessionSandbox(ctx, client, cfg, req)
+	sandbox, tunnel, err := p.ensureSessionSandbox(ctx, client, cfg, req, logs)
 	if err != nil {
 		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, err.Error(), time.Now())
 		return nil, err
@@ -330,15 +330,19 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 
 	command := req.GetCommand()
 	if req.GetBundleDir() != "" {
-		if err := uploadBundleDir(ctx, sandbox, req.GetBundleDir(), gestalt.HostedPluginBundleRoot); err != nil {
+		if err := uploadBundleDir(ctx, sandbox, req.GetBundleDir(), gestalt.HostedPluginBundleRoot, logs); err != nil {
 			logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "upload plugin bundle: "+err.Error(), time.Now())
 			return nil, status.Errorf(codes.Internal, "upload plugin bundle: %v", err)
 		}
 		if strings.HasPrefix(command, gestalt.HostedPluginBundleRoot+"/") || command == gestalt.HostedPluginBundleRoot {
-			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", "0755", command}); err != nil {
+			startedAt := time.Now()
+			logRuntimePhase(logs, "plugin entrypoint chmod: starting command=%q", command)
+			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", "0755", command}, logs); err != nil {
+				logRuntimePhase(logs, "plugin entrypoint chmod: failed after %s: %v", elapsed(startedAt), err)
 				logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "mark plugin entrypoint executable: "+err.Error(), time.Now())
 				return nil, status.Errorf(codes.Internal, "mark plugin entrypoint executable: %v", err)
 			}
+			logRuntimePhase(logs, "plugin entrypoint chmod: completed in %s", elapsed(startedAt))
 		}
 	}
 
@@ -351,7 +355,10 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}
 	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort)
 
-	process, err := sandbox.Exec(ctx, append([]string{command}, req.GetArgs()...), &modalclient.SandboxExecParams{
+	execArgv := append([]string{command}, req.GetArgs()...)
+	startedAt := time.Now()
+	logRuntimePhase(logs, "plugin exec: starting command=%q args=%d", command, len(req.GetArgs()))
+	process, err := sandbox.Exec(ctx, execArgv, &modalclient.SandboxExecParams{
 		Stdout: modalclient.Pipe,
 		Stderr: modalclient.Pipe,
 		Env:    env,
@@ -363,15 +370,20 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		}(),
 	})
 	if err != nil {
+		logRuntimePhase(logs, "plugin exec: failed after %s: %v", elapsed(startedAt), err)
 		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "start plugin process in modal sandbox: "+err.Error(), time.Now())
 		return nil, status.Errorf(codes.Internal, "start plugin process in modal sandbox: %v", err)
 	}
+	logRuntimePhase(logs, "plugin exec: process started in %s", elapsed(startedAt))
 	stdoutDone := logs.stream(process.Stdout, proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDOUT)
 	stderrDone := logs.stream(process.Stderr, proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDERR)
 	processDone := p.watchPluginProcess(req.GetSessionId(), logs, process)
 
 	host, port := tunnel.TLSSocket()
+	startedAt = time.Now()
+	logRuntimePhase(logs, "plugin gRPC readiness: waiting target=%s", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err := waitForPluginReady(ctx, host, port); err != nil {
+		logRuntimePhase(logs, "plugin gRPC readiness: failed after %s: %v", elapsed(startedAt), err)
 		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "wait for modal plugin gRPC endpoint: "+err.Error(), time.Now())
 		p.markSessionLaunchFailed(req.GetSessionId())
 		p.resetSessionSandbox(req.GetSessionId(), sandbox)
@@ -380,6 +392,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		launchOK = true
 		return nil, status.Errorf(codes.DeadlineExceeded, "wait for modal plugin gRPC endpoint: %v", err)
 	}
+	logRuntimePhase(logs, "plugin gRPC readiness: ready in %s", elapsed(startedAt))
 
 	plugin := &plugin{
 		id:      p.newID("plugin"),
@@ -450,7 +463,7 @@ func (p *Provider) configured() (*modalclient.Client, Config, error) {
 	return p.client, p.cfg, nil
 }
 
-func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient.Client, cfg Config, req *proto.StartHostedPluginRequest) (*modalclient.Sandbox, *modalclient.Tunnel, error) {
+func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient.Client, cfg Config, req *proto.StartHostedPluginRequest, logs *sessionLogSink) (*modalclient.Sandbox, *modalclient.Tunnel, error) {
 	p.mu.Lock()
 	session, err := p.sessionLocked(req.GetSessionId())
 	if err != nil {
@@ -461,6 +474,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 		sandbox := session.sandbox
 		tunnel := session.tunnel
 		p.mu.Unlock()
+		logRuntimePhase(logs, "modal sandbox: reusing existing sandbox for session %q", req.GetSessionId())
 		return sandbox, tunnel, nil
 	}
 	imageRef := strings.TrimSpace(session.image)
@@ -471,48 +485,73 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	if imageRef == "" {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q is missing a runtime image", req.GetSessionId())
 	}
+	startedAt := time.Now()
+	logRuntimePhase(logs, "modal sandbox egress: configuring")
 	createParams, err := buildSandboxCreateParams(ctx, cfg, req, sessionID, bindings)
 	if err != nil {
+		logRuntimePhase(logs, "modal sandbox egress: failed after %s: %v", elapsed(startedAt), err)
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "configure modal sandbox egress: %v", err)
 	}
+	logRuntimePhase(logs, "modal sandbox egress: configured in %s", elapsed(startedAt))
 
+	startedAt = time.Now()
+	logRuntimePhase(logs, "modal app lookup: starting app=%q environment=%q", cfg.App, cfg.Environment)
 	app, err := client.Apps.FromName(ctx, cfg.App, &modalclient.AppFromNameParams{
 		Environment:     cfg.Environment,
 		CreateIfMissing: true,
 	})
 	if err != nil {
+		logRuntimePhase(logs, "modal app lookup: failed after %s: %v", elapsed(startedAt), err)
 		return nil, nil, status.Errorf(codes.Internal, "lookup modal app %q: %v", cfg.App, err)
 	}
+	logRuntimePhase(logs, "modal app lookup: completed in %s", elapsed(startedAt))
 
+	startedAt = time.Now()
+	logRuntimePhase(logs, "modal sandbox create: starting image=%q timeout=%s idle_timeout=%s", imageRef, configuredDuration(cfg.Timeout), configuredDuration(cfg.IdleTimeout))
 	sandbox, err := client.Sandboxes.Create(ctx, app, client.Images.FromRegistry(imageRef, nil), createParams)
 	if err != nil {
+		logRuntimePhase(logs, "modal sandbox create: failed after %s: %v", elapsed(startedAt), err)
 		return nil, nil, status.Errorf(codes.Internal, "create modal sandbox: %v", err)
 	}
+	logRuntimePhase(logs, "modal sandbox create: completed in %s", elapsed(startedAt))
+
+	startedAt = time.Now()
+	logRuntimePhase(logs, "modal sandbox tunnel lookup: starting port=%d", pluginGRPCPort)
 	tunnels, err := sandbox.Tunnels(ctx, tunnelLookupTimeout)
 	if err != nil {
+		logRuntimePhase(logs, "modal sandbox tunnel lookup: failed after %s: %v", elapsed(startedAt), err)
 		_, _ = sandbox.Terminate(context.Background(), nil)
 		return nil, nil, status.Errorf(codes.Internal, "lookup modal sandbox tunnel: %v", err)
 	}
 	tunnel, ok := tunnels[pluginGRPCPort]
 	if !ok || tunnel == nil {
+		logRuntimePhase(logs, "modal sandbox tunnel lookup: port %d unavailable after %s", pluginGRPCPort, elapsed(startedAt))
 		_, _ = sandbox.Terminate(context.Background(), nil)
 		return nil, nil, status.Errorf(codes.Internal, "modal sandbox tunnel for port %d is unavailable", pluginGRPCPort)
 	}
+	host, port := tunnel.TLSSocket()
+	logRuntimePhase(logs, "modal sandbox tunnel lookup: completed in %s target=%s", elapsed(startedAt), net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	session, err = p.sessionLocked(req.GetSessionId())
 	if err != nil {
+		p.mu.Unlock()
 		_, _ = sandbox.Terminate(context.Background(), nil)
 		return nil, nil, status.Error(codes.NotFound, err.Error())
 	}
 	if session.sandbox != nil && session.tunnel != nil {
+		existingSandbox := session.sandbox
+		existingTunnel := session.tunnel
+		p.mu.Unlock()
 		_, _ = sandbox.Terminate(context.Background(), nil)
-		return session.sandbox, session.tunnel, nil
+		logRuntimePhase(logs, "modal sandbox: another sandbox was already registered for session %q", req.GetSessionId())
+		return existingSandbox, existingTunnel, nil
 	}
 	session.sandbox = sandbox
 	session.tunnel = tunnel
 	session.state = sessionStateReady
+	p.mu.Unlock()
+	logRuntimePhase(logs, "modal sandbox: registered for session %q", req.GetSessionId())
 	return sandbox, tunnel, nil
 }
 
@@ -827,11 +866,41 @@ func cloneSession(session *session) *proto.PluginRuntimeSession {
 	}
 }
 
-func uploadBundleDir(ctx context.Context, sandbox *modalclient.Sandbox, localDir, remoteDir string) error {
-	if err := runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", remoteDir}); err != nil {
+func logRuntimePhase(logs *sessionLogSink, format string, args ...any) {
+	logs.add(
+		proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME,
+		fmt.Sprintf(format, args...),
+		time.Now(),
+	)
+}
+
+func elapsed(startedAt time.Time) time.Duration {
+	if startedAt.IsZero() {
+		return 0
+	}
+	return time.Since(startedAt).Round(time.Millisecond)
+}
+
+func configuredDuration(value time.Duration) string {
+	if value <= 0 {
+		return "modal-default"
+	}
+	return value.String()
+}
+
+func uploadBundleDir(ctx context.Context, sandbox *modalclient.Sandbox, localDir, remoteDir string, logs *sessionLogSink) error {
+	startedAt := time.Now()
+	logRuntimePhase(logs, "bundle upload: starting local=%q remote=%q", localDir, remoteDir)
+	if err := runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", remoteDir}, logs); err != nil {
+		logRuntimePhase(logs, "bundle upload: failed after %s: %v", elapsed(startedAt), err)
 		return err
 	}
-	return filepath.Walk(localDir, func(localPath string, info os.FileInfo, walkErr error) error {
+	var files int
+	var bytes int64
+	err := filepath.Walk(localDir, func(localPath string, info os.FileInfo, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -844,60 +913,89 @@ func uploadBundleDir(ctx context.Context, sandbox *modalclient.Sandbox, localDir
 		}
 		remotePath := path.Join(remoteDir, filepath.ToSlash(rel))
 		if info.IsDir() {
-			return runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", remotePath})
+			return runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", remotePath}, logs)
 		}
-		if err := runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", path.Dir(remotePath)}); err != nil {
+		if err := runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", path.Dir(remotePath)}, logs); err != nil {
+			logRuntimePhase(logs, "bundle upload: failed after %s: %v", elapsed(startedAt), err)
 			return err
 		}
 		src, err := os.Open(localPath)
 		if err != nil {
+			logRuntimePhase(logs, "bundle upload: failed opening %q after %s: %v", rel, elapsed(startedAt), err)
 			return err
 		}
+		fileStartedAt := time.Now()
+		logRuntimePhase(logs, "bundle upload file: starting path=%q bytes=%d", rel, info.Size())
 		dst, err := sandbox.Open(ctx, remotePath, "wb")
 		if err != nil {
 			_ = src.Close()
+			logRuntimePhase(logs, "bundle upload file: failed opening remote path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
 			return err
 		}
 		if _, err := io.Copy(dst, src); err != nil {
 			_ = src.Close()
 			_ = dst.Close()
+			logRuntimePhase(logs, "bundle upload file: failed copying path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
 			return err
 		}
 		if err := src.Close(); err != nil {
 			_ = dst.Close()
+			logRuntimePhase(logs, "bundle upload file: failed closing source path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
 			return err
 		}
 		if err := dst.Flush(); err != nil {
 			_ = dst.Close()
+			logRuntimePhase(logs, "bundle upload file: failed flushing path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
 			return err
 		}
 		if err := dst.Close(); err != nil {
+			logRuntimePhase(logs, "bundle upload file: failed closing remote path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
 			return err
 		}
+		files++
+		bytes += info.Size()
+		logRuntimePhase(logs, "bundle upload file: completed path=%q bytes=%d in %s", rel, info.Size(), elapsed(fileStartedAt))
 		if info.Mode().Perm()&0o111 != 0 {
-			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", fmt.Sprintf("%03o", info.Mode().Perm()), remotePath}); err != nil {
+			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", fmt.Sprintf("%03o", info.Mode().Perm()), remotePath}, logs); err != nil {
+				logRuntimePhase(logs, "bundle upload: failed chmod path=%q after %s: %v", rel, elapsed(startedAt), err)
 				return err
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return nil
 	})
+	if err != nil {
+		logRuntimePhase(logs, "bundle upload: failed after %s: %v", elapsed(startedAt), err)
+		return err
+	}
+	logRuntimePhase(logs, "bundle upload: completed files=%d bytes=%d in %s", files, bytes, elapsed(startedAt))
+	return nil
 }
 
-func runSandboxCommand(ctx context.Context, sandbox *modalclient.Sandbox, argv []string) error {
+func runSandboxCommand(ctx context.Context, sandbox *modalclient.Sandbox, argv []string, logs *sessionLogSink) error {
+	startedAt := time.Now()
+	logRuntimePhase(logs, "modal sandbox command: starting argv=%q", strings.Join(argv, " "))
 	process, err := sandbox.Exec(ctx, argv, &modalclient.SandboxExecParams{
 		Stdout: modalclient.Ignore,
 		Stderr: modalclient.Ignore,
 	})
 	if err != nil {
+		logRuntimePhase(logs, "modal sandbox command: failed starting argv=%q after %s: %v", strings.Join(argv, " "), elapsed(startedAt), err)
 		return err
 	}
 	code, err := process.Wait(ctx)
 	if err != nil {
+		logRuntimePhase(logs, "modal sandbox command: failed waiting argv=%q after %s: %v", strings.Join(argv, " "), elapsed(startedAt), err)
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf("command %q exited with status %d", strings.Join(argv, " "), code)
+		err := fmt.Errorf("command %q exited with status %d", strings.Join(argv, " "), code)
+		logRuntimePhase(logs, "modal sandbox command: failed argv=%q after %s: %v", strings.Join(argv, " "), elapsed(startedAt), err)
+		return err
 	}
+	logRuntimePhase(logs, "modal sandbox command: completed argv=%q in %s", strings.Join(argv, " "), elapsed(startedAt))
 	return nil
 }
 
