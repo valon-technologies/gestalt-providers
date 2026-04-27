@@ -121,6 +121,159 @@ spec:
           type: string
           in: body
           required: true
+      - name: assistant.threads.setStatus
+        description: Set the native Slack assistant thread status
+        method: POST
+        path: /api/assistant.threads.setStatus
+        connection: bot
+        parameters:
+        - name: channel_id
+          type: string
+          in: body
+          required: true
+        - name: thread_ts
+          type: string
+          in: body
+          required: true
+        - name: status
+          type: string
+          in: body
+          required: true
+        - name: loading_messages
+          type: array
+          in: body
+        - name: icon_emoji
+          type: string
+          in: body
+        - name: icon_url
+          type: string
+          in: body
+        - name: username
+          type: string
+          in: body
+      - name: assistant.threads.setTitle
+        description: Set the native Slack assistant thread title
+        method: POST
+        path: /api/assistant.threads.setTitle
+        connection: bot
+        parameters:
+        - name: channel_id
+          type: string
+          in: body
+          required: true
+        - name: thread_ts
+          type: string
+          in: body
+          required: true
+        - name: title
+          type: string
+          in: body
+          required: true
+      - name: assistant.threads.setSuggestedPrompts
+        description: Set native Slack assistant suggested prompts
+        method: POST
+        path: /api/assistant.threads.setSuggestedPrompts
+        connection: bot
+        parameters:
+        - name: channel_id
+          type: string
+          in: body
+          required: true
+        - name: thread_ts
+          type: string
+          in: body
+          required: true
+        - name: prompts
+          type: array
+          in: body
+          required: true
+        - name: title
+          type: string
+          in: body
+      - name: chat.startStream
+        description: Start a native Slack streaming message
+        method: POST
+        path: /api/chat.startStream
+        connection: bot
+        parameters:
+        - name: channel
+          type: string
+          in: body
+          required: true
+        - name: thread_ts
+          type: string
+          in: body
+          required: true
+        - name: markdown_text
+          type: string
+          in: body
+        - name: chunks
+          type: array
+          in: body
+        - name: recipient_user_id
+          type: string
+          in: body
+        - name: recipient_team_id
+          type: string
+          in: body
+        - name: task_display_mode
+          type: string
+          in: body
+        - name: icon_emoji
+          type: string
+          in: body
+        - name: icon_url
+          type: string
+          in: body
+        - name: username
+          type: string
+          in: body
+      - name: chat.appendStream
+        description: Append content to a native Slack streaming message
+        method: POST
+        path: /api/chat.appendStream
+        connection: bot
+        parameters:
+        - name: channel
+          type: string
+          in: body
+          required: true
+        - name: ts
+          type: string
+          in: body
+          required: true
+        - name: markdown_text
+          type: string
+          in: body
+        - name: chunks
+          type: array
+          in: body
+      - name: chat.stopStream
+        description: Stop and finalize a native Slack streaming message
+        method: POST
+        path: /api/chat.stopStream
+        connection: bot
+        parameters:
+        - name: channel
+          type: string
+          in: body
+          required: true
+        - name: ts
+          type: string
+          in: body
+          required: true
+        - name: markdown_text
+          type: string
+          in: body
+        - name: chunks
+          type: array
+          in: body
+        - name: blocks
+          type: array
+          in: body
+        - name: metadata
+          type: object
+          in: body
       - name: users.list
         description: List workspace users
         method: GET
@@ -413,6 +566,7 @@ spec:
         - users:read
         - files:read
         - chat:write
+        - assistant:write
         - reactions:write
         - channels:manage
         - groups:write

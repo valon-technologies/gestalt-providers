@@ -90,6 +90,161 @@ operations:
     description: Message timestamp to react to; defaults to the source Slack event
     default: ''
   visible: false
+- id: events.setAssistantStatus
+  method: POST
+  description: Set Slack's native assistant loading/status indicator for the event
+    thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: status
+    type: string
+    description: Native Slack assistant status text; pass an empty string to clear
+    default: ''
+  - name: loading_messages
+    type: array
+    description: Optional rotating native loading messages; Slack accepts up to 10
+  - name: icon_emoji
+    type: string
+    description: Optional emoji to display for the assistant status
+    default: ''
+  - name: icon_url
+    type: string
+    description: Optional icon URL to display for the assistant status
+    default: ''
+  - name: username
+    type: string
+    description: Optional bot username to display for the assistant status
+    default: ''
+  visible: false
+- id: events.clearAssistantStatus
+  method: POST
+  description: Clear Slack's native assistant loading/status indicator for the event
+    thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  visible: false
+- id: events.setThreadTitle
+  method: POST
+  description: Set Slack's native assistant thread title for the event thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: title
+    type: string
+    description: Native Slack assistant thread title
+    required: true
+  visible: false
+- id: events.setSuggestedPrompts
+  method: POST
+  description: Set Slack's native assistant suggested prompts for the event thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: prompts
+    type: array
+    description: Up to four Slack suggested prompts, each with title and message
+    required: true
+  - name: title
+    type: string
+    description: Optional title for the suggested prompt list
+    default: ''
+  visible: false
+- id: events.startStream
+  method: POST
+  description: Start a native Slack streaming reply in the event thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: markdown_text
+    type: string
+    description: Initial markdown text for the streamed Slack reply
+    default: ''
+  - name: chunks
+    type: array
+    description: Optional Slack stream chunks for text, task updates, plans, or blocks
+  - name: recipient_user_id
+    type: string
+    description: Optional Slack user receiving a streamed channel reply
+    default: ''
+  - name: recipient_team_id
+    type: string
+    description: Optional Slack team for the streamed reply recipient
+    default: ''
+  - name: task_display_mode
+    type: string
+    description: Optional Slack task display mode, timeline or plan
+    default: ''
+  - name: icon_emoji
+    type: string
+    description: Optional emoji to display for the streamed message
+    default: ''
+  - name: icon_url
+    type: string
+    description: Optional icon URL to display for the streamed message
+    default: ''
+  - name: username
+    type: string
+    description: Optional bot username to display for the streamed message
+    default: ''
+  visible: false
+- id: events.appendStream
+  method: POST
+  description: Append markdown text or chunks to a native Slack streaming reply
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: stream_ts
+    type: string
+    description: Slack streaming message timestamp
+    required: true
+  - name: markdown_text
+    type: string
+    description: Markdown text to append to the Slack stream
+    default: ''
+  - name: chunks
+    type: array
+    description: Optional Slack stream chunks to append
+  visible: false
+- id: events.stopStream
+  method: POST
+  description: Finalize a native Slack streaming reply in the event thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: stream_ts
+    type: string
+    description: Slack streaming message timestamp
+    required: true
+  - name: markdown_text
+    type: string
+    description: Optional final markdown text for the Slack stream
+    default: ''
+  - name: chunks
+    type: array
+    description: Optional final Slack stream chunks
+  - name: blocks
+    type: array
+    description: Optional Slack blocks rendered below the finalized stream
+  - name: metadata
+    type: object
+    description: Optional Slack message metadata for the finalized stream
+  visible: false
 - id: conversations.getMessage
   method: POST
   description: Fetch a single message by Slack URL or channel and timestamp

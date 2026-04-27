@@ -20,12 +20,18 @@ from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
 
 from .client import SlackAPIError, SlackClientError
-from .helpers import map_slice
+from .helpers import map_field, map_slice, string_field
 from .operations import (
     add_reaction,
+    append_stream,
     delete_message,
     post_message,
     remove_reaction,
+    set_assistant_thread_status,
+    set_assistant_thread_suggested_prompts,
+    set_assistant_thread_title,
+    start_stream,
+    stop_stream,
     update_message,
 )
 
@@ -45,6 +51,13 @@ SLACK_STATUS_OPERATION = "events.setStatus"
 SLACK_DELETE_STATUS_OPERATION = "events.deleteStatus"
 SLACK_ADD_REACTION_OPERATION = "events.addReaction"
 SLACK_REMOVE_REACTION_OPERATION = "events.removeReaction"
+SLACK_ASSISTANT_STATUS_OPERATION = "events.setAssistantStatus"
+SLACK_ASSISTANT_CLEAR_STATUS_OPERATION = "events.clearAssistantStatus"
+SLACK_ASSISTANT_TITLE_OPERATION = "events.setThreadTitle"
+SLACK_ASSISTANT_PROMPTS_OPERATION = "events.setSuggestedPrompts"
+SLACK_STREAM_START_OPERATION = "events.startStream"
+SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
+SLACK_STREAM_STOP_OPERATION = "events.stopStream"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
@@ -56,8 +69,15 @@ EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
 DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
-Use {status_tool} with the reply_ref for progress updates during longer work;
-reuse the returned status_ts to update or delete the same status message.
+Use {assistant_status_tool} with the reply_ref for Slack's native assistant
+loading/status indicator during longer work; use {assistant_clear_status_tool}
+to clear it without posting a message.
+Use {status_tool} only when you intentionally want a visible progress message
+in the Slack thread; reuse the returned status_ts to update or delete the same
+status message.
+Use {stream_start_tool}, {stream_append_tool}, and {stream_stop_tool} when a
+streaming Slack reply is better than a single final message.
+Use {title_tool} and {prompts_tool} to update native assistant thread metadata.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
 When you answer the Slack user, call {reply_tool} with the reply_ref exactly
@@ -75,6 +95,8 @@ class SlackCallbackType(StrEnum):
 class SlackEventType(StrEnum):
     APP_MENTION = "app_mention"
     MESSAGE = "message"
+    ASSISTANT_THREAD_STARTED = "assistant_thread_started"
+    ASSISTANT_THREAD_CONTEXT_CHANGED = "assistant_thread_context_changed"
 
 
 class SlackChannelType(StrEnum):
@@ -85,6 +107,12 @@ class SlackChannelType(StrEnum):
 SUPPORTED_EVENT_TYPES = frozenset(event.value for event in SlackEventType)
 DIRECT_MESSAGE_CHANNEL_TYPES = frozenset(
     channel.value for channel in (SlackChannelType.IM, SlackChannelType.MPIM)
+)
+ASSISTANT_THREAD_EVENT_TYPES = frozenset(
+    {
+        SlackEventType.ASSISTANT_THREAD_STARTED.value,
+        SlackEventType.ASSISTANT_THREAD_CONTEXT_CHANGED.value,
+    }
 )
 
 
@@ -126,9 +154,22 @@ class SlackBotConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackAssistantConfig:
+    enabled: bool = False
+    status: str = "is thinking..."
+    loading_messages: tuple[str, ...] = ()
+    icon_emoji: str = ""
+    icon_url: str = ""
+    username: str = ""
+    suggested_prompts_title: str = ""
+    suggested_prompts: tuple[dict[str, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SlackAgentConfig:
     plugin_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
+    assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
@@ -161,6 +202,8 @@ class SlackReplyRef:
     event_id: str
     subject_id: str
     expires_at: int
+    user_id: str = ""
+    channel_type: str = ""
 
 
 _agent_config = SlackAgentConfig()
@@ -237,9 +280,19 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "Slack bot token is not configured"},
         )
+    if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
+        return _handle_assistant_thread_event(event)
 
+    assistant_status_error = ""
     try:
         reply_ref = _sign_reply_ref(event, req.subject.id)
+        if _agent_config.assistant.enabled:
+            try:
+                _set_initial_assistant_status(event)
+            except SlackAPIError as err:
+                assistant_status_error = str(err.body.get("error") or err.body)
+            except SlackClientError as err:
+                assistant_status_error = str(err)
         with req.agent_manager() as agent_manager:
             session_request = _build_agent_session_request(event, route)
             session = agent_manager.create_session(session_request)
@@ -254,13 +307,16 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     except Exception as err:
         return _server_error(f"failed to start agent turn: {err}")
 
-    return {
+    response = {
         "ok": True,
         "agent_session_id": session_id,
         "agent_turn_id": turn.id,
         "agent_provider": session.provider_name or _agent_provider(route),
         "status": _agent_execution_status_name(turn.status),
     }
+    if assistant_status_error:
+        response["assistant_status_error"] = assistant_status_error
+    return response
 
 
 def reply_to_slack_event(
@@ -371,6 +427,252 @@ def delete_slack_event_status(
     }
 
 
+def set_slack_event_assistant_status(
+    reply_ref: str,
+    status: str,
+    loading_messages: list[str],
+    icon_emoji: str,
+    icon_url: str,
+    username: str,
+    req: gestalt.Request,
+) -> OperationResult:
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        thread_ts = _assistant_thread_ts(verified_ref)
+        if not thread_ts:
+            return _bad_request("assistant thread timestamp is required")
+        normalized_loading_messages = _normalized_string_list(
+            loading_messages, max_items=10
+        )
+        result = set_assistant_thread_status(
+            _agent_config.bot.token,
+            channel_id=verified_ref.channel_id,
+            thread_ts=thread_ts,
+            status=status.strip(),
+            loading_messages=normalized_loading_messages,
+            icon_emoji=icon_emoji.strip(),
+            icon_url=icon_url.strip(),
+            username=username.strip(),
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "thread_ts": thread_ts,
+        "status": status.strip(),
+    }
+
+
+def clear_slack_event_assistant_status(
+    reply_ref: str, req: gestalt.Request
+) -> OperationResult:
+    return set_slack_event_assistant_status(
+        reply_ref,
+        "",
+        [],
+        "",
+        "",
+        "",
+        req,
+    )
+
+
+def set_slack_event_thread_title(
+    reply_ref: str, title: str, req: gestalt.Request
+) -> OperationResult:
+    normalized_title = title.strip()
+    if not normalized_title:
+        return _bad_request("title is required")
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        thread_ts = _assistant_thread_ts(verified_ref)
+        if not thread_ts:
+            return _bad_request("assistant thread timestamp is required")
+        result = set_assistant_thread_title(
+            _agent_config.bot.token,
+            channel_id=verified_ref.channel_id,
+            thread_ts=thread_ts,
+            title=normalized_title,
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "thread_ts": thread_ts,
+        "title": normalized_title,
+    }
+
+
+def set_slack_event_suggested_prompts(
+    reply_ref: str, prompts: list[dict[str, Any]], title: str, req: gestalt.Request
+) -> OperationResult:
+    try:
+        normalized_prompts = _normalized_suggested_prompts(prompts)
+    except ValueError as err:
+        return _bad_request(str(err))
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        thread_ts = _assistant_thread_ts(verified_ref)
+        if not thread_ts:
+            return _bad_request("assistant thread timestamp is required")
+        result = set_assistant_thread_suggested_prompts(
+            _agent_config.bot.token,
+            channel_id=verified_ref.channel_id,
+            thread_ts=thread_ts,
+            prompts=normalized_prompts,
+            title=title.strip(),
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "thread_ts": thread_ts,
+        "suggested_prompt_count": len(normalized_prompts),
+    }
+
+
+def start_slack_event_stream(
+    reply_ref: str,
+    markdown_text: str,
+    chunks: list[dict[str, Any]],
+    recipient_user_id: str,
+    recipient_team_id: str,
+    task_display_mode: str,
+    icon_emoji: str,
+    icon_url: str,
+    username: str,
+    req: gestalt.Request,
+) -> OperationResult:
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        thread_ts = _assistant_thread_ts(verified_ref)
+        if not thread_ts:
+            return _bad_request("assistant thread timestamp is required")
+        result = start_stream(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            thread_ts=thread_ts,
+            markdown_text=markdown_text.strip(),
+            chunks=chunks,
+            recipient_user_id=recipient_user_id.strip() or verified_ref.user_id,
+            recipient_team_id=recipient_team_id.strip() or verified_ref.team_id,
+            task_display_mode=task_display_mode.strip(),
+            icon_emoji=icon_emoji.strip(),
+            icon_url=icon_url.strip(),
+            username=username.strip(),
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "thread_ts": thread_ts,
+        "stream_ts": str(result.get("ts") or ""),
+    }
+
+
+def append_slack_event_stream(
+    reply_ref: str,
+    stream_ts: str,
+    markdown_text: str,
+    chunks: list[dict[str, Any]],
+    req: gestalt.Request,
+) -> OperationResult:
+    normalized_stream_ts = stream_ts.strip()
+    if not normalized_stream_ts:
+        return _bad_request("stream_ts is required")
+    if not markdown_text.strip() and not chunks:
+        return _bad_request("markdown_text or chunks are required")
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        result = append_stream(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            ts=normalized_stream_ts,
+            markdown_text=markdown_text.strip(),
+            chunks=chunks,
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "stream_ts": str(result.get("ts") or normalized_stream_ts),
+    }
+
+
+def stop_slack_event_stream(
+    reply_ref: str,
+    stream_ts: str,
+    markdown_text: str,
+    chunks: list[dict[str, Any]],
+    blocks: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    req: gestalt.Request,
+) -> OperationResult:
+    normalized_stream_ts = stream_ts.strip()
+    if not normalized_stream_ts:
+        return _bad_request("stream_ts is required")
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        result = stop_stream(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            ts=normalized_stream_ts,
+            markdown_text=markdown_text.strip(),
+            chunks=chunks,
+            blocks=blocks,
+            metadata=metadata,
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "stream_ts": str(result.get("ts") or normalized_stream_ts),
+        "message": result.get("message")
+        if isinstance(result.get("message"), dict)
+        else {},
+    }
+
+
 def add_slack_event_reaction(
     reply_ref: str, name: str, target_ts: str, req: gestalt.Request
 ) -> OperationResult:
@@ -448,6 +750,94 @@ def _slack_event_reaction(
     }
 
 
+def _assistant_thread_ts(ref: SlackReplyRef) -> str:
+    return ref.reply_thread_ts or ref.message_ts
+
+
+def _set_initial_assistant_status(event: SlackAgentEvent) -> None:
+    assistant = _agent_config.assistant
+    status = assistant.status.strip()
+    thread_ts = event.reply_thread_ts or event.message_ts
+    if not status or not thread_ts:
+        return
+    set_assistant_thread_status(
+        _agent_config.bot.token,
+        channel_id=event.channel_id,
+        thread_ts=thread_ts,
+        status=status,
+        loading_messages=list(assistant.loading_messages),
+        icon_emoji=assistant.icon_emoji,
+        icon_url=assistant.icon_url,
+        username=assistant.username,
+    )
+
+
+def _handle_assistant_thread_event(event: SlackAgentEvent) -> OperationResult:
+    if event.event_type == SlackEventType.ASSISTANT_THREAD_CONTEXT_CHANGED:
+        return {"ok": True, "event_type": event.event_type}
+
+    assistant = _agent_config.assistant
+    if not assistant.suggested_prompts:
+        return {
+            "ok": True,
+            "event_type": event.event_type,
+            "suggested_prompts_set": False,
+        }
+
+    try:
+        result = set_assistant_thread_suggested_prompts(
+            _agent_config.bot.token,
+            channel_id=event.channel_id,
+            thread_ts=event.reply_thread_ts or event.message_ts,
+            prompts=list(assistant.suggested_prompts),
+            title=assistant.suggested_prompts_title,
+        )
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "event_type": event.event_type,
+        "channel": str(result.get("channel") or event.channel_id),
+        "thread_ts": event.reply_thread_ts or event.message_ts,
+        "suggested_prompts_set": True,
+        "suggested_prompt_count": len(assistant.suggested_prompts),
+    }
+
+
+def _normalized_string_list(values: list[str], *, max_items: int) -> list[str]:
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        stripped = value.strip()
+        if stripped:
+            normalized.append(stripped)
+        if len(normalized) >= max_items:
+            break
+    return normalized
+
+
+def _normalized_suggested_prompts(
+    prompts: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        title = str(prompt.get("title") or "").strip()
+        message = str(prompt.get("message") or "").strip()
+        if title and message:
+            normalized.append({"title": title, "message": message})
+        if len(normalized) >= 4:
+            break
+    if not normalized:
+        raise ValueError("at least one prompt with title and message is required")
+    return normalized
+
+
 def slack_external_identity_id(team_id: str, user_id: str) -> str:
     team_id = team_id.strip()
     user_id = user_id.strip()
@@ -500,6 +890,40 @@ def _slack_agent_event_from_payload(
         return None, "unsupported_event_type"
 
     team_id = _slack_team_id(payload, event)
+    if event_type in ASSISTANT_THREAD_EVENT_TYPES:
+        assistant_thread = map_field(event, "assistant_thread")
+        assistant_context = map_field(assistant_thread, "context")
+        user_id = string_field(assistant_thread, "user_id")
+        channel_id = string_field(assistant_thread, "channel_id")
+        thread_ts = string_field(assistant_thread, "thread_ts")
+        if not team_id:
+            team_id = string_field(assistant_context, "team_id")
+        if not channel_type and channel_id.startswith("D"):
+            channel_type = SlackChannelType.IM
+        if not user_id:
+            return None, "missing_user"
+        if not channel_id:
+            return None, "missing_channel"
+        if not thread_ts:
+            return None, "missing_thread"
+        return (
+            SlackAgentEvent(
+                callback_type=callback_type,
+                event_type=event_type,
+                event_id=str(payload.get("event_id") or "").strip(),
+                team_id=team_id,
+                user_id=user_id,
+                channel_id=channel_id,
+                channel_type=str(channel_type),
+                text="",
+                message_ts=thread_ts,
+                thread_ts=thread_ts,
+                reply_thread_ts=thread_ts,
+                files=(),
+            ),
+            "",
+        )
+
     user_id = str(event.get("user") or "").strip()
     channel_id = str(event.get("channel") or "").strip()
     text = str(event.get("text") or "").strip()
@@ -625,6 +1049,8 @@ def _sign_reply_ref(event: SlackAgentEvent, subject_id: str) -> str:
         "v": 1,
         "team_id": event.team_id,
         "channel_id": event.channel_id,
+        "user_id": event.user_id,
+        "channel_type": event.channel_type,
         "message_ts": event.message_ts,
         "reply_thread_ts": event.reply_thread_ts,
         "event_id": event.event_id,
@@ -688,6 +1114,8 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
         event_id=str(payload.get("event_id") or "").strip(),
         subject_id=str(payload.get("subject_id") or "").strip(),
         expires_at=expires_at,
+        user_id=str(payload.get("user_id") or "").strip(),
+        channel_type=str(payload.get("channel_type") or "").strip(),
     )
     if not ref.team_id or not ref.channel_id or not ref.subject_id:
         raise ValueError("invalid reply_ref")
@@ -724,9 +1152,13 @@ def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None,
 
 
 def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
-    return event.event_type == SlackEventType.APP_MENTION or (
-        event.event_type == SlackEventType.MESSAGE
-        and event.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES
+    return (
+        event.event_type in ASSISTANT_THREAD_EVENT_TYPES
+        or (event.event_type == SlackEventType.APP_MENTION)
+        or (
+            event.event_type == SlackEventType.MESSAGE
+            and event.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES
+        )
     )
 
 
@@ -840,6 +1272,19 @@ def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
         DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
             reply_tool=f"{_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
             status_tool=f"{_agent_config.plugin_name}.{SLACK_STATUS_OPERATION}",
+            assistant_status_tool=(
+                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_STATUS_OPERATION}"
+            ),
+            assistant_clear_status_tool=(
+                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_CLEAR_STATUS_OPERATION}"
+            ),
+            title_tool=f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_TITLE_OPERATION}",
+            prompts_tool=(
+                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_PROMPTS_OPERATION}"
+            ),
+            stream_start_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_START_OPERATION}",
+            stream_append_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_APPEND_OPERATION}",
+            stream_stop_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_STOP_OPERATION}",
             context_tool=f"{_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
             file_tool=f"{_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
         )
@@ -865,6 +1310,7 @@ def _agent_config_from_provider_config(
     )
     routes = _agent_routes_from_provider_config(config, agent)
     bot = _config_dict(config, "bot")
+    assistant = _assistant_config_from_provider_config(config, agent)
 
     return SlackAgentConfig(
         plugin_name=plugin_name.strip() or "slack",
@@ -880,6 +1326,7 @@ def _agent_config_from_provider_config(
                 "slack_bot_token",
             )
         ),
+        assistant=assistant,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
@@ -889,6 +1336,61 @@ def _agent_config_from_provider_config(
         or _config_dict(config, "agentProviderOptions", "agent_provider_options"),
         routes=routes,
     )
+
+
+def _assistant_config_from_provider_config(
+    config: dict[str, Any], agent: dict[str, Any]
+) -> SlackAssistantConfig:
+    assistant = _config_dict(agent, "assistant")
+    if not assistant:
+        assistant = _config_dict(
+            config, "assistant", "slackAssistant", "assistantConfig"
+        )
+    title, prompts = _assistant_suggested_prompts_from_config(assistant)
+    status = _config_string(
+        assistant, "status", "initialStatus", "initial_status", "loadingStatus"
+    )
+
+    return SlackAssistantConfig(
+        enabled=_config_bool(assistant, "enabled", default=False),
+        status=status or "is thinking...",
+        loading_messages=_config_string_tuple(
+            assistant, "loadingMessages", "loading_messages"
+        ),
+        icon_emoji=_config_string(assistant, "iconEmoji", "icon_emoji"),
+        icon_url=_config_string(assistant, "iconUrl", "icon_url"),
+        username=_config_string(assistant, "username"),
+        suggested_prompts_title=title,
+        suggested_prompts=tuple(prompts),
+    )
+
+
+def _assistant_suggested_prompts_from_config(
+    assistant: dict[str, Any],
+) -> tuple[str, list[dict[str, str]]]:
+    suggested_config = _config_dict(assistant, "suggestedPrompts", "suggested_prompts")
+    title = _config_string(suggested_config, "title")
+    raw_prompts = _config_list(suggested_config, "prompts")
+    if not raw_prompts:
+        raw_prompts = _config_list(assistant, "prompts")
+    if not raw_prompts:
+        for key in ("suggestedPrompts", "suggested_prompts"):
+            value = assistant.get(key)
+            if isinstance(value, list):
+                raw_prompts = list(value)
+                break
+    return title, _normalized_suggested_prompts_or_empty(raw_prompts)
+
+
+def _normalized_suggested_prompts_or_empty(
+    prompts: list[Any],
+) -> list[dict[str, str]]:
+    try:
+        return _normalized_suggested_prompts(
+            [prompt for prompt in prompts if isinstance(prompt, dict)]
+        )
+    except ValueError:
+        return []
 
 
 def _agent_routes_from_provider_config(
@@ -1075,6 +1577,20 @@ def _config_list(config: dict[str, Any], *keys: str) -> list[Any]:
         if isinstance(value, list):
             return list(value)
     return []
+
+
+def _config_bool(config: dict[str, Any], *keys: str, default: bool) -> bool:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+    return default
 
 
 def _config_string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:
