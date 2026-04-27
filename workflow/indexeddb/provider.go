@@ -23,6 +23,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -89,6 +91,7 @@ type workflowScheduleRecord struct {
 	Connection   string
 	Instance     string
 	Input        map[string]any
+	Target       *proto.BoundWorkflowTarget
 	Paused       bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -107,6 +110,7 @@ type workflowEventTriggerRecord struct {
 	Connection   string
 	Instance     string
 	Input        map[string]any
+	Target       *proto.BoundWorkflowTarget
 	Paused       bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -122,6 +126,7 @@ type workflowRunRecord struct {
 	Connection            string
 	Instance              string
 	Input                 map[string]any
+	Target                *proto.BoundWorkflowTarget
 	TriggerKind           string
 	TriggerScheduleID     string
 	TriggerScheduledFor   *time.Time
@@ -151,6 +156,8 @@ type workflowExecutionReferenceRecord struct {
 	TargetOperation     string
 	TargetConnection    string
 	TargetInstance      string
+	Target              *proto.BoundWorkflowTarget
+	TargetFingerprint   string
 	SubjectID           string
 	CredentialSubjectID string
 	PermissionsJSON     string
@@ -164,6 +171,7 @@ type scopedTarget struct {
 	Connection string
 	Instance   string
 	Input      map[string]any
+	Target     *proto.BoundWorkflowTarget
 }
 
 func New() *Provider {
@@ -388,6 +396,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		Connection:   target.Connection,
 		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
+		Target:       cloneTarget(target.Target),
 		TriggerKind:  triggerKindManual,
 		CreatedAt:    now,
 		CreatedBy:    actor,
@@ -592,6 +601,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 		Connection:   target.Connection,
 		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
+		Target:       cloneTarget(target.Target),
 		Paused:       req.GetPaused(),
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -780,6 +790,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 		Connection:   target.Connection,
 		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
+		Target:       cloneTarget(target.Target),
 		Paused:       req.GetPaused(),
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -913,9 +924,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
-	if pluginName == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin_name is required")
-	}
 	event, err := normalizeWorkflowEvent(req.GetEvent(), p.clock())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -944,12 +952,13 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		}
 		run := workflowRunRecord{
 			ID:                    runID,
-			PluginName:            pluginName,
+			PluginName:            trigger.PluginName,
 			Status:                proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Operation:             trigger.Operation,
 			Connection:            trigger.Connection,
 			Instance:              trigger.Instance,
 			Input:                 cloneMap(trigger.Input),
+			Target:                cloneTarget(trigger.Target),
 			TriggerKind:           triggerKindEvent,
 			TriggerEventTriggerID: trigger.ID,
 			TriggerEvent:          cloneEvent(event),
@@ -1224,6 +1233,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			Connection:          schedule.Connection,
 			Instance:            schedule.Instance,
 			Input:               cloneMap(schedule.Input),
+			Target:              cloneTarget(schedule.Target),
 			TriggerKind:         triggerKindSchedule,
 			TriggerScheduleID:   schedule.ID,
 			TriggerScheduledFor: timePtr(latestDue),
@@ -1453,6 +1463,8 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 			{Name: "target_operation", Type: columnTypeString, NotNull: true},
 			{Name: "target_connection", Type: columnTypeString},
 			{Name: "target_instance", Type: columnTypeString},
+			{Name: "target_json", Type: columnTypeString},
+			{Name: "target_fingerprint", Type: columnTypeString},
 			{Name: "subject_id", Type: columnTypeString, NotNull: true},
 			{Name: "credential_subject_id", Type: columnTypeString},
 			{Name: "permissions_json", Type: columnTypeString},
@@ -1490,7 +1502,49 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 		return scopedTarget{}, errors.New("target is required")
 	}
 	pluginName = strings.TrimSpace(pluginName)
+	if agentTarget := target.GetAgent(); agentTarget != nil {
+		if target.GetPlugin() != nil ||
+			strings.TrimSpace(target.GetPluginName()) != "" ||
+			strings.TrimSpace(target.GetOperation()) != "" ||
+			strings.TrimSpace(target.GetConnection()) != "" ||
+			strings.TrimSpace(target.GetInstance()) != "" ||
+			target.GetInput() != nil {
+			return scopedTarget{}, errors.New("target cannot include both agent and plugin fields")
+		}
+		if pluginName != "" {
+			return scopedTarget{}, fmt.Errorf("agent target is outside scoped plugin %q", pluginName)
+		}
+		agentProvider := strings.TrimSpace(agentTarget.GetProviderName())
+		if agentProvider == "" {
+			return scopedTarget{}, errors.New("target.agent.provider_name is required")
+		}
+		normalized := cloneTarget(target)
+		if err := normalizeAgentTarget(normalized.GetAgent(), agentProvider); err != nil {
+			return scopedTarget{}, err
+		}
+		normalized.PluginName = ""
+		normalized.Operation = ""
+		normalized.Connection = ""
+		normalized.Instance = ""
+		normalized.Input = nil
+		return scopedTarget{
+			PluginName: "agent:" + agentProvider,
+			Target:     normalized,
+		}, nil
+	}
+	pluginTarget := target.GetPlugin()
 	targetPlugin := strings.TrimSpace(target.GetPluginName())
+	operation := strings.TrimSpace(target.GetOperation())
+	connection := strings.TrimSpace(target.GetConnection())
+	instance := strings.TrimSpace(target.GetInstance())
+	input := cloneStructMap(target.GetInput())
+	if pluginTarget != nil {
+		targetPlugin = strings.TrimSpace(pluginTarget.GetPluginName())
+		operation = strings.TrimSpace(pluginTarget.GetOperation())
+		connection = strings.TrimSpace(pluginTarget.GetConnection())
+		instance = strings.TrimSpace(pluginTarget.GetInstance())
+		input = cloneStructMap(pluginTarget.GetInput())
+	}
 	if pluginName == "" {
 		pluginName = targetPlugin
 	}
@@ -1500,17 +1554,73 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	if targetPlugin != "" && targetPlugin != pluginName {
 		return scopedTarget{}, fmt.Errorf("target.plugin_name %q is outside scoped plugin %q", targetPlugin, pluginName)
 	}
-	operation := strings.TrimSpace(target.GetOperation())
 	if operation == "" {
 		return scopedTarget{}, errors.New("target.operation is required")
+	}
+	normalized := &proto.BoundWorkflowTarget{
+		PluginName: pluginName,
+		Operation:  operation,
+		Connection: connection,
+		Instance:   instance,
+		Input:      structFromAny(input),
+		Plugin: &proto.BoundWorkflowPluginTarget{
+			PluginName: pluginName,
+			Operation:  operation,
+			Connection: connection,
+			Instance:   instance,
+			Input:      structFromAny(input),
+		},
 	}
 	return scopedTarget{
 		PluginName: pluginName,
 		Operation:  operation,
-		Connection: strings.TrimSpace(target.GetConnection()),
-		Instance:   strings.TrimSpace(target.GetInstance()),
-		Input:      cloneStructMap(target.GetInput()),
+		Connection: connection,
+		Instance:   instance,
+		Input:      input,
+		Target:     normalized,
 	}, nil
+}
+
+func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName string) error {
+	if target == nil {
+		return errors.New("target.agent is required")
+	}
+	target.ProviderName = strings.TrimSpace(providerName)
+	target.Model = strings.TrimSpace(target.GetModel())
+	target.Prompt = strings.TrimSpace(target.GetPrompt())
+	switch target.GetToolSource() {
+	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_UNSPECIFIED:
+		target.ToolSource = proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT
+	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT:
+	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES:
+		return errors.New("target.agent.tool_source cannot inherit invokes for workflow targets")
+	default:
+		return fmt.Errorf("target.agent.tool_source %v is invalid", target.GetToolSource())
+	}
+	if target.GetPrompt() == "" && len(target.GetMessages()) == 0 {
+		return errors.New("target.agent.prompt or messages is required")
+	}
+	if target.GetTimeoutSeconds() < 0 {
+		return errors.New("target.agent.timeout_seconds must not be negative")
+	}
+	for i, ref := range target.GetToolRefs() {
+		if ref == nil {
+			return fmt.Errorf("target.agent.tool_refs[%d] is required", i)
+		}
+		ref.PluginName = strings.TrimSpace(ref.GetPluginName())
+		ref.Operation = strings.TrimSpace(ref.GetOperation())
+		ref.Connection = strings.TrimSpace(ref.GetConnection())
+		ref.Instance = strings.TrimSpace(ref.GetInstance())
+		ref.Title = strings.TrimSpace(ref.GetTitle())
+		ref.Description = strings.TrimSpace(ref.GetDescription())
+		if ref.GetPluginName() == "" {
+			return fmt.Errorf("target.agent.tool_refs[%d].plugin_name is required", i)
+		}
+		if ref.GetOperation() == "" {
+			return fmt.Errorf("target.agent.tool_refs[%d].operation is required", i)
+		}
+	}
+	return nil
 }
 
 func normalizeWorkflowEvent(event *proto.WorkflowEvent, now time.Time) (*proto.WorkflowEvent, error) {
@@ -1918,6 +2028,32 @@ func timePtr(value time.Time) *time.Time {
 	return &ts
 }
 
+var workflowTargetJSON = protojson.MarshalOptions{EmitUnpopulated: false}
+var workflowTargetJSONUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
+
+func targetJSON(target *proto.BoundWorkflowTarget) string {
+	if target == nil {
+		return ""
+	}
+	data, err := workflowTargetJSON.Marshal(target)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func targetFromRecordValue(raw any) *proto.BoundWorkflowTarget {
+	value := strings.TrimSpace(stringValue(raw))
+	if value == "" {
+		return nil
+	}
+	target := &proto.BoundWorkflowTarget{}
+	if err := workflowTargetJSONUnmarshal.Unmarshal([]byte(value), target); err != nil {
+		return nil
+	}
+	return cloneTarget(target)
+}
+
 func actorToMap(actor *proto.WorkflowActor) map[string]any {
 	if actor == nil {
 		return nil
@@ -2041,6 +2177,10 @@ func stringField(value map[string]any, key string) string {
 	if !ok || raw == nil {
 		return ""
 	}
+	return stringValue(raw)
+}
+
+func stringValue(raw any) string {
 	switch v := raw.(type) {
 	case string:
 		return v
@@ -2108,6 +2248,7 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"connection":    r.Connection,
 		"instance":      r.Instance,
 		"input":         cloneMap(r.Input),
+		"target_json":   targetJSON(r.targetProto()),
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
@@ -2133,6 +2274,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		Connection:   stringField(value, "connection"),
 		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
+		Target:       targetFromRecordValue(value["target_json"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
 		ExecutionRef: stringField(value, "execution_ref"),
@@ -2149,16 +2291,10 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 
 func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) {
 	return &proto.BoundWorkflowSchedule{
-		Id:       r.ID,
-		Cron:     r.Cron,
-		Timezone: r.Timezone,
-		Target: &proto.BoundWorkflowTarget{
-			PluginName: r.PluginName,
-			Operation:  r.Operation,
-			Connection: r.Connection,
-			Instance:   r.Instance,
-			Input:      structFromAny(r.Input),
-		},
+		Id:           r.ID,
+		Cron:         r.Cron,
+		Timezone:     r.Timezone,
+		Target:       r.targetProto(),
 		Paused:       r.Paused,
 		CreatedAt:    timestamppb.New(r.CreatedAt),
 		UpdatedAt:    timestamppb.New(r.UpdatedAt),
@@ -2166,6 +2302,13 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 		CreatedBy:    cloneActor(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
 	}, nil
+}
+
+func (r workflowScheduleRecord) targetProto() *proto.BoundWorkflowTarget {
+	if r.Target != nil {
+		return cloneTarget(r.Target)
+	}
+	return legacyPluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
 }
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
@@ -2179,6 +2322,7 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 		"connection":    r.Connection,
 		"instance":      r.Instance,
 		"input":         cloneMap(r.Input),
+		"target_json":   targetJSON(r.targetProto()),
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
@@ -2199,6 +2343,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		Connection:   stringField(value, "connection"),
 		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
+		Target:       targetFromRecordValue(value["target_json"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
 		ExecutionRef: stringField(value, "execution_ref"),
@@ -2220,19 +2365,20 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 			Source:  r.MatchSource,
 			Subject: r.MatchSubject,
 		},
-		Target: &proto.BoundWorkflowTarget{
-			PluginName: r.PluginName,
-			Operation:  r.Operation,
-			Connection: r.Connection,
-			Instance:   r.Instance,
-			Input:      structFromAny(r.Input),
-		},
+		Target:       r.targetProto(),
 		Paused:       r.Paused,
 		CreatedAt:    timestamppb.New(r.CreatedAt),
 		UpdatedAt:    timestamppb.New(r.UpdatedAt),
 		CreatedBy:    cloneActor(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
 	}, nil
+}
+
+func (r workflowEventTriggerRecord) targetProto() *proto.BoundWorkflowTarget {
+	if r.Target != nil {
+		return cloneTarget(r.Target)
+	}
+	return legacyPluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
 }
 
 func (r workflowRunRecord) toRecord() gestalt.Record {
@@ -2244,6 +2390,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"connection":               r.Connection,
 		"instance":                 r.Instance,
 		"input":                    cloneMap(r.Input),
+		"target_json":              targetJSON(r.targetProto()),
 		"trigger_kind":             r.TriggerKind,
 		"trigger_schedule_id":      r.TriggerScheduleID,
 		"trigger_event_trigger_id": r.TriggerEventTriggerID,
@@ -2282,6 +2429,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		Connection:            stringField(value, "connection"),
 		Instance:              stringField(value, "instance"),
 		Input:                 anyMap(value["input"]),
+		Target:                targetFromRecordValue(value["target_json"]),
 		TriggerKind:           stringField(value, "trigger_kind"),
 		TriggerScheduleID:     stringField(value, "trigger_schedule_id"),
 		TriggerEventTriggerID: stringField(value, "trigger_event_trigger_id"),
@@ -2317,12 +2465,26 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 }
 
 func (r workflowRunRecord) targetProto() *proto.BoundWorkflowTarget {
+	if r.Target != nil {
+		return cloneTarget(r.Target)
+	}
+	return legacyPluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
+}
+
+func legacyPluginTargetProto(pluginName, operation, connection, instance string, input map[string]any) *proto.BoundWorkflowTarget {
 	return &proto.BoundWorkflowTarget{
-		PluginName: r.PluginName,
-		Operation:  r.Operation,
-		Connection: r.Connection,
-		Instance:   r.Instance,
-		Input:      structFromAny(r.Input),
+		PluginName: pluginName,
+		Operation:  operation,
+		Connection: connection,
+		Instance:   instance,
+		Input:      structFromAny(input),
+		Plugin: &proto.BoundWorkflowPluginTarget{
+			PluginName: pluginName,
+			Operation:  operation,
+			Connection: connection,
+			Instance:   instance,
+			Input:      structFromAny(input),
+		},
 	}
 }
 
@@ -2384,16 +2546,24 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 	if ref == nil {
 		return workflowExecutionReferenceRecord{}, errors.New("reference is required")
 	}
-	target := ref.GetTarget()
+	target, err := normalizeScopedTarget("", ref.GetTarget())
+	if err != nil {
+		return workflowExecutionReferenceRecord{}, err
+	}
 	record := workflowExecutionReferenceRecord{
 		ID:                  strings.TrimSpace(ref.GetId()),
 		ProviderName:        strings.TrimSpace(ref.GetProviderName()),
-		TargetPlugin:        strings.TrimSpace(target.GetPluginName()),
-		TargetOperation:     strings.TrimSpace(target.GetOperation()),
-		TargetConnection:    strings.TrimSpace(target.GetConnection()),
-		TargetInstance:      strings.TrimSpace(target.GetInstance()),
+		TargetPlugin:        target.PluginName,
+		TargetOperation:     target.Operation,
+		TargetConnection:    target.Connection,
+		TargetInstance:      target.Instance,
+		Target:              cloneTarget(target.Target),
+		TargetFingerprint:   strings.TrimSpace(ref.GetTargetFingerprint()),
 		SubjectID:           strings.TrimSpace(ref.GetSubjectId()),
 		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
+	}
+	if record.Target != nil && record.Target.GetAgent() != nil && record.TargetFingerprint == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("target_fingerprint is required for agent execution references")
 	}
 	if record.ID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("id is required")
@@ -2402,10 +2572,7 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		return workflowExecutionReferenceRecord{}, errors.New("provider_name is required")
 	}
 	if record.TargetPlugin == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("target.plugin_name is required")
-	}
-	if record.TargetOperation == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("target.operation is required")
+		return workflowExecutionReferenceRecord{}, errors.New("target plugin scope is required")
 	}
 	if record.SubjectID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("subject_id is required")
@@ -2433,6 +2600,8 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		TargetOperation:     stringField(value, "target_operation"),
 		TargetConnection:    stringField(value, "target_connection"),
 		TargetInstance:      stringField(value, "target_instance"),
+		Target:              targetFromRecordValue(value["target_json"]),
+		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
@@ -2452,6 +2621,8 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"target_operation":      r.TargetOperation,
 		"target_connection":     r.TargetConnection,
 		"target_instance":       r.TargetInstance,
+		"target_json":           targetJSON(r.targetProto()),
+		"target_fingerprint":    r.TargetFingerprint,
 		"subject_id":            r.SubjectID,
 		"credential_subject_id": r.CredentialSubjectID,
 		"permissions_json":      r.PermissionsJSON,
@@ -2474,6 +2645,7 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		Id:                  r.ID,
 		ProviderName:        r.ProviderName,
 		Target:              r.targetProto(),
+		TargetFingerprint:   r.TargetFingerprint,
 		SubjectId:           r.SubjectID,
 		CredentialSubjectId: r.CredentialSubjectID,
 		Permissions:         permissions,
@@ -2483,12 +2655,10 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 }
 
 func (r workflowExecutionReferenceRecord) targetProto() *proto.BoundWorkflowTarget {
-	return &proto.BoundWorkflowTarget{
-		PluginName: r.TargetPlugin,
-		Operation:  r.TargetOperation,
-		Connection: r.TargetConnection,
-		Instance:   r.TargetInstance,
+	if r.Target != nil {
+		return cloneTarget(r.Target)
 	}
+	return legacyPluginTargetProto(r.TargetPlugin, r.TargetOperation, r.TargetConnection, r.TargetInstance, nil)
 }
 
 func executionReferencePermissionsJSON(values []*proto.WorkflowAccessPermission) (string, error) {
@@ -2550,6 +2720,7 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		Id:                  ref.GetId(),
 		ProviderName:        ref.GetProviderName(),
 		Target:              cloneTarget(ref.GetTarget()),
+		TargetFingerprint:   ref.GetTargetFingerprint(),
 		SubjectId:           ref.GetSubjectId(),
 		CredentialSubjectId: ref.GetCredentialSubjectId(),
 		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
@@ -2562,13 +2733,7 @@ func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
 	if target == nil {
 		return nil
 	}
-	return &proto.BoundWorkflowTarget{
-		PluginName: target.GetPluginName(),
-		Operation:  target.GetOperation(),
-		Connection: target.GetConnection(),
-		Instance:   target.GetInstance(),
-		Input:      cloneStruct(target.GetInput()),
-	}
+	return gproto.Clone(target).(*proto.BoundWorkflowTarget)
 }
 
 func cloneAccessPermissions(values []*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
