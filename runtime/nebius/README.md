@@ -1,6 +1,7 @@
 # Nebius Runtime Provider
 
-Runtime provider for running executable Gestalt plugins on
+Runtime provider for running executable Gestalt plugins and hosted agent
+providers on
 [Nebius Compute](https://docs.nebius.com/compute) virtual machines.
 
 This package is a manifest-driven `kind: runtime` provider implemented against
@@ -10,6 +11,10 @@ the public Gestalt SDK runtime-provider surface in
 ## Configuration
 
 ```yaml
+server:
+  runtime:
+    defaultHostedProvider: nebius
+
 runtime:
   providers:
     nebius:
@@ -28,14 +33,32 @@ runtime:
 
 plugins:
   github:
-    runtime:
-      provider: nebius
-      image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+    execution:
+      mode: hosted
+      runtime:
+        image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+
+providers:
+  agent:
+    simple:
+      execution:
+        mode: hosted
+        runtime:
+          image: ghcr.io/valon-technologies/agent-simple-runtime:latest
+          pool:
+            minReadyInstances: 1
+            maxReadyInstances: 2
+            startupTimeout: 5m
+            healthCheckInterval: 30s
+            restartPolicy: always
+            drainTimeout: 2m
 ```
 
 `config.subnetID` is required. The runtime also requires
-`plugins.<name>.runtime.image` so it can pull and run a concrete runtime image
-inside the Nebius VM.
+`execution.runtime.image` so it can pull and run a concrete runtime image
+inside the Nebius VM. For plugins, set
+`plugins.<name>.execution.runtime.image`; for hosted agent providers, set
+`providers.agent.<name>.execution.runtime.image`.
 
 ## Interface
 
@@ -68,9 +91,31 @@ Example runtime selection on a plugin:
 ```yaml
 plugins:
   github:
-    runtime:
-      provider: nebius
-      image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+    execution:
+      mode: hosted
+      runtime:
+        provider: nebius
+        image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+```
+
+Example runtime selection on an agent provider:
+
+```yaml
+providers:
+  agent:
+    simple:
+      execution:
+        mode: hosted
+        runtime:
+          provider: nebius
+          image: ghcr.io/valon-technologies/agent-simple-runtime:latest
+          pool:
+            minReadyInstances: 1
+            maxReadyInstances: 2
+            startupTimeout: 5m
+            healthCheckInterval: 30s
+            restartPolicy: always
+            drainTimeout: 2m
 ```
 
 Authentication uses the Nebius Go SDK:
