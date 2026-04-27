@@ -23,6 +23,22 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func TestBoundWorkflowTargetWireShapeIsNestedOnly(t *testing.T) {
+	fields := (&proto.BoundWorkflowTarget{}).ProtoReflect().Descriptor().Fields()
+	got := make([]string, 0, fields.Len())
+	for i := 0; i < fields.Len(); i++ {
+		got = append(got, string(fields.Get(i).Name()))
+	}
+	if len(got) != 2 || got[0] != "plugin" || got[1] != "agent" {
+		t.Fatalf("BoundWorkflowTarget fields = %#v, want [plugin agent]", got)
+	}
+	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
+		if field := fields.ByNumber(number); field != nil {
+			t.Fatalf("BoundWorkflowTarget field %d = %s, want reserved legacy flat slot", number, field.Name())
+		}
+	}
+}
+
 func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -695,6 +711,33 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{ProviderName: "managed"}},
 		},
 		{
+			name: "agent and plugin",
+			target: &proto.BoundWorkflowTarget{
+				Agent: &proto.BoundWorkflowAgentTarget{
+					ProviderName: "managed",
+					Prompt:       "send a Slack reminder",
+				},
+				Plugin: &proto.BoundWorkflowPluginTarget{
+					PluginName: "slack",
+					Operation:  "chat.postMessage",
+				},
+			},
+		},
+		{
+			name: "agent and legacy flat plugin fields",
+			target: func() *proto.BoundWorkflowTarget {
+				target := &proto.BoundWorkflowTarget{
+					Agent: &proto.BoundWorkflowAgentTarget{
+						ProviderName: "managed",
+						Prompt:       "send a Slack reminder",
+					},
+				}
+				setLegacyFlatStringField(target, 1, "roadmap")
+				setLegacyFlatStringField(target, 2, "sync")
+				return target
+			}(),
+		},
+		{
 			name: "negative timeout",
 			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
 				ProviderName:   "managed",
@@ -710,20 +753,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				Prompt:       "send a Slack reminder",
 				ToolRefs:     []*proto.AgentToolRef{{Operation: "chat.postMessage"}},
 			}},
-		},
-		{
-			name: "legacy flat plugin fields",
-			target: func() *proto.BoundWorkflowTarget {
-				target := &proto.BoundWorkflowTarget{
-					Agent: &proto.BoundWorkflowAgentTarget{
-						ProviderName: "managed",
-						Prompt:       "send a Slack reminder",
-					},
-				}
-				setLegacyFlatStringField(target, 1, "roadmap")
-				setLegacyFlatStringField(target, 2, "sync")
-				return target
-			}(),
 		},
 	}
 	for _, tc := range cases {
@@ -759,8 +788,8 @@ func TestProviderRejectsFlatPluginTarget(t *testing.T) {
 	if err == nil {
 		t.Fatal("StartRun succeeded, want error")
 	}
-	if !strings.Contains(err.Error(), "plugin_name is required") {
-		t.Fatalf("StartRun error = %v, want plugin_name validation", err)
+	if !strings.Contains(err.Error(), "target.plugin.plugin_name is required") {
+		t.Fatalf("StartRun error = %v, want target.plugin.plugin_name validation", err)
 	}
 }
 
