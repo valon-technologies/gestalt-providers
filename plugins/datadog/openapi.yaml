@@ -249,6 +249,20 @@ paths:
         "200":
           description: OK
 
+  /api/v2/ci/pipelines/events/search:
+    post:
+      operationId: search_ci_pipelines
+      summary: Search CI pipeline events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CIPipelinesSearchRequest"
+      responses:
+        "200":
+          description: OK
+
   /api/v2/downtime:
     post:
       operationId: create_downtime
@@ -520,6 +534,29 @@ components:
               default: 50
         sort:
           type: string
+
+    CIPipelinesSearchRequest:
+      type: object
+      required: [filter]
+      properties:
+        filter:
+          type: object
+          required: [query]
+          properties:
+            query:
+              type: string
+            from:
+              type: string
+              description: Minimum timestamp
+            to:
+              type: string
+              description: Maximum timestamp
+        page:
+          type: object
+          properties:
+            limit:
+              type: integer
+              default: 50
 
     RUMSearchRequest:
       type: object
