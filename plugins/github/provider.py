@@ -85,7 +85,7 @@ plugin = gestalt.Plugin(
 )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class GitHubAppConfig:
     app_id: str = ""
     private_key: str = ""
@@ -159,7 +159,10 @@ class CommitFilesInput(gestalt.Model):
     repo: str = gestalt.field(description="Repository name")
     message: str = gestalt.field(description="Commit message")
     files: list[FileChangeInput] = gestalt.field(
-        description="Files to create, update, or delete. Each item accepts path, content, content_base64, delete, and executable."
+        description=(
+            "Files to create, update, or delete. Each item accepts path, content, "
+            "content_base64, delete, and executable."
+        )
     )
     branch: str = gestalt.field(
         description="Branch to create or update. Defaults to a generated branch.",
@@ -243,7 +246,10 @@ class CreatePullRequestInput(gestalt.Model):
     title: str = gestalt.field(description="Pull request title")
     message: str = gestalt.field(description="Commit message")
     files: list[FileChangeInput] = gestalt.field(
-        description="Files to create, update, or delete. Each item accepts path, content, content_base64, delete, and executable."
+        description=(
+            "Files to create, update, or delete. Each item accepts path, content, "
+            "content_base64, delete, and executable."
+        )
     )
     body: str = gestalt.field(
         description="Pull request body", default="", required=False
@@ -371,14 +377,12 @@ def configure(_name: str, config: dict[str, Any]) -> None:
         ignore_bot_sender=_config_bool(
             config, "ignoreBotSender", "ignore_bot_sender", default=True
         ),
-        agent_provider=_config_string(config, "agentProvider", "agent_provider"),
-        agent_model=_config_string(config, "agentModel", "agent_model"),
-        agent_system_prompt=_config_string(
-            config, "agentSystemPrompt", "agent_system_prompt"
+        agent_provider=_agent_config_string(config, "provider"),
+        agent_model=_agent_config_string(config, "model"),
+        agent_system_prompt=_agent_config_string(
+            config, "systemPrompt", "system_prompt", "prompt"
         ),
-        agent_provider_options=_config_dict(
-            config, "agentProviderOptions", "agent_provider_options"
-        ),
+        agent_provider_options=_agent_config_dict(config, "providerOptions", "provider_options"),
     )
 
 
@@ -880,7 +884,9 @@ def _require_app_config() -> GitHubAppConfig:
         raise GitHubConfigError("GitHub App appId is required")
     if not _github_config.private_key and not _github_config.private_key_path:
         raise GitHubConfigError(
-            "GitHub App private key is required via appPrivateKey, appPrivateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH"
+            "GitHub App private key is required via appPrivateKey, "
+            "appPrivateKeyPath, GITHUB_APP_PRIVATE_KEY, or "
+            "GITHUB_APP_PRIVATE_KEY_PATH"
         )
     return _github_config
 
@@ -1381,6 +1387,16 @@ def _config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return dict(value)
     return {}
+
+
+def _agent_config_string(config: dict[str, Any], *keys: str) -> str:
+    agent = _config_dict(config, "agent")
+    return _config_string(agent, *keys)
+
+
+def _agent_config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
+    agent = _config_dict(config, "agent")
+    return _config_dict(agent, *keys)
 
 
 def _config_string_list(config: dict[str, Any], *keys: str) -> list[str] | None:

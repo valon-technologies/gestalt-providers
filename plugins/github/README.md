@@ -53,8 +53,10 @@ plugins:
     config:
       appId: "123456"
       appPrivateKeyEnv: GITHUB_APP_PRIVATE_KEY
-      agentProvider: simple
-      agentModel: gpt-5.4
+      agent:
+        provider: simple
+        model: gpt-5.4
+        systemPrompt: Keep pull request changes small and explain what changed.
       botName: Example App Bot
       botEmail: "12345678+example-app[bot]@users.noreply.github.com"
       webhookEvents:

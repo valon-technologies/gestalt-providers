@@ -17,7 +17,9 @@ properties:
     description: Environment variable containing the PEM-encoded GitHub App private key.
   appPrivateKeyPath:
     type: string
-    description: Filesystem path to the PEM-encoded GitHub App private key. GITHUB_APP_PRIVATE_KEY_PATH is also supported.
+    description: >-
+      Filesystem path to the PEM-encoded GitHub App private key.
+      GITHUB_APP_PRIVATE_KEY_PATH is also supported.
   apiBaseUrl:
     type: string
     description: GitHub REST API base URL. Defaults to https://api.github.com.
@@ -38,23 +40,33 @@ properties:
     description: GitHub App bot user ID used with botLogin to derive a noreply co-author email.
   webhookEvents:
     type: array
-    description: GitHub webhook event types that should start agents. Defaults to check_run, check_suite, issue_comment, issues, pull_request, pull_request_review, pull_request_review_comment, and workflow_run.
+    description: >-
+      GitHub webhook event types that should start agents. Defaults to
+      check_run, check_suite, issue_comment, issues, pull_request,
+      pull_request_review, pull_request_review_comment, and workflow_run.
     items:
       type: string
   ignoreBotSender:
     type: boolean
-    description: Ignore webhook payloads sent by the configured botLogin or botEmail-derived bot login. Defaults to true.
-  agentProvider:
-    type: string
-    description: Agent provider used for GitHub App webhook-triggered runs.
-  agentModel:
-    type: string
-    description: Agent model used for GitHub App webhook-triggered runs.
-  agentSystemPrompt:
-    type: string
-    description: Additional system prompt appended for GitHub App webhook-triggered runs.
-  agentProviderOptions:
+    description: >-
+      Ignore webhook payloads sent by the configured botLogin or
+      botEmail-derived bot login. Defaults to true.
+  agent:
     type: object
-    description: Provider-specific options for GitHub App webhook-triggered runs.
-    additionalProperties: true
+    description: Agent configuration for GitHub App webhook-triggered runs.
+    additionalProperties: false
+    properties:
+      provider:
+        type: string
+        description: Agent provider used for GitHub App webhook-triggered runs.
+      model:
+        type: string
+        description: Agent model used for GitHub App webhook-triggered runs.
+      systemPrompt:
+        type: string
+        description: Additional system prompt appended for GitHub App webhook-triggered runs.
+      providerOptions:
+        type: object
+        description: Provider-specific options for GitHub App webhook-triggered runs.
+        additionalProperties: true
 additionalProperties: false
