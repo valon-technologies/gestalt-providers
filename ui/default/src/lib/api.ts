@@ -70,12 +70,16 @@ export interface CreateTokenResponse {
   expiresAt?: string;
 }
 
-export interface WorkflowTarget {
-  plugin: string;
+export interface WorkflowPluginTarget {
+  name: string;
   operation: string;
   connection?: string;
   instance?: string;
   input?: Record<string, unknown>;
+}
+
+export interface WorkflowTarget {
+  plugin: WorkflowPluginTarget;
 }
 
 export interface WorkflowEvent {
@@ -160,6 +164,78 @@ export interface WorkflowEventTriggerUpsert {
   match: WorkflowEventTriggerMatch;
   target: WorkflowTarget;
   paused?: boolean;
+}
+
+type WorkflowRunWire = Omit<WorkflowRun, "target"> & { target?: unknown };
+type WorkflowScheduleWire = Omit<WorkflowSchedule, "target"> & { target?: unknown };
+type WorkflowEventTriggerWire = Omit<WorkflowEventTrigger, "target"> & { target?: unknown };
+
+function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
+  return {
+    ...run,
+    target: normalizeWorkflowTarget(run.target),
+  };
+}
+
+function normalizeWorkflowSchedule(schedule: WorkflowScheduleWire): WorkflowSchedule {
+  return {
+    ...schedule,
+    target: normalizeWorkflowTarget(schedule.target),
+  };
+}
+
+function normalizeWorkflowEventTrigger(
+  trigger: WorkflowEventTriggerWire,
+): WorkflowEventTrigger {
+  return {
+    ...trigger,
+    target: normalizeWorkflowTarget(trigger.target),
+  };
+}
+
+function normalizeWorkflowTarget(target: unknown): WorkflowTarget {
+  if (!isRecord(target)) {
+    return { plugin: { name: "", operation: "" } };
+  }
+
+  const rawPlugin = target.plugin;
+  if (isRecord(rawPlugin)) {
+    return {
+      plugin: {
+        name: stringValue(rawPlugin.name),
+        operation: stringValue(rawPlugin.operation),
+        connection: optionalString(rawPlugin.connection),
+        instance: optionalString(rawPlugin.instance),
+        input: optionalRecord(rawPlugin.input),
+      },
+    };
+  }
+
+  return {
+    plugin: {
+      name: stringValue(rawPlugin),
+      operation: stringValue(target.operation),
+      connection: optionalString(target.connection),
+      instance: optionalString(target.instance),
+      input: optionalRecord(target.input),
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
 }
 
 export interface AgentMessage {
@@ -426,38 +502,51 @@ export async function getTokens(): Promise<APIToken[]> {
 }
 
 export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
-  return fetchAPI("/api/v1/workflow/runs");
+  const runs = await fetchAPI<WorkflowRunWire[]>("/api/v1/workflow/runs");
+  return runs.map(normalizeWorkflowRun);
 }
 
 export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
-  return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}`);
+  const run = await fetchAPI<WorkflowRunWire>(
+    `/api/v1/workflow/runs/${encodeURIComponent(id)}`,
+  );
+  return normalizeWorkflowRun(run);
 }
 
 export async function getWorkflowSchedules(): Promise<WorkflowSchedule[]> {
-  return fetchAPI("/api/v1/workflow/schedules");
+  const schedules = await fetchAPI<WorkflowScheduleWire[]>("/api/v1/workflow/schedules");
+  return schedules.map(normalizeWorkflowSchedule);
 }
 
 export async function getWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
-  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}`);
+  const schedule = await fetchAPI<WorkflowScheduleWire>(
+    `/api/v1/workflow/schedules/${encodeURIComponent(id)}`,
+  );
+  return normalizeWorkflowSchedule(schedule);
 }
 
 export async function createWorkflowSchedule(
   body: WorkflowScheduleUpsert,
 ): Promise<WorkflowSchedule> {
-  return fetchAPI("/api/v1/workflow/schedules", {
+  const schedule = await fetchAPI<WorkflowScheduleWire>("/api/v1/workflow/schedules", {
     method: "POST",
     body: JSON.stringify(body),
   });
+  return normalizeWorkflowSchedule(schedule);
 }
 
 export async function updateWorkflowSchedule(
   id: string,
   body: WorkflowScheduleUpsert,
 ): Promise<WorkflowSchedule> {
-  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  const schedule = await fetchAPI<WorkflowScheduleWire>(
+    `/api/v1/workflow/schedules/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(body),
+    },
+  );
+  return normalizeWorkflowSchedule(schedule);
 }
 
 export async function deleteWorkflowSchedule(id: string): Promise<void> {
@@ -467,44 +556,66 @@ export async function deleteWorkflowSchedule(id: string): Promise<void> {
 }
 
 export async function pauseWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
-  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}/pause`, {
-    method: "POST",
-  });
+  const schedule = await fetchAPI<WorkflowScheduleWire>(
+    `/api/v1/workflow/schedules/${encodeURIComponent(id)}/pause`,
+    {
+      method: "POST",
+    },
+  );
+  return normalizeWorkflowSchedule(schedule);
 }
 
 export async function resumeWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
-  return fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}/resume`, {
-    method: "POST",
-  });
+  const schedule = await fetchAPI<WorkflowScheduleWire>(
+    `/api/v1/workflow/schedules/${encodeURIComponent(id)}/resume`,
+    {
+      method: "POST",
+    },
+  );
+  return normalizeWorkflowSchedule(schedule);
 }
 
 export async function getWorkflowEventTriggers(): Promise<WorkflowEventTrigger[]> {
-  return fetchAPI("/api/v1/workflow/event-triggers");
+  const triggers = await fetchAPI<WorkflowEventTriggerWire[]>(
+    "/api/v1/workflow/event-triggers",
+  );
+  return triggers.map(normalizeWorkflowEventTrigger);
 }
 
 export async function getWorkflowEventTrigger(
   id: string,
 ): Promise<WorkflowEventTrigger> {
-  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`);
+  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
+    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`,
+  );
+  return normalizeWorkflowEventTrigger(trigger);
 }
 
 export async function createWorkflowEventTrigger(
   body: WorkflowEventTriggerUpsert,
 ): Promise<WorkflowEventTrigger> {
-  return fetchAPI("/api/v1/workflow/event-triggers", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
+    "/api/v1/workflow/event-triggers",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+  return normalizeWorkflowEventTrigger(trigger);
 }
 
 export async function updateWorkflowEventTrigger(
   id: string,
   body: WorkflowEventTriggerUpsert,
 ): Promise<WorkflowEventTrigger> {
-  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
+    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(body),
+    },
+  );
+  return normalizeWorkflowEventTrigger(trigger);
 }
 
 export async function deleteWorkflowEventTrigger(id: string): Promise<void> {
@@ -516,27 +627,39 @@ export async function deleteWorkflowEventTrigger(id: string): Promise<void> {
 export async function pauseWorkflowEventTrigger(
   id: string,
 ): Promise<WorkflowEventTrigger> {
-  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/pause`, {
-    method: "POST",
-  });
+  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
+    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/pause`,
+    {
+      method: "POST",
+    },
+  );
+  return normalizeWorkflowEventTrigger(trigger);
 }
 
 export async function resumeWorkflowEventTrigger(
   id: string,
 ): Promise<WorkflowEventTrigger> {
-  return fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/resume`, {
-    method: "POST",
-  });
+  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
+    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/resume`,
+    {
+      method: "POST",
+    },
+  );
+  return normalizeWorkflowEventTrigger(trigger);
 }
 
 export async function cancelWorkflowRun(
   id: string,
   reason?: string,
 ): Promise<WorkflowRun> {
-  return fetchAPI(`/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`, {
-    method: "POST",
-    body: JSON.stringify(reason ? { reason } : {}),
-  });
+  const run = await fetchAPI<WorkflowRunWire>(
+    `/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`,
+    {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    },
+  );
+  return normalizeWorkflowRun(run);
 }
 
 export async function getAgentRuns(opts?: {
