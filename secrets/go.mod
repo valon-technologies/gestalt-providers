@@ -10,7 +10,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.4.0
 	github.com/aws/aws-sdk-go-v2 v1.41.6
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.5
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.6
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/keeper-security/secrets-manager-go/core v1.6.4
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
