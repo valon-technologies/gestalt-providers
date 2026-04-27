@@ -7,6 +7,27 @@ kind: plugin
 spec:
   defaultConnection: default
   mcp: true
+  securitySchemes:
+    slack:
+      type: hmac
+      secret:
+        env: SLACK_SIGNING_SECRET
+      signatureHeader: X-Slack-Signature
+      signaturePrefix: v0=
+      payloadTemplate: "v0:{header:X-Slack-Request-Timestamp}:{raw_body}"
+      timestampHeader: X-Slack-Request-Timestamp
+      maxAgeSeconds: 300
+  http:
+    event:
+      path: /event
+      method: POST
+      credentialMode: none
+      security: slack
+      target: events.handle
+      requestBody:
+        required: true
+        content:
+          application/json: {}
   surfaces:
     rest:
       connection: default
