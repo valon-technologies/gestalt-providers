@@ -232,19 +232,25 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
             status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
         )
 
-    run_request = _build_agent_run_request(event, route)
     try:
         with req.agent_manager() as agent_manager:
-            managed = agent_manager.run(run_request)
-    except Exception as err:
-        return _server_error(f"failed to start agent run: {err}")
+            session_request = _build_agent_session_request(event, route)
+            session = agent_manager.create_session(session_request)
+            session_id = str(session.id or "").strip()
+            if not session_id:
+                return _server_error("agent manager did not return a session id")
 
-    run = managed.run
+            turn_request = _build_agent_turn_request(event, route, session_id)
+            turn = agent_manager.create_turn(turn_request)
+    except Exception as err:
+        return _server_error(f"failed to start agent turn: {err}")
+
     return {
         "ok": True,
-        "agent_run_id": run.id,
-        "agent_provider": managed.provider_name,
-        "status": agent_pb2.AgentRunStatus.Name(run.status) if run.status else "",
+        "agent_session_id": session_id,
+        "agent_turn_id": turn.id,
+        "agent_provider": session.provider_name or _agent_provider(route),
+        "status": _agent_execution_status_name(turn.status),
     }
 
 
@@ -539,7 +545,58 @@ def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
     )
 
 
-def _build_agent_run_request(
+def _build_agent_session_request(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+) -> Any:
+    request = agent_pb2.AgentManagerCreateSessionRequest(
+        provider_name=_agent_provider(route),
+        model=_agent_model(route),
+        client_ref=_agent_session_ref(event),
+        idempotency_key=_agent_session_idempotency_key(event),
+    )
+    request.metadata.CopyFrom(_agent_session_metadata(event))
+    return request
+
+
+def _build_agent_turn_request(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+    session_id: str,
+) -> Any:
+    request = agent_pb2.AgentManagerCreateTurnRequest(
+        session_id=session_id,
+        model=_agent_model(route),
+        messages=[
+            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
+            agent_pb2.AgentMessage(role="user", text=_agent_user_prompt(event)),
+        ],
+        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES,
+        idempotency_key=_agent_turn_idempotency_key(event),
+    )
+    request.metadata.CopyFrom(_agent_metadata(event, route))
+    provider_options = _agent_provider_options(route)
+    if provider_options:
+        request.provider_options.CopyFrom(_dict_to_struct(provider_options))
+    return request
+
+
+def _agent_session_metadata(event: SlackAgentEvent) -> Any:
+    root_ts = event.thread_ts or event.message_ts
+    return _dict_to_struct(
+        {
+            "slack": {
+                "team_id": event.team_id,
+                "channel_id": event.channel_id,
+                "channel_type": event.channel_type,
+                "root_message_ts": root_ts,
+                "session_ref": _agent_session_ref(event),
+            }
+        }
+    )
+
+
+def _agent_metadata(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
 ) -> Any:
@@ -560,22 +617,7 @@ def _build_agent_run_request(
             }
         }
     )
-    request = agent_pb2.AgentManagerRunRequest(
-        provider_name=_agent_provider(route),
-        model=_agent_model(route),
-        messages=[
-            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
-            agent_pb2.AgentMessage(role="user", text=_agent_user_prompt(event)),
-        ],
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES,
-        session_ref=_agent_session_ref(event),
-        idempotency_key=_agent_idempotency_key(event),
-    )
-    request.metadata.CopyFrom(metadata)
-    provider_options = _agent_provider_options(route)
-    if provider_options:
-        request.provider_options.CopyFrom(_dict_to_struct(provider_options))
-    return request
+    return metadata
 
 
 def _agent_provider(route: SlackAgentRoute | None) -> str:
@@ -729,10 +771,23 @@ def _agent_session_ref(event: SlackAgentEvent) -> str:
     return f"slack:{event.team_id}:{event.channel_id}:{root_ts}"
 
 
-def _agent_idempotency_key(event: SlackAgentEvent) -> str:
+def _agent_session_idempotency_key(event: SlackAgentEvent) -> str:
+    return f"slack:session:{_agent_session_ref(event)}"
+
+
+def _agent_turn_idempotency_key(event: SlackAgentEvent) -> str:
     if event.event_id:
         return f"slack:event:{event.event_id}"
     return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
+
+
+def _agent_execution_status_name(status: int) -> str:
+    if not status:
+        return ""
+    try:
+        return agent_pb2.AgentExecutionStatus.Name(status)
+    except ValueError:
+        return str(status)
 
 
 def _dict_to_struct(data: dict[str, Any]) -> Any:
