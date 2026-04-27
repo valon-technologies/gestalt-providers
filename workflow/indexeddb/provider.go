@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
