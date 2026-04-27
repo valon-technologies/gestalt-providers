@@ -8,6 +8,10 @@ import gestalt
 import internals.agent as _agent
 from internals.agent import (
     SLACK_ADD_REACTION_OPERATION,
+    SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
+    SLACK_ASSISTANT_PROMPTS_OPERATION,
+    SLACK_ASSISTANT_STATUS_OPERATION,
+    SLACK_ASSISTANT_TITLE_OPERATION,
     SLACK_CONTEXT_OPERATION,
     SLACK_DELETE_STATUS_OPERATION,
     SLACK_EVENT_OPERATION,
@@ -15,7 +19,12 @@ from internals.agent import (
     SLACK_REMOVE_REACTION_OPERATION,
     SLACK_REPLY_OPERATION,
     SLACK_STATUS_OPERATION,
+    SLACK_STREAM_APPEND_OPERATION,
+    SLACK_STREAM_START_OPERATION,
+    SLACK_STREAM_STOP_OPERATION,
     add_slack_event_reaction,
+    append_slack_event_stream,
+    clear_slack_event_assistant_status,
     configure_agent,
     delete_slack_event_status,
     handle_slack_event,
@@ -23,7 +32,12 @@ from internals.agent import (
     reply_to_slack_event,
     resolve_slack_http_subject,
     remove_slack_event_reaction,
+    set_slack_event_assistant_status,
+    set_slack_event_suggested_prompts,
     set_slack_event_status,
+    set_slack_event_thread_title,
+    start_slack_event_stream,
+    stop_slack_event_stream,
 )
 from internals.client import SlackAPIError, SlackClientError, is_slack_file_download_url
 from internals.operations import (
@@ -175,6 +189,10 @@ class SlackEventReplyInput(gestalt.Model):
     text: str = gestalt.field(description="Slack message text to send")
 
 
+class SlackEventReplyRefInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+
+
 class SlackEventStatusInput(gestalt.Model):
     reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
     text: str = gestalt.field(description="Slack status message text")
@@ -206,6 +224,136 @@ class SlackEventReactionInput(gestalt.Model):
     target_ts: str = gestalt.field(
         description="Message timestamp to react to; defaults to the source Slack event",
         default="",
+        required=False,
+    )
+
+
+class SlackEventAssistantStatusInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    status: str = gestalt.field(
+        description="Native Slack assistant status text; pass an empty string to clear",
+        default="",
+        required=False,
+    )
+    loading_messages: list[str] = gestalt.field(
+        description="Optional rotating native loading messages; Slack accepts up to 10",
+        default_factory=list,
+        required=False,
+    )
+    icon_emoji: str = gestalt.field(
+        description="Optional emoji to display for the assistant status",
+        default="",
+        required=False,
+    )
+    icon_url: str = gestalt.field(
+        description="Optional icon URL to display for the assistant status",
+        default="",
+        required=False,
+    )
+    username: str = gestalt.field(
+        description="Optional bot username to display for the assistant status",
+        default="",
+        required=False,
+    )
+
+
+class SlackEventThreadTitleInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    title: str = gestalt.field(description="Native Slack assistant thread title")
+
+
+class SlackEventSuggestedPromptsInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    prompts: list[dict[str, Any]] = gestalt.field(
+        description="Up to four Slack suggested prompts, each with title and message",
+    )
+    title: str = gestalt.field(
+        description="Optional title for the suggested prompt list",
+        default="",
+        required=False,
+    )
+
+
+class SlackEventStreamStartInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    markdown_text: str = gestalt.field(
+        description="Initial markdown text for the streamed Slack reply",
+        default="",
+        required=False,
+    )
+    chunks: list[dict[str, Any]] = gestalt.field(
+        description="Optional Slack stream chunks for text, task updates, plans, or blocks",
+        default_factory=list,
+        required=False,
+    )
+    recipient_user_id: str = gestalt.field(
+        description="Optional Slack user receiving a streamed channel reply",
+        default="",
+        required=False,
+    )
+    recipient_team_id: str = gestalt.field(
+        description="Optional Slack team for the streamed reply recipient",
+        default="",
+        required=False,
+    )
+    task_display_mode: str = gestalt.field(
+        description="Optional Slack task display mode, timeline or plan",
+        default="",
+        required=False,
+    )
+    icon_emoji: str = gestalt.field(
+        description="Optional emoji to display for the streamed message",
+        default="",
+        required=False,
+    )
+    icon_url: str = gestalt.field(
+        description="Optional icon URL to display for the streamed message",
+        default="",
+        required=False,
+    )
+    username: str = gestalt.field(
+        description="Optional bot username to display for the streamed message",
+        default="",
+        required=False,
+    )
+
+
+class SlackEventStreamAppendInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    stream_ts: str = gestalt.field(description="Slack streaming message timestamp")
+    markdown_text: str = gestalt.field(
+        description="Markdown text to append to the Slack stream",
+        default="",
+        required=False,
+    )
+    chunks: list[dict[str, Any]] = gestalt.field(
+        description="Optional Slack stream chunks to append",
+        default_factory=list,
+        required=False,
+    )
+
+
+class SlackEventStreamStopInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    stream_ts: str = gestalt.field(description="Slack streaming message timestamp")
+    markdown_text: str = gestalt.field(
+        description="Optional final markdown text for the Slack stream",
+        default="",
+        required=False,
+    )
+    chunks: list[dict[str, Any]] = gestalt.field(
+        description="Optional final Slack stream chunks",
+        default_factory=list,
+        required=False,
+    )
+    blocks: list[dict[str, Any]] = gestalt.field(
+        description="Optional Slack blocks rendered below the finalized stream",
+        default_factory=list,
+        required=False,
+    )
+    metadata: dict[str, Any] = gestalt.field(
+        description="Optional Slack message metadata for the finalized stream",
+        default_factory=dict,
         required=False,
     )
 
@@ -296,7 +444,124 @@ def slack_events_add_reaction(
 def slack_events_remove_reaction(
     input: SlackEventReactionInput, req: gestalt.Request
 ) -> OperationResult:
-    return remove_slack_event_reaction(input.reply_ref, input.name, input.target_ts, req)
+    return remove_slack_event_reaction(
+        input.reply_ref, input.name, input.target_ts, req
+    )
+
+
+@gestalt.operation(
+    id=SLACK_ASSISTANT_STATUS_OPERATION,
+    method="POST",
+    description="Set Slack's native assistant loading/status indicator for the event thread",
+    visible=False,
+)
+def slack_events_set_assistant_status(
+    input: SlackEventAssistantStatusInput, req: gestalt.Request
+) -> OperationResult:
+    return set_slack_event_assistant_status(
+        input.reply_ref,
+        input.status,
+        input.loading_messages,
+        input.icon_emoji,
+        input.icon_url,
+        input.username,
+        req,
+    )
+
+
+@gestalt.operation(
+    id=SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
+    method="POST",
+    description="Clear Slack's native assistant loading/status indicator for the event thread",
+    visible=False,
+)
+def slack_events_clear_assistant_status(
+    input: SlackEventReplyRefInput, req: gestalt.Request
+) -> OperationResult:
+    return clear_slack_event_assistant_status(input.reply_ref, req)
+
+
+@gestalt.operation(
+    id=SLACK_ASSISTANT_TITLE_OPERATION,
+    method="POST",
+    description="Set Slack's native assistant thread title for the event thread",
+    visible=False,
+)
+def slack_events_set_thread_title(
+    input: SlackEventThreadTitleInput, req: gestalt.Request
+) -> OperationResult:
+    return set_slack_event_thread_title(input.reply_ref, input.title, req)
+
+
+@gestalt.operation(
+    id=SLACK_ASSISTANT_PROMPTS_OPERATION,
+    method="POST",
+    description="Set Slack's native assistant suggested prompts for the event thread",
+    visible=False,
+)
+def slack_events_set_suggested_prompts(
+    input: SlackEventSuggestedPromptsInput, req: gestalt.Request
+) -> OperationResult:
+    return set_slack_event_suggested_prompts(
+        input.reply_ref, input.prompts, input.title, req
+    )
+
+
+@gestalt.operation(
+    id=SLACK_STREAM_START_OPERATION,
+    method="POST",
+    description="Start a native Slack streaming reply in the event thread",
+    visible=False,
+)
+def slack_events_start_stream(
+    input: SlackEventStreamStartInput, req: gestalt.Request
+) -> OperationResult:
+    return start_slack_event_stream(
+        input.reply_ref,
+        input.markdown_text,
+        input.chunks,
+        input.recipient_user_id,
+        input.recipient_team_id,
+        input.task_display_mode,
+        input.icon_emoji,
+        input.icon_url,
+        input.username,
+        req,
+    )
+
+
+@gestalt.operation(
+    id=SLACK_STREAM_APPEND_OPERATION,
+    method="POST",
+    description="Append markdown text or chunks to a native Slack streaming reply",
+    visible=False,
+)
+def slack_events_append_stream(
+    input: SlackEventStreamAppendInput, req: gestalt.Request
+) -> OperationResult:
+    return append_slack_event_stream(
+        input.reply_ref, input.stream_ts, input.markdown_text, input.chunks, req
+    )
+
+
+@gestalt.operation(
+    id=SLACK_STREAM_STOP_OPERATION,
+    method="POST",
+    description="Finalize a native Slack streaming reply in the event thread",
+    visible=False,
+)
+def slack_events_stop_stream(
+    input: SlackEventStreamStopInput, req: gestalt.Request
+) -> OperationResult:
+    return stop_slack_event_stream(
+        input.reply_ref,
+        input.stream_ts,
+        input.markdown_text,
+        input.chunks,
+        input.blocks,
+        input.metadata,
+        req,
+    )
 
 
 @gestalt.operation(

@@ -63,14 +63,18 @@ def post_message(
 
 
 def update_message(token: str, *, channel: str, ts: str, text: str) -> dict[str, Any]:
-    return slack_post("chat.update", {"channel": channel, "ts": ts, "text": text}, token)
+    return slack_post(
+        "chat.update", {"channel": channel, "ts": ts, "text": text}, token
+    )
 
 
 def delete_message(token: str, *, channel: str, ts: str) -> dict[str, Any]:
     return slack_post("chat.delete", {"channel": channel, "ts": ts}, token)
 
 
-def add_reaction(token: str, *, channel: str, timestamp: str, name: str) -> dict[str, Any]:
+def add_reaction(
+    token: str, *, channel: str, timestamp: str, name: str
+) -> dict[str, Any]:
     return slack_post(
         "reactions.add",
         {"channel": channel, "timestamp": timestamp, "name": name},
@@ -86,6 +90,133 @@ def remove_reaction(
         {"channel": channel, "timestamp": timestamp, "name": name},
         token,
     )
+
+
+def set_assistant_thread_status(
+    token: str,
+    *,
+    channel_id: str,
+    thread_ts: str,
+    status: str,
+    loading_messages: list[str] | None = None,
+    icon_emoji: str = "",
+    icon_url: str = "",
+    username: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "channel_id": channel_id,
+        "thread_ts": thread_ts,
+        "status": status,
+    }
+    if loading_messages:
+        payload["loading_messages"] = loading_messages[:10]
+    if icon_emoji:
+        payload["icon_emoji"] = icon_emoji
+    if icon_url:
+        payload["icon_url"] = icon_url
+    if username:
+        payload["username"] = username
+    return slack_post("assistant.threads.setStatus", payload, token)
+
+
+def set_assistant_thread_title(
+    token: str, *, channel_id: str, thread_ts: str, title: str
+) -> dict[str, Any]:
+    return slack_post(
+        "assistant.threads.setTitle",
+        {"channel_id": channel_id, "thread_ts": thread_ts, "title": title},
+        token,
+    )
+
+
+def set_assistant_thread_suggested_prompts(
+    token: str,
+    *,
+    channel_id: str,
+    thread_ts: str,
+    prompts: list[dict[str, str]],
+    title: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "channel_id": channel_id,
+        "thread_ts": thread_ts,
+        "prompts": prompts[:4],
+    }
+    if title:
+        payload["title"] = title
+    return slack_post("assistant.threads.setSuggestedPrompts", payload, token)
+
+
+def start_stream(
+    token: str,
+    *,
+    channel: str,
+    thread_ts: str,
+    markdown_text: str = "",
+    chunks: list[dict[str, Any]] | None = None,
+    recipient_user_id: str = "",
+    recipient_team_id: str = "",
+    task_display_mode: str = "",
+    icon_emoji: str = "",
+    icon_url: str = "",
+    username: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"channel": channel, "thread_ts": thread_ts}
+    if markdown_text:
+        payload["markdown_text"] = markdown_text
+    if chunks:
+        payload["chunks"] = chunks
+    if recipient_user_id:
+        payload["recipient_user_id"] = recipient_user_id
+    if recipient_team_id:
+        payload["recipient_team_id"] = recipient_team_id
+    if task_display_mode:
+        payload["task_display_mode"] = task_display_mode
+    if icon_emoji:
+        payload["icon_emoji"] = icon_emoji
+    if icon_url:
+        payload["icon_url"] = icon_url
+    if username:
+        payload["username"] = username
+    return slack_post("chat.startStream", payload, token)
+
+
+def append_stream(
+    token: str,
+    *,
+    channel: str,
+    ts: str,
+    markdown_text: str,
+    chunks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"channel": channel, "ts": ts}
+    if markdown_text:
+        payload["markdown_text"] = markdown_text
+    if chunks:
+        payload["chunks"] = chunks
+    return slack_post("chat.appendStream", payload, token)
+
+
+def stop_stream(
+    token: str,
+    *,
+    channel: str,
+    ts: str,
+    markdown_text: str = "",
+    chunks: list[dict[str, Any]] | None = None,
+    blocks: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"channel": channel, "ts": ts}
+    if markdown_text:
+        payload["markdown_text"] = markdown_text
+    if chunks:
+        payload["chunks"] = chunks
+    if blocks:
+        payload["blocks"] = blocks
+    if metadata:
+        payload["metadata"] = metadata
+    return slack_post("chat.stopStream", payload, token)
 
 
 def find_user_mentions(
@@ -473,7 +604,9 @@ def _thread_participants_from_messages(
     if include_user_info:
         for participant in participants:
             try:
-                user_data = slack_get("users.info", {"user": str(participant["user_id"])}, token)
+                user_data = slack_get(
+                    "users.info", {"user": str(participant["user_id"])}, token
+                )
             except SlackAPIError, SlackClientError:
                 continue
             user = map_field(user_data, "user")

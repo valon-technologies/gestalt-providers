@@ -102,9 +102,7 @@ class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
         newurl,
     ):
         if not is_slack_file_download_url(newurl):
-            raise SlackClientError(
-                "slack file download redirected to a non-Slack URL"
-            )
+            raise SlackClientError("slack file download redirected to a non-Slack URL")
         authorization = req.get_header("Authorization") or dict(req.header_items()).get(
             "Authorization", ""
         )

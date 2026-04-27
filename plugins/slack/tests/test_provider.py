@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
 import unittest
 import urllib.error
 import urllib.parse
@@ -12,6 +13,7 @@ from typing import Any, cast
 from unittest import mock
 
 import gestalt
+import yaml
 from google.protobuf import json_format
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
@@ -20,6 +22,7 @@ import provider as provider_module
 
 agent_pb2: Any = _agent_pb2
 authorization_pb2: Any = _authorization_pb2
+PLUGIN_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 
 class FakeHTTPResponse:
@@ -71,6 +74,22 @@ def prompt_value(prompt: str, prefix: str) -> str:
     raise AssertionError(f"prompt missing line prefix {prefix!r}")
 
 
+def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
+    return [parameter["name"] for parameter in operation.get("parameters", [])]
+
+
+def _manifest_parameter_names(operation: dict[str, Any]) -> list[str]:
+    return [parameter["name"] for parameter in operation.get("parameters", [])]
+
+
+def _manifest_parameter_types(operation: dict[str, Any], name: str) -> list[str]:
+    return [
+        parameter["type"]
+        for parameter in operation.get("parameters", [])
+        if parameter["name"] == name
+    ]
+
+
 class FakeAuthorization:
     def __init__(self, subjects: list[Any]) -> None:
         self.subjects = subjects
@@ -115,6 +134,49 @@ class FakeAgentManager:
 
 
 class SlackProviderTests(unittest.TestCase):
+    def test_catalog_and_manifest_expose_native_assistant_contracts(self) -> None:
+        catalog = yaml.safe_load((PLUGIN_DIR / "catalog.yaml").read_text())
+        manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())
+        catalog_ops = {op["id"]: op for op in catalog["operations"]}
+        rest_ops = {
+            op["name"]: op for op in manifest["spec"]["surfaces"]["rest"]["operations"]
+        }
+
+        self.assertEqual(
+            _catalog_parameter_names(catalog_ops["events.reply"]),
+            ["reply_ref", "text"],
+        )
+        self.assertEqual(
+            _catalog_parameter_names(catalog_ops["events.clearAssistantStatus"]),
+            ["reply_ref"],
+        )
+
+        self.assertEqual(
+            _manifest_parameter_types(
+                rest_ops["assistant.threads.setStatus"], "loading_messages"
+            ),
+            ["array"],
+        )
+        self.assertEqual(
+            _manifest_parameter_types(
+                rest_ops["assistant.threads.setSuggestedPrompts"], "prompts"
+            ),
+            ["array"],
+        )
+        for operation_name in (
+            "chat.startStream",
+            "chat.appendStream",
+            "chat.stopStream",
+        ):
+            operation = rest_ops[operation_name]
+            self.assertEqual(operation["connection"], "bot")
+            self.assertNotIn("connectionSelector", operation)
+            self.assertNotIn("actor", _manifest_parameter_names(operation))
+        self.assertEqual(
+            _manifest_parameter_types(rest_ops["chat.stopStream"], "blocks"),
+            ["array"],
+        )
+
     def test_agent_tool_source_native_search_handles_new_and_legacy_sdks(self) -> None:
         class NativeAgentPB:
             AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH = 7
@@ -326,7 +388,15 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
         self.assertIn("slack.events.reply", turn_request.messages[0].text)
         self.assertIn("slack.events.setStatus", turn_request.messages[0].text)
-        self.assertIn("slack.conversations.getThreadContext", turn_request.messages[0].text)
+        self.assertIn("slack.events.setAssistantStatus", turn_request.messages[0].text)
+        self.assertIn("slack.events.startStream", turn_request.messages[0].text)
+        self.assertIn("slack.events.appendStream", turn_request.messages[0].text)
+        self.assertIn("slack.events.stopStream", turn_request.messages[0].text)
+        self.assertIn("slack.events.setThreadTitle", turn_request.messages[0].text)
+        self.assertIn("slack.events.setSuggestedPrompts", turn_request.messages[0].text)
+        self.assertIn(
+            "slack.conversations.getThreadContext", turn_request.messages[0].text
+        )
         self.assertIn("slack.files.get", turn_request.messages[0].text)
         self.assertNotIn("slack.chat.postMessage", turn_request.messages[0].text)
         self.assertIn(
@@ -346,6 +416,8 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(verified_ref.channel_id, "C789")
         self.assertEqual(verified_ref.message_ts, "1712161829.000300")
         self.assertEqual(verified_ref.reply_thread_ts, "1712161829.000300")
+        self.assertEqual(verified_ref.user_id, "U456")
+        self.assertEqual(verified_ref.channel_type, "channel")
         self.assertEqual(verified_ref.subject_id, "user:gestalt-123")
 
         metadata = json_format.MessageToDict(turn_request.metadata)
@@ -397,6 +469,187 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
         self.assertEqual(response.body, {"error": "Slack bot token is not configured"})
         self.assertEqual(agent_manager.requests, [])
+
+    def test_slack_event_handler_sets_native_assistant_status_when_configured(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "assistant": {
+                    "enabled": True,
+                    "status": "is checking deployment status",
+                    "loadingMessages": ["Reading the thread", "Checking deploys"],
+                    "iconEmoji": ":hourglass_flowing_sand:",
+                    "username": "Valon Assistant",
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        agent_manager = FakeAgentManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAssistantStatus",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            payload = json.loads(cast(bytes, request.data).decode("utf-8"))
+            calls.append((parsed.path, payload))
+            return FakeHTTPResponse('{"ok": true}')
+
+        with (
+            mock.patch.object(
+                gestalt.Request, "agent_manager", return_value=agent_manager
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertNotIn("assistant_status_error", response)
+        self.assertEqual(len(agent_manager.turn_requests), 1)
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/assistant.threads.setStatus",
+                    {
+                        "channel_id": "C789",
+                        "thread_ts": "1712161829.000300",
+                        "status": "is checking deployment status",
+                        "loading_messages": [
+                            "Reading the thread",
+                            "Checking deploys",
+                        ],
+                        "icon_emoji": ":hourglass_flowing_sand:",
+                        "username": "Valon Assistant",
+                    },
+                )
+            ],
+        )
+
+    def test_assistant_thread_started_sets_configured_suggested_prompts(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "assistant": {
+                    "suggestedPrompts": {
+                        "title": "Try next",
+                        "prompts": [
+                            {
+                                "title": "Summarize deploys",
+                                "message": "Summarize the latest deploy status",
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        agent_manager = FakeAgentManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAssistantThreadStarted",
+            "team_id": "T123",
+            "event": {
+                "type": "assistant_thread_started",
+                "assistant_thread": {
+                    "user_id": "U456",
+                    "channel_id": "D789",
+                    "thread_ts": "1712161829.000300",
+                    "context": {"channel_id": "C789", "team_id": "T123"},
+                },
+                "event_ts": "1712161829.000400",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            calls.append(
+                (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
+            )
+            return FakeHTTPResponse('{"ok": true}')
+
+        with (
+            mock.patch.object(
+                gestalt.Request, "agent_manager", return_value=agent_manager
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "event_type": "assistant_thread_started",
+                "channel": "D789",
+                "thread_ts": "1712161829.000300",
+                "suggested_prompts_set": True,
+                "suggested_prompt_count": 1,
+            },
+        )
+        self.assertEqual(agent_manager.requests, [])
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/assistant.threads.setSuggestedPrompts",
+                    {
+                        "channel_id": "D789",
+                        "thread_ts": "1712161829.000300",
+                        "prompts": [
+                            {
+                                "title": "Summarize deploys",
+                                "message": "Summarize the latest deploy status",
+                            }
+                        ],
+                        "title": "Try next",
+                    },
+                )
+            ],
+        )
 
     def test_slack_events_reply_posts_with_bot_token_and_reply_ref_scope(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -515,6 +768,27 @@ class SlackProviderTests(unittest.TestCase):
                 )
             if parsed.path in {"/api/reactions.add", "/api/reactions.remove"}:
                 return FakeHTTPResponse('{"ok": true}')
+            if parsed.path in {
+                "/api/assistant.threads.setStatus",
+                "/api/assistant.threads.setTitle",
+                "/api/assistant.threads.setSuggestedPrompts",
+            }:
+                return FakeHTTPResponse('{"ok": true}')
+            if parsed.path in {"/api/chat.startStream", "/api/chat.appendStream"}:
+                return FakeHTTPResponse(
+                    '{"ok": true, "channel": "C789", "ts": "1712161831.000500"}'
+                )
+            if parsed.path == "/api/chat.stopStream":
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "channel": "C789",
+                      "ts": "1712161831.000500",
+                      "message": {"type": "message", "text": "Done"}
+                    }
+                    """
+                )
             raise AssertionError(f"unexpected request {request.full_url}")
 
         with mock.patch(
@@ -569,6 +843,103 @@ class SlackProviderTests(unittest.TestCase):
                     subject=gestalt.Subject(id="user:gestalt-123", kind="user")
                 ),
             )
+            assistant_status = provider_module.slack_events_set_assistant_status(
+                provider_module.SlackEventAssistantStatusInput(
+                    reply_ref=reply_ref,
+                    status="is checking deployment status",
+                    loading_messages=["Reading the thread", "Checking deploys"],
+                    icon_emoji=":hourglass_flowing_sand:",
+                    username="Valon Assistant",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            cleared_assistant_status = (
+                provider_module.slack_events_clear_assistant_status(
+                    provider_module.SlackEventReplyRefInput(reply_ref=reply_ref),
+                    gestalt.Request(
+                        subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                    ),
+                )
+            )
+            title = provider_module.slack_events_set_thread_title(
+                provider_module.SlackEventThreadTitleInput(
+                    reply_ref=reply_ref,
+                    title="Deploy status",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            prompts = provider_module.slack_events_set_suggested_prompts(
+                provider_module.SlackEventSuggestedPromptsInput(
+                    reply_ref=reply_ref,
+                    title="Try next",
+                    prompts=[
+                        {
+                            "title": "Summarize deploys",
+                            "message": "Summarize the latest deploy status",
+                        }
+                    ],
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            stream = provider_module.slack_events_start_stream(
+                provider_module.SlackEventStreamStartInput(
+                    reply_ref=reply_ref,
+                    markdown_text="Starting deploy checks",
+                    chunks=[
+                        {
+                            "type": "task_update",
+                            "id": "check-deploys",
+                            "title": "Check deploy status",
+                            "status": "in_progress",
+                        }
+                    ],
+                    task_display_mode="plan",
+                    icon_emoji=":hourglass_flowing_sand:",
+                    username="Valon Assistant",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            appended = provider_module.slack_events_append_stream(
+                provider_module.SlackEventStreamAppendInput(
+                    reply_ref=reply_ref,
+                    stream_ts="1712161831.000500",
+                    markdown_text="Still checking",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            stopped = provider_module.slack_events_stop_stream(
+                provider_module.SlackEventStreamStopInput(
+                    reply_ref=reply_ref,
+                    stream_ts="1712161831.000500",
+                    markdown_text="Done",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "Deploy status complete",
+                            },
+                        }
+                    ],
+                    metadata={
+                        "event_type": "deploy_status",
+                        "event_payload": {"source": "test"},
+                    },
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
 
         self.assertEqual(
             calls,
@@ -614,6 +985,100 @@ class SlackProviderTests(unittest.TestCase):
                         "ts": "1712161830.000400",
                     },
                 ),
+                (
+                    "/api/assistant.threads.setStatus",
+                    {
+                        "channel_id": "C789",
+                        "thread_ts": "1712161829.000300",
+                        "status": "is checking deployment status",
+                        "loading_messages": [
+                            "Reading the thread",
+                            "Checking deploys",
+                        ],
+                        "icon_emoji": ":hourglass_flowing_sand:",
+                        "username": "Valon Assistant",
+                    },
+                ),
+                (
+                    "/api/assistant.threads.setStatus",
+                    {
+                        "channel_id": "C789",
+                        "thread_ts": "1712161829.000300",
+                        "status": "",
+                    },
+                ),
+                (
+                    "/api/assistant.threads.setTitle",
+                    {
+                        "channel_id": "C789",
+                        "thread_ts": "1712161829.000300",
+                        "title": "Deploy status",
+                    },
+                ),
+                (
+                    "/api/assistant.threads.setSuggestedPrompts",
+                    {
+                        "channel_id": "C789",
+                        "thread_ts": "1712161829.000300",
+                        "prompts": [
+                            {
+                                "title": "Summarize deploys",
+                                "message": "Summarize the latest deploy status",
+                            }
+                        ],
+                        "title": "Try next",
+                    },
+                ),
+                (
+                    "/api/chat.startStream",
+                    {
+                        "channel": "C789",
+                        "thread_ts": "1712161829.000300",
+                        "markdown_text": "Starting deploy checks",
+                        "chunks": [
+                            {
+                                "type": "task_update",
+                                "id": "check-deploys",
+                                "title": "Check deploy status",
+                                "status": "in_progress",
+                            }
+                        ],
+                        "recipient_user_id": "U456",
+                        "recipient_team_id": "T123",
+                        "task_display_mode": "plan",
+                        "icon_emoji": ":hourglass_flowing_sand:",
+                        "username": "Valon Assistant",
+                    },
+                ),
+                (
+                    "/api/chat.appendStream",
+                    {
+                        "channel": "C789",
+                        "ts": "1712161831.000500",
+                        "markdown_text": "Still checking",
+                    },
+                ),
+                (
+                    "/api/chat.stopStream",
+                    {
+                        "channel": "C789",
+                        "ts": "1712161831.000500",
+                        "markdown_text": "Done",
+                        "blocks": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "Deploy status complete",
+                                },
+                            }
+                        ],
+                        "metadata": {
+                            "event_type": "deploy_status",
+                            "event_payload": {"source": "test"},
+                        },
+                    },
+                ),
             ],
         )
         self.assertEqual(created["created"], True)
@@ -622,6 +1087,13 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(added["target_ts"], "1712161829.000300")
         self.assertEqual(removed["removed"], True)
         self.assertEqual(deleted["deleted_ts"], "1712161830.000400")
+        self.assertEqual(assistant_status["thread_ts"], "1712161829.000300")
+        self.assertEqual(cleared_assistant_status["status"], "")
+        self.assertEqual(title["title"], "Deploy status")
+        self.assertEqual(prompts["suggested_prompt_count"], 1)
+        self.assertEqual(stream["stream_ts"], "1712161831.000500")
+        self.assertEqual(appended["stream_ts"], "1712161831.000500")
+        self.assertEqual(stopped["message"]["text"], "Done")
 
     def test_nested_agent_config_selects_route_by_channel(self) -> None:
         provider_module.configure(
@@ -1165,11 +1637,14 @@ class SlackProviderTests(unittest.TestCase):
 
             raise AssertionError(f"unexpected request {request.full_url}")
 
-        with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
-        ), mock.patch(
-            "internals.client.urllib.request.build_opener",
-            return_value=FakeOpener(fake_urlopen),
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_urlopen),
+            ),
         ):
             result = provider_module.conversations_get_thread_context(
                 provider_module.GetThreadContextInput(
@@ -1254,11 +1729,14 @@ class SlackProviderTests(unittest.TestCase):
 
             raise AssertionError(f"unexpected request {request.full_url}")
 
-        with mock.patch(
-            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
-        ), mock.patch(
-            "internals.client.urllib.request.build_opener",
-            return_value=FakeOpener(fake_urlopen),
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_urlopen),
+            ),
         ):
             result = provider_module.files_get(
                 provider_module.GetFileInput(file_id="FIMG", max_bytes=64),

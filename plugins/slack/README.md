@@ -70,6 +70,27 @@ plugins:
         operation: events.removeReaction
         credentialMode: none
       - plugin: slack
+        operation: events.setAssistantStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.clearAssistantStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.setThreadTitle
+        credentialMode: none
+      - plugin: slack
+        operation: events.setSuggestedPrompts
+        credentialMode: none
+      - plugin: slack
+        operation: events.startStream
+        credentialMode: none
+      - plugin: slack
+        operation: events.appendStream
+        credentialMode: none
+      - plugin: slack
+        operation: events.stopStream
+        credentialMode: none
+      - plugin: slack
         operation: conversations.getThreadContext
       - plugin: slack
         operation: files.get
@@ -85,6 +106,18 @@ plugins:
         provider: simple
         model: deep
         systemPrompt: Use Slack formatting and keep replies concise.
+      assistant:
+        enabled: true
+        status: is checking that...
+        loadingMessages:
+          - Reading the Slack thread
+          - Calling available tools
+        iconEmoji: ":hourglass_flowing_sand:"
+        suggestedPrompts:
+          title: Try next
+          prompts:
+            - title: Summarize this thread
+              message: Summarize this thread and call out open questions.
 ```
 
 Slack should send Events API requests to `POST /api/v1/slack/event`. The route
@@ -95,14 +128,16 @@ agent run with `toolSource=native_search` and no explicit tool refs, so native
 search can discover every tool available to the resolved Gestalt user.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
-`events.addReaction`, and `events.removeReaction` are hidden operations
-(`visible: false`). `events.handle` is invoked by the signed Slack webhook
-binding. It starts an agent turn and passes an opaque `reply_ref` in the user
-prompt. The agent should call `slack.events.reply` with that `reply_ref` and
-response text; the provider validates that the ref belongs to the invoking
-Gestalt subject before posting to Slack with the configured bot token. The same
-`reply_ref` scopes progress statuses and reactions to the source event channel,
-so the agent never needs raw `chat.postMessage` access for event replies.
+`events.addReaction`, `events.removeReaction`, the native assistant helpers,
+and the native stream helpers are hidden operations (`visible: false`).
+`events.handle` is invoked by the signed Slack webhook binding. It starts an
+agent turn and passes an opaque `reply_ref` in the user prompt. The agent should
+call `slack.events.reply` with that `reply_ref` and response text; the provider
+validates that the ref belongs to the invoking Gestalt subject before posting to
+Slack with the configured bot token. The same `reply_ref` scopes progress
+statuses, native assistant updates, streaming replies, suggested prompts, thread
+titles, and reactions to the source event channel, so the agent never needs raw
+`chat.postMessage` access for event replies.
 
 Agent-facing event helper examples:
 
@@ -127,6 +162,51 @@ source message:
 
 ```json
 {"reply_ref":"...","name":"eyes"}
+```
+
+Use `slack.events.setAssistantStatus` for Slack's native assistant
+typing/loading indicator. Passing an empty status, or calling
+`slack.events.clearAssistantStatus`, clears it:
+
+```json
+{
+  "reply_ref": "...",
+  "status": "is checking deployment status",
+  "loading_messages": ["Reading the thread", "Checking deploys"],
+  "icon_emoji": ":hourglass_flowing_sand:"
+}
+```
+
+Use `slack.events.setThreadTitle` and `slack.events.setSuggestedPrompts` for
+native assistant thread metadata:
+
+```json
+{"reply_ref":"...","title":"Deploy status"}
+```
+
+```json
+{
+  "reply_ref": "...",
+  "title": "Try next",
+  "prompts": [
+    {"title": "Summarize deploys", "message": "Summarize the latest deploy status"}
+  ]
+}
+```
+
+Use `slack.events.startStream`, `slack.events.appendStream`, and
+`slack.events.stopStream` for Slack's native streaming response UI:
+
+```json
+{"reply_ref":"...","markdown_text":"Starting deploy checks"}
+```
+
+```json
+{"reply_ref":"...","stream_ts":"1712161831.000500","markdown_text":"Still checking"}
+```
+
+```json
+{"reply_ref":"...","stream_ts":"1712161831.000500","markdown_text":"Done"}
 ```
 
 `slack.conversations.getThreadContext` builds a thread-shaped payload with
@@ -157,6 +237,10 @@ base64:
 If `agent.routes` is omitted, the provider uses its default behavior:
 `app_mention` events and direct-message `message` events start an agent run.
 Plain channel messages are ignored unless a route explicitly opts them in.
+For the native Slack assistant experience, enable the app's Agents & AI Apps
+features in Slack, add the bot `assistant:write` scope, and subscribe the bot to
+`assistant_thread_started`, `assistant_thread_context_changed`, and `message.im`
+events in addition to `app_mention`.
 
 To use different prompts for different Slack channels or event types, add
 `agent.routes`:
@@ -172,6 +256,27 @@ plugins:
         credentialMode: none
       - plugin: slack
         operation: events.setStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.setAssistantStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.clearAssistantStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.setThreadTitle
+        credentialMode: none
+      - plugin: slack
+        operation: events.setSuggestedPrompts
+        credentialMode: none
+      - plugin: slack
+        operation: events.startStream
+        credentialMode: none
+      - plugin: slack
+        operation: events.appendStream
+        credentialMode: none
+      - plugin: slack
+        operation: events.stopStream
         credentialMode: none
       - plugin: slack
         operation: conversations.getThreadContext
