@@ -16,6 +16,20 @@ plugins:
 See [Getting Started](https://gestaltd.ai/getting-started) and
 [Configuration](https://gestaltd.ai/configuration).
 
+Slack Events API agent replies use the app's bot token. Configure it as a
+provider secret-backed value:
+
+```yaml
+plugins:
+  slack:
+    config:
+      bot:
+        token:
+          secret:
+            provider: secrets
+            name: slack-bot-token
+```
+
 ## Capabilities
 
 Source-backed provider implemented in Python with both a REST surface and an
@@ -40,10 +54,16 @@ plugins:
     authorizationPolicy: platform
     invokes:
       - plugin: slack
-        operation: chat.postMessage
+        operation: events.reply
+        credentialMode: none
       - plugin: workplaceHub
         operation: getMe
     config:
+      bot:
+        token:
+          secret:
+            provider: secrets
+            name: slack-bot-token
       agent:
         provider: simple
         model: deep
@@ -54,7 +74,17 @@ Slack should send Events API requests to `POST /api/v1/slack/event`. The route
 is declared in `manifest.yaml` under `spec.http.event`, validates Slack HMAC
 signatures with `SLACK_SIGNING_SECRET`, resolves the Slack team/user through the
 managed `external_identity` authorization relationship, and starts a Gestalt
-agent run with `toolSource=INHERIT_INVOKES`.
+agent run with `toolSource=native_search` scoped to the exact
+`slack.events.reply` tool ref. The platform applies the declared
+`credentialMode: none` from this plugin's `invokes` entry when resolving that
+tool.
+
+`events.handle` and `events.reply` are hidden operations (`visible: false`).
+`events.handle` is invoked by the signed Slack webhook binding. It starts an
+agent turn and passes an opaque `reply_ref` in the user prompt. The agent should
+call `slack.events.reply` with that `reply_ref` and response text; the provider
+validates that the ref belongs to the invoking Gestalt subject before posting to
+Slack with the configured bot token.
 
 If `agent.routes` is omitted, the provider uses its default behavior:
 `app_mention` events and direct-message `message` events start an agent run.
@@ -70,12 +100,18 @@ plugins:
     authorizationPolicy: platform
     invokes:
       - plugin: slack
-        operation: chat.postMessage
+        operation: events.reply
+        credentialMode: none
       - plugin: workplaceHub
         operation: getMe
       - plugin: deploymentViewer
         operation: status
     config:
+      bot:
+        token:
+          secret:
+            provider: secrets
+            name: slack-bot-token
       agent:
         provider: simple
         model: deep

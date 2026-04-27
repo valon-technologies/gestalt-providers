@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import base64
+import binascii
+import hashlib
+import hmac
 import json
 from dataclasses import dataclass, field
 from http import HTTPStatus
+import time
 from typing import Any, TypeAlias
 import urllib.error
 import urllib.request
@@ -19,6 +23,7 @@ from internals import (
     get_message,
     get_thread_participants,
     parse_message_url,
+    slack_base_url,
 )
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
@@ -32,7 +37,9 @@ struct_pb2: Any = _struct_pb2
 SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
 SLACK_DEFAULT_CONNECTION = "default"
 SLACK_EVENT_OPERATION = "events.handle"
+SLACK_REPLY_OPERATION = "events.reply"
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
+SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
 EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
@@ -40,8 +47,9 @@ EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
 DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
-When you answer the Slack user, call {post_message_tool} with the provided
-channel and reply_thread_ts. Omit thread_ts when reply_thread_ts is empty.
+When you answer the Slack user, call {reply_tool} with the reply_ref exactly
+as provided and the Slack message text. Do not use raw Slack message-posting
+tools for the final reply.
 After posting to Slack, return a concise final summary of what you did.
 """.strip()
 
@@ -81,8 +89,14 @@ class SlackAgentRoute:
 
 
 @dataclass(slots=True)
+class SlackBotConfig:
+    token: str = ""
+
+
+@dataclass(slots=True)
 class SlackAgentConfig:
     plugin_name: str = "slack"
+    bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
@@ -103,6 +117,17 @@ class SlackAgentEvent:
     message_ts: str
     thread_ts: str
     reply_thread_ts: str
+
+
+@dataclass(frozen=True, slots=True)
+class SlackReplyRef:
+    team_id: str
+    channel_id: str
+    message_ts: str
+    reply_thread_ts: str
+    event_id: str
+    subject_id: str
+    expires_at: int
 
 
 _agent_config = SlackAgentConfig()
@@ -161,6 +186,11 @@ class GetThreadParticipantsInput(gestalt.Model):
         default=True,
         required=False,
     )
+
+
+class SlackEventReplyInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    text: str = gestalt.field(description="Slack message text to send")
 
 
 @gestalt.post_connect
@@ -231,8 +261,14 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
         return gestalt.Response(
             status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
         )
+    if not _agent_config.bot.token:
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "Slack bot token is not configured"},
+        )
 
     try:
+        reply_ref = _sign_reply_ref(event, req.subject.id)
         with req.agent_manager() as agent_manager:
             session_request = _build_agent_session_request(event, route)
             session = agent_manager.create_session(session_request)
@@ -240,7 +276,9 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
             if not session_id:
                 return _server_error("agent manager did not return a session id")
 
-            turn_request = _build_agent_turn_request(event, route, session_id)
+            turn_request = _build_agent_turn_request(
+                event, route, session_id, reply_ref
+            )
             turn = agent_manager.create_turn(turn_request)
     except Exception as err:
         return _server_error(f"failed to start agent turn: {err}")
@@ -251,6 +289,50 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
         "agent_turn_id": turn.id,
         "agent_provider": session.provider_name or _agent_provider(route),
         "status": _agent_execution_status_name(turn.status),
+    }
+
+
+@gestalt.operation(
+    id=SLACK_REPLY_OPERATION,
+    method="POST",
+    description="Reply to the Slack event that started an agent turn",
+    visible=False,
+)
+def slack_events_reply(
+    input: SlackEventReplyInput, req: gestalt.Request
+) -> OperationResult:
+    if not req.subject.id or req.subject.id.startswith("system:"):
+        return gestalt.Response(
+            status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
+        )
+    if not _agent_config.bot.token:
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "Slack bot token is not configured"},
+        )
+
+    text = input.text.strip()
+    if not text:
+        return _bad_request("text is required")
+
+    try:
+        reply_ref = _verify_reply_ref(input.reply_ref, req.subject.id)
+        result = _post_slack_message(
+            _agent_config.bot.token,
+            channel=reply_ref.channel_id,
+            text=text,
+            thread_ts=reply_ref.reply_thread_ts,
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except RuntimeError as err:
+        return _server_error(str(err))
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or reply_ref.channel_id),
+        "ts": str(result.get("ts") or ""),
+        "thread_ts": reply_ref.reply_thread_ts,
     }
 
 
@@ -528,6 +610,141 @@ def _subject_display_name(subject: Any) -> str:
     return str(getattr(subject, "id", "") or "").strip()
 
 
+def _sign_reply_ref(event: SlackAgentEvent, subject_id: str) -> str:
+    payload = {
+        "v": 1,
+        "team_id": event.team_id,
+        "channel_id": event.channel_id,
+        "message_ts": event.message_ts,
+        "reply_thread_ts": event.reply_thread_ts,
+        "event_id": event.event_id,
+        "subject_id": subject_id,
+        "expires_at": int(time.time()) + SLACK_REPLY_REF_TTL_SECONDS,
+    }
+    encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    signature = hmac.new(
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+    ).digest()
+    return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
+
+
+def _verify_reply_ref(reply_ref: str, subject_id: str) -> SlackReplyRef:
+    payload_part, separator, signature_part = reply_ref.strip().partition(".")
+    if not separator:
+        raise ValueError("invalid reply_ref")
+
+    try:
+        encoded_payload = _base64url_decode(payload_part)
+        signature = _base64url_decode(signature_part)
+    except (binascii.Error, ValueError) as err:
+        raise ValueError("invalid reply_ref") from err
+
+    expected_signature = hmac.new(
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(signature, expected_signature):
+        raise ValueError("invalid reply_ref")
+
+    try:
+        payload = json.loads(encoded_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise ValueError("invalid reply_ref") from err
+    if not isinstance(payload, dict):
+        raise ValueError("invalid reply_ref")
+
+    ref = _reply_ref_from_payload(payload)
+    if ref.subject_id != subject_id:
+        raise ValueError("reply_ref does not belong to this subject")
+    if ref.expires_at < int(time.time()):
+        raise ValueError("reply_ref expired")
+    return ref
+
+
+def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
+    if payload.get("v") != 1:
+        raise ValueError("invalid reply_ref")
+    try:
+        expires_at = int(payload.get("expires_at") or 0)
+    except (TypeError, ValueError) as err:
+        raise ValueError("invalid reply_ref") from err
+
+    ref = SlackReplyRef(
+        team_id=str(payload.get("team_id") or "").strip(),
+        channel_id=str(payload.get("channel_id") or "").strip(),
+        message_ts=str(payload.get("message_ts") or "").strip(),
+        reply_thread_ts=str(payload.get("reply_thread_ts") or "").strip(),
+        event_id=str(payload.get("event_id") or "").strip(),
+        subject_id=str(payload.get("subject_id") or "").strip(),
+        expires_at=expires_at,
+    )
+    if not ref.team_id or not ref.channel_id or not ref.subject_id:
+        raise ValueError("invalid reply_ref")
+    return ref
+
+
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _base64url_decode(value: str) -> bytes:
+    if not value:
+        raise ValueError("empty base64url value")
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def _reply_ref_signing_key() -> bytes:
+    token = _agent_config.bot.token
+    if not token:
+        raise RuntimeError("Slack bot token is not configured")
+    return token.encode("utf-8")
+
+
+def _post_slack_message(
+    token: str, *, channel: str, text: str, thread_ts: str
+) -> dict[str, Any]:
+    payload = {
+        "channel": channel,
+        "text": text,
+    }
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+    request = urllib.request.Request(
+        f"{slack_base_url()}/chat.postMessage",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"slack chat.postMessage HTTP error (status {err.code}): {body}"
+        ) from err
+    except urllib.error.URLError as err:
+        raise RuntimeError(
+            f"slack chat.postMessage request failed: {err.reason}"
+        ) from err
+    except json.JSONDecodeError as err:
+        raise RuntimeError("slack chat.postMessage returned invalid JSON") from err
+
+    if not isinstance(response_payload, dict):
+        raise RuntimeError("slack chat.postMessage returned invalid response")
+    if not response_payload.get("ok"):
+        error = response_payload.get("error")
+        if not isinstance(error, str) or not error:
+            error = "unknown_error"
+        raise RuntimeError(f"slack chat.postMessage failed: {error}")
+    return response_payload
+
+
 def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None, str]:
     if _agent_config.routes:
         for route in _agent_config.routes:
@@ -563,21 +780,24 @@ def _build_agent_turn_request(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
     session_id: str,
+    reply_ref: str,
 ) -> Any:
     request = agent_pb2.AgentManagerCreateTurnRequest(
         session_id=session_id,
         model=_agent_model(route),
         messages=[
             agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
-            agent_pb2.AgentMessage(role="user", text=_agent_user_prompt(event)),
+            agent_pb2.AgentMessage(
+                role="user", text=_agent_user_prompt(event, reply_ref)
+            ),
         ],
+        tool_source=_agent_tool_source_native_search(),
         tool_refs=[
-            agent_pb2.AgentToolRef(
+            _agent_tool_ref(
                 plugin=_agent_config.plugin_name,
-                operation="chat.postMessage",
+                operation=SLACK_REPLY_OPERATION,
             )
         ],
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
         idempotency_key=_agent_turn_idempotency_key(event),
     )
     request.metadata.CopyFrom(_agent_metadata(event, route))
@@ -585,6 +805,23 @@ def _build_agent_turn_request(
     if provider_options:
         request.provider_options.CopyFrom(_dict_to_struct(provider_options))
     return request
+
+
+def _agent_tool_source_native_search() -> int:
+    native_value = getattr(agent_pb2, "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH", None)
+    if native_value is not None:
+        return int(native_value)
+    return int(agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT)
+
+
+def _agent_tool_ref(*, plugin: str, operation: str) -> Any:
+    fields = agent_pb2.AgentToolRef.DESCRIPTOR.fields_by_name
+    kwargs = {"operation": operation}
+    if "plugin" in fields:
+        kwargs["plugin"] = plugin
+    else:
+        kwargs["plugin_name"] = plugin
+    return agent_pb2.AgentToolRef(**kwargs)
 
 
 def _agent_session_metadata(event: SlackAgentEvent) -> Any:
@@ -648,7 +885,7 @@ def _agent_provider_options(route: SlackAgentRoute | None) -> dict[str, Any]:
 def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
     parts = [
         DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
-            post_message_tool=f"{_agent_config.plugin_name}.chat.postMessage"
+            reply_tool=f"{_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}"
         )
     ]
     if _agent_config.agent_system_prompt:
@@ -671,9 +908,22 @@ def _agent_config_from_provider_config(
         agent, "providerOptions", "provider_options", "agentProviderOptions"
     )
     routes = _agent_routes_from_provider_config(config, agent)
+    bot = _config_dict(config, "bot")
 
     return SlackAgentConfig(
         plugin_name=plugin_name.strip() or "slack",
+        bot=SlackBotConfig(
+            token=_config_string(
+                bot, "token", "botToken", "bot_token", "accessToken", "access_token"
+            )
+            or _config_string(
+                config,
+                "botToken",
+                "bot_token",
+                "slackBotToken",
+                "slack_bot_token",
+            )
+        ),
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
@@ -753,7 +1003,7 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
     )
 
 
-def _agent_user_prompt(event: SlackAgentEvent) -> str:
+def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
     return "\n".join(
         [
             "Slack event:",
@@ -763,6 +1013,7 @@ def _agent_user_prompt(event: SlackAgentEvent) -> str:
             f"message_ts: {event.message_ts}",
             f"thread_ts: {event.thread_ts}",
             f"reply_thread_ts: {event.reply_thread_ts}",
+            f"reply_ref: {reply_ref}",
             "",
             "Message text:",
             event.text,

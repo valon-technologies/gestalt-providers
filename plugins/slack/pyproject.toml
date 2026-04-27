@@ -26,6 +26,7 @@ vulture-ignore-names = [
   "post_connect",
   "resolve_http_subject",
   "slack_events_handle",
+  "slack_events_reply",
   "conversations_get_message",
   "conversations_find_user_mentions",
   "conversations_get_thread_participants",
