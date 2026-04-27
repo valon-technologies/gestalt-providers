@@ -38,9 +38,9 @@ type storeMeta struct {
 
 const (
 	metadataTableName           = "_gestalt_stores"
-	genericRecordsTableName     = "_gestalt_records_v2"
-	genericIndexTableName       = "_gestalt_index_entries_v2"
-	genericUniqueIndexTableName = "_gestalt_unique_index_entries_v2"
+	genericRecordsTableName     = "_gestalt_records"
+	genericIndexTableName       = "_gestalt_index_entries"
+	genericUniqueIndexTableName = "_gestalt_unique_index_entries"
 	defaultTablePrefix          = ""
 )
 
