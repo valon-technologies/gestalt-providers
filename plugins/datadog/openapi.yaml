@@ -346,6 +346,183 @@ paths:
         "200":
           description: OK
 
+  /api/v1/synthetics/tests:
+    get:
+      operationId: list_synthetics_tests
+      summary: List Synthetic tests
+      parameters:
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 100
+          description: Results per page
+        - name: page_number
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Page number
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/tests/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Test public ID
+    get:
+      operationId: get_synthetics_test
+      summary: Get a Synthetic test
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/tests/api/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: API test public ID
+    get:
+      operationId: get_synthetics_api_test
+      summary: Get a Synthetic API test
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/tests/browser/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Browser test public ID
+    get:
+      operationId: get_synthetics_browser_test
+      summary: Get a Synthetic browser test
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/tests/{public_id}/results:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Test public ID
+    get:
+      operationId: get_synthetics_test_latest_results
+      summary: Get the most recent results for a Synthetic test
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/tests/api/{public_id}/results/{result_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: API test public ID
+      - name: result_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Result ID
+    get:
+      operationId: get_synthetics_api_test_result
+      summary: Get a single Synthetic API test result
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/tests/browser/{public_id}/results/{result_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Browser test public ID
+      - name: result_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Result ID
+    get:
+      operationId: get_synthetics_browser_test_result
+      summary: Get a single Synthetic browser test result
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/locations:
+    get:
+      operationId: list_synthetics_locations
+      summary: List public Synthetic locations
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/private-locations/{location_id}:
+    parameters:
+      - name: location_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Private location ID
+    get:
+      operationId: get_synthetics_private_location
+      summary: Get a private Synthetic location
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/variables:
+    get:
+      operationId: list_synthetics_global_variables
+      summary: List Synthetic global variables
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/variables/{variable_id}:
+    parameters:
+      - name: variable_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Global variable ID
+    get:
+      operationId: get_synthetics_global_variable
+      summary: Get a Synthetic global variable
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/synthetics/settings/default_locations:
+    get:
+      operationId: get_synthetics_default_locations
+      summary: Get default Synthetic locations
+      responses:
+        "200":
+          description: OK
+
 components:
   securitySchemes:
     api_key:
