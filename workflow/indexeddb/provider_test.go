@@ -16,7 +16,9 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -56,10 +58,11 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	if call.GetTarget().GetPluginName() != "roadmap" || call.GetTarget().GetOperation() != "sync" {
+	plugin := call.GetTarget().GetPlugin()
+	if plugin.GetPluginName() != "roadmap" || plugin.GetOperation() != "sync" {
 		t.Fatalf("target = %#v", call.GetTarget())
 	}
-	if got := call.GetTarget().GetInput().AsMap()["mode"]; got != "full" {
+	if got := plugin.GetInput().AsMap()["mode"]; got != "full" {
 		t.Fatalf("target.input.mode = %v, want full", got)
 	}
 	if call.GetCreatedBy().GetSubjectId() != "user:123" {
@@ -147,6 +150,68 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	}
 	if len(host.calls()) != 1 {
 		t.Fatalf("host calls = %d, want 1", len(host.calls()))
+	}
+}
+
+func TestProviderGetRunMigratesStoredFlatPluginTarget(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	if err := provider.runStore.Put(ctx, gestalt.Record{
+		"id":           "legacy-flat-run",
+		"plugin_name":  "roadmap",
+		"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED),
+		"operation":    "sync",
+		"target_json":  `{"pluginName":"roadmap","operation":"sync","connection":"prod","instance":"main","input":{"mode":"legacy"}}`,
+		"trigger_kind": triggerKindManual,
+		"created_at":   time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC),
+		"result_body":  `{"ok":true}`,
+		"created_by":   map[string]any{"subject_id": "user:123"},
+	}); err != nil {
+		t.Fatalf("Put(legacy run): %v", err)
+	}
+
+	run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "legacy-flat-run"})
+	if err != nil {
+		t.Fatalf("GetRun(legacy flat): %v", err)
+	}
+	plugin := run.GetTarget().GetPlugin()
+	if plugin.GetPluginName() != "roadmap" ||
+		plugin.GetOperation() != "sync" ||
+		plugin.GetConnection() != "prod" ||
+		plugin.GetInstance() != "main" {
+		t.Fatalf("target.plugin = %#v", plugin)
+	}
+	if got := plugin.GetInput().AsMap()["mode"]; got != "legacy" {
+		t.Fatalf("target.plugin.input.mode = %v, want legacy", got)
+	}
+
+	if err := provider.runStore.Put(ctx, gestalt.Record{
+		"id":           "partial-nested-run",
+		"plugin_name":  "roadmap",
+		"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED),
+		"operation":    "sync",
+		"target_json":  `{"plugin":{"operation":"sync"}}`,
+		"trigger_kind": triggerKindManual,
+		"created_at":   time.Date(2026, time.April, 16, 12, 1, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("Put(partial nested run): %v", err)
+	}
+
+	partial, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "partial-nested-run"})
+	if err != nil {
+		t.Fatalf("GetRun(partial nested): %v", err)
+	}
+	partialPlugin := partial.GetTarget().GetPlugin()
+	if partialPlugin.GetPluginName() != "" || partialPlugin.GetOperation() != "sync" {
+		t.Fatalf("partial target.plugin = %#v", partialPlugin)
 	}
 }
 
@@ -361,7 +426,7 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	if ref.GetTarget().GetAgent().GetProviderName() != "managed" {
 		t.Fatalf("agent target = %#v", ref.GetTarget())
 	}
-	if ref.GetTarget().GetPluginName() != "" || ref.GetTarget().GetPlugin() != nil {
+	if ref.GetTarget().GetPlugin() != nil {
 		t.Fatalf("agent target included plugin fields: %#v", ref.GetTarget())
 	}
 
@@ -374,6 +439,36 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	}
 	if got.GetTargetFingerprint() != "sha256:agent-target" {
 		t.Fatalf("round-tripped target_fingerprint = %q", got.GetTargetFingerprint())
+	}
+}
+
+func TestProviderAgentTargetDropsLegacyFlatPluginFields(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	target := protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder")
+	setLegacyFlatStringField(target, 1, " ")
+	setLegacyFlatStringField(target, 2, " ")
+
+	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId:   "agent-flat-cleanup",
+		Cron:         "* * * * *",
+		Timezone:     "UTC",
+		Target:       target,
+		ExecutionRef: "agent-ref",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedule(agent with legacy flat fields): %v", err)
+	}
+	if schedule.GetTarget().GetPlugin() != nil || hasLegacyFlatPluginTargetWire(schedule.GetTarget()) {
+		t.Fatalf("schedule target included plugin fields: %#v", schedule.GetTarget())
 	}
 }
 
@@ -556,7 +651,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if schedule.GetTarget().GetAgent().GetProviderName() != "managed" {
 		t.Fatalf("schedule target = %#v", schedule.GetTarget())
 	}
-	if schedule.GetTarget().GetPluginName() != "" || schedule.GetTarget().GetPlugin() != nil {
+	if schedule.GetTarget().GetPlugin() != nil {
 		t.Fatalf("schedule target included plugin fields: %#v", schedule.GetTarget())
 	}
 
@@ -594,7 +689,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 		toolRefs[1].GetOperation() != "" {
 		t.Fatalf("tool refs = %#v", toolRefs)
 	}
-	if call.GetTarget().GetPluginName() != "" || call.GetTarget().GetPlugin() != nil {
+	if call.GetTarget().GetPlugin() != nil {
 		t.Fatalf("call target included plugin fields: %#v", call.GetTarget())
 	}
 	if call.GetTrigger().GetSchedule().GetScheduleId() != "slack-reminder" {
@@ -1063,10 +1158,55 @@ func startTestWorkflowHost(t *testing.T, host proto.WorkflowHostServer) {
 func protoBoundTarget(t *testing.T, pluginName, operation string, input map[string]any) *proto.BoundWorkflowTarget {
 	t.Helper()
 	return &proto.BoundWorkflowTarget{
-		PluginName: pluginName,
-		Operation:  operation,
-		Input:      mustStruct(t, input),
+		Plugin: &proto.BoundWorkflowPluginTarget{
+			PluginName: pluginName,
+			Operation:  operation,
+			Input:      mustStruct(t, input),
+		},
 	}
+}
+
+func setLegacyFlatStringField(target *proto.BoundWorkflowTarget, number protoreflect.FieldNumber, value string) {
+	message := target.ProtoReflect()
+	field := message.Descriptor().Fields().ByNumber(number)
+	if field != nil {
+		message.Set(field, protoreflect.ValueOfString(value))
+		return
+	}
+	raw := append([]byte(nil), message.GetUnknown()...)
+	raw = protowire.AppendTag(raw, protowire.Number(number), protowire.BytesType)
+	raw = protowire.AppendString(raw, value)
+	message.SetUnknown(raw)
+}
+
+func hasLegacyFlatPluginTargetWire(target *proto.BoundWorkflowTarget) bool {
+	if target == nil {
+		return false
+	}
+	message := target.ProtoReflect()
+	fields := message.Descriptor().Fields()
+	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
+		field := fields.ByNumber(number)
+		if field != nil && message.Has(field) {
+			return true
+		}
+	}
+	raw := message.GetUnknown()
+	for len(raw) > 0 {
+		number, typ, tagLen := protowire.ConsumeTag(raw)
+		if tagLen < 0 {
+			return false
+		}
+		if number >= 1 && number <= 5 {
+			return true
+		}
+		valueLen := protowire.ConsumeFieldValue(number, typ, raw[tagLen:])
+		if valueLen < 0 {
+			return false
+		}
+		raw = raw[tagLen+valueLen:]
+	}
+	return false
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {

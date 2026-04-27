@@ -25,7 +25,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -175,6 +177,14 @@ type scopedTarget struct {
 	Instance   string
 	Input      map[string]any
 	Target     *proto.BoundWorkflowTarget
+}
+
+type workflowPluginTargetFields struct {
+	PluginName string
+	Operation  string
+	Connection string
+	Instance   string
+	Input      *structpb.Struct
 }
 
 func New() *Provider {
@@ -1506,12 +1516,7 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	}
 	pluginName = strings.TrimSpace(pluginName)
 	if agentTarget := target.GetAgent(); agentTarget != nil {
-		if target.GetPlugin() != nil ||
-			strings.TrimSpace(target.GetPluginName()) != "" ||
-			strings.TrimSpace(target.GetOperation()) != "" ||
-			strings.TrimSpace(target.GetConnection()) != "" ||
-			strings.TrimSpace(target.GetInstance()) != "" ||
-			target.GetInput() != nil {
+		if target.GetPlugin() != nil || !flatPluginTargetFields(target).empty() {
 			return scopedTarget{}, errors.New("target cannot include both agent and plugin fields")
 		}
 		if pluginName != "" {
@@ -1521,33 +1526,21 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 		if agentProvider == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
 		}
-		normalized := cloneTarget(target)
+		normalized := &proto.BoundWorkflowTarget{Agent: cloneAgentTarget(agentTarget)}
 		if err := normalizeAgentTarget(normalized.GetAgent(), agentProvider); err != nil {
 			return scopedTarget{}, err
 		}
-		normalized.PluginName = ""
-		normalized.Operation = ""
-		normalized.Connection = ""
-		normalized.Instance = ""
-		normalized.Input = nil
 		return scopedTarget{
 			PluginName: "agent:" + agentProvider,
 			Target:     normalized,
 		}, nil
 	}
-	pluginTarget := target.GetPlugin()
-	targetPlugin := strings.TrimSpace(target.GetPluginName())
-	operation := strings.TrimSpace(target.GetOperation())
-	connection := strings.TrimSpace(target.GetConnection())
-	instance := strings.TrimSpace(target.GetInstance())
-	input := cloneStructMap(target.GetInput())
-	if pluginTarget != nil {
-		targetPlugin = strings.TrimSpace(pluginTarget.GetPluginName())
-		operation = strings.TrimSpace(pluginTarget.GetOperation())
-		connection = strings.TrimSpace(pluginTarget.GetConnection())
-		instance = strings.TrimSpace(pluginTarget.GetInstance())
-		input = cloneStructMap(pluginTarget.GetInput())
-	}
+	pluginFields := pluginTargetFields(target)
+	targetPlugin := pluginFields.PluginName
+	operation := pluginFields.Operation
+	connection := pluginFields.Connection
+	instance := pluginFields.Instance
+	input := cloneStructMap(pluginFields.Input)
 	if pluginName == "" {
 		pluginName = targetPlugin
 	}
@@ -1560,20 +1553,7 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	if operation == "" {
 		return scopedTarget{}, errors.New("target.operation is required")
 	}
-	normalized := &proto.BoundWorkflowTarget{
-		PluginName: pluginName,
-		Operation:  operation,
-		Connection: connection,
-		Instance:   instance,
-		Input:      structFromAny(input),
-		Plugin: &proto.BoundWorkflowPluginTarget{
-			PluginName: pluginName,
-			Operation:  operation,
-			Connection: connection,
-			Instance:   instance,
-			Input:      structFromAny(input),
-		},
-	}
+	normalized := pluginTargetProto(pluginName, operation, connection, instance, input)
 	return scopedTarget{
 		PluginName: pluginName,
 		Operation:  operation,
@@ -2029,6 +2009,127 @@ func timePtr(value time.Time) *time.Time {
 var workflowTargetJSON = protojson.MarshalOptions{EmitUnpopulated: false}
 var workflowTargetJSONUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
 
+func pluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetFields {
+	if target == nil {
+		return workflowPluginTargetFields{}
+	}
+	if plugin := target.GetPlugin(); plugin != nil {
+		return pluginMessageTargetFields(plugin)
+	}
+	return flatPluginTargetFields(target)
+}
+
+func pluginMessageTargetFields(plugin *proto.BoundWorkflowPluginTarget) workflowPluginTargetFields {
+	if plugin == nil {
+		return workflowPluginTargetFields{}
+	}
+	return workflowPluginTargetFields{
+		PluginName: strings.TrimSpace(plugin.GetPluginName()),
+		Operation:  strings.TrimSpace(plugin.GetOperation()),
+		Connection: strings.TrimSpace(plugin.GetConnection()),
+		Instance:   strings.TrimSpace(plugin.GetInstance()),
+		Input:      cloneStruct(plugin.GetInput()),
+	}
+}
+
+func flatPluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetFields {
+	if target == nil {
+		return workflowPluginTargetFields{}
+	}
+	var out workflowPluginTargetFields
+	message := target.ProtoReflect()
+	fields := message.Descriptor().Fields()
+	out.PluginName = protoReflectStringField(message, fields, 1)
+	out.Operation = protoReflectStringField(message, fields, 2)
+	out.Connection = protoReflectStringField(message, fields, 4)
+	out.Instance = protoReflectStringField(message, fields, 5)
+	if input := protoReflectStructField(message, fields, 3); input != nil {
+		out.Input = input
+	}
+	out.mergeUnknown(message.GetUnknown())
+	return out
+}
+
+func protoReflectStringField(message protoreflect.Message, fields protoreflect.FieldDescriptors, number protoreflect.FieldNumber) string {
+	field := fields.ByNumber(number)
+	if field == nil {
+		return ""
+	}
+	return strings.TrimSpace(message.Get(field).String())
+}
+
+func protoReflectStructField(message protoreflect.Message, fields protoreflect.FieldDescriptors, number protoreflect.FieldNumber) *structpb.Struct {
+	field := fields.ByNumber(number)
+	if field == nil || !message.Has(field) {
+		return nil
+	}
+	if input, ok := message.Get(field).Message().Interface().(*structpb.Struct); ok {
+		return cloneStruct(input)
+	}
+	return nil
+}
+
+func (f *workflowPluginTargetFields) mergeUnknown(raw protoreflect.RawFields) {
+	for len(raw) > 0 {
+		number, typ, tagLen := protowire.ConsumeTag(raw)
+		if tagLen < 0 {
+			return
+		}
+		value := raw[tagLen:]
+		switch typ {
+		case protowire.BytesType:
+			bytesValue, valueLen := protowire.ConsumeBytes(value)
+			if valueLen < 0 {
+				return
+			}
+			f.mergeUnknownBytesField(number, bytesValue)
+			raw = value[valueLen:]
+		default:
+			valueLen := protowire.ConsumeFieldValue(number, typ, value)
+			if valueLen < 0 {
+				return
+			}
+			raw = value[valueLen:]
+		}
+	}
+}
+
+func (f *workflowPluginTargetFields) mergeUnknownBytesField(number protowire.Number, value []byte) {
+	switch number {
+	case 1:
+		if f.PluginName == "" {
+			f.PluginName = strings.TrimSpace(string(value))
+		}
+	case 2:
+		if f.Operation == "" {
+			f.Operation = strings.TrimSpace(string(value))
+		}
+	case 3:
+		if f.Input == nil {
+			var input structpb.Struct
+			if err := gproto.Unmarshal(value, &input); err == nil {
+				f.Input = cloneStruct(&input)
+			}
+		}
+	case 4:
+		if f.Connection == "" {
+			f.Connection = strings.TrimSpace(string(value))
+		}
+	case 5:
+		if f.Instance == "" {
+			f.Instance = strings.TrimSpace(string(value))
+		}
+	}
+}
+
+func (f workflowPluginTargetFields) empty() bool {
+	return strings.TrimSpace(f.PluginName) == "" &&
+		strings.TrimSpace(f.Operation) == "" &&
+		strings.TrimSpace(f.Connection) == "" &&
+		strings.TrimSpace(f.Instance) == "" &&
+		f.Input == nil
+}
+
 func targetJSON(target *proto.BoundWorkflowTarget) string {
 	if target == nil {
 		return ""
@@ -2063,11 +2164,12 @@ func migrateStoredTargetJSON(value string) (string, bool) {
 	if err := json.Unmarshal([]byte(value), &target); err != nil {
 		return value, false
 	}
+	changed := migrateStoredPluginTarget(target)
 	agent, ok := target["agent"].(map[string]any)
-	if !ok {
-		return value, false
+	if ok {
+		changed = migrateStoredAgentTarget(agent) || changed
 	}
-	if !migrateStoredAgentTarget(agent) {
+	if !changed {
 		return value, false
 	}
 	data, err := json.Marshal(target)
@@ -2075,6 +2177,70 @@ func migrateStoredTargetJSON(value string) (string, bool) {
 		return value, false
 	}
 	return string(data), true
+}
+
+func migrateStoredPluginTarget(target map[string]any) bool {
+	plugin, hasPlugin := target["plugin"].(map[string]any)
+	if !hasPlugin {
+		plugin = map[string]any{}
+	}
+	changed := false
+	if value := firstStringField(plugin, target, "pluginName", "plugin_name"); value != "" && stringField(plugin, "pluginName") == "" {
+		plugin["pluginName"] = value
+		changed = true
+	}
+	if rawPlugin, ok := target["plugin"].(string); ok {
+		value := strings.TrimSpace(rawPlugin)
+		if value != "" && stringField(plugin, "pluginName") == "" {
+			plugin["pluginName"] = value
+			changed = true
+		}
+		if value == "" && len(plugin) == 0 {
+			delete(target, "plugin")
+			changed = true
+		}
+	}
+	if value := firstStringField(plugin, target, "operation"); value != "" && stringField(plugin, "operation") == "" {
+		plugin["operation"] = value
+		changed = true
+	}
+	if value := firstStringField(plugin, target, "connection"); value != "" && stringField(plugin, "connection") == "" {
+		plugin["connection"] = value
+		changed = true
+	}
+	if value := firstStringField(plugin, target, "instance"); value != "" && stringField(plugin, "instance") == "" {
+		plugin["instance"] = value
+		changed = true
+	}
+	if _, ok := plugin["input"]; !ok {
+		if input, ok := target["input"]; ok {
+			plugin["input"] = input
+			changed = true
+		}
+	}
+	if len(plugin) > 0 && !hasPlugin {
+		target["plugin"] = plugin
+		changed = true
+	}
+	for _, key := range []string{"pluginName", "plugin_name", "operation", "input", "connection", "instance"} {
+		if _, ok := target[key]; ok {
+			delete(target, key)
+			changed = true
+		}
+	}
+	return changed
+}
+
+func firstStringField(primary map[string]any, fallback map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringField(primary, key); value != "" {
+			return value
+		}
+		if value := stringField(fallback, key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func migrateStoredAgentTarget(agent map[string]any) bool {
@@ -2222,21 +2388,13 @@ func normalizedWorkflowTargetFingerprintPayload(target *proto.BoundWorkflowTarge
 }
 
 func workflowPluginFingerprintPayload(target *proto.BoundWorkflowTarget) workflowFingerprintPluginTarget {
-	if plugin := target.GetPlugin(); plugin != nil {
-		return workflowFingerprintPluginTarget{
-			PluginName: strings.TrimSpace(plugin.GetPluginName()),
-			Operation:  strings.TrimSpace(plugin.GetOperation()),
-			Connection: strings.TrimSpace(plugin.GetConnection()),
-			Instance:   strings.TrimSpace(plugin.GetInstance()),
-			Input:      nilIfEmptyMap(cloneStructMap(plugin.GetInput())),
-		}
-	}
+	plugin := pluginTargetFields(target)
 	return workflowFingerprintPluginTarget{
-		PluginName: strings.TrimSpace(target.GetPluginName()),
-		Operation:  strings.TrimSpace(target.GetOperation()),
-		Connection: strings.TrimSpace(target.GetConnection()),
-		Instance:   strings.TrimSpace(target.GetInstance()),
-		Input:      nilIfEmptyMap(cloneStructMap(target.GetInput())),
+		PluginName: plugin.PluginName,
+		Operation:  plugin.Operation,
+		Connection: plugin.Connection,
+		Instance:   plugin.Instance,
+		Input:      nilIfEmptyMap(cloneStructMap(plugin.Input)),
 	}
 }
 
@@ -2643,7 +2801,7 @@ func (r workflowScheduleRecord) targetProto() *proto.BoundWorkflowTarget {
 	if r.Target != nil {
 		return cloneTarget(r.Target)
 	}
-	return legacyPluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
+	return pluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
 }
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
@@ -2713,7 +2871,7 @@ func (r workflowEventTriggerRecord) targetProto() *proto.BoundWorkflowTarget {
 	if r.Target != nil {
 		return cloneTarget(r.Target)
 	}
-	return legacyPluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
+	return pluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
 }
 
 func (r workflowRunRecord) toRecord() gestalt.Record {
@@ -2803,24 +2961,7 @@ func (r workflowRunRecord) targetProto() *proto.BoundWorkflowTarget {
 	if r.Target != nil {
 		return cloneTarget(r.Target)
 	}
-	return legacyPluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
-}
-
-func legacyPluginTargetProto(pluginName, operation, connection, instance string, input map[string]any) *proto.BoundWorkflowTarget {
-	return &proto.BoundWorkflowTarget{
-		PluginName: pluginName,
-		Operation:  operation,
-		Connection: connection,
-		Instance:   instance,
-		Input:      structFromAny(input),
-		Plugin: &proto.BoundWorkflowPluginTarget{
-			PluginName: pluginName,
-			Operation:  operation,
-			Connection: connection,
-			Instance:   instance,
-			Input:      structFromAny(input),
-		},
-	}
+	return pluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
 }
 
 func (r workflowRunRecord) triggerProto() *proto.WorkflowRunTrigger {
@@ -3001,7 +3142,7 @@ func (r workflowExecutionReferenceRecord) targetProto() *proto.BoundWorkflowTarg
 	if r.Target != nil {
 		return cloneTarget(r.Target)
 	}
-	return legacyPluginTargetProto(r.TargetPlugin, r.TargetOperation, r.TargetConnection, r.TargetInstance, nil)
+	return pluginTargetProto(r.TargetPlugin, r.TargetOperation, r.TargetConnection, r.TargetInstance, nil)
 }
 
 func executionReferencePermissionsJSON(values []*proto.WorkflowAccessPermission) (string, error) {
@@ -3077,6 +3218,25 @@ func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
 		return nil
 	}
 	return gproto.Clone(target).(*proto.BoundWorkflowTarget)
+}
+
+func cloneAgentTarget(target *proto.BoundWorkflowAgentTarget) *proto.BoundWorkflowAgentTarget {
+	if target == nil {
+		return nil
+	}
+	return gproto.Clone(target).(*proto.BoundWorkflowAgentTarget)
+}
+
+func pluginTargetProto(pluginName, operation, connection, instance string, input map[string]any) *proto.BoundWorkflowTarget {
+	return &proto.BoundWorkflowTarget{
+		Plugin: &proto.BoundWorkflowPluginTarget{
+			PluginName: pluginName,
+			Operation:  operation,
+			Connection: connection,
+			Instance:   instance,
+			Input:      structFromAny(input),
+		},
+	}
 }
 
 func cloneAccessPermissions(values []*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
