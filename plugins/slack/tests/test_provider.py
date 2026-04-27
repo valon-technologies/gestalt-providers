@@ -273,8 +273,11 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(turn_request.session_id, "session-123")
         self.assertEqual(turn_request.model, "deep")
         self.assertEqual(
-            turn_request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES
+            turn_request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
         )
+        self.assertEqual(len(turn_request.tool_refs), 1)
+        self.assertEqual(turn_request.tool_refs[0].plugin, "slack")
+        self.assertEqual(turn_request.tool_refs[0].operation, "chat.postMessage")
         self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
         self.assertIn("slack.chat.postMessage", turn_request.messages[0].text)
         self.assertIn(

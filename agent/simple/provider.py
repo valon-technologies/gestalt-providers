@@ -36,7 +36,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.15",
+            version="0.0.1-alpha.16",
         )
 
     def warnings(self) -> list[str]:
@@ -195,6 +195,7 @@ class SimpleAgentRuntimeProvider(
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
+            native_tool_search=True,
         )
 
     def _require_runtime(

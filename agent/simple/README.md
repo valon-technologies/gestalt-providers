@@ -164,11 +164,11 @@ Example agent-manager turn request for that session:
   ],
   "toolRefs": [
     {
-      "pluginName": "incident_io",
+      "plugin": "incident_io",
       "operation": "incidents.list"
     }
   ],
-  "toolSource": "AGENT_TOOL_SOURCE_MODE_EXPLICIT",
+  "toolSource": "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH",
   "responseSchema": {
     "type": "object",
     "properties": {

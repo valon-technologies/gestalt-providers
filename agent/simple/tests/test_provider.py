@@ -175,10 +175,25 @@ def _record_id(record: Any) -> str:
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
+        self.search_requests: list[dict[str, Any]] = []
+        self.tools: list[Any] = []
         self.wait_until_released = threading.Event()
         self.pause_on_lookup = False
 
+    def SearchTools(self, request: Any, context: grpc.ServicerContext) -> Any:
+        del context
+        self.search_requests.append(
+            {
+                "session_id": request.session_id,
+                "turn_id": request.turn_id,
+                "query": request.query,
+                "max_results": request.max_results,
+            }
+        )
+        return agent_pb2.SearchAgentToolsResponse(tools=list(self.tools))
+
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
+        del context
         arguments = json_format.MessageToDict(request.arguments)
         self.requests.append(
             {
@@ -192,6 +207,17 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         if self.pause_on_lookup:
             self.wait_until_released.wait(timeout=5)
         return agent_pb2.ExecuteAgentToolResponse(status=200, body=json.dumps({"echo": arguments}))
+
+
+def _fake_resolved_tool(*, name: str) -> Any:
+    tool_parameters = struct_pb2.Struct()
+    tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
+    return agent_pb2.ResolvedAgentTool(
+        id="lookup",
+        name=name,
+        description="Look up a historical figure",
+        parameters_schema=tool_parameters,
+    )
 
 
 class _FakeOpenAIChatServer:
@@ -399,6 +425,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         assert _host_servicer is not None
         assert _indexeddb_servicer is not None
         _host_servicer.requests.clear()
+        _host_servicer.search_requests.clear()
+        _host_servicer.tools = [_fake_resolved_tool(name="person_lookup")]
         _host_servicer.pause_on_lookup = False
         _host_servicer.wait_until_released.set()
         _indexeddb_servicer.reset()
@@ -496,9 +524,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         message_metadata = struct_pb2.Struct()
         message_metadata.update({"source": "slack", "thread": "thread-123"})
 
-        tool_parameters = struct_pb2.Struct()
-        tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
-
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
                 turn_id="turn-success",
@@ -515,14 +540,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
                             )
                         ],
                         metadata=message_metadata,
-                    )
-                ],
-                tools=[
-                    agent_pb2.ResolvedAgentTool(
-                        id="lookup",
-                        name="person_lookup",
-                        description="Look up a historical figure",
-                        parameters_schema=tool_parameters,
                     )
                 ],
                 response_schema=response_schema,
@@ -623,6 +640,17 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(len(listed_turns.turns), 1)
 
         assert _host_servicer is not None
+        self.assertEqual(
+            _host_servicer.search_requests,
+            [
+                {
+                    "session_id": "session-success",
+                    "turn_id": "turn-success",
+                    "query": "Who is Ada Lovelace?",
+                    "max_results": 20,
+                }
+            ],
+        )
         self.assertEqual(len(_host_servicer.requests), 1)
         self.assertEqual(
             _host_servicer.requests[0],
@@ -885,9 +913,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         provider_options = struct_pb2.Struct()
         provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
-        tool_parameters = struct_pb2.Struct()
-        tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}})
-
+        _host_servicer.tools = [_fake_resolved_tool(name="")]
         _host_servicer.pause_on_lookup = True
         _host_servicer.wait_until_released.clear()
 
@@ -901,11 +927,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     idempotency_key="idem-cancel",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Who is Grace Hopper?")],
-                    tools=[
-                        agent_pb2.ResolvedAgentTool(
-                            id="lookup", description="Look up a historical figure", parameters_schema=tool_parameters
-                        )
-                    ],
                     provider_options=provider_options,
                 )
             )
@@ -938,6 +959,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(canceled.status_message, "user canceled")
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
+        self.assertEqual(len(_host_servicer.search_requests), 1)
         self.assertEqual(len(fake_llm.requests), 1)
         self.assertEqual(
             [event.type for event in events.events],
@@ -1125,9 +1147,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
             {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
         )
 
-        tool_parameters = struct_pb2.Struct()
-        tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
-
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
                 turn_id="turn-anthropic",
@@ -1135,14 +1154,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-anthropic",
                 model="anthropic/claude-fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Who is Ada Lovelace?")],
-                tools=[
-                    agent_pb2.ResolvedAgentTool(
-                        id="lookup",
-                        name="person_lookup",
-                        description="Look up a historical figure",
-                        parameters_schema=tool_parameters,
-                    )
-                ],
                 response_schema=response_schema,
                 provider_options=provider_options,
             )
@@ -1162,6 +1173,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
 
         assert _host_servicer is not None
+        self.assertEqual(len(_host_servicer.search_requests), 1)
         self.assertEqual(
             _host_servicer.requests,
             [

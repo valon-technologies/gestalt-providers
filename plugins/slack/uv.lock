@@ -13,8 +13,8 @@ wheels = [
 
 [[package]]
 name = "gestalt-sdk"
-version = "0.0.1a17"
-source = { registry = "https://pypi.org/simple" }
+version = "0.0.1a1"
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#8ec93bb37dbd01a8bcad80e5f6a0fc5d24600287" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
@@ -22,14 +22,10 @@ dependencies = [
     { name = "pyyaml" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/d2/b591a7b320315ad742cbb5f87b9cbdc196481ddac767d551045b7136c5c0/gestalt_sdk-0.0.1a17.tar.gz", hash = "sha256:07c1c23752e0ab6fdda2d41bc61a9f353cb2b198f836eca08d46f9ca51d498b0", size = 111185 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/b0/287684f19365d6224d5e8da9f2d39688b23f0aa0a4550806b39465c63445/gestalt_sdk-0.0.1a17-py3-none-any.whl", hash = "sha256:cb0b7b9f687856ecca78d51b88b34082b4bcc511d9e127c1d7f1e48cf74339cb", size = 103776 },
-]
 
 [[package]]
 name = "gestalt-slack"
-version = "0.0.1a2"
+version = "0.0.1a3"
 source = { virtual = "." }
 dependencies = [
     { name = "gestalt-sdk" },
@@ -43,7 +39,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gestalt-sdk", specifier = "==0.0.1a17" }]
+requires-dist = [{ name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" }]
 
 [package.metadata.requires-dev]
 dev = [

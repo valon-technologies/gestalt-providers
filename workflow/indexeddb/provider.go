@@ -54,6 +54,8 @@ const (
 
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
+
+	legacyExplicitNoToolsPlugin = "__gestalt_legacy_explicit_no_tools__"
 )
 
 type config struct {
@@ -1591,10 +1593,8 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 	target.Prompt = strings.TrimSpace(target.GetPrompt())
 	switch target.GetToolSource() {
 	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_UNSPECIFIED:
-		target.ToolSource = proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT
-	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT:
-	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES:
-		return errors.New("target.agent.tool_source cannot inherit invokes for workflow targets")
+		target.ToolSource = proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
+	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH:
 	default:
 		return fmt.Errorf("target.agent.tool_source %v is invalid", target.GetToolSource())
 	}
@@ -1608,17 +1608,14 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 		if ref == nil {
 			return fmt.Errorf("target.agent.tool_refs[%d] is required", i)
 		}
-		ref.PluginName = strings.TrimSpace(ref.GetPluginName())
+		ref.Plugin = strings.TrimSpace(ref.GetPlugin())
 		ref.Operation = strings.TrimSpace(ref.GetOperation())
 		ref.Connection = strings.TrimSpace(ref.GetConnection())
 		ref.Instance = strings.TrimSpace(ref.GetInstance())
 		ref.Title = strings.TrimSpace(ref.GetTitle())
 		ref.Description = strings.TrimSpace(ref.GetDescription())
-		if ref.GetPluginName() == "" {
-			return fmt.Errorf("target.agent.tool_refs[%d].plugin_name is required", i)
-		}
-		if ref.GetOperation() == "" {
-			return fmt.Errorf("target.agent.tool_refs[%d].operation is required", i)
+		if ref.GetPlugin() == "" {
+			return fmt.Errorf("target.agent.tool_refs[%d].plugin is required", i)
 		}
 	}
 	return nil
@@ -2044,15 +2041,352 @@ func targetJSON(target *proto.BoundWorkflowTarget) string {
 }
 
 func targetFromRecordValue(raw any) *proto.BoundWorkflowTarget {
+	target, _ := targetFromRecordValueWithMigration(raw)
+	return target
+}
+
+func targetFromRecordValueWithMigration(raw any) (*proto.BoundWorkflowTarget, bool) {
 	value := strings.TrimSpace(stringValue(raw))
 	if value == "" {
-		return nil
+		return nil, false
 	}
+	value, migrated := migrateStoredTargetJSON(value)
 	target := &proto.BoundWorkflowTarget{}
 	if err := workflowTargetJSONUnmarshal.Unmarshal([]byte(value), target); err != nil {
+		return nil, false
+	}
+	return cloneTarget(target), migrated
+}
+
+func migrateStoredTargetJSON(value string) (string, bool) {
+	var target map[string]any
+	if err := json.Unmarshal([]byte(value), &target); err != nil {
+		return value, false
+	}
+	agent, ok := target["agent"].(map[string]any)
+	if !ok {
+		return value, false
+	}
+	if !migrateStoredAgentTarget(agent) {
+		return value, false
+	}
+	data, err := json.Marshal(target)
+	if err != nil {
+		return value, false
+	}
+	return string(data), true
+}
+
+func migrateStoredAgentTarget(agent map[string]any) bool {
+	changed := false
+	rawRefs, _ := agent["toolRefs"].([]any)
+	for _, rawRef := range rawRefs {
+		ref, ok := rawRef.(map[string]any)
+		if !ok {
+			continue
+		}
+		if stringField(ref, "plugin") == "" {
+			if pluginName := stringField(ref, "pluginName"); pluginName != "" {
+				ref["plugin"] = pluginName
+				changed = true
+			}
+		}
+		if _, ok := ref["pluginName"]; ok {
+			delete(ref, "pluginName")
+			changed = true
+		}
+	}
+	if stringField(agent, "toolSource") != "AGENT_TOOL_SOURCE_MODE_EXPLICIT" {
+		return changed
+	}
+	agent["toolSource"] = "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH"
+	changed = true
+	if hasStoredAgentToolRef(rawRefs) {
+		return changed
+	}
+	agent["toolRefs"] = []any{map[string]any{
+		"plugin":      legacyExplicitNoToolsPlugin,
+		"description": "legacy explicit target without tool refs; fail closed instead of searching all tools",
+	}}
+	return true
+}
+
+func hasStoredAgentToolRef(refs []any) bool {
+	for _, rawRef := range refs {
+		ref, ok := rawRef.(map[string]any)
+		if ok && stringField(ref, "plugin") != "" {
+			return true
+		}
+	}
+	return false
+}
+
+type workflowFingerprintTarget struct {
+	PluginName string
+	Operation  string
+	Connection string
+	Instance   string
+	Input      map[string]any
+	Plugin     *workflowFingerprintPluginTarget
+	Agent      *workflowFingerprintAgentTarget
+}
+
+type workflowFingerprintPluginTarget struct {
+	PluginName string
+	Operation  string
+	Connection string
+	Instance   string
+	Input      map[string]any
+}
+
+type workflowFingerprintAgentTarget struct {
+	ProviderName    string
+	Model           string
+	Prompt          string
+	Messages        []agentFingerprintMessage
+	ToolRefs        []agentFingerprintToolRef
+	ToolSource      string
+	ResponseSchema  map[string]any
+	ProviderOptions map[string]any
+	Metadata        map[string]any
+	TimeoutSeconds  int
+}
+
+type agentFingerprintMessage struct {
+	Role     string
+	Text     string
+	Parts    []agentFingerprintMessagePart
+	Metadata map[string]any
+}
+
+type agentFingerprintMessagePart struct {
+	Type       string
+	Text       string
+	JSON       map[string]any
+	ToolCall   *agentFingerprintToolCallPart
+	ToolResult *agentFingerprintToolResultPart
+	ImageRef   *agentFingerprintImageRefPart
+}
+
+type agentFingerprintToolCallPart struct {
+	ID        string
+	ToolID    string
+	Arguments map[string]any
+}
+
+type agentFingerprintToolResultPart struct {
+	ToolCallID string
+	Status     int
+	Content    string
+	Output     map[string]any
+}
+
+type agentFingerprintImageRefPart struct {
+	URI      string
+	MIMEType string
+}
+
+type agentFingerprintToolRef struct {
+	Plugin      string
+	Operation   string
+	Connection  string
+	Instance    string
+	Title       string
+	Description string
+}
+
+func workflowTargetFingerprint(target *proto.BoundWorkflowTarget) (string, error) {
+	if target.GetAgent() != nil && workflowPluginTargetSet(target) {
+		return "", errors.New("target cannot include both agent and plugin fields")
+	}
+	payload := normalizedWorkflowTargetFingerprintPayload(target)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func normalizedWorkflowTargetFingerprintPayload(target *proto.BoundWorkflowTarget) workflowFingerprintTarget {
+	out := workflowFingerprintTarget{}
+	if agent := target.GetAgent(); agent != nil {
+		out.Agent = workflowAgentFingerprintPayload(agent)
+		return out
+	}
+	plugin := workflowPluginFingerprintPayload(target)
+	if !workflowFingerprintPluginTargetEmpty(plugin) {
+		out.Plugin = &plugin
+	}
+	return out
+}
+
+func workflowPluginFingerprintPayload(target *proto.BoundWorkflowTarget) workflowFingerprintPluginTarget {
+	if plugin := target.GetPlugin(); plugin != nil {
+		return workflowFingerprintPluginTarget{
+			PluginName: strings.TrimSpace(plugin.GetPluginName()),
+			Operation:  strings.TrimSpace(plugin.GetOperation()),
+			Connection: strings.TrimSpace(plugin.GetConnection()),
+			Instance:   strings.TrimSpace(plugin.GetInstance()),
+			Input:      nilIfEmptyMap(cloneStructMap(plugin.GetInput())),
+		}
+	}
+	return workflowFingerprintPluginTarget{
+		PluginName: strings.TrimSpace(target.GetPluginName()),
+		Operation:  strings.TrimSpace(target.GetOperation()),
+		Connection: strings.TrimSpace(target.GetConnection()),
+		Instance:   strings.TrimSpace(target.GetInstance()),
+		Input:      nilIfEmptyMap(cloneStructMap(target.GetInput())),
+	}
+}
+
+func workflowPluginTargetSet(target *proto.BoundWorkflowTarget) bool {
+	plugin := workflowPluginFingerprintPayload(target)
+	return !workflowFingerprintPluginTargetEmpty(plugin)
+}
+
+func workflowFingerprintPluginTargetEmpty(target workflowFingerprintPluginTarget) bool {
+	return strings.TrimSpace(target.PluginName) == "" &&
+		strings.TrimSpace(target.Operation) == "" &&
+		strings.TrimSpace(target.Connection) == "" &&
+		strings.TrimSpace(target.Instance) == "" &&
+		len(target.Input) == 0
+}
+
+func workflowAgentFingerprintPayload(agent *proto.BoundWorkflowAgentTarget) *workflowFingerprintAgentTarget {
+	return &workflowFingerprintAgentTarget{
+		ProviderName:    strings.TrimSpace(agent.GetProviderName()),
+		Model:           strings.TrimSpace(agent.GetModel()),
+		Prompt:          agent.GetPrompt(),
+		Messages:        nilIfEmptySlice(agentMessagesFingerprintPayload(agent.GetMessages())),
+		ToolRefs:        nilIfEmptySlice(agentToolRefsFingerprintPayload(agent.GetToolRefs())),
+		ToolSource:      agentToolSourceFingerprintValue(agent.GetToolSource()),
+		ResponseSchema:  nilIfEmptyMap(cloneStructMap(agent.GetResponseSchema())),
+		Metadata:        nilIfEmptyMap(cloneStructMap(agent.GetMetadata())),
+		ProviderOptions: nilIfEmptyMap(cloneStructMap(agent.GetProviderOptions())),
+		TimeoutSeconds:  int(agent.GetTimeoutSeconds()),
+	}
+}
+
+func agentMessagesFingerprintPayload(messages []*proto.AgentMessage) []agentFingerprintMessage {
+	if len(messages) == 0 {
 		return nil
 	}
-	return cloneTarget(target)
+	out := make([]agentFingerprintMessage, 0, len(messages))
+	for _, message := range messages {
+		if message == nil {
+			out = append(out, agentFingerprintMessage{})
+			continue
+		}
+		out = append(out, agentFingerprintMessage{
+			Role:     message.GetRole(),
+			Text:     message.GetText(),
+			Parts:    nilIfEmptySlice(agentMessagePartsFingerprintPayload(message.GetParts())),
+			Metadata: nilIfEmptyMap(cloneStructMap(message.GetMetadata())),
+		})
+	}
+	return out
+}
+
+func agentMessagePartsFingerprintPayload(parts []*proto.AgentMessagePart) []agentFingerprintMessagePart {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]agentFingerprintMessagePart, 0, len(parts))
+	for _, part := range parts {
+		if part == nil {
+			out = append(out, agentFingerprintMessagePart{})
+			continue
+		}
+		value := agentFingerprintMessagePart{
+			Type: agentMessagePartTypeFingerprintValue(part.GetType()),
+			Text: part.GetText(),
+			JSON: nilIfEmptyMap(cloneStructMap(part.GetJson())),
+		}
+		if toolCall := part.GetToolCall(); toolCall != nil {
+			value.ToolCall = &agentFingerprintToolCallPart{
+				ID:        toolCall.GetId(),
+				ToolID:    toolCall.GetToolId(),
+				Arguments: nilIfEmptyMap(cloneStructMap(toolCall.GetArguments())),
+			}
+		}
+		if toolResult := part.GetToolResult(); toolResult != nil {
+			value.ToolResult = &agentFingerprintToolResultPart{
+				ToolCallID: toolResult.GetToolCallId(),
+				Status:     int(toolResult.GetStatus()),
+				Content:    toolResult.GetContent(),
+				Output:     nilIfEmptyMap(cloneStructMap(toolResult.GetOutput())),
+			}
+		}
+		if imageRef := part.GetImageRef(); imageRef != nil {
+			value.ImageRef = &agentFingerprintImageRefPart{
+				URI:      imageRef.GetUri(),
+				MIMEType: imageRef.GetMimeType(),
+			}
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func agentToolRefsFingerprintPayload(refs []*proto.AgentToolRef) []agentFingerprintToolRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]agentFingerprintToolRef, 0, len(refs))
+	for _, ref := range refs {
+		if ref == nil {
+			out = append(out, agentFingerprintToolRef{})
+			continue
+		}
+		out = append(out, agentFingerprintToolRef{
+			Plugin:      ref.GetPlugin(),
+			Operation:   ref.GetOperation(),
+			Connection:  ref.GetConnection(),
+			Instance:    ref.GetInstance(),
+			Title:       ref.GetTitle(),
+			Description: ref.GetDescription(),
+		})
+	}
+	return out
+}
+
+func agentToolSourceFingerprintValue(source proto.AgentToolSourceMode) string {
+	if source == proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
+		return "native_search"
+	}
+	return ""
+}
+
+func agentMessagePartTypeFingerprintValue(partType proto.AgentMessagePartType) string {
+	switch partType {
+	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TEXT:
+		return "text"
+	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_JSON:
+		return "json"
+	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_CALL:
+		return "tool_call"
+	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_RESULT:
+		return "tool_result"
+	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_IMAGE_REF:
+		return "image_ref"
+	default:
+		return ""
+	}
+}
+
+func nilIfEmptyMap(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
+}
+
+func nilIfEmptySlice[T any](value []T) []T {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
 }
 
 func actorToMap(actor *proto.WorkflowActor) map[string]any {
@@ -2594,6 +2928,7 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 
 func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {
 	value := map[string]any(record)
+	target, migratedTarget := targetFromRecordValueWithMigration(value["target_json"])
 	out := workflowExecutionReferenceRecord{
 		ID:                  stringField(value, "id"),
 		ProviderName:        stringField(value, "provider_name"),
@@ -2601,11 +2936,18 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		TargetOperation:     stringField(value, "target_operation"),
 		TargetConnection:    stringField(value, "target_connection"),
 		TargetInstance:      stringField(value, "target_instance"),
-		Target:              targetFromRecordValue(value["target_json"]),
+		Target:              target,
 		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
+	}
+	if migratedTarget && out.Target.GetAgent() != nil {
+		fingerprint, err := workflowTargetFingerprint(out.Target)
+		if err != nil {
+			return workflowExecutionReferenceRecord{}, fmt.Errorf("target_fingerprint migration: %w", err)
+		}
+		out.TargetFingerprint = fingerprint
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()

@@ -1,9 +1,9 @@
 [project]
 name = "gestalt-agent-simple"
-version = "0.0.1a15"
+version = "0.0.1a16"
 requires-python = "==3.14.*"
 dependencies = [
-  "gestalt-sdk==0.0.1a17",
+  "gestalt-sdk",
   "anthropic==0.96.0",
   "jsonschema==4.23.0",
   "openai==2.32.0",
@@ -21,6 +21,9 @@ package = false
 override-dependencies = [
   "typing-extensions>=4.14.1",
 ]
+
+[tool.uv.sources]
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 plugin = "provider"
@@ -43,6 +46,7 @@ vulture-ignore-names = [
   "GetCapabilities",
   "configure",
   "metadata",
+  "SearchTools",
   "ExecuteTool",
   "do_POST",
   "log_message",

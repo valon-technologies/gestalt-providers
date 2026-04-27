@@ -583,8 +583,16 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if call.GetTarget().GetAgent().GetPrompt() != "send a Slack reminder" {
 		t.Fatalf("call target = %#v", call.GetTarget())
 	}
-	if call.GetTarget().GetAgent().GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT {
-		t.Fatalf("tool_source = %v, want explicit", call.GetTarget().GetAgent().GetToolSource())
+	if call.GetTarget().GetAgent().GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
+		t.Fatalf("tool_source = %v, want native search", call.GetTarget().GetAgent().GetToolSource())
+	}
+	toolRefs := call.GetTarget().GetAgent().GetToolRefs()
+	if len(toolRefs) != 2 ||
+		toolRefs[0].GetPlugin() != "slack" ||
+		toolRefs[0].GetOperation() != "chat.postMessage" ||
+		toolRefs[1].GetPlugin() != "linear" ||
+		toolRefs[1].GetOperation() != "" {
+		t.Fatalf("tool refs = %#v", toolRefs)
 	}
 	if call.GetTarget().GetPluginName() != "" || call.GetTarget().GetPlugin() != nil {
 		t.Fatalf("call target included plugin fields: %#v", call.GetTarget())
@@ -618,14 +626,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 		target *proto.BoundWorkflowTarget
 	}{
 		{
-			name: "inherit invokes",
-			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
-				ProviderName: "managed",
-				Prompt:       "send a Slack reminder",
-				ToolSource:   proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES,
-			}},
-		},
-		{
 			name:   "empty prompt",
 			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{ProviderName: "managed"}},
 		},
@@ -635,7 +635,7 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				ProviderName:   "managed",
 				Prompt:         "send a Slack reminder",
 				TimeoutSeconds: -1,
-				ToolSource:     proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT,
+				ToolSource:     proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
 			}},
 		},
 		{
@@ -658,6 +658,73 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				t.Fatal("UpsertSchedule succeeded, want error")
 			}
 		})
+	}
+}
+
+func TestTargetFromRecordValueMigratesLegacyAgentToolRefs(t *testing.T) {
+	target := targetFromRecordValue(`{
+		"agent": {
+			"providerName": "managed",
+			"prompt": "send a Slack reminder",
+			"toolSource": "AGENT_TOOL_SOURCE_MODE_EXPLICIT",
+			"toolRefs": [
+				{"pluginName": "slack", "operation": "chat.postMessage"},
+				{"pluginName": "linear"}
+			]
+		}
+	}`)
+	agent := target.GetAgent()
+	if agent.GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
+		t.Fatalf("tool_source = %v, want native search", agent.GetToolSource())
+	}
+	refs := agent.GetToolRefs()
+	if len(refs) != 2 ||
+		refs[0].GetPlugin() != "slack" ||
+		refs[0].GetOperation() != "chat.postMessage" ||
+		refs[1].GetPlugin() != "linear" ||
+		refs[1].GetOperation() != "" {
+		t.Fatalf("tool refs = %#v", refs)
+	}
+}
+
+func TestTargetFromRecordValueFailsClosedForLegacyExplicitWithoutToolRefs(t *testing.T) {
+	target := targetFromRecordValue(`{
+		"agent": {
+			"providerName": "managed",
+			"prompt": "summarize this",
+			"toolSource": "AGENT_TOOL_SOURCE_MODE_EXPLICIT"
+		}
+	}`)
+	agent := target.GetAgent()
+	if agent.GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
+		t.Fatalf("tool_source = %v, want native search", agent.GetToolSource())
+	}
+	refs := agent.GetToolRefs()
+	if len(refs) != 1 || refs[0].GetPlugin() != legacyExplicitNoToolsPlugin {
+		t.Fatalf("tool refs = %#v, want fail-closed legacy ref", refs)
+	}
+}
+
+func TestExecutionReferenceRecordMigratesLegacyAgentTargetFingerprint(t *testing.T) {
+	record, err := executionReferenceRecordFromRecord(gestalt.Record{
+		"id":                    "ref-1",
+		"provider_name":         "indexeddb",
+		"target_plugin":         "agent:managed",
+		"target_json":           `{"agent":{"providerName":"managed","prompt":"send a Slack reminder","toolSource":"AGENT_TOOL_SOURCE_MODE_EXPLICIT","toolRefs":[{"pluginName":"slack","operation":"chat.postMessage"}]}}`,
+		"target_fingerprint":    "legacy-fingerprint",
+		"subject_id":            "user-123",
+		"credential_subject_id": "user-123",
+		"permissions_json":      "[]",
+	})
+	if err != nil {
+		t.Fatalf("executionReferenceRecordFromRecord: %v", err)
+	}
+	expected, err := workflowTargetFingerprint(record.Target)
+	if err != nil {
+		t.Fatalf("workflowTargetFingerprint: %v", err)
+	}
+	if record.TargetFingerprint != expected || record.TargetFingerprint == "legacy-fingerprint" {
+		t.Fatalf("target_fingerprint = %q, want migrated %q", record.TargetFingerprint, expected)
 	}
 }
 
@@ -1009,7 +1076,8 @@ func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTa
 			Model:        model,
 			Prompt:       prompt,
 			ToolRefs: []*proto.AgentToolRef{
-				{PluginName: "slack", Operation: "chat.postMessage"},
+				{Plugin: "slack", Operation: "chat.postMessage"},
+				{Plugin: "linear"},
 			},
 		},
 	}

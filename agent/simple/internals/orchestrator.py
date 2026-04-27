@@ -76,7 +76,6 @@ class SimpleAgentOrchestrator:
             messages=list(started.messages),
             response_schema=_struct_to_dict(request.response_schema),
             provider_options=_struct_to_dict(request.provider_options),
-            tool_specs_and_names=_resolved_tools_to_openai(request.tools),
         )
         self._store.append_turn_event(
             turn_id=turn_id,
@@ -88,7 +87,6 @@ class SimpleAgentOrchestrator:
         return self.turn_to_proto(started)
 
     def _complete_turn(self, prepared: "PreparedTurn") -> None:
-        tool_specs, function_name_to_tool_id = prepared.tool_specs_and_names
         conversation = _build_initial_conversation(
             system_prompt=self._config.system_prompt,
             projected_messages=prepared.messages,
@@ -96,7 +94,13 @@ class SimpleAgentOrchestrator:
         )
 
         try:
+            canceled = self._store.get_turn(prepared.turn_id)
+            if canceled is None:
+                return
+            if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                return
             with gestalt.AgentHost() as host:
+                tool_specs, function_name_to_tool_id = _search_tools_for_turn(host, prepared)
                 for _ in range(self._config.max_steps):
                     canceled = self._store.get_turn(prepared.turn_id)
                     if canceled is None:
@@ -257,7 +261,23 @@ class PreparedTurn:
     messages: list[dict[str, Any]]
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
-    tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str]]
+
+
+def _search_tools_for_turn(host: Any, prepared: PreparedTurn) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    response = host.search_tools(
+        agent_pb2.SearchAgentToolsRequest(
+            session_id=prepared.session_id,
+            turn_id=prepared.turn_id,
+            query=_tool_search_query(prepared.messages),
+            max_results=20,
+        )
+    )
+    return _resolved_tools_to_openai(response.tools)
+
+
+def _tool_search_query(messages: list[dict[str, Any]]) -> str:
+    parts = [_message_content_text(message) for message in messages]
+    return "\n".join(part for part in parts if part).strip()
 
 
 def _build_initial_conversation(
