@@ -196,8 +196,8 @@ func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
 	if got := s.metadataTable(); got != "analytics._gestalt_stores" {
 		t.Fatalf("metadataTable() = %q, want %q", got, "analytics._gestalt_stores")
 	}
-	if got := s.genericRecordsTable(); got != "analytics.tenant__gestalt_records_v2" {
-		t.Fatalf("genericRecordsTable() = %q, want %q", got, "analytics.tenant__gestalt_records_v2")
+	if got := s.genericRecordsTable(); got != "analytics.tenant__gestalt_records" {
+		t.Fatalf("genericRecordsTable() = %q, want %q", got, "analytics.tenant__gestalt_records")
 	}
 }
 
