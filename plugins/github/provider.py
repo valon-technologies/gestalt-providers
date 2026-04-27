@@ -49,40 +49,14 @@ DEFAULT_WEBHOOK_EVENTS = (
 DEFAULT_AGENT_SYSTEM_PROMPT = """
 You are a GitHub App bot running inside Gestalt.
 You are responding to a verified GitHub App webhook, not a user OAuth connection.
-Use only the explicit GitHub bot tools provided to inspect or change GitHub state.
+Use the available GitHub bot tools to inspect or change GitHub state.
 When you create commits or pull requests, use the installation_id and repository
 details from the event unless the user instruction says otherwise.
 Return a concise final summary of what you did.
 """.strip()
 MAX_AGENT_PAYLOAD_CHARS = 20000
 
-plugin = gestalt.Plugin(
-    "github",
-    securitySchemes={
-        "github_app": {
-            "type": "hmac",
-            "secret": {"env": "GITHUB_WEBHOOK_SECRET"},
-            "signatureHeader": "X-Hub-Signature-256",
-            "signaturePrefix": "sha256=",
-            "payloadTemplate": "{raw_body}",
-        }
-    },
-    http={
-        "event": {
-            "path": "/event",
-            "method": "POST",
-            "credentialMode": "none",
-            "security": "github_app",
-            "target": GITHUB_EVENT_OPERATION,
-            "requestBody": {
-                "required": True,
-                "content": {
-                    "application/json": {},
-                },
-            },
-        },
-    },
-)
+plugin = gestalt.Plugin("github")
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,19 +392,26 @@ def github_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operati
         return {"ok": True, "ignored": ignored_reason}
 
     installation_id = _installation_id_from_payload(input)
-    run_request = _build_agent_run_request(input, installation_id)
+    summary = _event_summary(input, installation_id)
     try:
         with req.agent_manager() as agent_manager:
-            managed = agent_manager.run(run_request)
-    except Exception as err:
-        return _server_error(f"failed to start agent run: {err}")
+            session_request = _build_agent_session_request(summary)
+            session = agent_manager.create_session(session_request)
+            session_id = str(session.id or "").strip()
+            if not session_id:
+                return _server_error("agent manager did not return a session id")
 
-    run = managed.run
+            turn_request = _build_agent_turn_request(input, summary, session_id)
+            turn = agent_manager.create_turn(turn_request)
+    except Exception as err:
+        return _server_error(f"failed to start agent turn: {err}")
+
     return {
         "ok": True,
-        "agent_run_id": run.id,
-        "agent_provider": managed.provider_name,
-        "status": agent_pb2.AgentRunStatus.Name(run.status) if run.status else "",
+        "agent_session_id": session_id,
+        "agent_turn_id": turn.id,
+        "agent_provider": session.provider_name or _github_config.agent_provider,
+        "status": _agent_execution_status_name(turn.status),
     }
 
 
@@ -1045,11 +1026,24 @@ def _git_identity(name: str, email: str) -> dict[str, str] | None:
     return {"name": name, "email": email}
 
 
-def _build_agent_run_request(payload: dict[str, Any], installation_id: int) -> Any:
-    summary = _event_summary(payload, installation_id)
-    metadata = _dict_to_struct({"github": summary})
-    request = agent_pb2.AgentManagerRunRequest(
+def _build_agent_session_request(summary: dict[str, Any]) -> Any:
+    request = agent_pb2.AgentManagerCreateSessionRequest(
         provider_name=_github_config.agent_provider,
+        model=_github_config.agent_model,
+        client_ref=_agent_session_ref(summary),
+        idempotency_key=_agent_session_idempotency_key(summary),
+    )
+    request.metadata.CopyFrom(_agent_session_metadata(summary))
+    return request
+
+
+def _build_agent_turn_request(
+    payload: dict[str, Any],
+    summary: dict[str, Any],
+    session_id: str,
+) -> Any:
+    request = agent_pb2.AgentManagerCreateTurnRequest(
+        session_id=session_id,
         model=_github_config.agent_model,
         messages=[
             agent_pb2.AgentMessage(role="system", text=_agent_system_prompt()),
@@ -1057,26 +1051,49 @@ def _build_agent_run_request(payload: dict[str, Any], installation_id: int) -> A
         ],
         tool_refs=[
             agent_pb2.AgentToolRef(
-                plugin_name="github",
+                plugin="github",
                 operation=BOT_COMMIT_FILES_OPERATION,
             ),
             agent_pb2.AgentToolRef(
-                plugin_name="github",
+                plugin="github",
                 operation=BOT_OPEN_PULL_REQUEST_OPERATION,
             ),
             agent_pb2.AgentToolRef(
-                plugin_name="github",
+                plugin="github",
                 operation=BOT_CREATE_PULL_REQUEST_OPERATION,
             ),
         ],
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT,
-        session_ref=_agent_session_ref(summary),
-        idempotency_key=_agent_idempotency_key(payload, summary),
+        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
+        idempotency_key=_agent_turn_idempotency_key(payload, summary),
     )
-    request.metadata.CopyFrom(metadata)
+    request.metadata.CopyFrom(_agent_turn_metadata(summary))
     if _github_config.agent_provider_options:
         request.provider_options.CopyFrom(_dict_to_struct(_github_config.agent_provider_options))
     return request
+
+
+def _agent_session_metadata(summary: dict[str, Any]) -> Any:
+    metadata = {
+        key: summary[key]
+        for key in (
+            "installation_id",
+            "repository",
+            "repository_owner",
+            "repository_name",
+            "number",
+            "head_ref",
+            "base_ref",
+        )
+        if key in summary
+    }
+    metadata["session_ref"] = _agent_session_ref(summary)
+    return _dict_to_struct({"github": metadata})
+
+
+def _agent_turn_metadata(summary: dict[str, Any]) -> Any:
+    metadata = dict(summary)
+    metadata["session_ref"] = _agent_session_ref(summary)
+    return _dict_to_struct({"github": metadata})
 
 
 def _event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, Any]:
@@ -1142,7 +1159,11 @@ def _agent_session_ref(summary: dict[str, Any]) -> str:
     return f"github:{installation_id}"
 
 
-def _agent_idempotency_key(payload: dict[str, Any], summary: dict[str, Any]) -> str:
+def _agent_session_idempotency_key(summary: dict[str, Any]) -> str:
+    return f"github:session:{_agent_session_ref(summary)}"
+
+
+def _agent_turn_idempotency_key(payload: dict[str, Any], summary: dict[str, Any]) -> str:
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -1150,6 +1171,15 @@ def _agent_idempotency_key(payload: dict[str, Any], summary: dict[str, Any]) -> 
     event_type = summary.get("event_type", "")
     action = summary.get("action", "")
     return f"github:event:{repo}:{event_type}:{action}:{digest}"
+
+
+def _agent_execution_status_name(status: int) -> str:
+    if not status:
+        return ""
+    try:
+        return agent_pb2.AgentExecutionStatus.Name(status)
+    except ValueError:
+        return str(status)
 
 
 def _installation_id_from_payload(payload: dict[str, Any]) -> int:

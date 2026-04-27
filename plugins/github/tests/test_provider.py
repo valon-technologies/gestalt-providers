@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import pathlib
 import unittest
 import urllib.error
 import urllib.parse
@@ -12,7 +13,9 @@ from typing import Any, cast
 from unittest import mock
 
 import gestalt
+from google.protobuf import json_format
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
+import yaml
 
 import provider as provider_module
 
@@ -35,7 +38,9 @@ class FakeHTTPResponse:
 
 class FakeAgentManager:
     def __init__(self) -> None:
-        self.requests: list[Any] = []
+        self.session_requests: list[Any] = []
+        self.turn_requests: list[Any] = []
+        self.requests = self.turn_requests
 
     def __enter__(self) -> FakeAgentManager:
         return self
@@ -43,13 +48,24 @@ class FakeAgentManager:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def run(self, request: Any) -> Any:
-        self.requests.append(request)
-        return agent_pb2.ManagedAgentRun(
+    def create_session(self, request: Any) -> Any:
+        self.session_requests.append(request)
+        return agent_pb2.AgentSession(
+            id="session-123",
             provider_name=request.provider_name or "simple",
-            run=agent_pb2.BoundAgentRun(
-                id="run-123", status=agent_pb2.AGENT_RUN_STATUS_RUNNING
-            ),
+            model=request.model,
+            client_ref=request.client_ref,
+            state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+        )
+
+    def create_turn(self, request: Any) -> Any:
+        self.turn_requests.append(request)
+        return agent_pb2.AgentTurn(
+            id="turn-123",
+            session_id=request.session_id,
+            provider_name="simple",
+            model=request.model,
+            status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
         )
 
 
@@ -112,6 +128,25 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.addCleanup(provider_module.configure, "github", {})
 
+    def test_manifest_declares_github_app_webhook_contract(self) -> None:
+        manifest_path = pathlib.Path(__file__).resolve().parents[1] / "manifest.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text())
+
+        spec = manifest["spec"]
+        webhook = spec["http"]["event"]
+        security = spec["securitySchemes"]["github_app"]
+
+        self.assertEqual(webhook["path"], "/event")
+        self.assertEqual(webhook["method"], "POST")
+        self.assertEqual(webhook["credentialMode"], "none")
+        self.assertEqual(webhook["security"], "github_app")
+        self.assertEqual(webhook["target"], provider_module.GITHUB_EVENT_OPERATION)
+        self.assertEqual(security["type"], "hmac")
+        self.assertEqual(security["secret"]["env"], "GITHUB_WEBHOOK_SECRET")
+        self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")
+        self.assertEqual(security["signaturePrefix"], "sha256=")
+        self.assertEqual(security["payloadTemplate"], "{raw_body}")
+
     def test_resolve_http_subject_maps_installation_to_workload(self) -> None:
         subject = provider_module.resolve_http_subject(
             gestalt.HTTPSubjectRequest(
@@ -155,25 +190,52 @@ class GitHubProviderTests(unittest.TestCase):
             result = provider_module.github_events_handle(payload, gestalt.Request())
 
         self.assertEqual(result["ok"], True)
-        self.assertEqual(result["agent_run_id"], "run-123")
-        self.assertEqual(len(agent_manager.requests), 1)
+        self.assertEqual(result["agent_session_id"], "session-123")
+        self.assertEqual(result["agent_turn_id"], "turn-123")
+        self.assertEqual(result["status"], "AGENT_EXECUTION_STATUS_RUNNING")
+        self.assertEqual(len(agent_manager.session_requests), 1)
+        self.assertEqual(len(agent_manager.turn_requests), 1)
 
-        request = agent_manager.requests[0]
-        self.assertEqual(request.provider_name, "simple")
-        self.assertEqual(request.model, "deep")
-        self.assertEqual(request.provider_options["temperature"], 0)
+        session_request = agent_manager.session_requests[0]
+        self.assertEqual(session_request.provider_name, "simple")
+        self.assertEqual(session_request.model, "deep")
+        self.assertEqual(session_request.client_ref, "github:99:acme/widgets:7")
         self.assertEqual(
-            request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT
+            session_request.idempotency_key,
+            "github:session:github:99:acme/widgets:7",
+        )
+        session_metadata = json_format.MessageToDict(session_request.metadata)
+        self.assertEqual(session_metadata["github"]["installation_id"], 99)
+        self.assertEqual(session_metadata["github"]["repository"], "acme/widgets")
+        self.assertEqual(session_metadata["github"]["number"], 7)
+        self.assertNotIn("action", session_metadata["github"])
+        self.assertNotIn("sender", session_metadata["github"])
+
+        turn_request = agent_manager.turn_requests[0]
+        self.assertEqual(turn_request.session_id, "session-123")
+        self.assertEqual(turn_request.model, "deep")
+        turn_options = json_format.MessageToDict(turn_request.provider_options)
+        self.assertEqual(turn_options["temperature"], 0)
+        self.assertEqual(
+            turn_request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
         )
         self.assertEqual(
-            [tool.operation for tool in request.tool_refs],
+            [tool.plugin for tool in turn_request.tool_refs],
+            ["github", "github", "github"],
+        )
+        self.assertEqual(
+            [tool.operation for tool in turn_request.tool_refs],
             [
                 provider_module.BOT_COMMIT_FILES_OPERATION,
                 provider_module.BOT_OPEN_PULL_REQUEST_OPERATION,
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
-        self.assertIn("github:99:acme/widgets:7", request.session_ref)
+        self.assertIn("GitHub App webhook", turn_request.messages[1].text)
+        self.assertTrue(turn_request.idempotency_key.startswith("github:event:"))
+        turn_metadata = json_format.MessageToDict(turn_request.metadata)
+        self.assertEqual(turn_metadata["github"]["action"], "opened")
+        self.assertEqual(turn_metadata["github"]["sender"], "octocat")
 
     def test_commit_files_creates_branch_commit_and_bot_coauthor(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []
