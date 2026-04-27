@@ -1,6 +1,7 @@
 # GKE Agent Sandbox Runtime Provider
 
-Runtime provider for running executable Gestalt plugins in
+Runtime provider for running executable Gestalt plugins and hosted agent
+providers in
 [GKE Agent Sandbox](https://cloud.google.com/kubernetes-engine/docs/concepts/machine-learning/agent-sandbox)
 through the upstream
 [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
@@ -23,11 +24,12 @@ must contain the tools required to stage and launch the plugin process.
 
 ## Provider Contract
 
-- `StartSession` creates a namespaced `SandboxClaim` when `config.template` or
-  `plugins.<name>.runtime.template` is set.
+- `StartSession` creates a namespaced `SandboxClaim` when `config.template`,
+  `plugins.<name>.execution.runtime.template`, or
+  `providers.agent.<name>.execution.runtime.template` is set.
 - `StartSession` creates a direct `agents.x-k8s.io/v1alpha1` `Sandbox` when no
-  template is configured. In this mode `plugins.<name>.runtime.image` is
-  required.
+  template is configured. In this mode `execution.runtime.image` is required on
+  the plugin or hosted agent provider.
 - `StartPlugin` copies `bundle_dir` to `/workspace/plugin`, starts the command
   with `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix
   socket to `config.pluginPort` with `socat`, and opens a Kubernetes
@@ -45,6 +47,10 @@ must contain the tools required to stage and launch the plugin process.
 Claim-backed sessions with a reusable `SandboxTemplate`:
 
 ```yaml
+server:
+  runtime:
+    defaultHostedProvider: gkeAgentSandbox
+
 runtime:
   providers:
     gkeAgentSandbox:
@@ -62,13 +68,31 @@ runtime:
 
 plugins:
   github:
-    runtime:
-      provider: gkeAgentSandbox
+    execution:
+      mode: hosted
+
+providers:
+  agent:
+    simple:
+      execution:
+        mode: hosted
+        runtime:
+          pool:
+            minReadyInstances: 1
+            maxReadyInstances: 2
+            startupTimeout: 5m
+            healthCheckInterval: 30s
+            restartPolicy: always
+            drainTimeout: 2m
 ```
 
 Direct `Sandbox` sessions without a pre-created template:
 
 ```yaml
+server:
+  runtime:
+    defaultHostedProvider: gkeAgentSandbox
+
 runtime:
   providers:
     gkeAgentSandbox:
@@ -86,9 +110,25 @@ runtime:
 
 plugins:
   github:
-    runtime:
-      provider: gkeAgentSandbox
-      image: us-docker.pkg.dev/my-project/gestalt/github-runtime:latest
+    execution:
+      mode: hosted
+      runtime:
+        image: us-docker.pkg.dev/my-project/gestalt/github-runtime:latest
+
+providers:
+  agent:
+    simple:
+      execution:
+        mode: hosted
+        runtime:
+          image: us-docker.pkg.dev/my-project/gestalt/agent-simple-runtime:latest
+          pool:
+            minReadyInstances: 1
+            maxReadyInstances: 2
+            startupTimeout: 5m
+            healthCheckInterval: 30s
+            restartPolicy: always
+            drainTimeout: 2m
 ```
 
 ## Runtime Image Requirements
