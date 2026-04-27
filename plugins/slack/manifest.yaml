@@ -69,6 +69,36 @@ spec:
         - name: unfurl_media
           type: bool
           in: body
+      - name: chat.update
+        description: Update a message in a channel
+        method: POST
+        path: /api/chat.update
+        parameters:
+        - name: channel
+          type: string
+          in: body
+          required: true
+        - name: ts
+          type: string
+          in: body
+          required: true
+        - name: text
+          type: string
+          in: body
+          required: true
+      - name: chat.delete
+        description: Delete a message from a channel
+        method: POST
+        path: /api/chat.delete
+        parameters:
+        - name: channel
+          type: string
+          in: body
+          required: true
+        - name: ts
+          type: string
+          in: body
+          required: true
       - name: users.list
         description: List workspace users
         method: GET
@@ -128,6 +158,15 @@ spec:
           type: string
           in: query
           required: true
+      - name: files.info
+        description: Get Slack file metadata
+        method: GET
+        path: /api/files.info
+        parameters:
+        - name: file
+          type: string
+          in: query
+          required: true
       - name: conversations.replies
         description: Read replies for a thread
         method: GET
@@ -180,6 +219,23 @@ spec:
         description: Add an emoji reaction to a message
         method: POST
         path: /api/reactions.add
+        parameters:
+        - name: channel
+          type: string
+          in: body
+          required: true
+        - name: timestamp
+          type: string
+          in: body
+          required: true
+        - name: name
+          type: string
+          in: body
+          required: true
+      - name: reactions.remove
+        description: Remove an emoji reaction from a message
+        method: POST
+        path: /api/reactions.remove
         parameters:
         - name: channel
           type: string
@@ -283,6 +339,7 @@ spec:
         - mpim:history
         - search:read
         - users:read
+        - files:read
         - chat:write
         - reactions:write
         - channels:write
@@ -309,6 +366,7 @@ spec:
         - mpim:read
         - mpim:history
         - users:read
+        - files:read
         - chat:write
         - reactions:write
         - channels:manage

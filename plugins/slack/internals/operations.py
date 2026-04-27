@@ -1,14 +1,17 @@
+import base64
 import re
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
-from .client import SlackAPIError, SlackClientError, slack_get
+from .client import SlackAPIError, SlackClientError, get_bytes, slack_get, slack_post
 from .helpers import bool_field, map_field, map_slice, string_field
 
 SLACK_MESSAGE_URL_PATTERN = re.compile(
     r"https?://[^/]+\.slack\.com/archives/([A-Z0-9]+)/p(\d{10})(\d+)"
 )
 USER_MENTION_PATTERN = re.compile(r"<@(U[A-Z0-9]+)>")
+DEFAULT_FILE_MAX_BYTES = 200_000
+HARD_FILE_MAX_BYTES = 1_000_000
 
 
 def parse_message_url(url: str) -> tuple[str, str] | None:
@@ -38,6 +41,51 @@ def get_message(token: str, channel: str, ts: str) -> dict[str, Any]:
             HTTPStatus.NOT_FOUND, {"error": f"no message found at timestamp {ts}"}
         )
     return {"data": {"message": messages[0]}}
+
+
+def post_message(
+    token: str,
+    *,
+    channel: str,
+    text: str,
+    thread_ts: str = "",
+    unfurl_links: bool | None = None,
+    unfurl_media: bool | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"channel": channel, "text": text}
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+    if unfurl_links is not None:
+        payload["unfurl_links"] = unfurl_links
+    if unfurl_media is not None:
+        payload["unfurl_media"] = unfurl_media
+    return slack_post("chat.postMessage", payload, token)
+
+
+def update_message(token: str, *, channel: str, ts: str, text: str) -> dict[str, Any]:
+    return slack_post("chat.update", {"channel": channel, "ts": ts, "text": text}, token)
+
+
+def delete_message(token: str, *, channel: str, ts: str) -> dict[str, Any]:
+    return slack_post("chat.delete", {"channel": channel, "ts": ts}, token)
+
+
+def add_reaction(token: str, *, channel: str, timestamp: str, name: str) -> dict[str, Any]:
+    return slack_post(
+        "reactions.add",
+        {"channel": channel, "timestamp": timestamp, "name": name},
+        token,
+    )
+
+
+def remove_reaction(
+    token: str, *, channel: str, timestamp: str, name: str
+) -> dict[str, Any]:
+    return slack_post(
+        "reactions.remove",
+        {"channel": channel, "timestamp": timestamp, "name": name},
+        token,
+    )
 
 
 def find_user_mentions(
@@ -88,6 +136,74 @@ def find_user_mentions(
             "mentioned_user_ids": sorted(mentioned_user_ids),
             "total_mentions": len(mentions),
             "messages_scanned": len(messages),
+        }
+    }
+
+
+def get_thread_context(
+    token: str,
+    *,
+    channel: str,
+    ts: str,
+    cursor: str,
+    limit: int,
+    include_user_info: bool,
+    include_bots: bool,
+    include_files: bool,
+    include_file_content: bool,
+    include_image_data: bool,
+    max_file_bytes: int,
+) -> dict[str, Any]:
+    limit = max(1, min(limit, 1000))
+    query = {"channel": channel, "ts": ts, "limit": str(limit)}
+    if cursor:
+        query["cursor"] = cursor
+    data = slack_get("conversations.replies", query, token)
+    raw_messages = map_slice(data.get("messages"))
+    messages = [
+        _context_message(
+            token,
+            channel=channel,
+            message=message,
+            include_files=include_files,
+            include_file_content=include_file_content,
+            include_image_data=include_image_data,
+            max_file_bytes=max_file_bytes,
+        )
+        for message in raw_messages
+        if include_bots or not string_field(message, "bot_id")
+    ]
+    participants = _thread_participants_from_messages(
+        token,
+        messages=messages,
+        include_user_info=include_user_info,
+        include_bots=include_bots,
+    )
+    files = [
+        file_data
+        for message in messages
+        for file_data in map_slice(message.get("files"))
+    ]
+    response_metadata = map_field(data, "response_metadata")
+    return {
+        "data": {
+            "channel": channel,
+            "thread_ts": ts,
+            "event_ref": {
+                "channel": channel,
+                "message_ts": ts,
+                "thread_ts": ts,
+                "reply_thread_ts": ts,
+            },
+            "root_message": messages[0] if messages else {},
+            "messages": messages,
+            "messages_returned": len(messages),
+            "has_more": bool(data.get("has_more") is True),
+            "next_cursor": string_field(response_metadata, "next_cursor"),
+            "participants": participants,
+            "participant_count": len(participants),
+            "files": files,
+            "file_count": len(files),
         }
     }
 
@@ -162,3 +278,247 @@ def get_thread_participants(
             "total_replies": total_replies,
         }
     }
+
+
+def get_file(
+    token: str,
+    *,
+    file_id: str,
+    url_private: str,
+    include_content: bool,
+    max_bytes: int,
+) -> dict[str, Any]:
+    file_data: dict[str, Any] = {}
+    if file_id:
+        response = slack_get("files.info", {"file": file_id}, token)
+        file_data = map_field(response, "file")
+    if not url_private:
+        url_private = string_field(file_data, "url_private_download") or string_field(
+            file_data, "url_private"
+        )
+    normalized = _normalize_file(file_data, channel="", message_ts="")
+    if url_private and not string_field(normalized, "url_private"):
+        normalized["url_private"] = url_private
+
+    result: dict[str, Any] = {"file": normalized}
+    if include_content:
+        if not url_private:
+            raise SlackAPIError(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "file does not include a private download URL"},
+            )
+        result["content"] = _download_file_content(
+            token,
+            url_private=url_private,
+            mimetype=string_field(normalized, "mimetype"),
+            max_bytes=max_bytes,
+            include_image_data=True,
+        )
+    return {"data": result}
+
+
+def _context_message(
+    token: str,
+    *,
+    channel: str,
+    message: dict[str, Any],
+    include_files: bool,
+    include_file_content: bool,
+    include_image_data: bool,
+    max_file_bytes: int,
+) -> dict[str, Any]:
+    ts = string_field(message, "ts")
+    text = string_field(message, "text")
+    normalized: dict[str, Any] = {
+        "type": string_field(message, "type"),
+        "subtype": string_field(message, "subtype"),
+        "ts": ts,
+        "thread_ts": string_field(message, "thread_ts"),
+        "user": string_field(message, "user"),
+        "username": string_field(message, "username"),
+        "bot_id": string_field(message, "bot_id"),
+        "app_id": string_field(message, "app_id"),
+        "text": text,
+        "mentions": USER_MENTION_PATTERN.findall(text),
+        "reply_count": _int_field(message, "reply_count"),
+    }
+    if include_files:
+        normalized["files"] = [
+            _context_file(
+                token,
+                channel=channel,
+                message_ts=ts,
+                file_data=file_data,
+                include_content=include_file_content,
+                include_image_data=include_image_data,
+                max_file_bytes=max_file_bytes,
+            )
+            for file_data in map_slice(message.get("files"))
+        ]
+    return normalized
+
+
+def _context_file(
+    token: str,
+    *,
+    channel: str,
+    message_ts: str,
+    file_data: dict[str, Any],
+    include_content: bool,
+    include_image_data: bool,
+    max_file_bytes: int,
+) -> dict[str, Any]:
+    normalized = _normalize_file(file_data, channel=channel, message_ts=message_ts)
+    if include_content:
+        url_private = string_field(file_data, "url_private_download") or string_field(
+            file_data, "url_private"
+        )
+        if url_private:
+            normalized["content"] = _download_file_content(
+                token,
+                url_private=url_private,
+                mimetype=string_field(file_data, "mimetype"),
+                max_bytes=max_file_bytes,
+                include_image_data=include_image_data,
+            )
+    return normalized
+
+
+def _normalize_file(
+    file_data: dict[str, Any], *, channel: str, message_ts: str
+) -> dict[str, Any]:
+    return {
+        "id": string_field(file_data, "id"),
+        "created": _int_field(file_data, "created"),
+        "timestamp": _int_field(file_data, "timestamp"),
+        "name": string_field(file_data, "name"),
+        "title": string_field(file_data, "title"),
+        "mimetype": string_field(file_data, "mimetype"),
+        "filetype": string_field(file_data, "filetype"),
+        "pretty_type": string_field(file_data, "pretty_type"),
+        "user": string_field(file_data, "user"),
+        "size": _int_field(file_data, "size"),
+        "url_private": string_field(file_data, "url_private"),
+        "url_private_download": string_field(file_data, "url_private_download"),
+        "channel": channel,
+        "message_ts": message_ts,
+    }
+
+
+def _download_file_content(
+    token: str,
+    *,
+    url_private: str,
+    mimetype: str,
+    max_bytes: int,
+    include_image_data: bool,
+) -> dict[str, Any]:
+    max_bytes = _bounded_file_bytes(max_bytes)
+    body, truncated = get_bytes(url_private, token, max_bytes)
+    base: dict[str, Any] = {
+        "mime_type": mimetype,
+        "bytes_read": len(body),
+        "truncated": truncated,
+    }
+    if _is_text_mimetype(mimetype):
+        base["encoding"] = "utf-8"
+        base["text"] = body.decode("utf-8", errors="replace")
+        return base
+    if mimetype.startswith("image/") and not include_image_data:
+        base["encoding"] = "omitted"
+        base["omitted_reason"] = "image data was not requested"
+        return base
+    data = base64.b64encode(body).decode("ascii")
+    base["encoding"] = "base64"
+    base["data"] = data
+    if mimetype.startswith("image/"):
+        base["kind"] = "image"
+        base["data_uri"] = f"data:{mimetype};base64,{data}"
+    return base
+
+
+def _thread_participants_from_messages(
+    token: str,
+    *,
+    messages: list[dict[str, Any]],
+    include_user_info: bool,
+    include_bots: bool,
+) -> list[dict[str, Any]]:
+    thread_starter = string_field(messages[0], "user") if messages else ""
+    participants_by_user: dict[str, dict[str, Any]] = {}
+    for message in messages:
+        uid = string_field(message, "user")
+        if not uid:
+            continue
+        if not include_bots and string_field(message, "bot_id"):
+            continue
+        participant = participants_by_user.get(uid)
+        if participant is None:
+            participant = {
+                "user_id": uid,
+                "message_count": 0,
+                "first_reply_ts": string_field(message, "ts"),
+                "is_thread_starter": uid == thread_starter,
+            }
+            participants_by_user[uid] = participant
+        participant["message_count"] = int(participant["message_count"]) + 1
+
+    participants = list(participants_by_user.values())
+    participants.sort(
+        key=lambda participant: (
+            str(participant["first_reply_ts"]),
+            str(participant["user_id"]),
+        )
+    )
+    if include_user_info:
+        for participant in participants:
+            try:
+                user_data = slack_get("users.info", {"user": str(participant["user_id"])}, token)
+            except SlackAPIError, SlackClientError:
+                continue
+            user = map_field(user_data, "user")
+            profile = map_field(user, "profile")
+            participant["display_name"] = string_field(profile, "display_name")
+            participant["real_name"] = string_field(user, "real_name")
+            is_bot = bool_field(user, "is_bot")
+            if is_bot is not None:
+                participant["is_bot"] = is_bot
+    return participants
+
+
+def _is_text_mimetype(mimetype: str) -> bool:
+    if mimetype.startswith("text/"):
+        return True
+    return mimetype in {
+        "application/json",
+        "application/xml",
+        "application/x-yaml",
+        "application/yaml",
+        "application/csv",
+        "application/javascript",
+        "application/x-ndjson",
+    }
+
+
+def _bounded_file_bytes(max_bytes: int) -> int:
+    if max_bytes <= 0:
+        return DEFAULT_FILE_MAX_BYTES
+    return min(max_bytes, HARD_FILE_MAX_BYTES)
+
+
+def _int_field(data: object, key: str) -> int:
+    if not isinstance(data, dict):
+        return 0
+    value = cast(dict[str, Any], data).get(key)
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0

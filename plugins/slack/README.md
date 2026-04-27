@@ -36,7 +36,8 @@ Source-backed provider implemented in Python with both a REST surface and an
 [MCP](https://modelcontextprotocol.io/) surface. Exposes operations for listing
 and creating channels, reading message history and threads, sending and
 scheduling messages, searching messages, managing reactions, setting channel
-topics, inviting users, and creating canvases.
+topics, inviting users, creating canvases, building thread context, and reading
+Slack file or image contents.
 
 Authenticates with Slack OAuth 2.0 (user scope).
 
@@ -56,6 +57,22 @@ plugins:
       - plugin: slack
         operation: events.reply
         credentialMode: none
+      - plugin: slack
+        operation: events.setStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.deleteStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.addReaction
+        credentialMode: none
+      - plugin: slack
+        operation: events.removeReaction
+        credentialMode: none
+      - plugin: slack
+        operation: conversations.getThreadContext
+      - plugin: slack
+        operation: files.get
       - plugin: workplaceHub
         operation: getMe
     config:
@@ -74,17 +91,70 @@ Slack should send Events API requests to `POST /api/v1/slack/event`. The route
 is declared in `manifest.yaml` under `spec.http.event`, validates Slack HMAC
 signatures with `SLACK_SIGNING_SECRET`, resolves the Slack team/user through the
 managed `external_identity` authorization relationship, and starts a Gestalt
-agent run with `toolSource=native_search` scoped to the exact
-`slack.events.reply` tool ref. The platform applies the declared
-`credentialMode: none` from this plugin's `invokes` entry when resolving that
-tool.
+agent run with `toolSource=native_search` scoped to the Slack event helper,
+thread context, and file reader tool refs. The platform applies declared
+`credentialMode` settings from this plugin's `invokes` entries when resolving
+those tools.
 
-`events.handle` and `events.reply` are hidden operations (`visible: false`).
-`events.handle` is invoked by the signed Slack webhook binding. It starts an
-agent turn and passes an opaque `reply_ref` in the user prompt. The agent should
-call `slack.events.reply` with that `reply_ref` and response text; the provider
-validates that the ref belongs to the invoking Gestalt subject before posting to
-Slack with the configured bot token.
+`events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
+`events.addReaction`, and `events.removeReaction` are hidden operations
+(`visible: false`). `events.handle` is invoked by the signed Slack webhook
+binding. It starts an agent turn and passes an opaque `reply_ref` in the user
+prompt. The agent should call `slack.events.reply` with that `reply_ref` and
+response text; the provider validates that the ref belongs to the invoking
+Gestalt subject before posting to Slack with the configured bot token. The same
+`reply_ref` scopes progress statuses and reactions to the source event channel,
+so the agent never needs raw `chat.postMessage` access for event replies.
+
+Agent-facing event helper examples:
+
+```json
+{"reply_ref":"...","text":"I'll check that now."}
+```
+
+Call `slack.events.setStatus` without `status_ts` to create a progress message:
+
+```json
+{"reply_ref":"...","text":"Checking deployment status..."}
+```
+
+Use the returned `status_ts` to update or delete the same status:
+
+```json
+{"reply_ref":"...","status_ts":"1712161830.000400","text":"Still checking logs..."}
+```
+
+Use `slack.events.addReaction` or `slack.events.removeReaction` to mark the
+source message:
+
+```json
+{"reply_ref":"...","name":"eyes"}
+```
+
+`slack.conversations.getThreadContext` builds a thread-shaped payload with
+normalized messages, mentions, participants, and attached Slack file metadata:
+
+```json
+{
+  "channel": "C0123456789",
+  "ts": "1712161829.000300",
+  "cursor": "",
+  "limit": 15,
+  "include_user_info": true,
+  "include_file_content": true,
+  "max_file_bytes": 200000
+}
+```
+
+`slack.files.get` accepts either a `file_id` or Slack `url_private` and returns
+metadata plus bounded content. Caller-supplied private URLs must be HTTPS Slack
+file URLs; authenticated downloads reject redirects to non-Slack hosts. Text
+files are returned as UTF-8 text; images and other binary files are returned as
+base64:
+
+```json
+{"file_id":"F0123456789","include_content":true,"max_bytes":200000}
+```
 
 If `agent.routes` is omitted, the provider uses its default behavior:
 `app_mention` events and direct-message `message` events start an agent run.
@@ -102,6 +172,13 @@ plugins:
       - plugin: slack
         operation: events.reply
         credentialMode: none
+      - plugin: slack
+        operation: events.setStatus
+        credentialMode: none
+      - plugin: slack
+        operation: conversations.getThreadContext
+      - plugin: slack
+        operation: files.get
       - plugin: workplaceHub
         operation: getMe
       - plugin: deploymentViewer

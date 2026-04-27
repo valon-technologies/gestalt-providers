@@ -18,6 +18,78 @@ operations:
     description: Slack message text to send
     required: true
   visible: false
+- id: events.setStatus
+  method: POST
+  description: Create or update a Slack status message in the event thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: text
+    type: string
+    description: Slack status message text
+    required: true
+  - name: status_ts
+    type: string
+    description: Existing status message timestamp to update
+    default: ''
+  - name: unfurl_links
+    type: boolean
+    description: Whether Slack should unfurl links for newly created statuses
+    default: false
+  - name: unfurl_media
+    type: boolean
+    description: Whether Slack should unfurl media for newly created statuses
+    default: false
+  visible: false
+- id: events.deleteStatus
+  method: POST
+  description: Delete a Slack status message created for the event thread
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: status_ts
+    type: string
+    description: Status message timestamp to delete
+    required: true
+  visible: false
+- id: events.addReaction
+  method: POST
+  description: Add an emoji reaction to the Slack event message
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: name
+    type: string
+    description: Emoji reaction name without colons
+    required: true
+  - name: target_ts
+    type: string
+    description: Message timestamp to react to; defaults to the source Slack event
+    default: ''
+  visible: false
+- id: events.removeReaction
+  method: POST
+  description: Remove an emoji reaction from the Slack event message
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: name
+    type: string
+    description: Emoji reaction name without colons
+    required: true
+  - name: target_ts
+    type: string
+    description: Message timestamp to react to; defaults to the source Slack event
+    default: ''
+  visible: false
 - id: conversations.getMessage
   method: POST
   description: Fetch a single message by Slack URL or channel and timestamp
@@ -82,3 +154,67 @@ operations:
     type: boolean
     description: Include bot users in the participant list
     default: true
+- id: conversations.getThreadContext
+  method: POST
+  description: Build rich Slack thread context with messages, participants, and files
+  parameters:
+  - name: channel
+    type: string
+    description: Channel ID containing the thread
+    required: true
+  - name: ts
+    type: string
+    description: Parent or root message timestamp
+    required: true
+  - name: cursor
+    type: string
+    description: Slack pagination cursor from a previous response
+    default: ''
+  - name: limit
+    type: integer
+    description: Maximum number of messages to return
+    default: 15.0
+  - name: include_user_info
+    type: boolean
+    description: Fetch user profile details for participants
+    default: false
+  - name: include_bots
+    type: boolean
+    description: Include bot messages and bot participants
+    default: true
+  - name: include_files
+    type: boolean
+    description: Include Slack file metadata attached to messages
+    default: true
+  - name: include_file_content
+    type: boolean
+    description: Download bounded text file contents
+    default: false
+  - name: include_image_data
+    type: boolean
+    description: Return image bytes as base64 when file content is requested
+    default: false
+  - name: max_file_bytes
+    type: integer
+    description: Maximum bytes to read from each Slack file
+    default: 200000.0
+- id: files.get
+  method: POST
+  description: Fetch Slack file metadata and bounded file or image content
+  parameters:
+  - name: file_id
+    type: string
+    description: Slack file ID to inspect
+    default: ''
+  - name: url_private
+    type: string
+    description: Slack private file URL to download
+    default: ''
+  - name: include_content
+    type: boolean
+    description: Download bounded file content
+    default: true
+  - name: max_bytes
+    type: integer
+    description: Maximum bytes to read from the Slack file
+    default: 200000.0
