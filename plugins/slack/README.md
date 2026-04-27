@@ -91,6 +91,9 @@ plugins:
         operation: events.stopStream
         credentialMode: none
       - plugin: slack
+        operation: interactions.request
+        credentialMode: none
+      - plugin: slack
         operation: conversations.getThreadContext
       - plugin: slack
         operation: files.get
@@ -120,16 +123,41 @@ plugins:
               message: Summarize this thread and call out open questions.
 ```
 
-Slack should send Events API requests to `POST /api/v1/slack/event`. The route
-is declared in `manifest.yaml` under `spec.http.event`, validates Slack HMAC
-signatures with `SLACK_SIGNING_SECRET`, resolves the Slack team/user through the
-managed `external_identity` authorization relationship, and starts a Gestalt
-agent run with `toolSource=native_search` and no explicit tool refs, so native
-search can discover every tool available to the resolved Gestalt user.
+For durable per-thread dispatch, opt in explicitly with the workflow mode:
+
+```yaml
+plugins:
+  slack:
+    config:
+      workflow:
+        provider: local
+        dispatchMode: workflow
+      agent:
+        provider: simple
+        model: deep
+```
+
+In workflow mode, `events.handle` calls
+`WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
+workflow_key="slack:${team_id}:${channel_id}:${root_ts}", signal.name="slack.event")`.
+The workflow target is an agent target built from the same `agent` and
+`agent.routes` configuration as direct dispatch. The Slack event, `reply_ref`,
+and generated user prompt are delivered in the signal payload, so later Slack
+messages in the same thread signal the existing keyed run instead of replacing
+its target or authorization context.
+
+Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
+interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
+declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
+with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user through the managed
+`external_identity` authorization relationship. Workflow-mode agent runs use
+`toolSource=native_search` with scoped Slack event helper refs plus native tool
+search for the resolved Gestalt user.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,
-and the native stream helpers are hidden operations (`visible: false`).
+the native stream helpers, and the interaction helpers are hidden operations
+(`visible: false`).
 `events.handle` is invoked by the signed Slack webhook binding. It starts an
 agent turn and passes an opaque `reply_ref` in the user prompt. The agent should
 call `slack.events.reply` with that `reply_ref` and response text; the provider
@@ -208,6 +236,26 @@ Use `slack.events.startStream`, `slack.events.appendStream`, and
 ```json
 {"reply_ref":"...","stream_ts":"1712161831.000500","markdown_text":"Done"}
 ```
+
+Use `slack.interactions.request` in workflow mode to post signed Slack buttons.
+When the Slack user clicks a button, the interactivity webhook validates the
+signed metadata and calls `WorkflowManager.SignalOrStartRun` with
+`signal.name="slack.interaction"` for the same `workflow_key`:
+
+```json
+{
+  "reply_ref": "...",
+  "text": "Approve deployment?",
+  "actions": [
+    {"id": "approve", "label": "Approve", "value": "approved", "style": "primary"},
+    {"id": "reject", "label": "Reject", "value": "rejected", "style": "danger"}
+  ]
+}
+```
+
+Interaction refs are scoped to the Slack user who received the original
+`reply_ref`. Broader delegated approval semantics need a separate authorization
+model and are intentionally not inferred from button payloads.
 
 `slack.conversations.getThreadContext` builds a thread-shaped payload with
 normalized messages, mentions, participants, and attached Slack file metadata:

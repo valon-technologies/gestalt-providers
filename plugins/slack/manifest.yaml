@@ -28,6 +28,17 @@ spec:
         required: true
         content:
           application/json: {}
+    interactions:
+      path: /interactions
+      method: POST
+      credentialMode: none
+      security: slack
+      target: interactions.handle
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded: {}
+          application/json: {}
   surfaces:
     rest:
       connection: default
