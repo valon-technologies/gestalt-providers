@@ -5,6 +5,19 @@ operations:
   description: Handle Slack Events API callbacks and delegate supported user events
     to a Gestalt agent
   visible: false
+- id: events.reply
+  method: POST
+  description: Reply to the Slack event that started an agent turn
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: text
+    type: string
+    description: Slack message text to send
+    required: true
+  visible: false
 - id: conversations.getMessage
   method: POST
   description: Fetch a single message by Slack URL or channel and timestamp
