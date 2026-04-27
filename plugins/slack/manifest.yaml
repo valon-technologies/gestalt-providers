@@ -37,7 +37,18 @@ spec:
         description: List conversations/channels
         method: GET
         path: /api/conversations.list
+        connectionSelector:
+          parameter: actor
+          default: bot
+          values:
+            bot: bot
+            user: default
         parameters:
+        - name: actor
+          type: string
+          description: "Slack credential actor to use: bot or user"
+          in: query
+          internal: true
         - name: limit
           type: int
           in: query
@@ -51,7 +62,18 @@ spec:
         description: Send a message to a channel
         method: POST
         path: /api/chat.postMessage
+        connectionSelector:
+          parameter: actor
+          default: bot
+          values:
+            bot: bot
+            user: default
         parameters:
+        - name: actor
+          type: string
+          description: "Slack credential actor to use: bot or user"
+          in: body
+          internal: true
         - name: channel
           type: string
           in: body
@@ -114,7 +136,18 @@ spec:
         description: Read message history for a channel
         method: GET
         path: /api/conversations.history
+        connectionSelector:
+          parameter: actor
+          default: bot
+          values:
+            bot: bot
+            user: default
         parameters:
+        - name: actor
+          type: string
+          description: "Slack credential actor to use: bot or user"
+          in: query
+          internal: true
         - name: channel
           type: string
           in: query
@@ -138,6 +171,7 @@ spec:
         description: Search messages across the workspace
         method: GET
         path: /api/search.messages
+        connection: default
         parameters:
         - name: query
           type: string
@@ -171,7 +205,18 @@ spec:
         description: Read replies for a thread
         method: GET
         path: /api/conversations.replies
+        connectionSelector:
+          parameter: actor
+          default: bot
+          values:
+            bot: bot
+            user: default
         parameters:
+        - name: actor
+          type: string
+          description: "Slack credential actor to use: bot or user"
+          in: query
+          internal: true
         - name: channel
           type: string
           in: query
