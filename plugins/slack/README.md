@@ -43,15 +43,32 @@ plugins:
       - plugin: workplaceHub
         operation: getMe
     config:
-      agentProvider: simple
-      agentModel: deep
-      agentSystemPrompt: Use Slack formatting and keep replies concise.
+      agent:
+        provider: simple
+        model: deep
+        systemPrompt: Use Slack formatting and keep replies concise.
+        routes:
+          - id: workplace-help
+            match:
+              channels:
+                - C0123456789
+              eventTypes:
+                - app_mention
+                - message
+            agent:
+              systemPrompt: Help employees with workplace questions.
 ```
 
 Slack should send Events API requests to `POST /api/v1/slack/event`. The route
 validates Slack HMAC signatures with `SLACK_SIGNING_SECRET`, resolves the Slack
 team/user through the managed `external_identity` authorization relationship,
-and starts a Gestalt agent run with `toolSource=INHERIT_INVOKES`.
+selects the first matching `agent.routes` entry, and starts a Gestalt agent run
+with `toolSource=INHERIT_INVOKES`.
+
+If `agent.routes` is omitted, the provider preserves its default behavior:
+`app_mention` events and direct-message `message` events start an agent run.
+Configured routes can opt channel messages in by matching `eventTypes: [message]`
+and the desired Slack channel IDs.
 
 ## Documentation
 

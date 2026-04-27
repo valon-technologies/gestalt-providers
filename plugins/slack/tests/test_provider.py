@@ -252,6 +252,138 @@ class SlackProviderTests(unittest.TestCase):
         provider_options = json_format.MessageToDict(run_request.provider_options)
         self.assertEqual(provider_options["temperature"], 0)
 
+    def test_nested_agent_config_selects_route_by_channel(self) -> None:
+        provider_module.configure(
+            "supportSlackbot",
+            {
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "systemPrompt": "Follow the global Slack policy.",
+                    "providerOptions": {"temperature": 0},
+                    "routes": [
+                        {
+                            "id": "triage",
+                            "match": {
+                                "channels": ["C_SUPPORT"],
+                                "eventTypes": ["message"],
+                            },
+                            "agent": {
+                                "systemPrompt": "Triage support requests.",
+                                "providerOptions": {"max_output_tokens": 2000},
+                            },
+                        }
+                    ],
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        agent_manager = FakeAgentManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRoute",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C_SUPPORT",
+                "channel_type": "channel",
+                "text": "please triage this",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+
+        with mock.patch.object(
+            gestalt.Request, "agent_manager", return_value=agent_manager
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(agent_manager.requests), 1)
+        run_request = agent_manager.requests[0]
+        self.assertEqual(run_request.provider_name, "simple")
+        self.assertEqual(run_request.model, "deep")
+        self.assertIn("supportSlackbot.chat.postMessage", run_request.messages[0].text)
+        self.assertIn("Follow the global Slack policy.", run_request.messages[0].text)
+        self.assertIn("Triage support requests.", run_request.messages[0].text)
+
+        metadata = json_format.MessageToDict(run_request.metadata)
+        self.assertEqual(metadata["slack"]["agent_route_id"], "triage")
+        provider_options = json_format.MessageToDict(run_request.provider_options)
+        self.assertEqual(provider_options["temperature"], 0)
+        self.assertEqual(provider_options["max_output_tokens"], 2000)
+
+    def test_configured_routes_ignore_non_matching_channels(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "triage",
+                            "match": {"channels": ["C_SUPPORT"]},
+                            "agent": {"systemPrompt": "Triage support requests."},
+                        }
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        agent_manager = FakeAgentManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvIgnored",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_OTHER",
+                "channel_type": "channel",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "agent_manager", return_value=agent_manager
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(agent_manager.requests, [])
+
+    def test_default_routing_still_ignores_plain_channel_messages(self) -> None:
+        provider_module.configure("slack", {})
+        event, ignored = provider_module._slack_agent_event_from_payload(
+            {
+                "type": "event_callback",
+                "event_id": "EvChannelMessage",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "user": "U456",
+                    "channel": "C789",
+                    "channel_type": "channel",
+                    "text": "plain channel message",
+                    "ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(ignored, "")
+        self.assertIsNotNone(event)
+        assert event is not None
+        _route, ignored_route = provider_module._select_agent_route(event)
+        self.assertEqual(ignored_route, "unsupported_event_type")
+
     def test_dm_event_does_not_invent_thread_reply_target(self) -> None:
         event, ignored = provider_module._slack_agent_event_from_payload(
             {
