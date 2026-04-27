@@ -1,6 +1,7 @@
 package relationaldb
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -98,22 +99,14 @@ func (c connectionConfig) options() (connectionOptions, error) {
 }
 
 func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) error {
-	if _, ok := raw["legacy_table_prefix"]; ok {
-		return fmt.Errorf("relationaldb: legacy_table_prefix is no longer supported")
-	}
-	if _, ok := raw["legacy_prefix"]; ok {
-		return fmt.Errorf("relationaldb: legacy_prefix is no longer supported")
-	}
-	if _, ok := raw["namespace"]; ok {
-		return fmt.Errorf("relationaldb: namespace is no longer supported; use schema")
-	}
-
 	var cfg config
 	data, err := yaml.Marshal(raw)
 	if err != nil {
 		return fmt.Errorf("relationaldb: marshal config: %w", err)
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
 		return fmt.Errorf("relationaldb: decode config: %w", err)
 	}
 	if cfg.DSN == "" {

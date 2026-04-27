@@ -1,12 +1,14 @@
 package relationaldb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,10 +64,6 @@ type Store struct {
 
 func NewStore(dsn string) (*Store, error) {
 	return newStoreWithOptions(dsn, storeOptions{TablePrefix: defaultTablePrefix})
-}
-
-func newStoreWithTablePrefix(dsn, tablePrefix string) (*Store, error) {
-	return newStoreWithOptions(dsn, storeOptions{TablePrefix: tablePrefix})
 }
 
 func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
@@ -159,7 +157,7 @@ func (s *Store) loadMetadata(ctx context.Context) error {
 			return fmt.Errorf("relationaldb: scan metadata: %w", err)
 		}
 		var stored storedSchema
-		if err := json.Unmarshal([]byte(schemaJSON), &stored); err != nil {
+		if err := decodeStoredSchema([]byte(schemaJSON), &stored); err != nil {
 			continue
 		}
 		if logicalName, ok := s.currentMetadataStoreName(name); ok {
@@ -859,6 +857,21 @@ func isDuplicateErr(err error) bool {
 type storedSchema struct {
 	Columns []storedColumn `json:"columns"`
 	Indexes []storedIndex  `json:"indexes"`
+}
+
+func decodeStoredSchema(data []byte, out *storedSchema) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(out); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("unexpected trailing JSON")
+		}
+		return err
+	}
+	return nil
 }
 
 type storedColumn struct {
