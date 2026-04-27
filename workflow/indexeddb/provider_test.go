@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -324,6 +325,81 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 }
 
+func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	createdAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:                "agent-ref",
+			Target:            protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
+			TargetFingerprint: "sha256:agent-target",
+			SubjectId:         "user:123",
+			Permissions: []*proto.WorkflowAccessPermission{
+				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
+			},
+			CreatedAt: timestamppb.New(createdAt),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PutExecutionReference(agent-ref): %v", err)
+	}
+	if ref.GetProviderName() != "indexeddb" {
+		t.Fatalf("provider_name = %q, want indexeddb", ref.GetProviderName())
+	}
+	if ref.GetTargetFingerprint() != "sha256:agent-target" {
+		t.Fatalf("target_fingerprint = %q, want sha256:agent-target", ref.GetTargetFingerprint())
+	}
+	if ref.GetTarget().GetAgent().GetProviderName() != "managed" {
+		t.Fatalf("agent target = %#v", ref.GetTarget())
+	}
+	if ref.GetTarget().GetPluginName() != "" || ref.GetTarget().GetPlugin() != nil {
+		t.Fatalf("agent target included plugin fields: %#v", ref.GetTarget())
+	}
+
+	got, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "agent-ref"})
+	if err != nil {
+		t.Fatalf("GetExecutionReference(agent-ref): %v", err)
+	}
+	if !gproto.Equal(got.GetTarget(), ref.GetTarget()) {
+		t.Fatalf("round-tripped target = %#v, want %#v", got.GetTarget(), ref.GetTarget())
+	}
+	if got.GetTargetFingerprint() != "sha256:agent-target" {
+		t.Fatalf("round-tripped target_fingerprint = %q", got.GetTargetFingerprint())
+	}
+}
+
+func TestProviderRejectsAgentExecutionReferenceWithoutFingerprint(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	if _, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:        "agent-ref",
+			Target:    protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
+			SubjectId: "user:123",
+			CreatedAt: timestamppb.New(time.Now().UTC()),
+		},
+	}); err == nil {
+		t.Fatal("PutExecutionReference(agent without fingerprint) succeeded, want error")
+	}
+}
+
 func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -352,7 +428,6 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 		t.Fatalf("trigger execution_ref = %q, want event-ref", trigger.GetExecutionRef())
 	}
 	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
-		PluginName: "roadmap",
 		Event: &proto.WorkflowEvent{
 			Id:          "evt-1",
 			Source:      "roadmap",
@@ -450,6 +525,139 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 	if scheduleRun.GetExecutionRef() != "schedule-ref" {
 		t.Fatalf("schedule run execution_ref = %q, want schedule-ref", scheduleRun.GetExecutionRef())
+	}
+}
+
+func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	start := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	clock := newFakeClock(start)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	provider.now = clock.Now
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "100ms"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId:   "slack-reminder",
+		Cron:         "* * * * *",
+		Timezone:     "UTC",
+		Target:       protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
+		ExecutionRef: "agent-ref",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedule(agent): %v", err)
+	}
+	if schedule.GetTarget().GetAgent().GetProviderName() != "managed" {
+		t.Fatalf("schedule target = %#v", schedule.GetTarget())
+	}
+	if schedule.GetTarget().GetPluginName() != "" || schedule.GetTarget().GetPlugin() != nil {
+		t.Fatalf("schedule target included plugin fields: %#v", schedule.GetTarget())
+	}
+
+	listed, err := provider.ListSchedules(ctx, &proto.ListWorkflowProviderSchedulesRequest{})
+	if err != nil {
+		t.Fatalf("ListSchedules: %v", err)
+	}
+	if len(listed.GetSchedules()) != 1 || !gproto.Equal(listed.GetSchedules()[0].GetTarget(), schedule.GetTarget()) {
+		t.Fatalf("listed schedules = %#v, want persisted agent target", listed.GetSchedules())
+	}
+
+	clock.Set(time.Date(2026, time.April, 16, 12, 1, 0, 0, time.UTC))
+	provider.mu.Lock()
+	provider.signalWorkerLocked()
+	provider.mu.Unlock()
+
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(agent schedule): %v", err)
+	}
+	if call.GetExecutionRef() != "agent-ref" {
+		t.Fatalf("execution_ref = %q, want agent-ref", call.GetExecutionRef())
+	}
+	if call.GetTarget().GetAgent().GetPrompt() != "send a Slack reminder" {
+		t.Fatalf("call target = %#v", call.GetTarget())
+	}
+	if call.GetTarget().GetAgent().GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT {
+		t.Fatalf("tool_source = %v, want explicit", call.GetTarget().GetAgent().GetToolSource())
+	}
+	if call.GetTarget().GetPluginName() != "" || call.GetTarget().GetPlugin() != nil {
+		t.Fatalf("call target included plugin fields: %#v", call.GetTarget())
+	}
+	if call.GetTrigger().GetSchedule().GetScheduleId() != "slack-reminder" {
+		t.Fatalf("schedule trigger = %#v", call.GetTrigger())
+	}
+
+	run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: call.GetRunId()})
+	if err != nil {
+		t.Fatalf("GetRun(agent schedule): %v", err)
+	}
+	if !gproto.Equal(run.GetTarget(), call.GetTarget()) {
+		t.Fatalf("run target = %#v, want %#v", run.GetTarget(), call.GetTarget())
+	}
+}
+
+func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	cases := []struct {
+		name   string
+		target *proto.BoundWorkflowTarget
+	}{
+		{
+			name: "inherit invokes",
+			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
+				ProviderName: "managed",
+				Prompt:       "send a Slack reminder",
+				ToolSource:   proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_INHERIT_INVOKES,
+			}},
+		},
+		{
+			name:   "empty prompt",
+			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{ProviderName: "managed"}},
+		},
+		{
+			name: "negative timeout",
+			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
+				ProviderName:   "managed",
+				Prompt:         "send a Slack reminder",
+				TimeoutSeconds: -1,
+				ToolSource:     proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_EXPLICIT,
+			}},
+		},
+		{
+			name: "empty tool plugin",
+			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
+				ProviderName: "managed",
+				Prompt:       "send a Slack reminder",
+				ToolRefs:     []*proto.AgentToolRef{{Operation: "chat.postMessage"}},
+			}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+				ScheduleId: "invalid-" + strings.ReplaceAll(tc.name, " ", "-"),
+				Cron:       "* * * * *",
+				Timezone:   "UTC",
+				Target:     tc.target,
+			}); err == nil {
+				t.Fatal("UpsertSchedule succeeded, want error")
+			}
+		})
 	}
 }
 
@@ -791,6 +999,19 @@ func protoBoundTarget(t *testing.T, pluginName, operation string, input map[stri
 		PluginName: pluginName,
 		Operation:  operation,
 		Input:      mustStruct(t, input),
+	}
+}
+
+func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {
+	return &proto.BoundWorkflowTarget{
+		Agent: &proto.BoundWorkflowAgentTarget{
+			ProviderName: providerName,
+			Model:        model,
+			Prompt:       prompt,
+			ToolRefs: []*proto.AgentToolRef{
+				{PluginName: "slack", Operation: "chat.postMessage"},
+			},
+		},
 	}
 }
 
