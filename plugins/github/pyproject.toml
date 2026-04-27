@@ -1,0 +1,31 @@
+[project]
+name = "gestalt-github"
+version = "0.0.1a2"
+requires-python = "==3.14.*"
+dependencies = [
+  "cryptography==46.0.7",
+  "gestalt-sdk==0.0.1a13",
+]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "ty==0.0.29",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+
+[tool.gestalt]
+plugin = "provider"
+
+[tool.gestalt.ci]
+vulture-ignore-names = [
+  "configure",
+  "resolve_http_subject",
+  "github_events_handle",
+  "bot_commit_files",
+  "bot_open_pull_request",
+  "bot_create_pull_request",
+]
