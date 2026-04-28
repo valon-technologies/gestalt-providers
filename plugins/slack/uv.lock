@@ -14,7 +14,7 @@ wheels = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#8ec93bb37dbd01a8bcad80e5f6a0fc5d24600287" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#dcbdc61eb43651ed1ec29d6ab4a66f7518cb8696" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
