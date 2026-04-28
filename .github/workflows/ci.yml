@@ -13,6 +13,7 @@ on:
       - 'external_credentials/**'
       - 's3/**'
       - 'indexeddb/**'
+      - 'workflow/**'
       - 'cache/**'
       - 'secrets/**'
       - 'ui/**'
@@ -30,6 +31,7 @@ on:
       - 'external_credentials/**'
       - 's3/**'
       - 'indexeddb/**'
+      - 'workflow/**'
       - 'cache/**'
       - 'secrets/**'
       - 'ui/**'
@@ -68,7 +70,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "external_credentials", "s3", "indexeddb", "cache", "secrets")
+          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "external_credentials", "s3", "indexeddb", "workflow", "cache", "secrets")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -402,9 +404,9 @@ jobs:
       - name: Start gestaltd
         run: |
           mkdir -p "${RUNNER_TEMP}/prepared-artifacts"
-          ${GITHUB_WORKSPACE}/../bin/gestaltd init --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
-          ${GITHUB_WORKSPACE}/../bin/gestaltd serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
-          for i in $(seq 1 120); do
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" init --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
+          for _ in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5
           done

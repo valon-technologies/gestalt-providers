@@ -16,6 +16,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -1026,6 +1027,46 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 	}
 }
 
+func TestProviderIgnoresReservedTargetUnknownFields(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	flatOnly := &proto.BoundWorkflowTarget{}
+	appendReservedUnknownStringField(flatOnly, 1, "roadmap")
+	appendReservedUnknownStringField(flatOnly, 2, "sync")
+	if _, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: flatOnly}); err == nil {
+		t.Fatal("StartRun(flat unknown fields) succeeded, want error")
+	} else if !strings.Contains(err.Error(), "target.plugin.plugin_name is required") {
+		t.Fatalf("StartRun(flat unknown fields) error = %v, want nested plugin validation", err)
+	}
+
+	agentTarget := protoAgentTarget("managed", "gpt-5.5", "send a Slack reminder")
+	appendReservedUnknownStringField(agentTarget, 1, "roadmap")
+	appendReservedUnknownStringField(agentTarget, 2, "sync")
+	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId: "reserved-unknown-agent",
+		Cron:       "* * * * *",
+		Timezone:   "UTC",
+		Target:     agentTarget,
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedule(agent with reserved unknown fields): %v", err)
+	}
+	if schedule.GetTarget().GetAgent().GetProviderName() != "managed" {
+		t.Fatalf("schedule target = %#v", schedule.GetTarget())
+	}
+	if len(schedule.GetTarget().ProtoReflect().GetUnknown()) != 0 {
+		t.Fatalf("schedule target retained reserved unknown fields")
+	}
+}
+
 func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -1367,6 +1408,14 @@ func protoBoundTarget(t *testing.T, pluginName, operation string, input map[stri
 			Input:      mustStruct(t, input),
 		},
 	}
+}
+
+func appendReservedUnknownStringField(target *proto.BoundWorkflowTarget, number protoreflect.FieldNumber, value string) {
+	message := target.ProtoReflect()
+	raw := append([]byte(nil), message.GetUnknown()...)
+	raw = protowire.AppendTag(raw, protowire.Number(number), protowire.BytesType)
+	raw = protowire.AppendString(raw, value)
+	message.SetUnknown(raw)
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {
