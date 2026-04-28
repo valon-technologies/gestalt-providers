@@ -1,7 +1,7 @@
+import copy
 import json
 import re
 import threading
-import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -27,6 +27,8 @@ TOOL_SEARCH_FUNCTION_NAME = "gestalt_search_tools"
 TOOL_SEARCH_TOOL_ID = "__gestalt_search_tools__"
 TOOL_SEARCH_DEFAULT_MAX_RESULTS = 8
 TOOL_SEARCH_MAX_RESULTS = 20
+SLACK_EVENTS_REPLY_TOOL_ID = "slack/events.reply"
+SLACK_REPLY_TEXT_ARGUMENT_FIELDS = ("text", "markdown_text")
 TOOL_SEARCH_SYSTEM_PROMPT = (
     "When a user asks you to use an external integration or read external data and the needed tool is not already "
     f"available, call `{TOOL_SEARCH_FUNCTION_NAME}` before saying you do not have access."
@@ -161,6 +163,13 @@ class SimpleAgentOrchestrator:
                         if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
                             return
 
+                        arguments = _augment_tool_arguments_from_assistant_text(
+                            resolved_tool_id=resolved_tool_id,
+                            tool_name=tool_call.tool_id,
+                            arguments=tool_call.arguments,
+                            tool_specs=tool_specs,
+                            assistant_text=step.output_text,
+                        )
                         self._store.append_turn_event(
                             turn_id=prepared.turn_id,
                             event_type="tool.started",
@@ -168,7 +177,7 @@ class SimpleAgentOrchestrator:
                             data={
                                 "tool_call_id": tool_call.call_id,
                                 "tool_id": resolved_tool_id,
-                                "arguments": tool_call.arguments,
+                                "arguments": arguments,
                             },
                         )
                         if resolved_tool_id == TOOL_SEARCH_TOOL_ID:
@@ -176,7 +185,7 @@ class SimpleAgentOrchestrator:
                                 tool_response_body = _search_tools_for_model(
                                     host=host,
                                     prepared=prepared,
-                                    tool_call_arguments=tool_call.arguments,
+                                    tool_call_arguments=arguments,
                                     tool_specs=tool_specs,
                                     function_name_to_tool_id=function_name_to_tool_id,
                                     loaded_tool_ids=loaded_tool_ids,
@@ -193,7 +202,7 @@ class SimpleAgentOrchestrator:
                             continue
 
                         validation_error = _tool_arguments_validation_error(
-                            tool_name=tool_call.tool_id, arguments=tool_call.arguments, tool_specs=tool_specs
+                            tool_name=tool_call.tool_id, arguments=arguments, tool_specs=tool_specs
                         )
                         if validation_error:
                             self._store.append_turn_event(
@@ -221,7 +230,7 @@ class SimpleAgentOrchestrator:
                                     turn_id=prepared.turn_id,
                                     tool_call_id=tool_call.call_id,
                                     tool_id=resolved_tool_id,
-                                    arguments=_dict_to_struct(tool_call.arguments),
+                                    arguments=_dict_to_struct(arguments),
                                 )
                             )
                         canceled = self._store.get_turn(prepared.turn_id)
@@ -328,6 +337,12 @@ class PreparedTurn:
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]]
 
 
+@dataclass(frozen=True, slots=True)
+class ToolArgumentSchema:
+    required: frozenset[str]
+    properties: dict[str, Any]
+
+
 def _search_tools_for_model(
     *,
     host: Any,
@@ -368,6 +383,88 @@ def _tool_arguments_validation_error(
     except ValidationError as exc:
         return f"Tool arguments failed schema validation for {tool_name}: {exc.message}"
     return ""
+
+
+def _augment_tool_arguments_from_assistant_text(
+    *,
+    resolved_tool_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    tool_specs: list[dict[str, Any]],
+    assistant_text: str,
+) -> dict[str, Any]:
+    if not _is_slack_event_reply_tool(resolved_tool_id):
+        return arguments
+    text = assistant_text.strip()
+    if not text:
+        return arguments
+    schema = _tool_argument_schema(tool_name=tool_name, tool_specs=tool_specs)
+    if not schema:
+        return arguments
+
+    field_name = _missing_slack_reply_text_field(schema=schema, arguments=arguments)
+    if field_name is None:
+        return arguments
+
+    augmented = copy.deepcopy(arguments)
+    augmented[field_name] = text
+    return augmented
+
+
+def _is_slack_event_reply_tool(resolved_tool_id: str) -> bool:
+    return resolved_tool_id.split("?", 1)[0] == SLACK_EVENTS_REPLY_TOOL_ID
+
+
+def _tool_argument_schema(*, tool_name: str, tool_specs: list[dict[str, Any]]) -> ToolArgumentSchema | None:
+    schema = _tool_parameters_schema(tool_name=tool_name, tool_specs=tool_specs)
+    if schema is None:
+        return None
+
+    raw_required = schema.get("required", [])
+    if not isinstance(raw_required, list):
+        return None
+
+    required_fields: list[str] = []
+    for field in raw_required:
+        if not isinstance(field, str):
+            return None
+        required_fields.append(field)
+
+    raw_properties = schema.get("properties", {})
+    if not isinstance(raw_properties, dict):
+        return None
+
+    return ToolArgumentSchema(required=frozenset(required_fields), properties=raw_properties)
+
+
+def _missing_slack_reply_text_field(*, schema: ToolArgumentSchema, arguments: dict[str, Any]) -> str | None:
+    for field_name in SLACK_REPLY_TEXT_ARGUMENT_FIELDS:
+        if field_name not in schema.required:
+            continue
+        if _argument_value_is_present(arguments.get(field_name)):
+            continue
+        if _schema_property_accepts_string(schema.properties.get(field_name)):
+            return field_name
+    return None
+
+
+def _argument_value_is_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _schema_property_accepts_string(property_schema: Any) -> bool:
+    if not isinstance(property_schema, dict):
+        return False
+    raw_type = property_schema.get("type")
+    if raw_type == "string":
+        return True
+    if isinstance(raw_type, list) and "string" in raw_type:
+        return True
+    return raw_type is None
 
 
 def _tool_parameters_schema(*, tool_name: str, tool_specs: list[dict[str, Any]]) -> dict[str, Any] | None:

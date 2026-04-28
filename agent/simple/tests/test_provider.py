@@ -687,6 +687,110 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(listed_events.events[4].data.fields["status"].number_value, 200)
         self.assertEqual([event.type for event in paged_events.events], ["tool.completed", "tool.started"])
 
+    def test_create_turn_backfills_missing_text_tool_argument_from_assistant_text(self) -> None:
+        assert _host_servicer is not None
+        _, provider_client = _configure_provider()
+        _create_session(
+            provider_client,
+            session_id="session-backfill-text",
+            idempotency_key="session-idem-backfill-text",
+        )
+
+        tool_parameters = struct_pb2.Struct()
+        tool_parameters.update(
+            {
+                "type": "object",
+                "properties": {
+                    "reply_ref": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+                "required": ["reply_ref", "text"],
+            }
+        )
+        slack_reply_tool = agent_pb2.ResolvedAgentTool(
+            id="slack/events.reply?credentialMode=none",
+            name="slack_events_reply",
+            description="Reply to a Slack event",
+            target=agent_pb2.BoundAgentToolTarget(plugin="slack", operation="events.reply"),
+            parameters_schema=tool_parameters,
+        )
+
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-backfill-1",
+                    "object": "chat.completion",
+                    "created": 1710000100,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "Here are your open pull requests.",
+                                "tool_calls": [
+                                    {
+                                        "id": "call-reply-1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "slack_events_reply",
+                                            "arguments": '{"reply_ref":"reply-ref-1"}',
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 6, "total_tokens": 16},
+                },
+                {
+                    "id": "chatcmpl-backfill-2",
+                    "object": "chat.completion",
+                    "created": 1710000101,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "Posted to Slack."},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 14, "completion_tokens": 4, "total_tokens": 18},
+                },
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+
+        provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-backfill-text",
+                session_id="session-backfill-text",
+                idempotency_key="idem-backfill-text",
+                model="fast",
+                messages=[agent_pb2.AgentMessage(role="user", text="List my PRs in Slack")],
+                provider_options=provider_options,
+                tools=[slack_reply_tool],
+            )
+        )
+
+        fetched = _wait_for_turn(
+            provider_client,
+            "turn-backfill-text",
+            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+        )
+
+        self.assertEqual(fetched.output_text, "Posted to Slack.")
+        self.assertEqual(len(_host_servicer.requests), 1)
+        self.assertEqual(
+            _host_servicer.requests[0]["arguments"],
+            {"reply_ref": "reply-ref-1", "text": "Here are your open pull requests."},
+        )
+
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
         assert _indexeddb_servicer is not None
 
