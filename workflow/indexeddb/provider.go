@@ -25,9 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -35,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.9"
+	providerVersion     = "0.0.1-alpha.11"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
@@ -2000,7 +1998,7 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	}
 	pluginName = strings.TrimSpace(pluginName)
 	if agentTarget := target.GetAgent(); agentTarget != nil {
-		if target.GetPlugin() != nil || hasLegacyFlatPluginTargetFields(target) {
+		if target.GetPlugin() != nil {
 			return scopedTarget{}, errors.New("target cannot include both agent and plugin fields")
 		}
 		if pluginName != "" {
@@ -3016,52 +3014,6 @@ func pluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetF
 		return workflowPluginTargetFields{}
 	}
 	return pluginMessageTargetFields(target.GetPlugin())
-}
-
-func hasLegacyFlatPluginTargetFields(target *proto.BoundWorkflowTarget) bool {
-	if target == nil {
-		return false
-	}
-	message := target.ProtoReflect()
-	fields := message.Descriptor().Fields()
-	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
-		field := fields.ByNumber(number)
-		if field == nil || !message.Has(field) {
-			continue
-		}
-		if field.Kind() != protoreflect.StringKind || strings.TrimSpace(message.Get(field).String()) != "" {
-			return true
-		}
-	}
-	return hasLegacyFlatPluginTargetUnknownFields(message.GetUnknown())
-}
-
-func hasLegacyFlatPluginTargetUnknownFields(raw protoreflect.RawFields) bool {
-	for len(raw) > 0 {
-		number, typ, tagLen := protowire.ConsumeTag(raw)
-		if tagLen < 0 {
-			return false
-		}
-		value := raw[tagLen:]
-		valueLen := protowire.ConsumeFieldValue(number, typ, value)
-		if valueLen < 0 {
-			return false
-		}
-		if number >= 1 && number <= 5 {
-			if typ != protowire.BytesType {
-				return true
-			}
-			bytesValue, bytesLen := protowire.ConsumeBytes(value)
-			if bytesLen < 0 {
-				return false
-			}
-			if len(bytesValue) > 0 && strings.TrimSpace(string(bytesValue)) != "" {
-				return true
-			}
-		}
-		raw = value[valueLen:]
-	}
-	return false
 }
 
 func pluginMessageTargetFields(plugin *proto.BoundWorkflowPluginTarget) workflowPluginTargetFields {

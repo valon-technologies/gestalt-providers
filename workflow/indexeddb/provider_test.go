@@ -16,7 +16,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -34,7 +33,7 @@ func TestBoundWorkflowTargetWireShapeIsNestedOnly(t *testing.T) {
 	}
 	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
 		if field := fields.ByNumber(number); field != nil {
-			t.Fatalf("BoundWorkflowTarget field %d = %s, want reserved legacy flat slot", number, field.Name())
+			t.Fatalf("BoundWorkflowTarget field %d = %s, want reserved retired flat slot", number, field.Name())
 		}
 	}
 }
@@ -996,20 +995,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 			},
 		},
 		{
-			name: "agent and legacy flat plugin fields",
-			target: func() *proto.BoundWorkflowTarget {
-				target := &proto.BoundWorkflowTarget{
-					Agent: &proto.BoundWorkflowAgentTarget{
-						ProviderName: "managed",
-						Prompt:       "send a Slack reminder",
-					},
-				}
-				setLegacyFlatStringField(target, 1, "roadmap")
-				setLegacyFlatStringField(target, 2, "sync")
-				return target
-			}(),
-		},
-		{
 			name: "negative timeout",
 			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
 				ProviderName:   "managed",
@@ -1038,30 +1023,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				t.Fatal("UpsertSchedule succeeded, want error")
 			}
 		})
-	}
-}
-
-func TestProviderRejectsFlatPluginTarget(t *testing.T) {
-	ctx := context.Background()
-	startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
-
-	provider := New()
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	target := &proto.BoundWorkflowTarget{}
-	setLegacyFlatStringField(target, 1, "roadmap")
-	setLegacyFlatStringField(target, 2, "sync")
-
-	_, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: target})
-	if err == nil {
-		t.Fatal("StartRun succeeded, want error")
-	}
-	if !strings.Contains(err.Error(), "target.plugin.plugin_name is required") {
-		t.Fatalf("StartRun error = %v, want target.plugin.plugin_name validation", err)
 	}
 }
 
@@ -1406,19 +1367,6 @@ func protoBoundTarget(t *testing.T, pluginName, operation string, input map[stri
 			Input:      mustStruct(t, input),
 		},
 	}
-}
-
-func setLegacyFlatStringField(target *proto.BoundWorkflowTarget, number protoreflect.FieldNumber, value string) {
-	message := target.ProtoReflect()
-	field := message.Descriptor().Fields().ByNumber(number)
-	if field != nil {
-		message.Set(field, protoreflect.ValueOfString(value))
-		return
-	}
-	raw := append([]byte(nil), message.GetUnknown()...)
-	raw = protowire.AppendTag(raw, protowire.Number(number), protowire.BytesType)
-	raw = protowire.AppendString(raw, value)
-	message.SetUnknown(raw)
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {
