@@ -32,8 +32,15 @@ import (
 )
 
 const (
-	providerVersion = "0.0.1-alpha.1"
-	streamChunkSize = 64 * 1024
+	providerVersion        = "0.0.1-alpha.2"
+	streamChunkSize        = 64 * 1024
+	payloadSigningAuto     = "auto"
+	payloadSigningSigned   = "signed"
+	signingMiddlewareID    = "Signing"
+	acceptEncodingHeader   = "Accept-Encoding"
+	amzSDKInvocationID     = "Amz-Sdk-Invocation-Id"
+	amzSDKRequestHeader    = "Amz-Sdk-Request"
+	acceptEncodingIdentity = "identity"
 )
 
 var (
@@ -50,6 +57,7 @@ type config struct {
 	AccessKeyID     string `yaml:"accessKeyId"`
 	SecretAccessKey string `yaml:"secretAccessKey"`
 	SessionToken    string `yaml:"sessionToken"`
+	PayloadSigning  string `yaml:"payloadSigning"`
 }
 
 type Provider struct {
@@ -82,12 +90,20 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	cfg.AccessKeyID = strings.TrimSpace(cfg.AccessKeyID)
 	cfg.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
 	cfg.SessionToken = strings.TrimSpace(cfg.SessionToken)
+	cfg.PayloadSigning = strings.ToLower(strings.TrimSpace(cfg.PayloadSigning))
 
 	switch {
 	case cfg.Region == "":
 		return fmt.Errorf("s3: region is required")
 	case (cfg.AccessKeyID == "") != (cfg.SecretAccessKey == ""):
 		return fmt.Errorf("s3: accessKeyId and secretAccessKey must be provided together")
+	}
+	switch cfg.PayloadSigning {
+	case "", payloadSigningAuto:
+		cfg.PayloadSigning = payloadSigningAuto
+	case payloadSigningSigned:
+	default:
+		return fmt.Errorf("s3: payloadSigning must be %q or %q", payloadSigningAuto, payloadSigningSigned)
 	}
 
 	client, presigner, err := buildS3Client(ctx, cfg)
@@ -632,7 +648,16 @@ func buildS3Client(ctx context.Context, cfg config) (*s3sdk.Client, *s3sdk.Presi
 		return nil, nil, err
 	}
 
-	client := s3sdk.NewFromConfig(awsCfg, func(o *s3sdk.Options) {
+	client := s3sdk.NewFromConfig(awsCfg, s3ClientOptions(cfg, true))
+	presignClient := client
+	if cfg.PayloadSigning == payloadSigningSigned {
+		presignClient = s3sdk.NewFromConfig(awsCfg, s3ClientOptions(cfg, false))
+	}
+	return client, s3sdk.NewPresignClient(presignClient), nil
+}
+
+func s3ClientOptions(cfg config, signPayloads bool) func(*s3sdk.Options) {
+	return func(o *s3sdk.Options) {
 		if cfg.Endpoint != "" {
 			o.BaseEndpoint = aws.String(cfg.Endpoint)
 		}
@@ -641,8 +666,48 @@ func buildS3Client(ctx context.Context, cfg config) (*s3sdk.Client, *s3sdk.Presi
 		}
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
-	})
-	return client, s3sdk.NewPresignClient(client), nil
+		if signPayloads && cfg.PayloadSigning == payloadSigningSigned {
+			o.APIOptions = append(o.APIOptions, forceSignedPayload)
+		}
+	}
+}
+
+func forceSignedPayload(stack *smithymiddleware.Stack) error {
+	if _, err := stack.Finalize.Swap((&v4.ComputePayloadSHA256{}).ID(), &v4.ComputePayloadSHA256{}); err != nil {
+		return err
+	}
+	// Keep transport/runtime headers out of SigV4 so S3-compatible backends only
+	// verify stable object request headers. Accept-Encoding is restored unsigned.
+	if err := stack.Finalize.Insert(trimSignedHeaders{}, signingMiddlewareID, smithymiddleware.Before); err != nil {
+		return err
+	}
+	return stack.Finalize.Insert(restoreAcceptEncoding{}, signingMiddlewareID, smithymiddleware.After)
+}
+
+type trimSignedHeaders struct{}
+
+func (trimSignedHeaders) ID() string { return "S3ProviderTrimSignedHeaders" }
+
+func (trimSignedHeaders) HandleFinalize(ctx context.Context, in smithymiddleware.FinalizeInput, next smithymiddleware.FinalizeHandler) (smithymiddleware.FinalizeOutput, smithymiddleware.Metadata, error) {
+	req, ok := in.Request.(*smithyhttp.Request)
+	if ok {
+		req.Header.Del(acceptEncodingHeader)
+		req.Header.Del(amzSDKInvocationID)
+		req.Header.Del(amzSDKRequestHeader)
+	}
+	return next.HandleFinalize(ctx, in)
+}
+
+type restoreAcceptEncoding struct{}
+
+func (restoreAcceptEncoding) ID() string { return "S3ProviderRestoreAcceptEncoding" }
+
+func (restoreAcceptEncoding) HandleFinalize(ctx context.Context, in smithymiddleware.FinalizeInput, next smithymiddleware.FinalizeHandler) (smithymiddleware.FinalizeOutput, smithymiddleware.Metadata, error) {
+	req, ok := in.Request.(*smithyhttp.Request)
+	if ok {
+		req.Header.Set(acceptEncodingHeader, acceptEncodingIdentity)
+	}
+	return next.HandleFinalize(ctx, in)
 }
 
 func validateObjectRef(ref *proto.S3ObjectRef, field string) (gestalt.ObjectRef, error) {
