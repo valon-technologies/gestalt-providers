@@ -45,8 +45,10 @@ The requested scopes cover public channels, private channels, direct messages,
 and multi-person direct messages. That matches the provider's current
 conversation history, thread, search, and message URL lookup behavior.
 
-The provider also exposes a Slack Events API ingress. For the common case where
-one Slack app has one default bot behavior, configure the agent once:
+The provider also exposes a Slack Events API ingress. Slack owns event
+verification, Slack-user subject resolution, bot-token replies, and optional
+Slack event routing. Agent selection, prompts, tools, and completion delivery
+belong in workflow configuration.
 
 ```yaml
 plugins:
@@ -102,10 +104,8 @@ plugins:
           secret:
             provider: secrets
             name: slack-bot-token
-      agent:
-        provider: simple
-        model: deep
-        systemPrompt: Use Slack formatting and keep replies concise.
+      workflow:
+        provider: indexeddb
       assistant:
         enabled: true
         status: is checking that...
@@ -123,23 +123,58 @@ plugins:
 Slack should send Events API requests to `POST /api/v1/slack/event`. The route
 is declared in `manifest.yaml` under `spec.http.event`, validates Slack HMAC
 signatures with `SLACK_SIGNING_SECRET`, resolves the Slack team/user through the
-managed `external_identity` authorization relationship, and starts a Gestalt
-agent run with `toolSource=native_search` and no explicit tool refs, so native
-search can discover every tool available to the resolved Gestalt user.
+managed `external_identity` authorization relationship, and publishes a
+`com.valon.slack.event` workflow event as the resolved Gestalt subject.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,
 and the native stream helpers are hidden operations (`visible: false`).
-`events.handle` is invoked by the signed Slack webhook binding. It starts an
-agent turn and passes an opaque `reply_ref` in the user prompt. The agent should
-call `slack.events.reply` with that `reply_ref` and response text; the provider
-validates that the ref belongs to the invoking Gestalt subject before posting to
-Slack with the configured bot token. The same `reply_ref` scopes progress
-statuses, native assistant updates, streaming replies, suggested prompts, thread
-titles, and reactions to the source event channel, so the agent never needs raw
-`chat.postMessage` access for event replies.
+`events.handle` is invoked by the signed Slack webhook binding. It publishes
+safe public Slack event fields and keeps the opaque `reply_ref` in workflow
+`private_input`. Completion delivery can call `slack.events.reply` with that
+`reply_ref` and response text; the provider validates that the ref belongs to
+the invoking Gestalt subject before posting to Slack with the configured bot
+token. The same `reply_ref` scopes progress statuses, native assistant updates,
+streaming replies, suggested prompts, thread titles, and reactions to the source
+event channel, so event replies never need raw `chat.postMessage` access.
 
-Agent-facing event helper examples:
+Example workflow event trigger:
+
+```yaml
+workflows:
+  eventTriggers:
+    slack-agent:
+      provider: indexeddb
+      match:
+        source: slack
+        type: com.valon.slack.event
+      target:
+        agent:
+          provider: simple
+          model: deep
+          prompt: |
+            Slack event from {{ trigger.event.data.user_id }}:
+            {{ trigger.event.data.text }}
+      completion:
+        onSuccess:
+          bestEffort: true
+          plugin:
+            name: slack
+            operation: events.reply
+            input:
+              reply_ref: "{{ private.reply_ref }}"
+              text: "{{ result.body }}"
+        onFailure:
+          bestEffort: true
+          plugin:
+            name: slack
+            operation: events.reply
+            input:
+              reply_ref: "{{ private.reply_ref }}"
+              text: "I hit an error: {{ error.message }}"
+```
+
+Workflow completion helper examples:
 
 ```json
 {"reply_ref":"...","text":"I'll check that now."}
@@ -235,15 +270,16 @@ base64:
 ```
 
 If `agent.routes` is omitted, the provider uses its default behavior:
-`app_mention` events and direct-message `message` events start an agent run.
+`app_mention` events and direct-message `message` events publish workflow events.
 Plain channel messages are ignored unless a route explicitly opts them in.
 For the native Slack assistant experience, enable the app's Agents & AI Apps
 features in Slack, add the bot `assistant:write` scope, and subscribe the bot to
 `assistant_thread_started`, `assistant_thread_context_changed`, and `message.im`
 events in addition to `app_mention`.
 
-To use different prompts for different Slack channels or event types, add
-`agent.routes`:
+To publish only selected Slack channels or event types, add `agent.routes`.
+Matching routes attach `agent_route_id` to the public workflow event data; the
+workflow target can use that field to choose prompts or behavior.
 
 ```yaml
 plugins:
@@ -292,10 +328,9 @@ plugins:
           secret:
             provider: secrets
             name: slack-bot-token
+      workflow:
+        provider: indexeddb
       agent:
-        provider: simple
-        model: deep
-        systemPrompt: Use Slack formatting and keep replies concise.
         routes:
           - id: workplace-help
             match:
@@ -304,23 +339,17 @@ plugins:
               eventTypes:
                 - app_mention
                 - message
-            agent:
-              systemPrompt: Help employees with workplace questions.
           - id: deploy-help
             match:
               channels:
                 - C9876543210
               eventTypes:
                 - app_mention
-            agent:
-              systemPrompt: Help engineers inspect deployment status.
 ```
 
-When `agent.routes` is present, only matching routes start an agent run. Match
+When `agent.routes` is present, only matching routes publish workflow events. Match
 rules support singular or plural forms of `team`, `channel`, `channelType`,
-`eventType`, and `user`. Route-level `agent` fields override the top-level
-agent settings, `prompt` is accepted as an alias for `systemPrompt`, and
-`providerOptions` are merged with route-level values taking precedence.
+`eventType`, and `user`.
 
 ## Documentation
 

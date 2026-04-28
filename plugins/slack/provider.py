@@ -61,11 +61,10 @@ SlackAgentEvent = _agent.SlackAgentEvent
 SlackAgentRoute = _agent.SlackAgentRoute
 SlackAgentRouteMatch = _agent.SlackAgentRouteMatch
 SlackReplyRef = _agent.SlackReplyRef
-_agent_session_ref = _agent._agent_session_ref
-_agent_tool_source_native_search = _agent._agent_tool_source_native_search
 _select_agent_route = _agent._select_agent_route
 _sign_reply_ref = _agent._sign_reply_ref
 _slack_agent_event_from_payload = _agent._slack_agent_event_from_payload
+_build_slack_workflow_event_request = _agent._build_slack_workflow_event_request
 _verify_reply_ref = _agent._verify_reply_ref
 external_identity_resource_id = _agent.external_identity_resource_id
 slack_external_identity_id = _agent.slack_external_identity_id
@@ -373,7 +372,7 @@ def resolve_http_subject(
 @gestalt.operation(
     id=SLACK_EVENT_OPERATION,
     method="POST",
-    description="Handle Slack Events API callbacks and delegate supported user events to a Gestalt agent",
+    description="Handle Slack Events API callbacks and publish supported user events as Gestalt workflow events",
     visible=False,
 )
 def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> OperationResult:
@@ -383,7 +382,7 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
 @gestalt.operation(
     id=SLACK_REPLY_OPERATION,
     method="POST",
-    description="Reply to the Slack event that started an agent turn",
+    description="Reply to a Slack workflow event using its private reply_ref",
     visible=False,
 )
 def slack_events_reply(

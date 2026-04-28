@@ -16,8 +16,8 @@ from typing import Any, TypeAlias
 import gestalt
 from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
+from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
 
 from .client import SlackAPIError, SlackClientError
 from .helpers import map_field, map_slice, string_field
@@ -39,8 +39,8 @@ ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 PostConnectMetadata: TypeAlias = dict[str, str]
 
-agent_pb2: Any = _agent_pb2
 authorization_pb2: Any = _authorization_pb2
+workflow_pb2: Any = _workflow_pb2
 struct_pb2: Any = _struct_pb2
 
 SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
@@ -60,32 +60,31 @@ SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
-AGENT_GLOBAL_TOOL_SEARCH_PLUGIN = "*"
+SLACK_WORKFLOW_EVENT_TYPE = "com.valon.slack.event"
+SLACK_WORKFLOW_EVENT_SOURCE = "slack"
+SLACK_WORKFLOW_FILE_FIELDS = frozenset(
+    (
+        "id",
+        "created",
+        "timestamp",
+        "name",
+        "title",
+        "mimetype",
+        "filetype",
+        "pretty_type",
+        "user",
+        "mode",
+        "size",
+        "is_external",
+        "external_type",
+    )
+)
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
 EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
 EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
-DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
-You are a Slack bot running inside Gestalt.
-Use the available Gestalt tools under the Slack user's authorization.
-Use {assistant_status_tool} with the reply_ref for Slack's native assistant
-loading/status indicator during longer work; use {assistant_clear_status_tool}
-to clear it without posting a message.
-Use {status_tool} only when you intentionally want a visible progress message
-in the Slack thread; reuse the returned status_ts to update or delete the same
-status message.
-Use {stream_start_tool}, {stream_append_tool}, and {stream_stop_tool} when a
-streaming Slack reply is better than a single final message.
-Use {title_tool} and {prompts_tool} to update native assistant thread metadata.
-Use {context_tool} when you need the current Slack thread history, participants,
-or attached files. Use {file_tool} to read Slack file contents or image bytes.
-When you answer the Slack user, call {reply_tool} with the reply_ref exactly
-as provided and the Slack message text. Do not use raw Slack message-posting
-tools for the final reply.
-After posting to Slack, return a concise final summary of what you did.
-""".strip()
 
 
 class SlackCallbackType(StrEnum):
@@ -143,10 +142,6 @@ class SlackAgentRouteMatch:
 class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
-    agent_provider: str = ""
-    agent_model: str = ""
-    agent_system_prompt: str = ""
-    agent_provider_options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,10 +166,7 @@ class SlackAgentConfig:
     plugin_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
-    agent_provider: str = ""
-    agent_model: str = ""
-    agent_system_prompt: str = ""
-    agent_provider_options: dict[str, Any] = field(default_factory=dict)
+    workflow_provider: str = ""
     routes: tuple[SlackAgentRoute, ...] = ()
 
 
@@ -294,30 +286,95 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 assistant_status_error = str(err.body.get("error") or err.body)
             except SlackClientError as err:
                 assistant_status_error = str(err)
-        with req.agent_manager() as agent_manager:
-            session_request = _build_agent_session_request(event, route)
-            session = agent_manager.create_session(session_request)
-            session_id = str(session.id or "").strip()
-            if not session_id:
-                return _server_error("agent manager did not return a session id")
-
-            turn_request = _build_agent_turn_request(
-                event, route, session_id, reply_ref
+        with req.workflow_manager() as workflow_manager:
+            published_event = workflow_manager.publish_event(
+                _build_slack_workflow_event_request(event, route, reply_ref)
             )
-            turn = agent_manager.create_turn(turn_request)
     except Exception as err:
-        return _server_error(f"failed to start agent turn: {err}")
+        return _server_error(f"failed to publish Slack workflow event: {err}")
 
     response = {
         "ok": True,
-        "agent_session_id": session_id,
-        "agent_turn_id": turn.id,
-        "agent_provider": session.provider_name or _agent_provider(route),
-        "status": _agent_execution_status_name(turn.status),
+        "workflow_event_id": str(getattr(published_event, "id", "") or event.event_id),
+        "workflow_event_type": SLACK_WORKFLOW_EVENT_TYPE,
+        "workflow_event_source": SLACK_WORKFLOW_EVENT_SOURCE,
     }
     if assistant_status_error:
         response["assistant_status_error"] = assistant_status_error
     return response
+
+
+def _build_slack_workflow_event_request(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+    reply_ref: str,
+) -> Any:
+    request = workflow_pb2.WorkflowManagerPublishEventRequest(
+        provider_name=_agent_config.workflow_provider,
+        event=workflow_pb2.WorkflowEvent(
+            id=_slack_workflow_event_id(event),
+            source=SLACK_WORKFLOW_EVENT_SOURCE,
+            spec_version="1.0",
+            type=SLACK_WORKFLOW_EVENT_TYPE,
+            subject=_slack_workflow_event_subject(event),
+            datacontenttype="application/json",
+        ),
+    )
+    request.event.data.CopyFrom(_dict_to_struct(_slack_workflow_event_data(event, route)))
+    request.private_input.CopyFrom(_dict_to_struct({"reply_ref": reply_ref}))
+    return request
+
+
+def _slack_workflow_event_id(event: SlackAgentEvent) -> str:
+    if event.event_id:
+        return event.event_id
+    return ":".join(
+        [
+            "slack",
+            event.team_id,
+            event.channel_id,
+            event.message_ts,
+            event.user_id,
+        ]
+    )
+
+
+def _slack_workflow_event_subject(event: SlackAgentEvent) -> str:
+    if event.team_id and event.channel_id:
+        return f"team:{event.team_id}:channel:{event.channel_id}"
+    if event.team_id:
+        return f"team:{event.team_id}"
+    return ""
+
+
+def _slack_workflow_event_data(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+) -> dict[str, Any]:
+    return {
+        "callback_type": event.callback_type,
+        "event_type": event.event_type,
+        "event_id": event.event_id,
+        "team_id": event.team_id,
+        "user_id": event.user_id,
+        "channel_id": event.channel_id,
+        "channel_type": event.channel_type,
+        "text": event.text,
+        "message_ts": event.message_ts,
+        "thread_ts": event.thread_ts,
+        "reply_thread_ts": event.reply_thread_ts,
+        "file_ids": _event_file_ids(event),
+        "files": [_slack_workflow_file_data(file_data) for file_data in event.files],
+        "agent_route_id": route.id if route is not None else "",
+    }
+
+
+def _slack_workflow_file_data(file_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in file_data.items()
+        if key in SLACK_WORKFLOW_FILE_FIELDS and value not in (None, "")
+    }
 
 
 def reply_to_slack_event(
@@ -865,7 +922,7 @@ def _json_payload_from_http_request(
         return {}
     try:
         payload = json.loads(request.raw_body.decode("utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -1163,187 +1220,12 @@ def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
     )
 
 
-def _build_agent_session_request(
-    event: SlackAgentEvent,
-    route: SlackAgentRoute | None,
-) -> Any:
-    request = agent_pb2.AgentManagerCreateSessionRequest(
-        provider_name=_agent_provider(route),
-        model=_agent_model(route),
-        client_ref=_agent_session_ref(event),
-        idempotency_key=_agent_session_idempotency_key(event),
-    )
-    request.metadata.CopyFrom(_agent_session_metadata(event))
-    return request
-
-
-def _build_agent_turn_request(
-    event: SlackAgentEvent,
-    route: SlackAgentRoute | None,
-    session_id: str,
-    reply_ref: str,
-) -> Any:
-    request = agent_pb2.AgentManagerCreateTurnRequest(
-        session_id=session_id,
-        model=_agent_model(route),
-        messages=[
-            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
-            agent_pb2.AgentMessage(
-                role="user", text=_agent_user_prompt(event, reply_ref)
-            ),
-        ],
-        tool_source=_agent_tool_source_native_search(),
-        tool_refs=_agent_event_tool_refs(route),
-        idempotency_key=_agent_turn_idempotency_key(event),
-    )
-    request.metadata.CopyFrom(_agent_metadata(event, route))
-    provider_options = _agent_provider_options(route)
-    if provider_options:
-        request.provider_options.CopyFrom(_dict_to_struct(provider_options))
-    return request
-
-
-def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
-    _ = route
-    operations = [
-        SLACK_REPLY_OPERATION,
-        SLACK_STATUS_OPERATION,
-        SLACK_DELETE_STATUS_OPERATION,
-        SLACK_ADD_REACTION_OPERATION,
-        SLACK_REMOVE_REACTION_OPERATION,
-    ]
-    if _agent_config.assistant.enabled:
-        operations.extend(
-            [
-                SLACK_ASSISTANT_STATUS_OPERATION,
-                SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
-                SLACK_ASSISTANT_TITLE_OPERATION,
-                SLACK_ASSISTANT_PROMPTS_OPERATION,
-                SLACK_STREAM_START_OPERATION,
-                SLACK_STREAM_APPEND_OPERATION,
-                SLACK_STREAM_STOP_OPERATION,
-            ]
-        )
-    return [
-        agent_pb2.AgentToolRef(plugin=AGENT_GLOBAL_TOOL_SEARCH_PLUGIN),
-        *[
-            agent_pb2.AgentToolRef(
-                plugin=_agent_config.plugin_name,
-                operation=operation,
-            )
-            for operation in operations
-        ],
-    ]
-
-
-def _agent_tool_source_native_search() -> int:
-    native_value = getattr(agent_pb2, "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH", None)
-    if native_value is not None:
-        return int(native_value)
-    return int(agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT)
-
-
-def _agent_session_metadata(event: SlackAgentEvent) -> Any:
-    root_ts = event.thread_ts or event.message_ts
-    return _dict_to_struct(
-        {
-            "slack": {
-                "team_id": event.team_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "root_message_ts": root_ts,
-                "session_ref": _agent_session_ref(event),
-            }
-        }
-    )
-
-
-def _agent_metadata(
-    event: SlackAgentEvent,
-    route: SlackAgentRoute | None,
-) -> Any:
-    metadata = _dict_to_struct(
-        {
-            "slack": {
-                "callback_type": event.callback_type,
-                "event_type": event.event_type,
-                "event_id": event.event_id,
-                "team_id": event.team_id,
-                "user_id": event.user_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "message_ts": event.message_ts,
-                "thread_ts": event.thread_ts,
-                "reply_thread_ts": event.reply_thread_ts,
-                "file_ids": _event_file_ids(event),
-                "agent_route_id": route.id if route is not None else "",
-            }
-        }
-    )
-    return metadata
-
-
-def _agent_provider(route: SlackAgentRoute | None) -> str:
-    if route is not None and route.agent_provider:
-        return route.agent_provider
-    return _agent_config.agent_provider
-
-
-def _agent_model(route: SlackAgentRoute | None) -> str:
-    if route is not None and route.agent_model:
-        return route.agent_model
-    return _agent_config.agent_model
-
-
-def _agent_provider_options(route: SlackAgentRoute | None) -> dict[str, Any]:
-    options = dict(_agent_config.agent_provider_options)
-    if route is not None and route.agent_provider_options:
-        options.update(route.agent_provider_options)
-    return options
-
-
-def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
-    parts = [
-        DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
-            reply_tool=f"{_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
-            status_tool=f"{_agent_config.plugin_name}.{SLACK_STATUS_OPERATION}",
-            assistant_status_tool=(
-                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_STATUS_OPERATION}"
-            ),
-            assistant_clear_status_tool=(
-                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_CLEAR_STATUS_OPERATION}"
-            ),
-            title_tool=f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_TITLE_OPERATION}",
-            prompts_tool=(
-                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_PROMPTS_OPERATION}"
-            ),
-            stream_start_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_START_OPERATION}",
-            stream_append_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_APPEND_OPERATION}",
-            stream_stop_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_STOP_OPERATION}",
-            context_tool=f"{_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
-            file_tool=f"{_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
-        )
-    ]
-    if _agent_config.agent_system_prompt:
-        parts.append(_agent_config.agent_system_prompt.strip())
-    if route is not None and route.agent_system_prompt:
-        parts.append(route.agent_system_prompt.strip())
-    return "\n\n".join(parts)
-
-
 def _agent_config_from_provider_config(
     plugin_name: str, config: dict[str, Any]
 ) -> SlackAgentConfig:
     agent = _config_dict(config, "agent")
-    provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
-    model = _config_string(agent, "model", "agentModel", "agent_model")
-    system_prompt = _config_string(
-        agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
-    )
-    provider_options = _config_dict(
-        agent, "providerOptions", "provider_options", "agentProviderOptions"
-    )
     routes = _agent_routes_from_provider_config(config, agent)
+    workflow = _config_dict(config, "workflow")
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
 
@@ -1362,13 +1244,15 @@ def _agent_config_from_provider_config(
             )
         ),
         assistant=assistant,
-        agent_provider=provider
-        or _config_string(config, "agentProvider", "agent_provider"),
-        agent_model=model or _config_string(config, "agentModel", "agent_model"),
-        agent_system_prompt=system_prompt
-        or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
-        agent_provider_options=provider_options
-        or _config_dict(config, "agentProviderOptions", "agent_provider_options"),
+        workflow_provider=_config_string(
+            workflow,
+            "provider",
+            "providerName",
+            "provider_name",
+            "workflowProvider",
+            "workflow_provider",
+        )
+        or _config_string(config, "workflowProvider", "workflow_provider"),
         routes=routes,
     )
 
@@ -1442,27 +1326,9 @@ def _agent_routes_from_provider_config(
 
 
 def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRoute:
-    agent = _config_dict(config, "agent")
-    provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
-    model = _config_string(agent, "model", "agentModel", "agent_model")
-    system_prompt = _config_string(
-        agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
-    )
-    provider_options = _config_dict(
-        agent, "providerOptions", "provider_options", "agentProviderOptions"
-    )
-
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
         match=_agent_route_match_from_config(_config_dict(config, "match")),
-        agent_provider=provider
-        or _config_string(config, "provider", "agentProvider", "agent_provider"),
-        agent_model=model
-        or _config_string(config, "model", "agentModel", "agent_model"),
-        agent_system_prompt=system_prompt
-        or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
-        agent_provider_options=provider_options
-        or _config_dict(config, "providerOptions", "agentProviderOptions"),
     )
 
 
@@ -1496,58 +1362,6 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
     )
 
 
-def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
-    root_ts = event.thread_ts or event.message_ts
-    lines = [
-        "Slack event:",
-        f"team_id: {event.team_id}",
-        f"channel_id: {event.channel_id}",
-        f"user_id: {event.user_id}",
-        f"message_ts: {event.message_ts}",
-        f"thread_ts: {event.thread_ts}",
-        f"reply_thread_ts: {event.reply_thread_ts}",
-        f"reply_ref: {reply_ref}",
-        "",
-        "Thread context tool:",
-        f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
-        f"channel: {event.channel_id}",
-        f"ts: {root_ts}",
-        "",
-        "File content tool:",
-        f"operation: {_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
-    ]
-    file_summaries = _event_file_summaries(event)
-    if file_summaries:
-        lines.extend(["files:", *file_summaries])
-    lines.extend(
-        [
-            "",
-            "Message text:",
-            event.text,
-        ]
-    )
-    return "\n".join(lines)
-
-
-def _event_file_summaries(event: SlackAgentEvent) -> list[str]:
-    summaries: list[str] = []
-    for file_data in event.files:
-        file_id = str(file_data.get("id") or "").strip()
-        name = str(file_data.get("name") or file_data.get("title") or "").strip()
-        mimetype = str(file_data.get("mimetype") or "").strip()
-        size = str(file_data.get("size") or "").strip()
-        parts = [f"id={file_id}"] if file_id else []
-        if name:
-            parts.append(f"name={name}")
-        if mimetype:
-            parts.append(f"mimetype={mimetype}")
-        if size:
-            parts.append(f"size={size}")
-        if parts:
-            summaries.append("- " + " ".join(parts))
-    return summaries
-
-
 def _event_file_ids(event: SlackAgentEvent) -> list[str]:
     return [
         file_id
@@ -1556,32 +1370,6 @@ def _event_file_ids(event: SlackAgentEvent) -> list[str]:
         )
         if file_id
     ]
-
-
-def _agent_session_ref(event: SlackAgentEvent) -> str:
-    if event.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES and not event.thread_ts:
-        return f"slack:{event.team_id}:{event.channel_id}"
-    root_ts = event.thread_ts or event.message_ts
-    return f"slack:{event.team_id}:{event.channel_id}:{root_ts}"
-
-
-def _agent_session_idempotency_key(event: SlackAgentEvent) -> str:
-    return f"slack:session:{_agent_session_ref(event)}"
-
-
-def _agent_turn_idempotency_key(event: SlackAgentEvent) -> str:
-    if event.event_id:
-        return f"slack:event:{event.event_id}"
-    return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
-
-
-def _agent_execution_status_name(status: int) -> str:
-    if not status:
-        return ""
-    try:
-        return agent_pb2.AgentExecutionStatus.Name(status)
-    except ValueError:
-        return str(status)
 
 
 def _dict_to_struct(data: dict[str, Any]) -> Any:

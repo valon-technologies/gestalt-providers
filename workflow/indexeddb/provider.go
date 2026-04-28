@@ -95,6 +95,7 @@ type workflowScheduleRecord struct {
 	Instance     string
 	Input        map[string]any
 	Target       *proto.BoundWorkflowTarget
+	Completion   *proto.WorkflowCompletion
 	Paused       bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -114,6 +115,7 @@ type workflowEventTriggerRecord struct {
 	Instance     string
 	Input        map[string]any
 	Target       *proto.BoundWorkflowTarget
+	Completion   *proto.WorkflowCompletion
 	Paused       bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -130,6 +132,8 @@ type workflowRunRecord struct {
 	Instance              string
 	Input                 map[string]any
 	Target                *proto.BoundWorkflowTarget
+	Completion            *proto.WorkflowCompletion
+	PrivateInput          map[string]any
 	TriggerKind           string
 	TriggerScheduleID     string
 	TriggerScheduledFor   *time.Time
@@ -160,6 +164,7 @@ type workflowExecutionReferenceRecord struct {
 	TargetConnection    string
 	TargetInstance      string
 	Target              *proto.BoundWorkflowTarget
+	Completion          *proto.WorkflowCompletion
 	TargetFingerprint   string
 	SubjectID           string
 	CredentialSubjectID string
@@ -408,6 +413,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
 		Target:       cloneTarget(target.Target),
+		Completion:   cloneCompletion(req.GetCompletion()),
 		TriggerKind:  triggerKindManual,
 		CreatedAt:    now,
 		CreatedBy:    actor,
@@ -613,6 +619,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
 		Target:       cloneTarget(target.Target),
+		Completion:   cloneCompletion(req.GetCompletion()),
 		Paused:       req.GetPaused(),
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -802,6 +809,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 		Instance:     target.Instance,
 		Input:        cloneMap(target.Input),
 		Target:       cloneTarget(target.Target),
+		Completion:   cloneCompletion(req.GetCompletion()),
 		Paused:       req.GetPaused(),
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -934,11 +942,12 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
 	event, err := normalizeWorkflowEvent(req.GetEvent(), p.clock())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	publishedBy := cloneActor(req.GetPublishedBy())
+	privateInput := cloneStructMap(req.GetPrivateInput())
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -946,7 +955,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		p.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
+	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, "")
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
@@ -961,6 +970,10 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		if strings.TrimSpace(event.GetId()) != "" {
 			runID = eventRunID(trigger.ID, event.GetSource(), event.GetId())
 		}
+		createdBy := cloneActor(publishedBy)
+		if createdBy == nil {
+			createdBy = cloneActor(trigger.CreatedBy)
+		}
 		run := workflowRunRecord{
 			ID:                    runID,
 			PluginName:            trigger.PluginName,
@@ -970,11 +983,13 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			Instance:              trigger.Instance,
 			Input:                 cloneMap(trigger.Input),
 			Target:                cloneTarget(trigger.Target),
+			Completion:            cloneCompletion(trigger.Completion),
+			PrivateInput:          cloneMap(privateInput),
 			TriggerKind:           triggerKindEvent,
 			TriggerEventTriggerID: trigger.ID,
 			TriggerEvent:          cloneEvent(event),
 			CreatedAt:             now,
-			CreatedBy:             cloneActor(trigger.CreatedBy),
+			CreatedBy:             createdBy,
 			ExecutionRef:          trigger.ExecutionRef,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
@@ -1245,6 +1260,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			Instance:            schedule.Instance,
 			Input:               cloneMap(schedule.Input),
 			Target:              cloneTarget(schedule.Target),
+			Completion:          cloneCompletion(schedule.Completion),
 			TriggerKind:         triggerKindSchedule,
 			TriggerScheduleID:   schedule.ID,
 			TriggerScheduledFor: timePtr(latestDue),
@@ -1304,6 +1320,8 @@ func (p *Provider) processNextPendingRun(ctx context.Context) (bool, error) {
 		Trigger:      pending.triggerProto(),
 		CreatedBy:    cloneActor(pending.CreatedBy),
 		ExecutionRef: pending.ExecutionRef,
+		Completion:   cloneCompletion(pending.Completion),
+		PrivateInput: structFromAny(pending.PrivateInput),
 	})
 
 	p.mu.Lock()
@@ -1475,6 +1493,7 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 			{Name: "target_connection", Type: columnTypeString},
 			{Name: "target_instance", Type: columnTypeString},
 			{Name: "target_json", Type: columnTypeString},
+			{Name: "completion_json", Type: columnTypeString},
 			{Name: "target_fingerprint", Type: columnTypeString},
 			{Name: "subject_id", Type: columnTypeString, NotNull: true},
 			{Name: "credential_subject_id", Type: columnTypeString},
@@ -1957,11 +1976,39 @@ func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
 		return nil
 	}
 	return &proto.WorkflowActor{
-		SubjectId:   actor.GetSubjectId(),
-		SubjectKind: actor.GetSubjectKind(),
-		DisplayName: actor.GetDisplayName(),
-		AuthSource:  actor.GetAuthSource(),
+		SubjectId:           actor.GetSubjectId(),
+		CredentialSubjectId: actor.GetCredentialSubjectId(),
+		SubjectKind:         actor.GetSubjectKind(),
+		DisplayName:         actor.GetDisplayName(),
+		AuthSource:          actor.GetAuthSource(),
 	}
+}
+
+func cloneCompletion(completion *proto.WorkflowCompletion) *proto.WorkflowCompletion {
+	if completion == nil {
+		return nil
+	}
+	return gproto.Clone(completion).(*proto.WorkflowCompletion)
+}
+
+func workflowCompletionEmpty(completion *proto.WorkflowCompletion) bool {
+	if completion == nil {
+		return true
+	}
+	return workflowCompletionDeliveryEmpty(completion.GetOnSuccess()) &&
+		workflowCompletionDeliveryEmpty(completion.GetOnFailure())
+}
+
+func workflowCompletionDeliveryEmpty(delivery *proto.WorkflowCompletionDelivery) bool {
+	if delivery == nil || delivery.GetPlugin() == nil {
+		return true
+	}
+	plugin := delivery.GetPlugin()
+	return strings.TrimSpace(plugin.GetPluginName()) == "" &&
+		strings.TrimSpace(plugin.GetOperation()) == "" &&
+		strings.TrimSpace(plugin.GetConnection()) == "" &&
+		strings.TrimSpace(plugin.GetInstance()) == "" &&
+		plugin.GetInput() == nil
 }
 
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
@@ -2006,6 +2053,8 @@ func timePtr(value time.Time) *time.Time {
 
 var workflowTargetJSON = protojson.MarshalOptions{EmitUnpopulated: false}
 var workflowTargetJSONUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
+var workflowCompletionJSON = protojson.MarshalOptions{EmitUnpopulated: false}
+var workflowCompletionJSONUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
 
 func pluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetFields {
 	if target == nil {
@@ -2094,6 +2143,29 @@ func targetFromRecordValue(raw any) *proto.BoundWorkflowTarget {
 		return nil
 	}
 	return cloneTarget(target)
+}
+
+func completionJSON(completion *proto.WorkflowCompletion) string {
+	if workflowCompletionEmpty(completion) {
+		return ""
+	}
+	data, err := workflowCompletionJSON.Marshal(completion)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func completionFromRecordValue(raw any) *proto.WorkflowCompletion {
+	value := strings.TrimSpace(stringValue(raw))
+	if value == "" {
+		return nil
+	}
+	completion := &proto.WorkflowCompletion{}
+	if err := workflowCompletionJSONUnmarshal.Unmarshal([]byte(value), completion); err != nil {
+		return nil
+	}
+	return cloneCompletion(completion)
 }
 
 type workflowFingerprintTarget struct {
@@ -2361,10 +2433,11 @@ func actorToMap(actor *proto.WorkflowActor) map[string]any {
 		return nil
 	}
 	return map[string]any{
-		"subject_id":   actor.GetSubjectId(),
-		"subject_kind": actor.GetSubjectKind(),
-		"display_name": actor.GetDisplayName(),
-		"auth_source":  actor.GetAuthSource(),
+		"subject_id":            actor.GetSubjectId(),
+		"credential_subject_id": actor.GetCredentialSubjectId(),
+		"subject_kind":          actor.GetSubjectKind(),
+		"display_name":          actor.GetDisplayName(),
+		"auth_source":           actor.GetAuthSource(),
 	}
 }
 
@@ -2374,10 +2447,11 @@ func actorFromAny(value any) *proto.WorkflowActor {
 		return nil
 	}
 	return &proto.WorkflowActor{
-		SubjectId:   stringField(data, "subject_id"),
-		SubjectKind: stringField(data, "subject_kind"),
-		DisplayName: stringField(data, "display_name"),
-		AuthSource:  stringField(data, "auth_source"),
+		SubjectId:           stringField(data, "subject_id"),
+		CredentialSubjectId: stringField(data, "credential_subject_id"),
+		SubjectKind:         stringField(data, "subject_kind"),
+		DisplayName:         stringField(data, "display_name"),
+		AuthSource:          stringField(data, "auth_source"),
 	}
 }
 
@@ -2542,20 +2616,21 @@ func timeField(value map[string]any, key string) *time.Time {
 
 func (r workflowScheduleRecord) toRecord() gestalt.Record {
 	record := gestalt.Record{
-		"id":            r.ID,
-		"plugin_name":   r.PluginName,
-		"cron":          r.Cron,
-		"timezone":      r.Timezone,
-		"operation":     r.Operation,
-		"connection":    r.Connection,
-		"instance":      r.Instance,
-		"input":         cloneMap(r.Input),
-		"target_json":   targetJSON(r.targetProto()),
-		"paused":        r.Paused,
-		"created_at":    r.CreatedAt.UTC(),
-		"updated_at":    r.UpdatedAt.UTC(),
-		"created_by":    actorToMap(r.CreatedBy),
-		"execution_ref": r.ExecutionRef,
+		"id":              r.ID,
+		"plugin_name":     r.PluginName,
+		"cron":            r.Cron,
+		"timezone":        r.Timezone,
+		"operation":       r.Operation,
+		"connection":      r.Connection,
+		"instance":        r.Instance,
+		"input":           cloneMap(r.Input),
+		"target_json":     targetJSON(r.targetProto()),
+		"completion_json": completionJSON(r.Completion),
+		"paused":          r.Paused,
+		"created_at":      r.CreatedAt.UTC(),
+		"updated_at":      r.UpdatedAt.UTC(),
+		"created_by":      actorToMap(r.CreatedBy),
+		"execution_ref":   r.ExecutionRef,
 	}
 	if r.NextRunAt != nil {
 		record["next_run_at"] = r.NextRunAt.UTC()
@@ -2577,6 +2652,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
 		Target:       targetFromRecordValue(value["target_json"]),
+		Completion:   completionFromRecordValue(value["completion_json"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
 		ExecutionRef: stringField(value, "execution_ref"),
@@ -2597,6 +2673,7 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 		Cron:         r.Cron,
 		Timezone:     r.Timezone,
 		Target:       r.targetProto(),
+		Completion:   cloneCompletion(r.Completion),
 		Paused:       r.Paused,
 		CreatedAt:    timestamppb.New(r.CreatedAt),
 		UpdatedAt:    timestamppb.New(r.UpdatedAt),
@@ -2615,21 +2692,22 @@ func (r workflowScheduleRecord) targetProto() *proto.BoundWorkflowTarget {
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 	return gestalt.Record{
-		"id":            r.ID,
-		"plugin_name":   r.PluginName,
-		"match_type":    r.MatchType,
-		"match_source":  r.MatchSource,
-		"match_subject": r.MatchSubject,
-		"operation":     r.Operation,
-		"connection":    r.Connection,
-		"instance":      r.Instance,
-		"input":         cloneMap(r.Input),
-		"target_json":   targetJSON(r.targetProto()),
-		"paused":        r.Paused,
-		"created_at":    r.CreatedAt.UTC(),
-		"updated_at":    r.UpdatedAt.UTC(),
-		"created_by":    actorToMap(r.CreatedBy),
-		"execution_ref": r.ExecutionRef,
+		"id":              r.ID,
+		"plugin_name":     r.PluginName,
+		"match_type":      r.MatchType,
+		"match_source":    r.MatchSource,
+		"match_subject":   r.MatchSubject,
+		"operation":       r.Operation,
+		"connection":      r.Connection,
+		"instance":        r.Instance,
+		"input":           cloneMap(r.Input),
+		"target_json":     targetJSON(r.targetProto()),
+		"completion_json": completionJSON(r.Completion),
+		"paused":          r.Paused,
+		"created_at":      r.CreatedAt.UTC(),
+		"updated_at":      r.UpdatedAt.UTC(),
+		"created_by":      actorToMap(r.CreatedBy),
+		"execution_ref":   r.ExecutionRef,
 	}
 }
 
@@ -2646,6 +2724,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
 		Target:       targetFromRecordValue(value["target_json"]),
+		Completion:   completionFromRecordValue(value["completion_json"]),
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
 		ExecutionRef: stringField(value, "execution_ref"),
@@ -2668,6 +2747,7 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 			Subject: r.MatchSubject,
 		},
 		Target:       r.targetProto(),
+		Completion:   cloneCompletion(r.Completion),
 		Paused:       r.Paused,
 		CreatedAt:    timestamppb.New(r.CreatedAt),
 		UpdatedAt:    timestamppb.New(r.UpdatedAt),
@@ -2693,6 +2773,8 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"instance":                 r.Instance,
 		"input":                    cloneMap(r.Input),
 		"target_json":              targetJSON(r.targetProto()),
+		"completion_json":          completionJSON(r.Completion),
+		"private_input":            cloneMap(r.PrivateInput),
 		"trigger_kind":             r.TriggerKind,
 		"trigger_schedule_id":      r.TriggerScheduleID,
 		"trigger_event_trigger_id": r.TriggerEventTriggerID,
@@ -2732,6 +2814,8 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		Instance:              stringField(value, "instance"),
 		Input:                 anyMap(value["input"]),
 		Target:                targetFromRecordValue(value["target_json"]),
+		Completion:            completionFromRecordValue(value["completion_json"]),
+		PrivateInput:          anyMap(value["private_input"]),
 		TriggerKind:           stringField(value, "trigger_kind"),
 		TriggerScheduleID:     stringField(value, "trigger_schedule_id"),
 		TriggerEventTriggerID: stringField(value, "trigger_event_trigger_id"),
@@ -2763,6 +2847,7 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 		ResultBody:    r.ResultBody,
 		CreatedBy:     cloneActor(r.CreatedBy),
 		ExecutionRef:  r.ExecutionRef,
+		Completion:    cloneCompletion(r.Completion),
 	}, nil
 }
 
@@ -2843,12 +2928,16 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		TargetConnection:    target.Connection,
 		TargetInstance:      target.Instance,
 		Target:              cloneTarget(target.Target),
+		Completion:          cloneCompletion(ref.GetCompletion()),
 		TargetFingerprint:   strings.TrimSpace(ref.GetTargetFingerprint()),
 		SubjectID:           strings.TrimSpace(ref.GetSubjectId()),
 		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
 	}
 	if record.Target != nil && record.Target.GetAgent() != nil && record.TargetFingerprint == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("target_fingerprint is required for agent execution references")
+	}
+	if !workflowCompletionEmpty(record.Completion) && record.TargetFingerprint == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("target_fingerprint is required for completion execution references")
 	}
 	if record.ID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("id is required")
@@ -2886,6 +2975,7 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		TargetConnection:    stringField(value, "target_connection"),
 		TargetInstance:      stringField(value, "target_instance"),
 		Target:              targetFromRecordValue(value["target_json"]),
+		Completion:          completionFromRecordValue(value["completion_json"]),
 		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
@@ -2907,6 +2997,7 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"target_connection":     r.TargetConnection,
 		"target_instance":       r.TargetInstance,
 		"target_json":           targetJSON(r.targetProto()),
+		"completion_json":       completionJSON(r.Completion),
 		"target_fingerprint":    r.TargetFingerprint,
 		"subject_id":            r.SubjectID,
 		"credential_subject_id": r.CredentialSubjectID,
@@ -2930,6 +3021,7 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		Id:                  r.ID,
 		ProviderName:        r.ProviderName,
 		Target:              r.targetProto(),
+		Completion:          cloneCompletion(r.Completion),
 		TargetFingerprint:   r.TargetFingerprint,
 		SubjectId:           r.SubjectID,
 		CredentialSubjectId: r.CredentialSubjectID,
@@ -3005,6 +3097,7 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		Id:                  ref.GetId(),
 		ProviderName:        ref.GetProviderName(),
 		Target:              cloneTarget(ref.GetTarget()),
+		Completion:          cloneCompletion(ref.GetCompletion()),
 		TargetFingerprint:   ref.GetTargetFingerprint(),
 		SubjectId:           ref.GetSubjectId(),
 		CredentialSubjectId: ref.GetCredentialSubjectId(),

@@ -547,6 +547,93 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 }
 
+func TestProviderPublishEventRoutesAcrossPluginsWithCompletionAndPublisherContext(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	completion := &proto.WorkflowCompletion{
+		OnSuccess: &proto.WorkflowCompletionDelivery{
+			Plugin: &proto.BoundWorkflowPluginTarget{
+				PluginName: "slack",
+				Operation:  "events.reply",
+				Input:      mustStruct(t, map[string]any{"reply_ref": "{{ private.reply_ref }}", "text": "{{ result.body }}"}),
+			},
+		},
+	}
+	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId:    "slack-mention-agent",
+		Match:        &proto.WorkflowEventMatch{Type: "com.valon.slack.event", Source: "slack"},
+		Target:       protoAgentTarget("simple", "deep", "Handle {{ trigger.event.data.text }}"),
+		Completion:   completion,
+		ExecutionRef: "agent-ref",
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger: %v", err)
+	}
+	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		PluginName: "slack",
+		Event: &proto.WorkflowEvent{
+			Id:          "slack-event-1",
+			Source:      "slack",
+			Type:        "com.valon.slack.event",
+			SpecVersion: "1.0",
+			Data:        mustStruct(t, map[string]any{"text": "@Gestalt hello", "channel_id": "C123"}),
+		},
+		PrivateInput: mustStruct(t, map[string]any{"reply_ref": "signed-reply-ref"}),
+		PublishedBy: &proto.WorkflowActor{
+			SubjectId:           "user:slack-u123",
+			CredentialSubjectId: "user:gestalt-123",
+			SubjectKind:         "user",
+			DisplayName:         "Ada",
+			AuthSource:          "slack",
+		},
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != eventRunID("slack-mention-agent", "slack", "slack-event-1") {
+		t.Fatalf("run_id = %q", call.GetRunId())
+	}
+	if call.GetTarget().GetAgent().GetProviderName() != "simple" {
+		t.Fatalf("target = %#v", call.GetTarget())
+	}
+	if call.GetExecutionRef() != "agent-ref" {
+		t.Fatalf("execution_ref = %q, want agent-ref", call.GetExecutionRef())
+	}
+	if call.GetCreatedBy().GetSubjectId() != "user:slack-u123" || call.GetCreatedBy().GetCredentialSubjectId() != "user:gestalt-123" {
+		t.Fatalf("created_by = %#v", call.GetCreatedBy())
+	}
+	if got := call.GetPrivateInput().AsMap()["reply_ref"]; got != "signed-reply-ref" {
+		t.Fatalf("private_input.reply_ref = %v, want signed-reply-ref", got)
+	}
+	gotCompletion := call.GetCompletion().GetOnSuccess().GetPlugin()
+	if gotCompletion.GetPluginName() != "slack" || gotCompletion.GetOperation() != "events.reply" {
+		t.Fatalf("completion = %#v", call.GetCompletion())
+	}
+
+	run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: call.GetRunId()})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.GetCreatedBy().GetSubjectId() != "user:slack-u123" || run.GetCreatedBy().GetCredentialSubjectId() != "user:gestalt-123" {
+		t.Fatalf("run created_by = %#v", run.GetCreatedBy())
+	}
+	if run.GetCompletion().GetOnSuccess().GetPlugin().GetOperation() != "events.reply" {
+		t.Fatalf("run completion = %#v", run.GetCompletion())
+	}
+}
+
 func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)

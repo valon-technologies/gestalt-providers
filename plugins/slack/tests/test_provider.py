@@ -15,31 +15,12 @@ from unittest import mock
 import gestalt
 import yaml
 from google.protobuf import json_format
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
 
 import provider as provider_module
 
-agent_pb2: Any = _agent_pb2
 authorization_pb2: Any = _authorization_pb2
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parents[1]
-BASE_EVENT_TOOL_REFS = [
-    ("*", ""),
-    ("slack", "events.reply"),
-    ("slack", "events.setStatus"),
-    ("slack", "events.deleteStatus"),
-    ("slack", "events.addReaction"),
-    ("slack", "events.removeReaction"),
-]
-ASSISTANT_EVENT_TOOL_REFS = [
-    ("slack", "events.setAssistantStatus"),
-    ("slack", "events.clearAssistantStatus"),
-    ("slack", "events.setThreadTitle"),
-    ("slack", "events.setSuggestedPrompts"),
-    ("slack", "events.startStream"),
-    ("slack", "events.appendStream"),
-    ("slack", "events.stopStream"),
-]
 
 
 class FakeHTTPResponse:
@@ -84,17 +65,6 @@ def authorization_header(request: urllib.request.Request) -> str | None:
     )
 
 
-def prompt_value(prompt: str, prefix: str) -> str:
-    for line in prompt.splitlines():
-        if line.startswith(prefix):
-            return line.removeprefix(prefix)
-    raise AssertionError(f"prompt missing line prefix {prefix!r}")
-
-
-def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
-    return [(str(ref.plugin), str(ref.operation)) for ref in refs]
-
-
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
     return [parameter["name"] for parameter in operation.get("parameters", [])]
 
@@ -121,37 +91,19 @@ class FakeAuthorization:
         return authorization_pb2.SubjectSearchResponse(subjects=self.subjects)
 
 
-class FakeAgentManager:
+class FakeWorkflowManager:
     def __init__(self) -> None:
-        self.session_requests: list[Any] = []
-        self.turn_requests: list[Any] = []
-        self.requests = self.turn_requests
+        self.requests: list[Any] = []
 
-    def __enter__(self) -> FakeAgentManager:
+    def __enter__(self) -> FakeWorkflowManager:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def create_session(self, request: Any) -> Any:
-        self.session_requests.append(request)
-        return agent_pb2.AgentSession(
-            id="session-123",
-            provider_name=request.provider_name or "simple",
-            model=request.model,
-            client_ref=request.client_ref,
-            state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
-        )
-
-    def create_turn(self, request: Any) -> Any:
-        self.turn_requests.append(request)
-        return agent_pb2.AgentTurn(
-            id="turn-123",
-            session_id=request.session_id,
-            provider_name="simple",
-            model=request.model,
-            status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
-        )
+    def publish_event(self, request: Any) -> Any:
+        self.requests.append(request)
+        return request.event
 
 
 class SlackProviderTests(unittest.TestCase):
@@ -197,18 +149,6 @@ class SlackProviderTests(unittest.TestCase):
             _manifest_parameter_types(rest_ops["chat.stopStream"], "blocks"),
             ["array"],
         )
-
-    def test_agent_tool_source_native_search_handles_new_and_legacy_sdks(self) -> None:
-        class NativeAgentPB:
-            AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH = 7
-
-        class LegacyAgentPB:
-            AGENT_TOOL_SOURCE_MODE_EXPLICIT = 1
-
-        with mock.patch("internals.agent.agent_pb2", NativeAgentPB):
-            self.assertEqual(provider_module._agent_tool_source_native_search(), 7)
-        with mock.patch("internals.agent.agent_pb2", LegacyAgentPB):
-            self.assertEqual(provider_module._agent_tool_source_native_search(), 1)
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
         def fake_urlopen(
@@ -327,18 +267,18 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(request.action.name, "assume")
         self.assertEqual(request.subject_type, "user")
 
-    def test_slack_event_handler_starts_agent_run_with_user_tool_search(self) -> None:
+    def test_slack_event_handler_publishes_workflow_event_with_private_reply_ref(
+        self,
+    ) -> None:
         provider_module.configure(
             "slack",
             {
                 "bot": {"token": "xoxb-test-bot"},
-                "agentProvider": "simple",
-                "agentModel": "deep",
-                "agentProviderOptions": {"temperature": 0},
+                "workflowProvider": "indexeddb",
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         payload = {
             "type": "event_callback",
             "event_id": "Ev123",
@@ -356,6 +296,7 @@ class SlackProviderTests(unittest.TestCase):
                         "name": "diagram.png",
                         "mimetype": "image/png",
                         "size": 12,
+                        "url_private": "https://files.slack.com/files-pri/T123-F123/diagram.png",
                     }
                 ],
             },
@@ -365,73 +306,38 @@ class SlackProviderTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+            gestalt.Request, "workflow_manager", return_value=workflow_manager
         ):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(response["ok"], True)
-        self.assertEqual(response["agent_session_id"], "session-123")
-        self.assertEqual(response["agent_turn_id"], "turn-123")
-        self.assertEqual(response["status"], "AGENT_EXECUTION_STATUS_RUNNING")
-        self.assertEqual(len(agent_manager.session_requests), 1)
-        self.assertEqual(len(agent_manager.turn_requests), 1)
+        self.assertEqual(response["workflow_event_id"], "Ev123")
+        self.assertEqual(response["workflow_event_type"], "com.valon.slack.event")
+        self.assertEqual(response["workflow_event_source"], "slack")
+        self.assertEqual(len(workflow_manager.requests), 1)
 
-        session_request = agent_manager.session_requests[0]
-        self.assertEqual(session_request.provider_name, "simple")
-        self.assertEqual(session_request.model, "deep")
-        self.assertEqual(
-            session_request.client_ref, "slack:T123:C789:1712161829.000300"
-        )
-        self.assertEqual(
-            session_request.idempotency_key,
-            "slack:session:slack:T123:C789:1712161829.000300",
-        )
-        session_metadata = json_format.MessageToDict(session_request.metadata)
-        self.assertEqual(session_metadata["slack"]["team_id"], "T123")
-        self.assertEqual(session_metadata["slack"]["channel_id"], "C789")
-        self.assertEqual(
-            session_metadata["slack"]["root_message_ts"], "1712161829.000300"
-        )
-        self.assertNotIn("event_id", session_metadata["slack"])
-        self.assertNotIn("user_id", session_metadata["slack"])
-        self.assertNotIn("reply_thread_ts", session_metadata["slack"])
-        self.assertEqual(
-            json_format.MessageToDict(session_request.provider_options), {}
-        )
+        publish_request = workflow_manager.requests[0]
+        self.assertEqual(publish_request.event.id, "Ev123")
+        self.assertEqual(publish_request.event.source, "slack")
+        self.assertEqual(publish_request.event.type, "com.valon.slack.event")
+        self.assertEqual(publish_request.event.subject, "team:T123:channel:C789")
+        self.assertEqual(publish_request.provider_name, "indexeddb")
 
-        turn_request = agent_manager.turn_requests[0]
-        self.assertEqual(turn_request.session_id, "session-123")
-        self.assertEqual(turn_request.model, "deep")
-        self.assertEqual(
-            turn_request.tool_source, provider_module._agent_tool_source_native_search()
-        )
-        self.assertEqual(tool_ref_pairs(turn_request.tool_refs), BASE_EVENT_TOOL_REFS)
-        self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
-        self.assertIn("slack.events.reply", turn_request.messages[0].text)
-        self.assertIn("slack.events.setStatus", turn_request.messages[0].text)
-        self.assertIn("slack.events.setAssistantStatus", turn_request.messages[0].text)
-        self.assertIn("slack.events.startStream", turn_request.messages[0].text)
-        self.assertIn("slack.events.appendStream", turn_request.messages[0].text)
-        self.assertIn("slack.events.stopStream", turn_request.messages[0].text)
-        self.assertIn("slack.events.setThreadTitle", turn_request.messages[0].text)
-        self.assertIn("slack.events.setSuggestedPrompts", turn_request.messages[0].text)
-        self.assertIn(
-            "slack.conversations.getThreadContext", turn_request.messages[0].text
-        )
-        self.assertIn("slack.files.get", turn_request.messages[0].text)
-        self.assertNotIn("slack.chat.postMessage", turn_request.messages[0].text)
-        self.assertIn(
-            "operation: slack.conversations.getThreadContext",
-            turn_request.messages[1].text,
-        )
-        self.assertIn(
-            "id=F123 name=diagram.png mimetype=image/png size=12",
-            turn_request.messages[1].text,
-        )
-        self.assertIn(
-            "reply_thread_ts: 1712161829.000300", turn_request.messages[1].text
-        )
-        reply_ref = prompt_value(turn_request.messages[1].text, "reply_ref: ")
+        event_data = json_format.MessageToDict(publish_request.event.data)
+        self.assertEqual(event_data["event_type"], "app_mention")
+        self.assertEqual(event_data["team_id"], "T123")
+        self.assertEqual(event_data["user_id"], "U456")
+        self.assertEqual(event_data["channel_id"], "C789")
+        self.assertEqual(event_data["text"], "<@UBOT> summarize deploy status")
+        self.assertEqual(event_data["reply_thread_ts"], "1712161829.000300")
+        self.assertEqual(event_data["file_ids"], ["F123"])
+        self.assertEqual(event_data["files"][0]["id"], "F123")
+        self.assertEqual(event_data["files"][0]["name"], "diagram.png")
+        self.assertNotIn("url_private", event_data["files"][0])
+        self.assertNotIn("reply_ref", event_data)
+
+        private_input = json_format.MessageToDict(publish_request.private_input)
+        reply_ref = private_input["reply_ref"]
         verified_ref = provider_module._verify_reply_ref(reply_ref, "user:gestalt-123")
         self.assertEqual(verified_ref.team_id, "T123")
         self.assertEqual(verified_ref.channel_id, "C789")
@@ -441,26 +347,15 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(verified_ref.channel_type, "channel")
         self.assertEqual(verified_ref.subject_id, "user:gestalt-123")
 
-        metadata = json_format.MessageToDict(turn_request.metadata)
-        self.assertEqual(metadata["slack"]["team_id"], "T123")
-        self.assertEqual(metadata["slack"]["user_id"], "U456")
-        self.assertEqual(metadata["slack"]["reply_thread_ts"], "1712161829.000300")
-        self.assertEqual(metadata["slack"]["file_ids"], ["F123"])
-        provider_options = json_format.MessageToDict(turn_request.provider_options)
-        self.assertEqual(provider_options["temperature"], 0)
-
-    def test_slack_event_handler_requires_bot_token_before_starting_agent(
+    def test_slack_event_handler_requires_bot_token_before_publishing_workflow_event(
         self,
     ) -> None:
         provider_module.configure(
             "slack",
-            {
-                "agentProvider": "simple",
-                "agentModel": "deep",
-            },
+            {},
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         payload = {
             "type": "event_callback",
             "event_id": "EvNoBot",
@@ -476,7 +371,9 @@ class SlackProviderTests(unittest.TestCase):
         }
 
         with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+            gestalt.Request,
+            "workflow_manager",
+            return_value=workflow_manager,
         ):
             result = provider_module.slack_events_handle(
                 payload,
@@ -489,7 +386,7 @@ class SlackProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
         self.assertEqual(response.body, {"error": "Slack bot token is not configured"})
-        self.assertEqual(agent_manager.requests, [])
+        self.assertEqual(workflow_manager.requests, [])
 
     def test_slack_event_handler_sets_native_assistant_status_when_configured(
         self,
@@ -498,7 +395,6 @@ class SlackProviderTests(unittest.TestCase):
             "slack",
             {
                 "bot": {"token": "xoxb-test-bot"},
-                "agent": {"provider": "simple", "model": "deep"},
                 "assistant": {
                     "enabled": True,
                     "status": "is checking deployment status",
@@ -509,7 +405,7 @@ class SlackProviderTests(unittest.TestCase):
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         payload = {
             "type": "event_callback",
             "event_id": "EvAssistantStatus",
@@ -538,7 +434,9 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                gestalt.Request, "agent_manager", return_value=agent_manager
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
             ),
             mock.patch(
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
@@ -553,11 +451,8 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(response["ok"], True)
         self.assertNotIn("assistant_status_error", response)
-        self.assertEqual(len(agent_manager.turn_requests), 1)
-        self.assertEqual(
-            tool_ref_pairs(agent_manager.turn_requests[0].tool_refs),
-            BASE_EVENT_TOOL_REFS + ASSISTANT_EVENT_TOOL_REFS,
-        )
+        self.assertEqual(len(workflow_manager.requests), 1)
+        self.assertEqual(workflow_manager.requests[0].event.type, "com.valon.slack.event")
         self.assertEqual(
             calls,
             [
@@ -599,7 +494,7 @@ class SlackProviderTests(unittest.TestCase):
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         payload = {
             "type": "event_callback",
             "event_id": "EvAssistantThreadStarted",
@@ -631,7 +526,9 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                gestalt.Request, "agent_manager", return_value=agent_manager
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
             ),
             mock.patch(
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
@@ -644,18 +541,11 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(
-            response,
-            {
-                "ok": True,
-                "event_type": "assistant_thread_started",
-                "channel": "D789",
-                "thread_ts": "1712161829.000300",
-                "suggested_prompts_set": True,
-                "suggested_prompt_count": 1,
-            },
-        )
-        self.assertEqual(agent_manager.requests, [])
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(response["event_type"], "assistant_thread_started")
+        self.assertEqual(response["channel"], "D789")
+        self.assertEqual(response["suggested_prompts_set"], True)
+        self.assertEqual(workflow_manager.requests, [])
         self.assertEqual(
             calls,
             [
@@ -1125,11 +1015,8 @@ class SlackProviderTests(unittest.TestCase):
             "supportSlackbot",
             {
                 "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "indexeddb"},
                 "agent": {
-                    "provider": "simple",
-                    "model": "deep",
-                    "systemPrompt": "Follow the global Slack policy.",
-                    "providerOptions": {"temperature": 0},
                     "routes": [
                         {
                             "id": "triage",
@@ -1137,17 +1024,13 @@ class SlackProviderTests(unittest.TestCase):
                                 "channel": "C_SUPPORT",
                                 "eventType": "message",
                             },
-                            "agent": {
-                                "prompt": "Triage support requests.",
-                                "providerOptions": {"max_output_tokens": 2000},
-                            },
                         }
                     ],
                 },
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         payload = {
             "type": "event_callback",
             "event_id": "EvRoute",
@@ -1166,58 +1049,35 @@ class SlackProviderTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+            gestalt.Request,
+            "workflow_manager",
+            return_value=workflow_manager,
         ):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(response["ok"], True)
-        self.assertEqual(len(agent_manager.session_requests), 1)
-        self.assertEqual(len(agent_manager.turn_requests), 1)
-        session_request = agent_manager.session_requests[0]
-        turn_request = agent_manager.turn_requests[0]
-        self.assertEqual(session_request.provider_name, "simple")
-        self.assertEqual(session_request.model, "deep")
-        self.assertEqual(turn_request.model, "deep")
-        self.assertEqual(
-            tool_ref_pairs(turn_request.tool_refs),
-            [
-                ("*", ""),
-                ("supportSlackbot", "events.reply"),
-                ("supportSlackbot", "events.setStatus"),
-                ("supportSlackbot", "events.deleteStatus"),
-                ("supportSlackbot", "events.addReaction"),
-                ("supportSlackbot", "events.removeReaction"),
-            ],
-        )
-        self.assertIn("supportSlackbot.events.reply", turn_request.messages[0].text)
-        self.assertIn(
-            "supportSlackbot.conversations.getThreadContext",
-            turn_request.messages[0].text,
-        )
-        self.assertNotIn(
-            "supportSlackbot.chat.postMessage", turn_request.messages[0].text
-        )
-        self.assertIn("Follow the global Slack policy.", turn_request.messages[0].text)
-        self.assertIn("Triage support requests.", turn_request.messages[0].text)
+        self.assertEqual(len(workflow_manager.requests), 1)
+        publish_request = workflow_manager.requests[0]
+        self.assertEqual(publish_request.event.id, "EvRoute")
+        self.assertEqual(publish_request.event.subject, "team:T123:channel:C_SUPPORT")
+        self.assertEqual(publish_request.provider_name, "indexeddb")
+        data = json_format.MessageToDict(publish_request.event.data)
+        self.assertEqual(data["agent_route_id"], "triage")
+        self.assertEqual(data["event_type"], "message")
+        self.assertEqual(data["text"], "please triage this")
+        self.assertNotIn("reply_ref", data)
 
-        metadata = json_format.MessageToDict(turn_request.metadata)
-        self.assertEqual(metadata["slack"]["agent_route_id"], "triage")
-        provider_options = json_format.MessageToDict(turn_request.provider_options)
-        self.assertEqual(provider_options["temperature"], 0)
-        self.assertEqual(provider_options["max_output_tokens"], 2000)
-
-    def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
+    def test_repeated_slack_events_publish_distinct_workflow_events(
         self,
     ) -> None:
         provider_module.configure(
             "slack",
             {
                 "bot": {"token": "xoxb-test-bot"},
-                "agent": {"provider": "simple", "model": "deep"},
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
@@ -1250,40 +1110,22 @@ class SlackProviderTests(unittest.TestCase):
         }
 
         with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+            gestalt.Request,
+            "workflow_manager",
+            return_value=workflow_manager,
         ):
             provider_module.slack_events_handle(first, request)
             provider_module.slack_events_handle(second, request)
 
-        self.assertEqual(len(agent_manager.session_requests), 2)
-        self.assertEqual(len(agent_manager.turn_requests), 2)
-        self.assertEqual(
-            agent_manager.session_requests[0].idempotency_key,
-            agent_manager.session_requests[1].idempotency_key,
-        )
-        for session_request in agent_manager.session_requests:
-            session_metadata = json_format.MessageToDict(session_request.metadata)
-            self.assertEqual(
-                session_metadata["slack"]["root_message_ts"], "1712161829.000300"
-            )
-            self.assertNotIn("event_id", session_metadata["slack"])
-            self.assertNotIn("user_id", session_metadata["slack"])
-
-        self.assertEqual(
-            agent_manager.turn_requests[0].idempotency_key, "slack:event:EvFirst"
-        )
-        self.assertEqual(
-            agent_manager.turn_requests[1].idempotency_key, "slack:event:EvSecond"
-        )
-        first_metadata = json_format.MessageToDict(
-            agent_manager.turn_requests[0].metadata
-        )
-        second_metadata = json_format.MessageToDict(
-            agent_manager.turn_requests[1].metadata
-        )
-        self.assertEqual(first_metadata["slack"]["user_id"], "U456")
-        self.assertEqual(second_metadata["slack"]["user_id"], "U999")
-        self.assertEqual(second_metadata["slack"]["message_ts"], "1712161835.000400")
+        self.assertEqual(len(workflow_manager.requests), 2)
+        self.assertEqual(workflow_manager.requests[0].event.id, "EvFirst")
+        self.assertEqual(workflow_manager.requests[1].event.id, "EvSecond")
+        first_data = json_format.MessageToDict(workflow_manager.requests[0].event.data)
+        second_data = json_format.MessageToDict(workflow_manager.requests[1].event.data)
+        self.assertEqual(first_data["user_id"], "U456")
+        self.assertEqual(second_data["user_id"], "U999")
+        self.assertEqual(second_data["message_ts"], "1712161835.000400")
+        self.assertEqual(second_data["reply_thread_ts"], "1712161829.000300")
 
     def test_configured_routes_ignore_non_matching_channels(self) -> None:
         provider_module.configure(
@@ -1294,14 +1136,13 @@ class SlackProviderTests(unittest.TestCase):
                         {
                             "id": "triage",
                             "match": {"channels": ["C_SUPPORT"]},
-                            "agent": {"systemPrompt": "Triage support requests."},
                         }
                     ]
                 }
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
-        agent_manager = FakeAgentManager()
+        workflow_manager = FakeWorkflowManager()
         payload = {
             "type": "event_callback",
             "event_id": "EvIgnored",
@@ -1317,7 +1158,9 @@ class SlackProviderTests(unittest.TestCase):
         }
 
         with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+            gestalt.Request,
+            "workflow_manager",
+            return_value=workflow_manager,
         ):
             response = provider_module.slack_events_handle(
                 payload,
@@ -1327,7 +1170,7 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
-        self.assertEqual(agent_manager.requests, [])
+        self.assertEqual(workflow_manager.requests, [])
 
     def test_default_routing_still_ignores_plain_channel_messages(self) -> None:
         provider_module.configure("slack", {})
@@ -1375,19 +1218,20 @@ class SlackProviderTests(unittest.TestCase):
         assert event is not None
         self.assertEqual(event.thread_ts, "")
         self.assertEqual(event.reply_thread_ts, "")
-        self.assertEqual(provider_module._agent_session_ref(event), "slack:T123:D789")
 
-    def test_url_verification_returns_challenge_without_agent_run(self) -> None:
-        agent_manager = FakeAgentManager()
+    def test_url_verification_returns_challenge_without_workflow_event(self) -> None:
+        workflow_manager = FakeWorkflowManager()
         payload = {"type": "url_verification", "challenge": "challenge-token"}
 
         with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
+            gestalt.Request,
+            "workflow_manager",
+            return_value=workflow_manager,
         ):
             response = provider_module.slack_events_handle(payload, gestalt.Request())
 
         self.assertEqual(response, {"challenge": "challenge-token"})
-        self.assertEqual(agent_manager.requests, [])
+        self.assertEqual(workflow_manager.requests, [])
 
     def test_get_message_uses_history_lookup_contract(self) -> None:
         def fake_urlopen(
