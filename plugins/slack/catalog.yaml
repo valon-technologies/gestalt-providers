@@ -5,6 +5,34 @@ operations:
   description: Handle Slack Events API callbacks and delegate supported user events
     to a Gestalt agent
   visible: false
+- id: interactions.handle
+  method: POST
+  description: Handle Slack interaction callbacks and signal the matching workflow
+    lane
+  visible: false
+- id: interactions.request
+  method: POST
+  description: Post a Slack message with signed button actions that signal the workflow
+    lane
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference
+    required: true
+  - name: text
+    type: string
+    description: Slack message text shown above the actions
+    required: true
+  - name: actions
+    type: array
+    description: Button actions with id/action_id, label/text, optional value, and
+      optional primary/danger style
+    required: true
+  - name: expires_in_seconds
+    type: integer
+    description: Seconds before embedded Slack interaction refs expire
+    default: 86400.0
+  visible: false
 - id: events.reply
   method: POST
   description: Reply to the Slack event that started an agent turn

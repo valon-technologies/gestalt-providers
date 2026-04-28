@@ -7,6 +7,7 @@ import hmac
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -18,6 +19,7 @@ from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
+from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
 
 from .client import SlackAPIError, SlackClientError
 from .helpers import map_field, map_slice, string_field
@@ -42,10 +44,16 @@ PostConnectMetadata: TypeAlias = dict[str, str]
 agent_pb2: Any = _agent_pb2
 authorization_pb2: Any = _authorization_pb2
 struct_pb2: Any = _struct_pb2
+workflow_pb2: Any = _workflow_pb2
 
 SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
 SLACK_DEFAULT_CONNECTION = "default"
+SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
+SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
+SLACK_WORKFLOW_DISPATCH_MODE = "workflow"
 SLACK_EVENT_OPERATION = "events.handle"
+SLACK_INTERACTION_HANDLE_OPERATION = "interactions.handle"
+SLACK_INTERACTION_REQUEST_OPERATION = "interactions.request"
 SLACK_REPLY_OPERATION = "events.reply"
 SLACK_STATUS_OPERATION = "events.setStatus"
 SLACK_DELETE_STATUS_OPERATION = "events.deleteStatus"
@@ -63,6 +71,7 @@ SLACK_FILE_GET_OPERATION = "files.get"
 AGENT_GLOBAL_TOOL_SEARCH_PLUGIN = "*"
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
+SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
 EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
@@ -167,10 +176,17 @@ class SlackAssistantConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackWorkflowConfig:
+    provider_name: str = ""
+    dispatch_mode: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SlackAgentConfig:
     plugin_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
+    workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
@@ -205,6 +221,24 @@ class SlackReplyRef:
     expires_at: int
     user_id: str = ""
     channel_type: str = ""
+    route_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SlackInteractionRef:
+    team_id: str
+    channel_id: str
+    channel_type: str
+    message_ts: str
+    reply_thread_ts: str
+    workflow_key: str
+    reply_ref: str
+    subject_id: str
+    user_id: str
+    route_id: str
+    action_id: str
+    action_value: str
+    expires_at: int
 
 
 _agent_config = SlackAgentConfig()
@@ -238,20 +272,28 @@ def resolve_slack_http_subject(
 ) -> gestalt.Subject | None:
     payload = _json_payload_from_http_request(request)
     event, _ignored_reason = _slack_agent_event_from_payload(payload)
-    if event is None:
-        return None
-    _route, ignored_reason = _select_agent_route(event)
-    if ignored_reason:
-        return None
-    if not event.team_id or not event.user_id:
+    if event is not None:
+        _route, ignored_reason = _select_agent_route(event)
+        if ignored_reason:
+            return None
+        team_id = event.team_id
+        user_id = event.user_id
+    else:
+        interaction = _slack_interaction_payload_from_input(payload)
+        if interaction is None:
+            return None
+        team_id = _interaction_team_id(interaction)
+        user_id = _interaction_user_id(interaction)
+
+    if not team_id or not user_id:
         raise gestalt.http_subject_error(
-            HTTPStatus.BAD_REQUEST, "Slack event is missing team_id or user"
+            HTTPStatus.BAD_REQUEST, "Slack request is missing team_id or user"
         )
 
     subject = _resolve_slack_subject(
         context.authorization(),
-        team_id=event.team_id,
-        user_id=event.user_id,
+        team_id=team_id,
+        user_id=user_id,
     )
     if subject is None:
         raise gestalt.http_subject_error(
@@ -286,7 +328,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
 
     assistant_status_error = ""
     try:
-        reply_ref = _sign_reply_ref(event, req.subject.id)
+        reply_ref = _sign_reply_ref(event, req.subject.id, route)
         if _agent_config.assistant.enabled:
             try:
                 _set_initial_assistant_status(event)
@@ -294,6 +336,39 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 assistant_status_error = str(err.body.get("error") or err.body)
             except SlackClientError as err:
                 assistant_status_error = str(err)
+        if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
+            if not _workflow_manager_contract_available():
+                return _server_error(
+                    "workflow dispatch requires a Gestalt SDK/runtime with workflow signal-or-start support"
+                )
+            workflow_manager_factory = getattr(req, "workflow_manager", None)
+            if workflow_manager_factory is None:
+                return _server_error(
+                    "workflow dispatch requires a Gestalt SDK/runtime with workflow manager support"
+                )
+            with workflow_manager_factory() as workflow_manager:
+                workflow_request = _build_workflow_signal_or_start_request(
+                    event, route, reply_ref
+                )
+                workflow_response = workflow_manager.signal_or_start_run(
+                    workflow_request
+                )
+            response = {
+                "ok": True,
+                "workflow_provider": workflow_response.provider_name
+                or _agent_config.workflow.provider_name,
+                "workflow_run_id": workflow_response.run.id,
+                "workflow_key": workflow_response.workflow_key
+                or workflow_response.run.workflow_key
+                or _agent_session_ref(event),
+                "workflow_signal_id": workflow_response.signal.id,
+                "started_run": bool(workflow_response.started_run),
+                "status": _workflow_run_status_name(workflow_response.run.status),
+            }
+            if assistant_status_error:
+                response["assistant_status_error"] = assistant_status_error
+            return response
+
         with req.agent_manager() as agent_manager:
             session_request = _build_agent_session_request(event, route)
             session = agent_manager.create_session(session_request)
@@ -306,6 +381,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             )
             turn = agent_manager.create_turn(turn_request)
     except Exception as err:
+        if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
+            return _server_error(f"failed to signal workflow run: {err}")
         return _server_error(f"failed to start agent turn: {err}")
 
     response = {
@@ -318,6 +395,114 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     if assistant_status_error:
         response["assistant_status_error"] = assistant_status_error
     return response
+
+
+def request_slack_interaction(
+    reply_ref: str,
+    text: str,
+    actions: list[dict[str, Any]],
+    expires_in_seconds: int,
+    req: gestalt.Request,
+) -> OperationResult:
+    normalized_text = text.strip()
+    if not normalized_text:
+        return _bad_request("text is required")
+    if _agent_config.workflow.dispatch_mode != SLACK_WORKFLOW_DISPATCH_MODE:
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "Slack interactions require workflow dispatch mode"},
+        )
+    try:
+        normalized_actions = _normalized_interaction_actions(actions)
+    except ValueError as err:
+        return _bad_request(str(err))
+    if not normalized_actions:
+        return _bad_request("actions are required")
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        expires_in = _interaction_ref_ttl_seconds(expires_in_seconds)
+        blocks = _interaction_request_blocks(
+            verified_ref,
+            normalized_text,
+            normalized_actions,
+            expires_in,
+        )
+        result = post_message(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            text=normalized_text,
+            thread_ts=verified_ref.reply_thread_ts,
+            blocks=blocks,
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "ts": str(result.get("ts") or ""),
+        "thread_ts": verified_ref.reply_thread_ts,
+        "workflow_key": _reply_ref_workflow_key(verified_ref),
+        "action_ids": [action["action_id"] for action in normalized_actions],
+    }
+
+
+def handle_slack_interaction(input: dict[str, Any], req: gestalt.Request) -> OperationResult:
+    payload = _slack_interaction_payload_from_input(input)
+    if payload is None:
+        return _bad_request("payload is required")
+    if not req.subject.id or req.subject.id.startswith("system:"):
+        return gestalt.Response(
+            status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
+        )
+    if _agent_config.workflow.dispatch_mode != SLACK_WORKFLOW_DISPATCH_MODE:
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "Slack interactions require workflow dispatch mode"},
+        )
+    if not _workflow_manager_contract_available():
+        return _server_error(
+            "Slack interactions require a Gestalt SDK/runtime with workflow signal-or-start support"
+        )
+    workflow_manager_factory = getattr(req, "workflow_manager", None)
+    if workflow_manager_factory is None:
+        return _server_error(
+            "Slack interactions require a Gestalt SDK/runtime with workflow manager support"
+        )
+
+    try:
+        interaction_ref, selected_action = _interaction_ref_from_payload(payload)
+        verified_ref = _verify_interaction_ref(interaction_ref, req.subject.id)
+        _validate_interaction_payload_matches_ref(payload, verified_ref)
+        route = _agent_route_by_id(verified_ref.route_id)
+        workflow_request = _build_workflow_interaction_signal_or_start_request(
+            payload, selected_action, verified_ref, route
+        )
+        with workflow_manager_factory() as workflow_manager:
+            workflow_response = workflow_manager.signal_or_start_run(workflow_request)
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except Exception as err:
+        return _server_error(f"failed to signal workflow run: {err}")
+
+    return {
+        "ok": True,
+        "workflow_provider": workflow_response.provider_name
+        or _agent_config.workflow.provider_name,
+        "workflow_run_id": workflow_response.run.id,
+        "workflow_key": workflow_response.workflow_key
+        or workflow_response.run.workflow_key
+        or verified_ref.workflow_key,
+        "workflow_signal_id": workflow_response.signal.id,
+        "started_run": bool(workflow_response.started_run),
+        "status": _workflow_run_status_name(workflow_response.run.status),
+        "action_id": verified_ref.action_id,
+    }
 
 
 def reply_to_slack_event(
@@ -860,14 +1045,175 @@ def _json_payload_from_http_request(
     request: gestalt.HTTPSubjectRequest,
 ) -> dict[str, Any]:
     if isinstance(request.params, dict) and request.params:
-        return dict(request.params)
+        payload = dict(request.params)
+        interaction = _slack_interaction_payload_from_input(payload)
+        return {"payload": interaction} if interaction is not None else payload
     if not request.raw_body:
         return {}
+    raw_body = request.raw_body.decode("utf-8", errors="replace")
+    form_payload = _slack_interaction_payload_from_input(
+        {key: values[-1] for key, values in urllib.parse.parse_qs(raw_body).items()}
+    )
+    if form_payload is not None:
+        return {"payload": form_payload}
     try:
-        payload = json.loads(request.raw_body.decode("utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+        payload = json.loads(raw_body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _slack_interaction_payload_from_input(input: dict[str, Any]) -> dict[str, Any] | None:
+    raw_payload = input.get("payload") if isinstance(input, dict) else None
+    if isinstance(raw_payload, dict):
+        return raw_payload
+    if isinstance(raw_payload, str) and raw_payload.strip():
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+    if (
+        isinstance(input, dict)
+        and str(input.get("type") or "").strip() == "block_actions"
+    ):
+        return input
+    return None
+
+
+def _normalized_interaction_actions(
+    actions: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for index, action in enumerate(actions, start=1):
+        if not isinstance(action, dict):
+            continue
+        action_id = str(
+            action.get("id") or action.get("action_id") or f"action_{index}"
+        ).strip()
+        label = str(action.get("label") or action.get("text") or action_id).strip()
+        value = str(action.get("value") or action_id).strip()
+        style = str(action.get("style") or "").strip()
+        if not action_id or not label:
+            continue
+        if style not in {"", "primary", "danger"}:
+            raise ValueError("action style must be primary or danger")
+        normalized.append(
+            {
+                "action_id": action_id[:255],
+                "label": label[:75],
+                "value": value[:2000],
+                "style": style,
+            }
+        )
+    return normalized[:25]
+
+
+def _interaction_request_blocks(
+    ref: SlackReplyRef,
+    text: str,
+    actions: list[dict[str, str]],
+    expires_in_seconds: int,
+) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    for action in actions:
+        button: dict[str, Any] = {
+            "type": "button",
+            "action_id": action["action_id"],
+            "text": {"type": "plain_text", "text": action["label"]},
+            "value": _sign_interaction_ref(
+                ref,
+                action_id=action["action_id"],
+                action_value=action["value"],
+                expires_in_seconds=expires_in_seconds,
+            ),
+        }
+        if action["style"]:
+            button["style"] = action["style"]
+        elements.append(button)
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text[:3000]}},
+        {
+            "type": "actions",
+            "block_id": "gestalt_slack_interactions",
+            "elements": elements,
+        },
+    ]
+
+
+def _interaction_ref_ttl_seconds(value: int) -> int:
+    if value <= 0:
+        return SLACK_INTERACTION_REF_TTL_SECONDS
+    return min(value, 7 * 24 * 60 * 60)
+
+
+def _interaction_ref_from_payload(
+    payload: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    payload_type = str(payload.get("type") or "").strip()
+    if payload_type == "block_actions":
+        actions = map_slice(payload.get("actions"))
+        if not actions:
+            raise ValueError("Slack interaction has no actions")
+        for action in actions:
+            value = string_field(action, "value")
+            if value:
+                return value, action
+        raise ValueError("Slack interaction action is missing value")
+    raise ValueError(f"unsupported Slack interaction type {payload_type!r}")
+
+
+def _interaction_team_id(payload: dict[str, Any]) -> str:
+    return string_field(map_field(payload, "team"), "id") or string_field(
+        payload, "team_id"
+    )
+
+
+def _interaction_user_id(payload: dict[str, Any]) -> str:
+    return string_field(map_field(payload, "user"), "id") or string_field(
+        payload, "user_id"
+    )
+
+
+def _interaction_channel_id(payload: dict[str, Any]) -> str:
+    return (
+        string_field(map_field(payload, "channel"), "id")
+        or string_field(map_field(payload, "container"), "channel_id")
+        or string_field(payload, "channel_id")
+    )
+
+
+def _validate_interaction_payload_matches_ref(
+    payload: dict[str, Any], ref: SlackInteractionRef
+) -> None:
+    team_id = _interaction_team_id(payload)
+    channel_id = _interaction_channel_id(payload)
+    user_id = _interaction_user_id(payload)
+    if team_id and team_id != ref.team_id:
+        raise ValueError("interaction_ref team does not match Slack payload")
+    if channel_id and channel_id != ref.channel_id:
+        raise ValueError("interaction_ref channel does not match Slack payload")
+    if user_id and ref.user_id and user_id != ref.user_id:
+        raise ValueError("interaction_ref user does not match Slack payload")
+
+
+def _interaction_idempotency_key(
+    payload: dict[str, Any], selected_action: dict[str, Any]
+) -> str:
+    view = map_field(payload, "view")
+    parts = [
+        _interaction_team_id(payload),
+        _interaction_channel_id(payload),
+        string_field(map_field(payload, "container"), "message_ts"),
+        string_field(selected_action, "action_id"),
+        string_field(selected_action, "action_ts"),
+        string_field(view, "id"),
+        string_field(view, "hash"),
+        string_field(view, "callback_id"),
+        str(payload.get("trigger_id") or "").strip(),
+    ]
+    body = json.dumps(parts, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "slack:interaction:" + hashlib.sha256(body).hexdigest()
 
 
 def _slack_agent_event_from_payload(
@@ -1045,7 +1391,9 @@ def _subject_display_name(subject: Any) -> str:
     return str(getattr(subject, "id", "") or "").strip()
 
 
-def _sign_reply_ref(event: SlackAgentEvent, subject_id: str) -> str:
+def _sign_reply_ref(
+    event: SlackAgentEvent, subject_id: str, route: SlackAgentRoute | None = None
+) -> str:
     payload = {
         "v": 1,
         "team_id": event.team_id,
@@ -1056,6 +1404,7 @@ def _sign_reply_ref(event: SlackAgentEvent, subject_id: str) -> str:
         "reply_thread_ts": event.reply_thread_ts,
         "event_id": event.event_id,
         "subject_id": subject_id,
+        "route_id": route.id if route is not None else "",
         "expires_at": int(time.time()) + SLACK_REPLY_REF_TTL_SECONDS,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
@@ -1117,9 +1466,132 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
         expires_at=expires_at,
         user_id=str(payload.get("user_id") or "").strip(),
         channel_type=str(payload.get("channel_type") or "").strip(),
+        route_id=str(payload.get("route_id") or "").strip(),
     )
     if not ref.team_id or not ref.channel_id or not ref.subject_id:
         raise ValueError("invalid reply_ref")
+    return ref
+
+
+def _reply_ref_workflow_key(ref: SlackReplyRef) -> str:
+    if ref.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES and not ref.reply_thread_ts:
+        return f"slack:{ref.team_id}:{ref.channel_id}"
+    root_ts = ref.reply_thread_ts or ref.message_ts
+    return f"slack:{ref.team_id}:{ref.channel_id}:{root_ts}"
+
+
+def _sign_interaction_ref(
+    ref: SlackReplyRef,
+    *,
+    action_id: str,
+    action_value: str,
+    expires_in_seconds: int,
+) -> str:
+    expires_at = int(time.time()) + expires_in_seconds
+    payload = {
+        "v": 1,
+        "team_id": ref.team_id,
+        "channel_id": ref.channel_id,
+        "channel_type": ref.channel_type,
+        "message_ts": ref.message_ts,
+        "reply_thread_ts": ref.reply_thread_ts,
+        "workflow_key": _reply_ref_workflow_key(ref),
+        "reply_ref": _resign_reply_ref(ref, expires_at=expires_at),
+        "subject_id": ref.subject_id,
+        "user_id": ref.user_id,
+        "route_id": ref.route_id,
+        "action_id": action_id,
+        "action_value": action_value,
+        "expires_at": expires_at,
+    }
+    encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    signature = hmac.new(
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+    ).digest()
+    return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
+
+
+def _resign_reply_ref(ref: SlackReplyRef, *, expires_at: int) -> str:
+    payload = {
+        "v": 1,
+        "team_id": ref.team_id,
+        "channel_id": ref.channel_id,
+        "user_id": ref.user_id,
+        "channel_type": ref.channel_type,
+        "message_ts": ref.message_ts,
+        "reply_thread_ts": ref.reply_thread_ts,
+        "event_id": ref.event_id,
+        "subject_id": ref.subject_id,
+        "route_id": ref.route_id,
+        "expires_at": expires_at,
+    }
+    encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    signature = hmac.new(
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+    ).digest()
+    return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
+
+
+def _verify_interaction_ref(
+    interaction_ref: str, subject_id: str
+) -> SlackInteractionRef:
+    payload_part, separator, signature_part = interaction_ref.strip().partition(".")
+    if not separator:
+        raise ValueError("invalid interaction_ref")
+    try:
+        encoded_payload = _base64url_decode(payload_part)
+        signature = _base64url_decode(signature_part)
+    except (binascii.Error, ValueError) as err:
+        raise ValueError("invalid interaction_ref") from err
+
+    expected_signature = hmac.new(
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(signature, expected_signature):
+        raise ValueError("invalid interaction_ref")
+    try:
+        payload = json.loads(encoded_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise ValueError("invalid interaction_ref") from err
+    if not isinstance(payload, dict) or payload.get("v") != 1:
+        raise ValueError("invalid interaction_ref")
+    try:
+        expires_at = int(payload.get("expires_at") or 0)
+    except (TypeError, ValueError) as err:
+        raise ValueError("invalid interaction_ref") from err
+    ref = SlackInteractionRef(
+        team_id=str(payload.get("team_id") or "").strip(),
+        channel_id=str(payload.get("channel_id") or "").strip(),
+        channel_type=str(payload.get("channel_type") or "").strip(),
+        message_ts=str(payload.get("message_ts") or "").strip(),
+        reply_thread_ts=str(payload.get("reply_thread_ts") or "").strip(),
+        workflow_key=str(payload.get("workflow_key") or "").strip(),
+        reply_ref=str(payload.get("reply_ref") or "").strip(),
+        subject_id=str(payload.get("subject_id") or "").strip(),
+        user_id=str(payload.get("user_id") or "").strip(),
+        route_id=str(payload.get("route_id") or "").strip(),
+        action_id=str(payload.get("action_id") or "").strip(),
+        action_value=str(payload.get("action_value") or "").strip(),
+        expires_at=expires_at,
+    )
+    if (
+        not ref.team_id
+        or not ref.channel_id
+        or not ref.workflow_key
+        or not ref.reply_ref
+        or not ref.subject_id
+        or not ref.action_id
+    ):
+        raise ValueError("invalid interaction_ref")
+    if ref.subject_id != subject_id:
+        raise ValueError("interaction_ref does not belong to this subject")
+    if ref.expires_at < int(time.time()):
+        raise ValueError("interaction_ref expired")
+    _verify_reply_ref(ref.reply_ref, subject_id)
     return ref
 
 
@@ -1150,6 +1622,16 @@ def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None,
     if _default_agent_route_matches(event):
         return None, ""
     return None, "unsupported_event_type"
+
+
+def _agent_route_by_id(route_id: str) -> SlackAgentRoute | None:
+    route_id = route_id.strip()
+    if not route_id:
+        return None
+    for route in _agent_config.routes:
+        if route.id == route_id:
+            return route
+    return None
 
 
 def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
@@ -1203,6 +1685,198 @@ def _build_agent_turn_request(
     return request
 
 
+def _build_workflow_signal_or_start_request(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+    reply_ref: str,
+) -> Any:
+    workflow_key = _agent_session_ref(event)
+    request = workflow_pb2.WorkflowManagerSignalOrStartRunRequest(
+        provider_name=_agent_config.workflow.provider_name,
+        workflow_key=workflow_key,
+        idempotency_key=_agent_turn_idempotency_key(event),
+        target=_build_workflow_agent_target(event, route),
+        signal=workflow_pb2.WorkflowSignal(
+            name=SLACK_EVENT_WORKFLOW_SIGNAL,
+            idempotency_key=_agent_turn_idempotency_key(event),
+        ),
+    )
+    request.signal.payload.CopyFrom(_slack_workflow_signal_payload(event, reply_ref))
+    request.signal.metadata.CopyFrom(_agent_metadata(event, route))
+    return request
+
+
+def _build_workflow_agent_target(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+) -> Any:
+    agent = workflow_pb2.BoundWorkflowAgentTarget(
+        provider_name=_agent_provider(route),
+        model=_agent_model(route),
+        prompt=_workflow_agent_prompt(),
+        messages=[
+            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
+        ],
+        tool_source=_agent_tool_source_native_search(),
+        tool_refs=_agent_event_tool_refs(route),
+    )
+    agent.metadata.CopyFrom(_agent_session_metadata(event))
+    provider_options = _agent_provider_options(route)
+    if provider_options:
+        agent.provider_options.CopyFrom(_dict_to_struct(provider_options))
+    return workflow_pb2.BoundWorkflowTarget(agent=agent)
+
+
+def _workflow_agent_prompt() -> str:
+    return "\n".join(
+        [
+            "Handle Slack events and interactions delivered in the final workflow signal batch.",
+            "Each signal payload includes user_prompt, reply_ref, and Slack event fields.",
+            "Use the payload's user_prompt as the current Slack request.",
+            "If the batch contains multiple Slack events, handle them in sequence.",
+        ]
+    )
+
+
+def _slack_workflow_signal_payload(event: SlackAgentEvent, reply_ref: str) -> Any:
+    return _dict_to_struct(
+        {
+            "user_prompt": _agent_user_prompt(event, reply_ref),
+            "reply_ref": reply_ref,
+            "slack": {
+                "callback_type": event.callback_type,
+                "event_type": event.event_type,
+                "event_id": event.event_id,
+                "team_id": event.team_id,
+                "user_id": event.user_id,
+                "channel_id": event.channel_id,
+                "channel_type": event.channel_type,
+                "message_ts": event.message_ts,
+                "thread_ts": event.thread_ts,
+                "reply_thread_ts": event.reply_thread_ts,
+                "text": event.text,
+                "file_ids": _event_file_ids(event),
+                "files": [dict(file_data) for file_data in event.files],
+            },
+        }
+    )
+
+
+def _build_workflow_interaction_signal_or_start_request(
+    payload: dict[str, Any],
+    selected_action: dict[str, Any],
+    interaction_ref: SlackInteractionRef,
+    route: SlackAgentRoute | None,
+) -> Any:
+    event = _interaction_event(payload, interaction_ref)
+    signal = workflow_pb2.WorkflowSignal(
+        name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
+        idempotency_key=_interaction_idempotency_key(payload, selected_action),
+    )
+    signal.payload.CopyFrom(
+        _slack_interaction_signal_payload(payload, selected_action, interaction_ref)
+    )
+    signal.metadata.CopyFrom(_agent_metadata(event, route))
+    return workflow_pb2.WorkflowManagerSignalOrStartRunRequest(
+        provider_name=_agent_config.workflow.provider_name,
+        workflow_key=interaction_ref.workflow_key,
+        idempotency_key=signal.idempotency_key,
+        target=_build_workflow_agent_target(event, route),
+        signal=signal,
+    )
+
+
+def _slack_interaction_signal_payload(
+    payload: dict[str, Any],
+    selected_action: dict[str, Any],
+    interaction_ref: SlackInteractionRef,
+) -> Any:
+    view = map_field(payload, "view")
+    container = map_field(payload, "container")
+    return _dict_to_struct(
+        {
+            "user_prompt": _interaction_user_prompt(
+                payload, selected_action, interaction_ref
+            ),
+            "reply_ref": interaction_ref.reply_ref,
+            "slack": {
+                "callback_type": str(payload.get("type") or "").strip(),
+                "team_id": interaction_ref.team_id,
+                "user_id": _interaction_user_id(payload),
+                "channel_id": interaction_ref.channel_id,
+                "channel_type": interaction_ref.channel_type,
+                "message_ts": string_field(container, "message_ts")
+                or interaction_ref.message_ts,
+                "thread_ts": interaction_ref.reply_thread_ts,
+                "reply_thread_ts": interaction_ref.reply_thread_ts,
+                "action_id": interaction_ref.action_id,
+                "action_value": interaction_ref.action_value,
+                "action_ts": string_field(selected_action, "action_ts"),
+                "trigger_id": str(payload.get("trigger_id") or "").strip(),
+                "response_url": str(payload.get("response_url") or "").strip(),
+                "view_id": string_field(view, "id"),
+                "view_callback_id": string_field(view, "callback_id"),
+                "workflow_key": interaction_ref.workflow_key,
+            },
+        }
+    )
+
+
+def _interaction_event(
+    payload: dict[str, Any], interaction_ref: SlackInteractionRef
+) -> SlackAgentEvent:
+    container = map_field(payload, "container")
+    message_ts = string_field(container, "message_ts") or interaction_ref.message_ts
+    return SlackAgentEvent(
+        callback_type="interaction",
+        event_type=str(payload.get("type") or "").strip() or "interaction",
+        event_id=_interaction_idempotency_key(payload, {}),
+        team_id=interaction_ref.team_id,
+        user_id=_interaction_user_id(payload) or interaction_ref.user_id,
+        channel_id=interaction_ref.channel_id,
+        channel_type=interaction_ref.channel_type,
+        text=interaction_ref.action_value,
+        message_ts=message_ts,
+        thread_ts=interaction_ref.reply_thread_ts,
+        reply_thread_ts=interaction_ref.reply_thread_ts,
+        files=(),
+    )
+
+
+def _interaction_user_prompt(
+    payload: dict[str, Any],
+    selected_action: dict[str, Any],
+    interaction_ref: SlackInteractionRef,
+) -> str:
+    lines = [
+        "Slack interaction:",
+        f"team_id: {interaction_ref.team_id}",
+        f"channel_id: {interaction_ref.channel_id}",
+        f"user_id: {_interaction_user_id(payload)}",
+        f"action_id: {interaction_ref.action_id}",
+        f"action_value: {interaction_ref.action_value}",
+        f"action_ts: {string_field(selected_action, 'action_ts')}",
+        f"trigger_id: {str(payload.get('trigger_id') or '').strip()}",
+        f"reply_ref: {interaction_ref.reply_ref}",
+        "",
+        "Thread context tool:",
+        f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+        f"channel: {interaction_ref.channel_id}",
+        f"ts: {interaction_ref.reply_thread_ts or interaction_ref.message_ts}",
+    ]
+    return "\n".join(lines)
+
+
+def _agent_tool_ref(*, plugin: str, operation: str) -> Any:
+    fields = agent_pb2.AgentToolRef.DESCRIPTOR.fields_by_name
+    kwargs = {"operation": operation}
+    if "plugin" in fields:
+        kwargs["plugin"] = plugin
+    else:
+        kwargs["plugin_name"] = plugin
+    return agent_pb2.AgentToolRef(**kwargs)
+
+
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
     _ = route
     operations = [
@@ -1224,10 +1898,12 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
                 SLACK_STREAM_STOP_OPERATION,
             ]
         )
+    if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
+        operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
     return [
-        agent_pb2.AgentToolRef(plugin=AGENT_GLOBAL_TOOL_SEARCH_PLUGIN),
+        _agent_tool_ref(plugin=AGENT_GLOBAL_TOOL_SEARCH_PLUGIN, operation=""),
         *[
-            agent_pb2.AgentToolRef(
+            _agent_tool_ref(
                 plugin=_agent_config.plugin_name,
                 operation=operation,
             )
@@ -1328,6 +2004,12 @@ def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
         parts.append(_agent_config.agent_system_prompt.strip())
     if route is not None and route.agent_system_prompt:
         parts.append(route.agent_system_prompt.strip())
+    if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
+        parts.append(
+            f"Use {_agent_config.plugin_name}.{SLACK_INTERACTION_REQUEST_OPERATION} "
+            "when you need the Slack user to choose from explicit button actions. "
+            "Slack will deliver the selected action back as a workflow signal."
+        )
     return "\n\n".join(parts)
 
 
@@ -1346,6 +2028,7 @@ def _agent_config_from_provider_config(
     routes = _agent_routes_from_provider_config(config, agent)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
+    workflow = _workflow_config_from_provider_config(config)
 
     return SlackAgentConfig(
         plugin_name=plugin_name.strip() or "slack",
@@ -1362,6 +2045,7 @@ def _agent_config_from_provider_config(
             )
         ),
         assistant=assistant,
+        workflow=workflow,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
@@ -1426,6 +2110,26 @@ def _normalized_suggested_prompts_or_empty(
         )
     except ValueError:
         return []
+
+
+def _workflow_config_from_provider_config(
+    config: dict[str, Any],
+) -> SlackWorkflowConfig:
+    workflow = _config_dict(config, "workflow")
+    return SlackWorkflowConfig(
+        provider_name=_config_string(
+            workflow, "provider", "providerName", "provider_name"
+        )
+        or _config_string(config, "workflowProvider", "workflow_provider"),
+        dispatch_mode=(
+            _config_string(
+                workflow,
+                "dispatchMode",
+                "dispatch_mode",
+            )
+            or _config_string(config, "workflowDispatchMode", "workflow_dispatch_mode")
+        ).lower(),
+    )
 
 
 def _agent_routes_from_provider_config(
@@ -1582,6 +2286,27 @@ def _agent_execution_status_name(status: int) -> str:
         return agent_pb2.AgentExecutionStatus.Name(status)
     except ValueError:
         return str(status)
+
+
+def _workflow_run_status_name(status: int) -> str:
+    if not status:
+        return ""
+    try:
+        return workflow_pb2.WorkflowRunStatus.Name(status)
+    except ValueError:
+        return str(status)
+
+
+def _workflow_manager_contract_available() -> bool:
+    return all(
+        getattr(workflow_pb2, name, None) is not None
+        for name in (
+            "BoundWorkflowAgentTarget",
+            "BoundWorkflowTarget",
+            "WorkflowManagerSignalOrStartRunRequest",
+            "WorkflowSignal",
+        )
+    )
 
 
 def _dict_to_struct(data: dict[str, Any]) -> Any:

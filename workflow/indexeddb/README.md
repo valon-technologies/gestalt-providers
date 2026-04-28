@@ -26,6 +26,8 @@ providers:
           - runs
           - idempotency
           - execution_refs
+          - workflow_keys
+          - workflow_signals
       config:
         pollInterval: 1s
 ```
@@ -45,6 +47,8 @@ and pending runs.
 - `runs`
 - `idempotency`
 - `execution_refs`
+- `workflow_keys`
+- `workflow_signals`
 
 ## v1 Behavior
 
@@ -53,3 +57,5 @@ and pending runs.
 - startup marks stale `running` runs as `failed`
 - missed cron ticks collapse to one run
 - `PublishEvent` enqueues runs for matching event triggers
+- `SignalOrStartRun` keeps one active run per workflow key and appends durable
+  signal records for same-run re-invocation

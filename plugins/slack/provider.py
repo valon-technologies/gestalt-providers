@@ -16,6 +16,8 @@ from internals.agent import (
     SLACK_DELETE_STATUS_OPERATION,
     SLACK_EVENT_OPERATION,
     SLACK_FILE_GET_OPERATION,
+    SLACK_INTERACTION_HANDLE_OPERATION,
+    SLACK_INTERACTION_REQUEST_OPERATION,
     SLACK_REMOVE_REACTION_OPERATION,
     SLACK_REPLY_OPERATION,
     SLACK_STATUS_OPERATION,
@@ -28,7 +30,9 @@ from internals.agent import (
     configure_agent,
     delete_slack_event_status,
     handle_slack_event,
+    handle_slack_interaction,
     post_connect_metadata,
+    request_slack_interaction,
     reply_to_slack_event,
     resolve_slack_http_subject,
     remove_slack_event_reaction,
@@ -358,6 +362,19 @@ class SlackEventStreamStopInput(gestalt.Model):
     )
 
 
+class SlackInteractionRequestInput(gestalt.Model):
+    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
+    text: str = gestalt.field(description="Slack message text shown above the actions")
+    actions: list[dict[str, Any]] = gestalt.field(
+        description="Button actions with id/action_id, label/text, optional value, and optional primary/danger style",
+    )
+    expires_in_seconds: int = gestalt.field(
+        description="Seconds before embedded Slack interaction refs expire",
+        default=86_400,
+        required=False,
+    )
+
+
 @gestalt.post_connect
 def post_connect(token: gestalt.ConnectedToken) -> PostConnectMetadata:
     return post_connect_metadata(token)
@@ -378,6 +395,36 @@ def resolve_http_subject(
 )
 def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> OperationResult:
     return handle_slack_event(input, req)
+
+
+@gestalt.operation(
+    id=SLACK_INTERACTION_HANDLE_OPERATION,
+    method="POST",
+    description="Handle Slack interaction callbacks and signal the matching workflow lane",
+    visible=False,
+)
+def slack_interactions_handle(
+    input: dict[str, Any], req: gestalt.Request
+) -> OperationResult:
+    return handle_slack_interaction(input, req)
+
+
+@gestalt.operation(
+    id=SLACK_INTERACTION_REQUEST_OPERATION,
+    method="POST",
+    description="Post a Slack message with signed button actions that signal the workflow lane",
+    visible=False,
+)
+def slack_interactions_request(
+    input: SlackInteractionRequestInput, req: gestalt.Request
+) -> OperationResult:
+    return request_slack_interaction(
+        input.reply_ref,
+        input.text,
+        input.actions,
+        input.expires_in_seconds,
+        req,
+    )
 
 
 @gestalt.operation(

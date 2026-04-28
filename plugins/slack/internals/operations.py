@@ -51,6 +51,8 @@ def post_message(
     thread_ts: str = "",
     unfurl_links: bool | None = None,
     unfurl_media: bool | None = None,
+    blocks: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"channel": channel, "text": text}
     if thread_ts:
@@ -59,6 +61,10 @@ def post_message(
         payload["unfurl_links"] = unfurl_links
     if unfurl_media is not None:
         payload["unfurl_media"] = unfurl_media
+    if blocks:
+        payload["blocks"] = blocks
+    if metadata:
+        payload["metadata"] = metadata
     return slack_post("chat.postMessage", payload, token)
 
 
