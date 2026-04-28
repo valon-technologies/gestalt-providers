@@ -1326,7 +1326,6 @@ def _resolve_slack_subject(
                 type=EXTERNAL_IDENTITY_RESOURCE_TYPE, id=resource_id
             ),
             action=authorization_pb2.Action(name=EXTERNAL_IDENTITY_ASSUME_ACTION),
-            subject_type="user",
             page_size=2,
         )
     )
@@ -1345,10 +1344,20 @@ def _resolve_slack_subject(
         return None
     return gestalt.Subject(
         id=subject_id,
-        kind=str(subject.type or "").strip(),
+        kind=_resolved_subject_kind(subject),
         display_name=_subject_display_name(subject),
         auth_source="authorization",
     )
+
+
+def _resolved_subject_kind(subject: Any) -> str:
+    subject_type = str(getattr(subject, "type", "") or "").strip()
+    subject_id = str(getattr(subject, "id", "") or "").strip()
+    if subject_type == "subject" and ":" in subject_id:
+        kind, _separator, _value = subject_id.partition(":")
+        if kind:
+            return kind
+    return subject_type
 
 
 def _subject_display_name(subject: Any) -> str:
