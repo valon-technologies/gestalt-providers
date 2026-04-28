@@ -122,8 +122,6 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 		ID:          runID,
 		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Operation:   "sync",
-		Input:       map[string]any{"mode": "full"},
 		Target:      protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   now,
@@ -376,8 +374,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 		ID:          "pending-run",
 		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Operation:   "sync",
-		Input:       map[string]any{"kind": "pending"},
 		Target:      protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "pending"}),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   now,
@@ -401,7 +397,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 		ID:          "running-run",
 		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
-		Operation:   "sync",
 		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   now,
@@ -586,6 +581,82 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	if got.GetTargetFingerprint() != "sha256:agent-target" {
 		t.Fatalf("round-tripped target_fingerprint = %q", got.GetTargetFingerprint())
 	}
+}
+
+func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	stopProviderWorker(t, provider)
+
+	target := protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"})
+	target.GetPlugin().Connection = "primary"
+	target.GetPlugin().Instance = "prod"
+
+	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId: "stored-schedule",
+		Cron:       "* * * * *",
+		Timezone:   "UTC",
+		Target:     target,
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedule: %v", err)
+	}
+	scheduleRecord, err := provider.scheduleStore.Get(ctx, schedule.GetId())
+	if err != nil {
+		t.Fatalf("raw schedule get: %v", err)
+	}
+	assertRecordHasTargetJSON(t, scheduleRecord)
+	assertRecordOmitsFields(t, scheduleRecord, "operation", "connection", "instance", "input")
+
+	trigger, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId: "stored-trigger",
+		Match:     &proto.WorkflowEventMatch{Type: "roadmap.updated"},
+		Target:    target,
+	})
+	if err != nil {
+		t.Fatalf("UpsertEventTrigger: %v", err)
+	}
+	triggerRecord, err := provider.eventTriggerStore.Get(ctx, trigger.GetId())
+	if err != nil {
+		t.Fatalf("raw event trigger get: %v", err)
+	}
+	assertRecordHasTargetJSON(t, triggerRecord)
+	assertRecordOmitsFields(t, triggerRecord, "operation", "connection", "instance", "input")
+
+	run, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: target})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	runRecord, err := provider.runStore.Get(ctx, run.GetId())
+	if err != nil {
+		t.Fatalf("raw run get: %v", err)
+	}
+	assertRecordHasTargetJSON(t, runRecord)
+	assertRecordOmitsFields(t, runRecord, "operation", "connection", "instance", "input")
+
+	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+		Reference: &proto.WorkflowExecutionReference{
+			Id:        "stored-ref",
+			Target:    target,
+			SubjectId: "user:123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PutExecutionReference: %v", err)
+	}
+	refRecord, err := provider.executionRefStore.Get(ctx, ref.GetId())
+	if err != nil {
+		t.Fatalf("raw execution ref get: %v", err)
+	}
+	assertRecordHasTargetJSON(t, refRecord)
+	assertRecordOmitsFields(t, refRecord, "target_plugin", "target_operation", "target_connection", "target_instance")
 }
 
 func TestProviderRejectsAgentExecutionReferenceWithoutFingerprint(t *testing.T) {
@@ -1292,8 +1363,6 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 		ID:                  runID,
 		PluginName:          "roadmap",
 		Status:              proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Operation:           "sync",
-		Input:               map[string]any{"kind": "schedule"},
 		Target:              protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "schedule"}),
 		TriggerKind:         triggerKindSchedule,
 		TriggerScheduleID:   schedule.GetId(),
@@ -1385,7 +1454,6 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		ID:          "stale-run",
 		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
-		Operation:   "sync",
 		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   startedAt.Add(-time.Second),
@@ -1585,6 +1653,22 @@ func mustStruct(t *testing.T, value map[string]any) *structpb.Struct {
 		t.Fatalf("structpb.NewStruct(%#v): %v", value, err)
 	}
 	return pb
+}
+
+func assertRecordHasTargetJSON(t *testing.T, record gestalt.Record) {
+	t.Helper()
+	if strings.TrimSpace(fmt.Sprint(record["target_json"])) == "" {
+		t.Fatalf("record missing target_json: %#v", record)
+	}
+}
+
+func assertRecordOmitsFields(t *testing.T, record gestalt.Record, fields ...string) {
+	t.Helper()
+	for _, field := range fields {
+		if _, ok := record[field]; ok {
+			t.Fatalf("record contains legacy field %q: %#v", field, record)
+		}
+	}
 }
 
 func newSocketPath(t *testing.T, name string) string {
