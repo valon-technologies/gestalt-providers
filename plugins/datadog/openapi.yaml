@@ -181,6 +181,72 @@ paths:
         "200":
           description: OK
 
+  /api/v1/metrics/{metric_name}:
+    parameters:
+      - name: metric_name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Metric name
+    get:
+      operationId: get_metric_metadata
+      summary: Get metric metadata
+      responses:
+        "200":
+          description: OK
+    put:
+      operationId: update_metric_metadata
+      summary: Update metric metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricMetadata"
+      responses:
+        "200":
+          description: OK
+
+  /api/v2/metrics/{metric_name}/tags:
+    parameters:
+      - name: metric_name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Metric name
+    get:
+      operationId: get_metric_tag_configuration
+      summary: Get metric tag configuration
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: create_metric_tag_configuration
+      summary: Create metric tag configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricTagConfigurationCreateRequest"
+      responses:
+        "201":
+          description: Created
+    patch:
+      operationId: update_metric_tag_configuration
+      summary: Update metric tag configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricTagConfigurationUpdateRequest"
+      responses:
+        "200":
+          description: OK
+
   /api/v2/incidents:
     get:
       operationId: list_incidents
@@ -589,6 +655,105 @@ components:
             type: string
         priority:
           type: integer
+
+    MetricMetadata:
+      type: object
+      properties:
+        description:
+          type: string
+        integration:
+          type: string
+        short_name:
+          type: string
+        type:
+          type: string
+          description: Metric type, such as gauge, count, rate, or distribution.
+        unit:
+          type: string
+          description: Primary metric unit, such as second, byte, request, operation, error, instance, or user.
+        per_unit:
+          type: string
+          description: Optional denominator unit, such as second for rates.
+        statsd_interval:
+          type: integer
+          description: StatsD interval in seconds.
+
+    MetricTagConfigurationCreateRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, id, attributes]
+          properties:
+            type:
+              type: string
+              enum: [manage_tags]
+            id:
+              type: string
+              description: Metric name
+            attributes:
+              type: object
+              required: [metric_type, tags]
+              properties:
+                metric_type:
+                  type: string
+                  enum: [gauge, count, rate, distribution]
+                tags:
+                  type: array
+                  items:
+                    type: string
+                exclude_tags_mode:
+                  type: boolean
+                include_percentiles:
+                  type: boolean
+                  description: Enable percentile aggregations for distribution metrics.
+                aggregations:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MetricCustomAggregation"
+
+    MetricTagConfigurationUpdateRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, id, attributes]
+          properties:
+            type:
+              type: string
+              enum: [manage_tags]
+            id:
+              type: string
+              description: Metric name
+            attributes:
+              type: object
+              properties:
+                tags:
+                  type: array
+                  items:
+                    type: string
+                exclude_tags_mode:
+                  type: boolean
+                include_percentiles:
+                  type: boolean
+                  description: Enable percentile aggregations for distribution metrics.
+                aggregations:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MetricCustomAggregation"
+
+    MetricCustomAggregation:
+      type: object
+      required: [space, time]
+      properties:
+        space:
+          type: string
+          enum: [avg, max, min, sum]
+        time:
+          type: string
+          enum: [avg, count, max, min, sum]
 
     IncidentAttributes:
       type: object
