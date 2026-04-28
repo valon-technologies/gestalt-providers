@@ -129,7 +129,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#c9e8c028af1301672ff71ee8fead795d136212dc" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#403db4298d29164a19996fc249e8bbc0614d616a" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
