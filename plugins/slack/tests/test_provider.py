@@ -497,6 +497,40 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(request.action.name, "assume")
         self.assertEqual(request.subject_type, "")
 
+    def test_http_subject_dedupes_equivalent_managed_external_identity_subjects(
+        self,
+    ) -> None:
+        canonical = authorization_pb2.Subject(type="subject", id="user:gestalt-123")
+        canonical.properties.update({"email": "ada@example.com"})
+        legacy = authorization_pb2.Subject(type="user", id="user:gestalt-123")
+        authorization = FakeAuthorization([legacy, canonical])
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev123",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "user:gestalt-123")
+        self.assertEqual(resolved.kind, "user")
+        self.assertEqual(resolved.display_name, "ada@example.com")
+
     def test_slack_event_handler_signals_workflow_with_user_tool_search(self) -> None:
         provider_module.configure(
             "slack",
