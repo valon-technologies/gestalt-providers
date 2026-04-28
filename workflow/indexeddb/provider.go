@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.8"
+	providerVersion     = "0.0.1-alpha.9"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
@@ -47,6 +47,12 @@ const (
 	triggerKindManual   = "manual"
 	triggerKindSchedule = "schedule"
 	triggerKindEvent    = "event"
+
+	gestaltInputKey              = "_gestalt"
+	eventRunPermissionsKey       = "eventRunPermissions"
+	configManagedWorkflowSubject = "system:config"
+	configManagedWorkflowAuth    = "config"
+	configManagedWorkflowKind    = "system"
 
 	columnTypeString = 0
 	columnTypeInt    = 1
@@ -162,6 +168,9 @@ type workflowExecutionReferenceRecord struct {
 	Target              *proto.BoundWorkflowTarget
 	TargetFingerprint   string
 	SubjectID           string
+	SubjectKind         string
+	DisplayName         string
+	AuthSource          string
 	CredentialSubjectID string
 	PermissionsJSON     string
 	CreatedAt           time.Time
@@ -621,7 +630,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
-		record.CreatedBy = cloneActor(existing.CreatedBy)
+		record.CreatedBy = createdByForUpsert(existing.CreatedBy, requestedBy)
 	}
 	next, err := nextCronTime(parser, cronSpec, location, now)
 	if err != nil {
@@ -810,7 +819,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
-		record.CreatedBy = cloneActor(existing.CreatedBy)
+		record.CreatedBy = createdByForUpsert(existing.CreatedBy, requestedBy)
 	}
 	if err := state.eventTriggerStore.Put(ctx, record.toRecord()); err != nil {
 		p.mu.Unlock()
@@ -952,6 +961,8 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
 	now := p.clock().UTC()
+	providerName := strings.TrimSpace(p.name)
+	publishedBy := cloneActor(req.GetPublishedBy())
 	enqueued := false
 	for _, trigger := range triggers {
 		if trigger.Paused || !eventMatchesTrigger(event, trigger) {
@@ -960,6 +971,39 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		runID := uuid.NewString()
 		if strings.TrimSpace(event.GetId()) != "" {
 			runID = eventRunID(trigger.ID, event.GetSource(), event.GetId())
+		}
+		if _, found, err := loadRunRecord(ctx, state.runStore, trigger.PluginName, runID); err != nil {
+			p.mu.Unlock()
+			return nil, status.Errorf(codes.Internal, "load event run: %v", err)
+		} else if found {
+			continue
+		}
+		createdBy := cloneActor(trigger.CreatedBy)
+		executionRef := trigger.ExecutionRef
+		createdExecutionRef := false
+		if actorHasSubject(publishedBy) {
+			createdBy = cloneActor(publishedBy)
+			ref, err := publishedEventExecutionReference(providerName, runID, trigger, publishedBy, now)
+			if err != nil {
+				p.mu.Unlock()
+				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
+			}
+			if ref != nil {
+				record, err := executionReferenceRecordFromProto(ref)
+				if err != nil {
+					p.mu.Unlock()
+					return nil, status.Errorf(codes.Internal, "build event execution reference record: %v", err)
+				}
+				if err := state.executionRefStore.Add(ctx, record.toRecord()); err != nil {
+					if !errors.Is(err, gestalt.ErrAlreadyExists) {
+						p.mu.Unlock()
+						return nil, status.Errorf(codes.Internal, "store event execution reference: %v", err)
+					}
+				} else {
+					createdExecutionRef = true
+				}
+				executionRef = ref.GetId()
+			}
 		}
 		run := workflowRunRecord{
 			ID:                    runID,
@@ -974,12 +1018,15 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			TriggerEventTriggerID: trigger.ID,
 			TriggerEvent:          cloneEvent(event),
 			CreatedAt:             now,
-			CreatedBy:             cloneActor(trigger.CreatedBy),
-			ExecutionRef:          trigger.ExecutionRef,
+			CreatedBy:             createdBy,
+			ExecutionRef:          executionRef,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if errors.Is(err, gestalt.ErrAlreadyExists) {
 				continue
+			}
+			if createdExecutionRef {
+				_ = state.executionRefStore.Delete(ctx, executionRef)
 			}
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
@@ -1477,6 +1524,9 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 			{Name: "target_json", Type: columnTypeString},
 			{Name: "target_fingerprint", Type: columnTypeString},
 			{Name: "subject_id", Type: columnTypeString, NotNull: true},
+			{Name: "subject_kind", Type: columnTypeString},
+			{Name: "display_name", Type: columnTypeString},
+			{Name: "auth_source", Type: columnTypeString},
 			{Name: "credential_subject_id", Type: columnTypeString},
 			{Name: "permissions_json", Type: columnTypeString},
 			{Name: "created_at", Type: columnTypeTime},
@@ -1918,6 +1968,235 @@ func idempotentManualRunID(pluginName, key string) string {
 func eventRunID(triggerID, eventSource, eventID string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(triggerID) + "\x00" + strings.TrimSpace(eventSource) + "\x00" + strings.TrimSpace(eventID)))
 	return "event:" + hex.EncodeToString(sum[:16])
+}
+
+func eventExecutionRefID(runID string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(runID)))
+	return "event_ref:" + hex.EncodeToString(sum[:16])
+}
+
+func actorHasSubject(actor *proto.WorkflowActor) bool {
+	return strings.TrimSpace(actor.GetSubjectId()) != ""
+}
+
+func createdByForUpsert(existing, requested *proto.WorkflowActor) *proto.WorkflowActor {
+	if isConfigManagedActor(requested) {
+		return cloneActor(requested)
+	}
+	return cloneActor(existing)
+}
+
+func publishedEventExecutionReference(providerName, runID string, trigger workflowEventTriggerRecord, actor *proto.WorkflowActor, createdAt time.Time) (*proto.WorkflowExecutionReference, error) {
+	if !actorHasSubject(actor) {
+		return nil, nil
+	}
+	target := trigger.Target
+	fingerprint, err := workflowTargetFingerprint(target)
+	if err != nil {
+		return nil, err
+	}
+	permissions, err := eventExecutionReferencePermissions(trigger)
+	if err != nil {
+		return nil, err
+	}
+	subjectID := strings.TrimSpace(actor.GetSubjectId())
+	return &proto.WorkflowExecutionReference{
+		Id:                  eventExecutionRefID(runID),
+		ProviderName:        strings.TrimSpace(providerName),
+		Target:              cloneTarget(target),
+		TargetFingerprint:   fingerprint,
+		SubjectId:           subjectID,
+		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
+		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
+		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
+		CredentialSubjectId: subjectID,
+		Permissions:         permissions,
+		CreatedAt:           timestamppb.New(createdAt.UTC()),
+	}, nil
+}
+
+func eventExecutionReferencePermissions(trigger workflowEventTriggerRecord) ([]*proto.WorkflowAccessPermission, error) {
+	permissions := executionReferencePermissionsForTarget(trigger.Target)
+	if !isConfigManagedActor(trigger.CreatedBy) {
+		return permissions, nil
+	}
+	extra, err := configuredEventRunPermissions(trigger.Input)
+	if err != nil {
+		return nil, err
+	}
+	return mergeAccessPermissions(permissions, extra), nil
+}
+
+func isConfigManagedActor(actor *proto.WorkflowActor) bool {
+	if actor == nil {
+		return false
+	}
+	return strings.TrimSpace(actor.GetSubjectId()) == configManagedWorkflowSubject &&
+		strings.TrimSpace(actor.GetSubjectKind()) == configManagedWorkflowKind &&
+		strings.TrimSpace(actor.GetAuthSource()) == configManagedWorkflowAuth
+}
+
+func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) []*proto.WorkflowAccessPermission {
+	if target == nil {
+		return nil
+	}
+	if agent := target.GetAgent(); agent != nil {
+		permissionsByPlugin := map[string]map[string]struct{}{}
+		for _, tool := range agent.GetToolRefs() {
+			pluginName := strings.TrimSpace(tool.GetPlugin())
+			operation := strings.TrimSpace(tool.GetOperation())
+			if pluginName == "" || operation == "" {
+				continue
+			}
+			ops := permissionsByPlugin[pluginName]
+			if ops == nil {
+				ops = map[string]struct{}{}
+				permissionsByPlugin[pluginName] = ops
+			}
+			ops[operation] = struct{}{}
+		}
+		return accessPermissionsFromSet(permissionsByPlugin)
+	}
+	plugin := target.GetPlugin()
+	if plugin == nil {
+		return nil
+	}
+	pluginName := strings.TrimSpace(plugin.GetPluginName())
+	if pluginName == "" {
+		return nil
+	}
+	permission := &proto.WorkflowAccessPermission{Plugin: pluginName}
+	if operation := strings.TrimSpace(plugin.GetOperation()); operation != "" {
+		permission.Operations = []string{operation}
+	}
+	return []*proto.WorkflowAccessPermission{permission}
+}
+
+func configuredEventRunPermissions(input map[string]any) ([]*proto.WorkflowAccessPermission, error) {
+	rawGestalt, ok := input[gestaltInputKey]
+	if !ok || rawGestalt == nil {
+		return nil, nil
+	}
+	gestaltConfig, ok := rawGestalt.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be an object", gestaltInputKey)
+	}
+	rawPermissions, ok := gestaltConfig[eventRunPermissionsKey]
+	if !ok || rawPermissions == nil {
+		return nil, nil
+	}
+	items, ok := rawPermissions.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s.%s must be a list", gestaltInputKey, eventRunPermissionsKey)
+	}
+	out := make([]*proto.WorkflowAccessPermission, 0, len(items))
+	for i, item := range items {
+		value, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%s.%s[%d] must be an object", gestaltInputKey, eventRunPermissionsKey, i)
+		}
+		pluginName := strings.TrimSpace(stringField(value, "plugin"))
+		if pluginName == "" {
+			return nil, fmt.Errorf("%s.%s[%d].plugin is required", gestaltInputKey, eventRunPermissionsKey, i)
+		}
+		operations, err := stringListField(value, "operations")
+		if err != nil {
+			return nil, fmt.Errorf("%s.%s[%d].operations: %w", gestaltInputKey, eventRunPermissionsKey, i, err)
+		}
+		if len(operations) == 0 {
+			return nil, fmt.Errorf("%s.%s[%d].operations is required", gestaltInputKey, eventRunPermissionsKey, i)
+		}
+		out = append(out, &proto.WorkflowAccessPermission{
+			Plugin:     pluginName,
+			Operations: operations,
+		})
+	}
+	return out, nil
+}
+
+func stringListField(value map[string]any, key string) ([]string, error) {
+	raw, ok := value[key]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("must be a list")
+	}
+	out := make([]string, 0, len(items))
+	for i, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("[%d] must be a string", i)
+		}
+		text = strings.TrimSpace(text)
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	return out, nil
+}
+
+func mergeAccessPermissions(groups ...[]*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
+	set := map[string]map[string]struct{}{}
+	for _, group := range groups {
+		for _, permission := range group {
+			addAccessPermission(set, permission)
+		}
+	}
+	return accessPermissionsFromSet(set)
+}
+
+func addAccessPermission(set map[string]map[string]struct{}, permission *proto.WorkflowAccessPermission) {
+	if permission == nil {
+		return
+	}
+	pluginName := strings.TrimSpace(permission.GetPlugin())
+	if pluginName == "" {
+		return
+	}
+	if len(permission.GetOperations()) == 0 {
+		set[pluginName] = nil
+		return
+	}
+	if _, ok := set[pluginName]; ok && set[pluginName] == nil {
+		return
+	}
+	ops := set[pluginName]
+	if ops == nil {
+		ops = map[string]struct{}{}
+		set[pluginName] = ops
+	}
+	for _, operation := range permission.GetOperations() {
+		operation = strings.TrimSpace(operation)
+		if operation != "" {
+			ops[operation] = struct{}{}
+		}
+	}
+}
+
+func accessPermissionsFromSet(values map[string]map[string]struct{}) []*proto.WorkflowAccessPermission {
+	if len(values) == 0 {
+		return nil
+	}
+	plugins := make([]string, 0, len(values))
+	for pluginName := range values {
+		plugins = append(plugins, pluginName)
+	}
+	slices.Sort(plugins)
+	out := make([]*proto.WorkflowAccessPermission, 0, len(plugins))
+	for _, pluginName := range plugins {
+		operations := make([]string, 0, len(values[pluginName]))
+		for operation := range values[pluginName] {
+			operations = append(operations, operation)
+		}
+		slices.Sort(operations)
+		out = append(out, &proto.WorkflowAccessPermission{
+			Plugin:     pluginName,
+			Operations: operations,
+		})
+	}
+	return out
 }
 
 func scheduleRunID(scheduleID string, scheduledFor time.Time) string {
@@ -2845,6 +3124,9 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		Target:              cloneTarget(target.Target),
 		TargetFingerprint:   strings.TrimSpace(ref.GetTargetFingerprint()),
 		SubjectID:           strings.TrimSpace(ref.GetSubjectId()),
+		SubjectKind:         strings.TrimSpace(ref.GetSubjectKind()),
+		DisplayName:         strings.TrimSpace(ref.GetDisplayName()),
+		AuthSource:          strings.TrimSpace(ref.GetAuthSource()),
 		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
 	}
 	if record.Target != nil && record.Target.GetAgent() != nil && record.TargetFingerprint == "" {
@@ -2888,6 +3170,9 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		Target:              targetFromRecordValue(value["target_json"]),
 		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
+		SubjectKind:         stringField(value, "subject_kind"),
+		DisplayName:         stringField(value, "display_name"),
+		AuthSource:          stringField(value, "auth_source"),
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
 	}
@@ -2909,6 +3194,9 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"target_json":           targetJSON(r.targetProto()),
 		"target_fingerprint":    r.TargetFingerprint,
 		"subject_id":            r.SubjectID,
+		"subject_kind":          r.SubjectKind,
+		"display_name":          r.DisplayName,
+		"auth_source":           r.AuthSource,
 		"credential_subject_id": r.CredentialSubjectID,
 		"permissions_json":      r.PermissionsJSON,
 		"created_at":            r.CreatedAt.UTC(),
@@ -2932,6 +3220,9 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		Target:              r.targetProto(),
 		TargetFingerprint:   r.TargetFingerprint,
 		SubjectId:           r.SubjectID,
+		SubjectKind:         r.SubjectKind,
+		DisplayName:         r.DisplayName,
+		AuthSource:          r.AuthSource,
 		CredentialSubjectId: r.CredentialSubjectID,
 		Permissions:         permissions,
 		CreatedAt:           timestamppb.New(r.CreatedAt),
@@ -3007,6 +3298,9 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		Target:              cloneTarget(ref.GetTarget()),
 		TargetFingerprint:   ref.GetTargetFingerprint(),
 		SubjectId:           ref.GetSubjectId(),
+		SubjectKind:         ref.GetSubjectKind(),
+		DisplayName:         ref.GetDisplayName(),
+		AuthSource:          ref.GetAuthSource(),
 		CredentialSubjectId: ref.GetCredentialSubjectId(),
 		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
 		CreatedAt:           cloneTimestamp(ref.GetCreatedAt()),

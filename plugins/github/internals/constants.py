@@ -3,9 +3,12 @@ GITHUB_DEFAULT_API_BASE_URL = "https://api.github.com"
 GITHUB_DEFAULT_WEB_BASE_URL = "https://github.com"
 
 GITHUB_EVENT_OPERATION = "events.handle"
+GITHUB_WORKFLOW_RUN_AGENT_OPERATION = "events.runAgentFromWorkflowEvent"
 BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CREATE_PULL_REQUEST_OPERATION = "bot.createPullRequest"
+
+GITHUB_WORKFLOW_EVENT_TYPE = "github.app.webhook"
 
 GITHUB_INSTALLATION_SUBJECT_PREFIX = "workload:github_app_installation:"
 GITHUB_REPOSITORY_SUBJECT_SEPARATOR = ":repo:"

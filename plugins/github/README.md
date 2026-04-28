@@ -29,7 +29,10 @@ The source-backed bot operations use a configured GitHub App instead of a user
 connection:
 
 - `events.handle` receives signed GitHub App webhooks at `/github/event` and
-  starts a Gestalt agent as a workload subject for the webhook installation.
+  starts a Gestalt agent as a workload subject for the webhook installation, or
+  publishes a Workflow event when `webhook.dispatch: workflow` is configured.
+- `events.runAgentFromWorkflowEvent` is a hidden Workflow target that starts the
+  webhook agent from a published `github.app.webhook` event.
 - `bot.commitFiles` creates a commit on a branch using an installation access
   token.
 - `bot.openPullRequest` opens a pull request using an installation access token.
@@ -53,6 +56,8 @@ plugins:
     config:
       appId: "123456"
       appPrivateKeyEnv: GITHUB_APP_PRIVATE_KEY
+      webhook:
+        dispatch: direct
       agent:
         provider: simple
         model: gpt-5.4
@@ -92,6 +97,57 @@ By default, webhook-triggered agents are started for `check_run`, `check_suite`,
 `pull_request_review_comment`, and `workflow_run`. `push` is intentionally not
 enabled by default so commits created by the bot do not recursively start new
 agent turns. Set `webhookEvents` to override the allowlist.
+
+`webhook.dispatch` controls what happens after signature validation and event
+filtering:
+
+- `direct` starts the agent during the webhook HTTP request. This is the default
+  for backward compatibility.
+- `workflow` publishes one Workflow event and returns from the webhook request
+  without starting the agent inline. Publish failures return a retryable 503.
+
+Workflow dispatch publishes events with this interface:
+
+```json
+{
+  "type": "github.app.webhook",
+  "source": "github",
+  "subject": "acme/widgets",
+  "data": {
+    "github_event": "pull_request",
+    "github_action": "opened",
+    "delivery_id": "<x-github-delivery>",
+    "installation": {"id": 99},
+    "repository": {"full_name": "acme/widgets"},
+    "sender": {"login": "octocat"},
+    "payload": {"action": "opened"}
+  }
+}
+```
+
+Configure one generic Workflow trigger to run the hidden wrapper:
+
+```yaml
+workflows:
+  eventTriggers:
+    github_app_webhook:
+      provider: indexeddb
+      match:
+        type: github.app.webhook
+        source: github
+      target:
+        plugin:
+          name: github
+          operation: events.runAgentFromWorkflowEvent
+          input:
+            _gestalt:
+              eventRunPermissions:
+                - plugin: github
+                  operations:
+                    - bot.commitFiles
+                    - bot.openPullRequest
+                    - bot.createPullRequest
+```
 
 ## Bot Operation Interfaces
 
