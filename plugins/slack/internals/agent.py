@@ -60,6 +60,7 @@ SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
+AGENT_GLOBAL_TOOL_SEARCH_PLUGIN = "*"
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
@@ -1192,6 +1193,7 @@ def _build_agent_turn_request(
             ),
         ],
         tool_source=_agent_tool_source_native_search(),
+        tool_refs=_agent_event_tool_refs(route),
         idempotency_key=_agent_turn_idempotency_key(event),
     )
     request.metadata.CopyFrom(_agent_metadata(event, route))
@@ -1199,6 +1201,39 @@ def _build_agent_turn_request(
     if provider_options:
         request.provider_options.CopyFrom(_dict_to_struct(provider_options))
     return request
+
+
+def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
+    _ = route
+    operations = [
+        SLACK_REPLY_OPERATION,
+        SLACK_STATUS_OPERATION,
+        SLACK_DELETE_STATUS_OPERATION,
+        SLACK_ADD_REACTION_OPERATION,
+        SLACK_REMOVE_REACTION_OPERATION,
+    ]
+    if _agent_config.assistant.enabled:
+        operations.extend(
+            [
+                SLACK_ASSISTANT_STATUS_OPERATION,
+                SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
+                SLACK_ASSISTANT_TITLE_OPERATION,
+                SLACK_ASSISTANT_PROMPTS_OPERATION,
+                SLACK_STREAM_START_OPERATION,
+                SLACK_STREAM_APPEND_OPERATION,
+                SLACK_STREAM_STOP_OPERATION,
+            ]
+        )
+    return [
+        agent_pb2.AgentToolRef(plugin=AGENT_GLOBAL_TOOL_SEARCH_PLUGIN),
+        *[
+            agent_pb2.AgentToolRef(
+                plugin=_agent_config.plugin_name,
+                operation=operation,
+            )
+            for operation in operations
+        ],
+    ]
 
 
 def _agent_tool_source_native_search() -> int:

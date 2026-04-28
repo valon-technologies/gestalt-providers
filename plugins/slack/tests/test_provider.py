@@ -23,6 +23,23 @@ import provider as provider_module
 agent_pb2: Any = _agent_pb2
 authorization_pb2: Any = _authorization_pb2
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parents[1]
+BASE_EVENT_TOOL_REFS = [
+    ("*", ""),
+    ("slack", "events.reply"),
+    ("slack", "events.setStatus"),
+    ("slack", "events.deleteStatus"),
+    ("slack", "events.addReaction"),
+    ("slack", "events.removeReaction"),
+]
+ASSISTANT_EVENT_TOOL_REFS = [
+    ("slack", "events.setAssistantStatus"),
+    ("slack", "events.clearAssistantStatus"),
+    ("slack", "events.setThreadTitle"),
+    ("slack", "events.setSuggestedPrompts"),
+    ("slack", "events.startStream"),
+    ("slack", "events.appendStream"),
+    ("slack", "events.stopStream"),
+]
 
 
 class FakeHTTPResponse:
@@ -72,6 +89,10 @@ def prompt_value(prompt: str, prefix: str) -> str:
         if line.startswith(prefix):
             return line.removeprefix(prefix)
     raise AssertionError(f"prompt missing line prefix {prefix!r}")
+
+
+def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
+    return [(str(ref.plugin), str(ref.operation)) for ref in refs]
 
 
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
@@ -384,7 +405,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             turn_request.tool_source, provider_module._agent_tool_source_native_search()
         )
-        self.assertEqual(list(turn_request.tool_refs), [])
+        self.assertEqual(tool_ref_pairs(turn_request.tool_refs), BASE_EVENT_TOOL_REFS)
         self.assertEqual(turn_request.idempotency_key, "slack:event:Ev123")
         self.assertIn("slack.events.reply", turn_request.messages[0].text)
         self.assertIn("slack.events.setStatus", turn_request.messages[0].text)
@@ -533,6 +554,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(response["ok"], True)
         self.assertNotIn("assistant_status_error", response)
         self.assertEqual(len(agent_manager.turn_requests), 1)
+        self.assertEqual(
+            tool_ref_pairs(agent_manager.turn_requests[0].tool_refs),
+            BASE_EVENT_TOOL_REFS + ASSISTANT_EVENT_TOOL_REFS,
+        )
         self.assertEqual(
             calls,
             [
@@ -1153,7 +1178,17 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(session_request.provider_name, "simple")
         self.assertEqual(session_request.model, "deep")
         self.assertEqual(turn_request.model, "deep")
-        self.assertEqual(list(turn_request.tool_refs), [])
+        self.assertEqual(
+            tool_ref_pairs(turn_request.tool_refs),
+            [
+                ("*", ""),
+                ("supportSlackbot", "events.reply"),
+                ("supportSlackbot", "events.setStatus"),
+                ("supportSlackbot", "events.deleteStatus"),
+                ("supportSlackbot", "events.addReaction"),
+                ("supportSlackbot", "events.removeReaction"),
+            ],
+        )
         self.assertIn("supportSlackbot.events.reply", turn_request.messages[0].text)
         self.assertIn(
             "supportSlackbot.conversations.getThreadContext",
