@@ -257,10 +257,15 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 
 	runStore := db.ObjectStore(storeRuns)
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
+	executionRefStore := db.ObjectStore(storeExecutionRefs)
 	signalStore := db.ObjectStore(storeSignals)
 	if err := validateWorkflowSignalIndexes(ctx, signalStore); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: validate signal indexes: %w", err)
+	}
+	if err := migrateWorkflowTargetFingerprints(ctx, executionRefStore, workflowKeyStore, runStore); err != nil {
+		cleanup()
+		return fmt.Errorf("indexeddb workflow: migrate target fingerprints: %w", err)
 	}
 	if err := markStaleRunningRunsFailed(ctx, runStore, workflowKeyStore, signalStore, p.clock().UTC()); err != nil {
 		cleanup()
@@ -280,7 +285,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.eventTriggerStore = db.ObjectStore(storeEventTriggers)
 	p.runStore = runStore
 	p.idempotencyStore = db.ObjectStore(storeIdempotency)
-	p.executionRefStore = db.ObjectStore(storeExecutionRefs)
+	p.executionRefStore = executionRefStore
 	p.workflowKeyStore = workflowKeyStore
 	p.signalStore = signalStore
 	p.wake = make(chan struct{}, 1)
@@ -1983,6 +1988,71 @@ func markStaleRunningRunsFailed(ctx context.Context, runStore, workflowKeyStore,
 	return nil
 }
 
+func migrateWorkflowTargetFingerprints(ctx context.Context, executionRefStore, workflowKeyStore, runStore *gestalt.ObjectStoreClient) error {
+	if err := migrateExecutionReferenceTargetFingerprints(ctx, executionRefStore); err != nil {
+		return fmt.Errorf("execution refs: %w", err)
+	}
+	if err := migrateWorkflowKeyTargetFingerprints(ctx, workflowKeyStore, runStore); err != nil {
+		return fmt.Errorf("workflow keys: %w", err)
+	}
+	return nil
+}
+
+func migrateExecutionReferenceTargetFingerprints(ctx context.Context, store *gestalt.ObjectStoreClient) error {
+	records, err := store.GetAll(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for _, raw := range records {
+		ref, err := executionReferenceRecordFromRecord(raw)
+		if err != nil {
+			// Leave already-unreadable rows to fail on explicit access instead of
+			// turning a best-effort fingerprint migration into startup failure.
+			continue
+		}
+		changed, err := canonicalizeExecutionReferenceTargetFingerprint(&ref)
+		if err != nil {
+			// The migration can only fix stale fingerprints, not malformed targets.
+			continue
+		}
+		if changed {
+			if err := store.Put(ctx, ref.toRecord()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func migrateWorkflowKeyTargetFingerprints(ctx context.Context, workflowKeyStore, runStore *gestalt.ObjectStoreClient) error {
+	records, err := workflowKeyStore.GetAll(ctx, nil)
+	if err != nil {
+		return err
+	}
+	for _, raw := range records {
+		key := workflowKeyRecordFromRecord(raw)
+		run, found, err := loadRunRecord(ctx, runStore, "", key.RunID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		fingerprint, err := workflowTargetFingerprint(run.Target)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(key.TargetFingerprint) == fingerprint {
+			continue
+		}
+		key.TargetFingerprint = fingerprint
+		if err := workflowKeyStore.Put(ctx, key.toRecord()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
@@ -2644,6 +2714,15 @@ func loadExecutionReferenceRecord(ctx context.Context, store *gestalt.ObjectStor
 	if err != nil {
 		return workflowExecutionReferenceRecord{}, false, err
 	}
+	changed, err := canonicalizeExecutionReferenceTargetFingerprint(&ref)
+	if err != nil {
+		return workflowExecutionReferenceRecord{}, false, err
+	}
+	if changed {
+		if err := store.Put(ctx, ref.toRecord()); err != nil {
+			return workflowExecutionReferenceRecord{}, false, err
+		}
+	}
 	return ref, true, nil
 }
 
@@ -2667,6 +2746,15 @@ func listExecutionReferenceRecords(ctx context.Context, store *gestalt.ObjectSto
 		}
 		if subjectID != "" && ref.SubjectID != subjectID {
 			continue
+		}
+		changed, err := canonicalizeExecutionReferenceTargetFingerprint(&ref)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			if err := store.Put(ctx, ref.toRecord()); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, ref)
 	}
@@ -3119,13 +3207,8 @@ func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflow
 }
 
 type workflowFingerprintTarget struct {
-	PluginName string
-	Operation  string
-	Connection string
-	Instance   string
-	Input      map[string]any
-	Plugin     *workflowFingerprintPluginTarget
-	Agent      *workflowFingerprintAgentTarget
+	Plugin *workflowFingerprintPluginTarget
+	Agent  *workflowFingerprintAgentTarget
 }
 
 type workflowFingerprintPluginTarget struct {
@@ -3184,12 +3267,13 @@ type agentFingerprintImageRefPart struct {
 }
 
 type agentFingerprintToolRef struct {
-	Plugin      string
-	Operation   string
-	Connection  string
-	Instance    string
-	Title       string
-	Description string
+	Plugin         string
+	Operation      string
+	Connection     string
+	Instance       string
+	CredentialMode string
+	Title          string
+	Description    string
 }
 
 func workflowTargetFingerprint(target *proto.BoundWorkflowTarget) (string, error) {
@@ -3271,7 +3355,7 @@ func agentMessagesFingerprintPayload(messages []*proto.AgentMessage) []agentFing
 			Role:     message.GetRole(),
 			Text:     message.GetText(),
 			Parts:    nilIfEmptySlice(agentMessagePartsFingerprintPayload(message.GetParts())),
-			Metadata: nilIfEmptyMap(cloneStructMap(message.GetMetadata())),
+			Metadata: cloneStructMap(message.GetMetadata()),
 		})
 	}
 	return out
@@ -3290,13 +3374,13 @@ func agentMessagePartsFingerprintPayload(parts []*proto.AgentMessagePart) []agen
 		value := agentFingerprintMessagePart{
 			Type: agentMessagePartTypeFingerprintValue(part.GetType()),
 			Text: part.GetText(),
-			JSON: nilIfEmptyMap(cloneStructMap(part.GetJson())),
+			JSON: cloneStructMap(part.GetJson()),
 		}
 		if toolCall := part.GetToolCall(); toolCall != nil {
 			value.ToolCall = &agentFingerprintToolCallPart{
 				ID:        toolCall.GetId(),
 				ToolID:    toolCall.GetToolId(),
-				Arguments: nilIfEmptyMap(cloneStructMap(toolCall.GetArguments())),
+				Arguments: cloneStructMap(toolCall.GetArguments()),
 			}
 		}
 		if toolResult := part.GetToolResult(); toolResult != nil {
@@ -3304,7 +3388,7 @@ func agentMessagePartsFingerprintPayload(parts []*proto.AgentMessagePart) []agen
 				ToolCallID: toolResult.GetToolCallId(),
 				Status:     int(toolResult.GetStatus()),
 				Content:    toolResult.GetContent(),
-				Output:     nilIfEmptyMap(cloneStructMap(toolResult.GetOutput())),
+				Output:     cloneStructMap(toolResult.GetOutput()),
 			}
 		}
 		if imageRef := part.GetImageRef(); imageRef != nil {
@@ -3329,12 +3413,13 @@ func agentToolRefsFingerprintPayload(refs []*proto.AgentToolRef) []agentFingerpr
 			continue
 		}
 		out = append(out, agentFingerprintToolRef{
-			Plugin:      ref.GetPlugin(),
-			Operation:   ref.GetOperation(),
-			Connection:  ref.GetConnection(),
-			Instance:    ref.GetInstance(),
-			Title:       ref.GetTitle(),
-			Description: ref.GetDescription(),
+			Plugin:         ref.GetPlugin(),
+			Operation:      ref.GetOperation(),
+			Connection:     ref.GetConnection(),
+			Instance:       ref.GetInstance(),
+			CredentialMode: "",
+			Title:          ref.GetTitle(),
+			Description:    ref.GetDescription(),
 		})
 	}
 	return out
@@ -3945,7 +4030,6 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		ID:                  strings.TrimSpace(ref.GetId()),
 		ProviderName:        strings.TrimSpace(ref.GetProviderName()),
 		Target:              cloneTarget(target.Target),
-		TargetFingerprint:   strings.TrimSpace(ref.GetTargetFingerprint()),
 		SubjectID:           strings.TrimSpace(ref.GetSubjectId()),
 		SubjectKind:         strings.TrimSpace(ref.GetSubjectKind()),
 		DisplayName:         strings.TrimSpace(ref.GetDisplayName()),
@@ -3953,8 +4037,8 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
 		CallerPluginName:    strings.TrimSpace(ref.GetCallerPluginName()),
 	}
-	if record.Target != nil && record.Target.GetAgent() != nil && record.TargetFingerprint == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("target_fingerprint is required for agent execution references")
+	if _, err := canonicalizeExecutionReferenceTargetFingerprint(&record); err != nil {
+		return workflowExecutionReferenceRecord{}, fmt.Errorf("target_fingerprint: %w", err)
 	}
 	if record.ID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("id is required")
@@ -3980,6 +4064,21 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		record.RevokedAt = timePtr(ts.AsTime())
 	}
 	return record, nil
+}
+
+func canonicalizeExecutionReferenceTargetFingerprint(ref *workflowExecutionReferenceRecord) (bool, error) {
+	if ref == nil || ref.Target == nil {
+		return false, nil
+	}
+	fingerprint, err := workflowTargetFingerprint(ref.Target)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(ref.TargetFingerprint) == fingerprint {
+		return false, nil
+	}
+	ref.TargetFingerprint = fingerprint
+	return true, nil
 }
 
 func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {

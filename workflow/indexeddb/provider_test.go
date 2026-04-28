@@ -25,6 +25,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const (
+	canonicalProviderPluginWorkflowTargetFingerprint      = "5b5ff5c40cb9346421944269fdd71f1d60bb47ce27dc26006202a139009ee87d"
+	canonicalProviderAgentWorkflowTargetFingerprint       = "19e2d6db6300265977b862322d9fbf138e610a1f3d7c8e005c65fc975cfcaac4"
+	canonicalProviderNestedAgentWorkflowTargetFingerprint = "6abceb7bdb089247d525147eaa0375ba6b8c8c1da530e793f62021d64050fbd7"
+	legacyProviderPluginWorkflowTargetFingerprint         = "d17482e672108f872da29ec922967d37f2885781024e9eef0321442c12231295"
+	legacyProviderAgentWorkflowTargetFingerprint          = "9171a41d733b67e202388369fbacded4ee26e32af2486bfacd6ebae8ae02c77f"
+)
+
 func TestBoundWorkflowTargetWireShapeIsNestedOnly(t *testing.T) {
 	fields := (&proto.BoundWorkflowTarget{}).ProtoReflect().Descriptor().Fields()
 	got := make([]string, 0, fields.Len())
@@ -639,8 +647,8 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	if ref.GetProviderName() != "indexeddb" {
 		t.Fatalf("provider_name = %q, want indexeddb", ref.GetProviderName())
 	}
-	if ref.GetTargetFingerprint() != "sha256:agent-target" {
-		t.Fatalf("target_fingerprint = %q, want sha256:agent-target", ref.GetTargetFingerprint())
+	if ref.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
+		t.Fatalf("target_fingerprint = %q, want canonical %q", ref.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
 	}
 	if ref.GetTarget().GetAgent().GetProviderName() != "managed" {
 		t.Fatalf("agent target = %#v", ref.GetTarget())
@@ -656,8 +664,169 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	if !gproto.Equal(got.GetTarget(), ref.GetTarget()) {
 		t.Fatalf("round-tripped target = %#v, want %#v", got.GetTarget(), ref.GetTarget())
 	}
-	if got.GetTargetFingerprint() != "sha256:agent-target" {
-		t.Fatalf("round-tripped target_fingerprint = %q", got.GetTargetFingerprint())
+	if got.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
+		t.Fatalf("round-tripped target_fingerprint = %q, want canonical %q", got.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
+	}
+}
+
+func TestProviderAgentTargetFingerprintMatchesGestaltCanonicalNestedEmptyFields(t *testing.T) {
+	target := &proto.BoundWorkflowTarget{
+		Agent: &proto.BoundWorkflowAgentTarget{
+			ProviderName: "managed",
+			Model:        "gpt-5.4",
+			Prompt:       "send a Slack reminder",
+			Messages: []*proto.AgentMessage{
+				{
+					Role: "user",
+					Parts: []*proto.AgentMessagePart{
+						{
+							Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_JSON,
+							Json: mustEmptyStruct(t),
+						},
+						{
+							Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_CALL,
+							ToolCall: &proto.AgentMessagePartToolCall{
+								Id:        "call-1",
+								ToolId:    "tool-1",
+								Arguments: mustEmptyStruct(t),
+							},
+						},
+						{
+							Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_RESULT,
+							ToolResult: &proto.AgentMessagePartToolResult{
+								ToolCallId: "call-1",
+								Output:     mustEmptyStruct(t),
+							},
+						},
+					},
+					Metadata: mustEmptyStruct(t),
+				},
+			},
+			ToolRefs: []*proto.AgentToolRef{
+				{Plugin: "slack", Operation: "chat.postMessage"},
+			},
+			ToolSource:      proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
+			ResponseSchema:  mustEmptyStruct(t),
+			ProviderOptions: mustEmptyStruct(t),
+			Metadata:        mustEmptyStruct(t),
+		},
+	}
+
+	fingerprint, err := workflowTargetFingerprint(target)
+	if err != nil {
+		t.Fatalf("workflowTargetFingerprint: %v", err)
+	}
+	if fingerprint != canonicalProviderNestedAgentWorkflowTargetFingerprint {
+		t.Fatalf("fingerprint = %q, want Gestalt canonical %q", fingerprint, canonicalProviderNestedAgentWorkflowTargetFingerprint)
+	}
+}
+
+func TestProviderMigratesStoredTargetFingerprintsOnConfigure(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(initial): %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	stopProviderWorker(t, provider)
+
+	now := time.Date(2026, time.April, 28, 12, 0, 0, 0, time.UTC)
+	pluginTarget := protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"})
+	scopedAgent, err := normalizeScopedTarget("", protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"))
+	if err != nil {
+		t.Fatalf("normalize agent target: %v", err)
+	}
+
+	for _, ref := range []workflowExecutionReferenceRecord{
+		{
+			ID:                "legacy-plugin-ref",
+			ProviderName:      "indexeddb",
+			Target:            pluginTarget,
+			TargetFingerprint: legacyProviderPluginWorkflowTargetFingerprint,
+			SubjectID:         "user:plugin",
+			CreatedAt:         now,
+		},
+		{
+			ID:                "legacy-agent-ref",
+			ProviderName:      "indexeddb",
+			Target:            scopedAgent.Target,
+			TargetFingerprint: legacyProviderAgentWorkflowTargetFingerprint,
+			SubjectID:         "user:agent",
+			CreatedAt:         now,
+		},
+	} {
+		if err := provider.executionRefStore.Put(ctx, ref.toRecord()); err != nil {
+			t.Fatalf("Put(%s): %v", ref.ID, err)
+		}
+	}
+
+	run := workflowRunRecord{
+		ID:          "keyed-run",
+		PluginName:  "roadmap",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      pluginTarget,
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now,
+		WorkflowKey: "roadmap:key",
+	}
+	if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+		t.Fatalf("Put(run): %v", err)
+	}
+	if err := storeWorkflowKeyRecord(ctx, provider.workflowKeyStore, "roadmap:key", run.ID, legacyProviderPluginWorkflowTargetFingerprint, now); err != nil {
+		t.Fatalf("store workflow key: %v", err)
+	}
+	if err := provider.executionRefStore.Put(ctx, gestalt.Record{
+		"id":               "unmigratable-legacy-ref",
+		"provider_name":    "workflow",
+		"target_plugin":    "roadmap",
+		"target_operation": "sync",
+		"subject_id":       "user:legacy",
+		"created_at":       now,
+	}); err != nil {
+		t.Fatalf("Put(unmigratable legacy ref): %v", err)
+	}
+
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(migrate): %v", err)
+	}
+	stopProviderWorker(t, provider)
+
+	pluginRef, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "legacy-plugin-ref"})
+	if err != nil {
+		t.Fatalf("GetExecutionReference(plugin): %v", err)
+	}
+	if pluginRef.GetTargetFingerprint() != canonicalProviderPluginWorkflowTargetFingerprint {
+		t.Fatalf("plugin target_fingerprint = %q, want canonical %q", pluginRef.GetTargetFingerprint(), canonicalProviderPluginWorkflowTargetFingerprint)
+	}
+	agentRef, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "legacy-agent-ref"})
+	if err != nil {
+		t.Fatalf("GetExecutionReference(agent): %v", err)
+	}
+	if agentRef.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
+		t.Fatalf("agent target_fingerprint = %q, want canonical %q", agentRef.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
+	}
+
+	rawPluginRef, err := provider.executionRefStore.Get(ctx, "legacy-plugin-ref")
+	if err != nil {
+		t.Fatalf("raw plugin ref: %v", err)
+	}
+	if got := stringField(rawPluginRef, "target_fingerprint"); got != canonicalProviderPluginWorkflowTargetFingerprint {
+		t.Fatalf("raw plugin target_fingerprint = %q, want canonical %q", got, canonicalProviderPluginWorkflowTargetFingerprint)
+	}
+	key, found, err := loadWorkflowKeyRecord(ctx, provider.workflowKeyStore, "roadmap:key")
+	if err != nil {
+		t.Fatalf("load workflow key: %v", err)
+	}
+	if !found || key.TargetFingerprint != canonicalProviderPluginWorkflowTargetFingerprint {
+		t.Fatalf("workflow key = %#v, found=%v, want canonical target fingerprint %q", key, found, canonicalProviderPluginWorkflowTargetFingerprint)
+	}
+	if _, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "unmigratable-legacy-ref"}); err == nil {
+		t.Fatal("GetExecutionReference(unmigratable legacy ref) succeeded, want target_json error")
+	} else if !strings.Contains(err.Error(), "missing target_json") {
+		t.Fatalf("GetExecutionReference(unmigratable legacy ref) error = %v, want missing target_json", err)
 	}
 }
 
@@ -737,7 +906,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 	assertRecordOmitsFields(t, refRecord, "target_plugin", "target_operation", "target_connection", "target_instance")
 }
 
-func TestProviderRejectsAgentExecutionReferenceWithoutFingerprint(t *testing.T) {
+func TestProviderBackfillsAgentExecutionReferenceFingerprint(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
@@ -748,15 +917,26 @@ func TestProviderRejectsAgentExecutionReferenceWithoutFingerprint(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = provider.Close() })
 
-	if _, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
 			Id:        "agent-ref",
 			Target:    protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
 			SubjectId: "user:123",
 			CreatedAt: timestamppb.New(time.Now().UTC()),
 		},
-	}); err == nil {
-		t.Fatal("PutExecutionReference(agent without fingerprint) succeeded, want error")
+	})
+	if err != nil {
+		t.Fatalf("PutExecutionReference(agent without fingerprint): %v", err)
+	}
+	if ref.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
+		t.Fatalf("target_fingerprint = %q, want canonical %q", ref.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
+	}
+	raw, err := provider.executionRefStore.Get(ctx, "agent-ref")
+	if err != nil {
+		t.Fatalf("raw execution ref get: %v", err)
+	}
+	if got := stringField(raw, "target_fingerprint"); got != canonicalProviderAgentWorkflowTargetFingerprint {
+		t.Fatalf("raw target_fingerprint = %q, want canonical %q", got, canonicalProviderAgentWorkflowTargetFingerprint)
 	}
 }
 
@@ -1758,6 +1938,15 @@ func mustStruct(t *testing.T, value map[string]any) *structpb.Struct {
 	pb, err := structpb.NewStruct(value)
 	if err != nil {
 		t.Fatalf("structpb.NewStruct(%#v): %v", value, err)
+	}
+	return pb
+}
+
+func mustEmptyStruct(t *testing.T) *structpb.Struct {
+	t.Helper()
+	pb, err := structpb.NewStruct(map[string]any{})
+	if err != nil {
+		t.Fatalf("structpb.NewStruct(empty): %v", err)
 	}
 	return pb
 }
