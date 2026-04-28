@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.11"
+	providerVersion     = "0.0.1-alpha.12"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
@@ -3063,16 +3063,23 @@ func signalFromRecordValue(raw any) *proto.WorkflowSignal {
 	return cloneSignal(signal)
 }
 
-func targetFromRecordValue(raw any) *proto.BoundWorkflowTarget {
+func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflowTarget, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("%s %q missing target_json", recordKind, id)
+	}
 	value := strings.TrimSpace(stringValue(raw))
 	if value == "" {
-		return nil
+		return nil, fmt.Errorf("%s %q missing target_json", recordKind, id)
 	}
 	target := &proto.BoundWorkflowTarget{}
 	if err := workflowTargetJSONUnmarshal.Unmarshal([]byte(value), target); err != nil {
-		return nil
+		return nil, fmt.Errorf("%s %q invalid target_json: %w", recordKind, id, err)
 	}
-	return cloneTarget(target)
+	target = cloneTarget(target)
+	if target.GetAgent() == nil && !workflowPluginTargetSet(target) {
+		return nil, fmt.Errorf("%s %q target_json must contain plugin or agent target", recordKind, id)
+	}
+	return target, nil
 }
 
 type workflowFingerprintTarget struct {
@@ -3529,7 +3536,7 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"connection":    r.Connection,
 		"instance":      r.Instance,
 		"input":         cloneMap(r.Input),
-		"target_json":   targetJSON(r.targetProto()),
+		"target_json":   targetJSON(r.Target),
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
@@ -3546,8 +3553,13 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 
 func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, error) {
 	value := map[string]any(record)
+	id := stringField(value, "id")
+	target, err := targetFromRecordValue("workflow schedule", id, value["target_json"])
+	if err != nil {
+		return workflowScheduleRecord{}, err
+	}
 	out := workflowScheduleRecord{
-		ID:           stringField(value, "id"),
+		ID:           id,
 		PluginName:   stringField(value, "plugin_name"),
 		Cron:         stringField(value, "cron"),
 		Timezone:     stringField(value, "timezone"),
@@ -3555,7 +3567,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		Connection:   stringField(value, "connection"),
 		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
-		Target:       targetFromRecordValue(value["target_json"]),
+		Target:       target,
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
 		ExecutionRef: stringField(value, "execution_ref"),
@@ -3586,10 +3598,7 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 }
 
 func (r workflowScheduleRecord) targetProto() *proto.BoundWorkflowTarget {
-	if r.Target != nil {
-		return cloneTarget(r.Target)
-	}
-	return pluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
+	return cloneTarget(r.Target)
 }
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
@@ -3603,7 +3612,7 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 		"connection":    r.Connection,
 		"instance":      r.Instance,
 		"input":         cloneMap(r.Input),
-		"target_json":   targetJSON(r.targetProto()),
+		"target_json":   targetJSON(r.Target),
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
@@ -3614,8 +3623,13 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 
 func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRecord, error) {
 	value := map[string]any(record)
+	id := stringField(value, "id")
+	target, err := targetFromRecordValue("workflow event trigger", id, value["target_json"])
+	if err != nil {
+		return workflowEventTriggerRecord{}, err
+	}
 	out := workflowEventTriggerRecord{
-		ID:           stringField(value, "id"),
+		ID:           id,
 		PluginName:   stringField(value, "plugin_name"),
 		MatchType:    stringField(value, "match_type"),
 		MatchSource:  stringField(value, "match_source"),
@@ -3624,7 +3638,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		Connection:   stringField(value, "connection"),
 		Instance:     stringField(value, "instance"),
 		Input:        anyMap(value["input"]),
-		Target:       targetFromRecordValue(value["target_json"]),
+		Target:       target,
 		Paused:       boolField(value, "paused"),
 		CreatedBy:    actorFromAny(value["created_by"]),
 		ExecutionRef: stringField(value, "execution_ref"),
@@ -3656,10 +3670,7 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 }
 
 func (r workflowEventTriggerRecord) targetProto() *proto.BoundWorkflowTarget {
-	if r.Target != nil {
-		return cloneTarget(r.Target)
-	}
-	return pluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
+	return cloneTarget(r.Target)
 }
 
 func (r workflowRunRecord) toRecord() gestalt.Record {
@@ -3671,7 +3682,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"connection":               r.Connection,
 		"instance":                 r.Instance,
 		"input":                    cloneMap(r.Input),
-		"target_json":              targetJSON(r.targetProto()),
+		"target_json":              targetJSON(r.Target),
 		"trigger_kind":             r.TriggerKind,
 		"trigger_schedule_id":      r.TriggerScheduleID,
 		"trigger_event_trigger_id": r.TriggerEventTriggerID,
@@ -3703,15 +3714,20 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 
 func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 	value := map[string]any(record)
+	id := stringField(value, "id")
+	target, err := targetFromRecordValue("workflow run", id, value["target_json"])
+	if err != nil {
+		return workflowRunRecord{}, err
+	}
 	out := workflowRunRecord{
-		ID:                    stringField(value, "id"),
+		ID:                    id,
 		PluginName:            stringField(value, "plugin_name"),
 		Status:                proto.WorkflowRunStatus(intField(value, "status")),
 		Operation:             stringField(value, "operation"),
 		Connection:            stringField(value, "connection"),
 		Instance:              stringField(value, "instance"),
 		Input:                 anyMap(value["input"]),
-		Target:                targetFromRecordValue(value["target_json"]),
+		Target:                target,
 		TriggerKind:           stringField(value, "trigger_kind"),
 		TriggerScheduleID:     stringField(value, "trigger_schedule_id"),
 		TriggerEventTriggerID: stringField(value, "trigger_event_trigger_id"),
@@ -3749,10 +3765,7 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 }
 
 func (r workflowRunRecord) targetProto() *proto.BoundWorkflowTarget {
-	if r.Target != nil {
-		return cloneTarget(r.Target)
-	}
-	return pluginTargetProto(r.PluginName, r.Operation, r.Connection, r.Instance, r.Input)
+	return cloneTarget(r.Target)
 }
 
 func (r workflowRunRecord) triggerProto() *proto.WorkflowRunTrigger {
@@ -3975,14 +3988,19 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 
 func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {
 	value := map[string]any(record)
+	id := stringField(value, "id")
+	target, err := targetFromRecordValue("workflow execution reference", id, value["target_json"])
+	if err != nil {
+		return workflowExecutionReferenceRecord{}, err
+	}
 	out := workflowExecutionReferenceRecord{
-		ID:                  stringField(value, "id"),
+		ID:                  id,
 		ProviderName:        stringField(value, "provider_name"),
 		TargetPlugin:        stringField(value, "target_plugin"),
 		TargetOperation:     stringField(value, "target_operation"),
 		TargetConnection:    stringField(value, "target_connection"),
 		TargetInstance:      stringField(value, "target_instance"),
-		Target:              targetFromRecordValue(value["target_json"]),
+		Target:              target,
 		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
 		SubjectKind:         stringField(value, "subject_kind"),
@@ -4007,7 +4025,7 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"target_operation":      r.TargetOperation,
 		"target_connection":     r.TargetConnection,
 		"target_instance":       r.TargetInstance,
-		"target_json":           targetJSON(r.targetProto()),
+		"target_json":           targetJSON(r.Target),
 		"target_fingerprint":    r.TargetFingerprint,
 		"subject_id":            r.SubjectID,
 		"subject_kind":          r.SubjectKind,
@@ -4049,10 +4067,7 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 }
 
 func (r workflowExecutionReferenceRecord) targetProto() *proto.BoundWorkflowTarget {
-	if r.Target != nil {
-		return cloneTarget(r.Target)
-	}
-	return pluginTargetProto(r.TargetPlugin, r.TargetOperation, r.TargetConnection, r.TargetInstance, nil)
+	return cloneTarget(r.Target)
 }
 
 func executionReferencePermissionsJSON(values []*proto.WorkflowAccessPermission) (string, error) {
