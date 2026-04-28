@@ -62,9 +62,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             self._stores.clear()
             self._busy_failures.clear()
 
-    def _maybe_fail_busy(
-        self, *, store: str, operation: str, context: grpc.ServicerContext
-    ) -> None:
+    def _maybe_fail_busy(self, *, store: str, operation: str, context: grpc.ServicerContext) -> None:
         key = (store, operation)
         remaining = self._busy_failures.get(key, 0)
         if remaining <= 0:
@@ -74,23 +72,18 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         else:
             self._busy_failures[key] = remaining - 1
         context.abort(
-            grpc.StatusCode.INTERNAL,
-            "rpc error: code = Internal desc = database is locked (5) (SQLITE_BUSY)",
+            grpc.StatusCode.INTERNAL, "rpc error: code = Internal desc = database is locked (5) (SQLITE_BUSY)"
         )
 
     def CreateObjectStore(self, request: Any, context: grpc.ServicerContext) -> Any:
         with self._lock:
-            self._maybe_fail_busy(
-                store=request.name, operation="create_object_store", context=context
-            )
+            self._maybe_fail_busy(store=request.name, operation="create_object_store", context=context)
             self._stores.setdefault(request.name, {})
         return empty_pb2.Empty()
 
     def DeleteObjectStore(self, request: Any, context: grpc.ServicerContext) -> Any:
         with self._lock:
-            self._maybe_fail_busy(
-                store=request.name, operation="delete_object_store", context=context
-            )
+            self._maybe_fail_busy(store=request.name, operation="delete_object_store", context=context)
             self._stores.pop(request.name, None)
         return empty_pb2.Empty()
 
@@ -126,9 +119,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
 
     def Delete(self, request: Any, context: grpc.ServicerContext) -> Any:
         with self._lock:
-            self._maybe_fail_busy(
-                store=request.store, operation="delete", context=context
-            )
+            self._maybe_fail_busy(store=request.store, operation="delete", context=context)
             store = self._stores.get(request.store, {})
             if request.id not in store:
                 context.abort(grpc.StatusCode.NOT_FOUND, "record not found")
@@ -177,6 +168,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.requests: list[dict[str, Any]] = []
         self.search_requests: list[dict[str, Any]] = []
         self.tools: list[Any] = []
+        self.tool_responses: list[Any] = []
         self.wait_until_released = threading.Event()
         self.pause_on_lookup = False
 
@@ -206,6 +198,8 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         )
         if self.pause_on_lookup:
             self.wait_until_released.wait(timeout=5)
+        if self.tool_responses:
+            return self.tool_responses.pop(0)
         return agent_pb2.ExecuteAgentToolResponse(status=200, body=json.dumps({"echo": arguments}))
 
 
@@ -318,15 +312,13 @@ def _fresh_socket(name: str) -> str:
     return socket_path
 
 
-def _configure_provider(*, default_model: str = "fast", provider_options: dict[str, Any] | None = None) -> tuple[Any, Any]:
+def _configure_provider(
+    *, default_model: str = "fast", provider_options: dict[str, Any] | None = None
+) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
-    _configure_runtime(
-        lifecycle,
-        default_model=default_model,
-        provider_options=provider_options,
-    )
+    _configure_runtime(lifecycle, default_model=default_model, provider_options=provider_options)
     return lifecycle, provider_client
 
 
@@ -343,27 +335,16 @@ def _configure_runtime(
     }
     if provider_options is not None:
         config["providerOptions"] = provider_options
-    json_format.ParseDict(
-        config,
-        request.config,
-    )
+    json_format.ParseDict(config, request.config)
     lifecycle.ConfigureProvider(request)
 
 
 def _create_session(
-    provider_client: Any,
-    *,
-    session_id: str,
-    idempotency_key: str,
-    model: str = "fast",
-    client_ref: str = "",
+    provider_client: Any, *, session_id: str, idempotency_key: str, model: str = "fast", client_ref: str = ""
 ) -> Any:
     return provider_client.CreateSession(
         agent_pb2.CreateAgentProviderSessionRequest(
-            session_id=session_id,
-            idempotency_key=idempotency_key,
-            model=model,
-            client_ref=client_ref,
+            session_id=session_id, idempotency_key=idempotency_key, model=model, client_ref=client_ref
         )
     )
 
@@ -434,6 +415,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _host_servicer.requests.clear()
         _host_servicer.search_requests.clear()
         _host_servicer.tools = [_fake_resolved_tool(name="person_lookup")]
+        _host_servicer.tool_responses.clear()
         _host_servicer.pause_on_lookup = False
         _host_servicer.wait_until_released.set()
         _indexeddb_servicer.reset()
@@ -448,9 +430,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
 
         try:
-            _configure_runtime(
-                lifecycle,
-            )
+            _configure_runtime(lifecycle)
             identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
         finally:
             if previous_socket is None:
@@ -569,8 +549,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                         role="user",
                         parts=[
                             agent_pb2.AgentMessagePart(
-                                type=agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
-                                text="Who is Ada Lovelace?",
+                                type=agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT, text="Who is Ada Lovelace?"
                             )
                         ],
                         metadata=message_metadata,
@@ -585,17 +564,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
             )
         )
 
-        fetched = _wait_for_turn(
-            provider_client,
-            "turn-success",
-            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
-        listed_sessions = provider_client.ListSessions(
-            agent_pb2.ListAgentProviderSessionsRequest()
-        )
-        listed_turns = provider_client.ListTurns(
-            agent_pb2.ListAgentProviderTurnsRequest(session_id="session-success")
-        )
+        fetched = _wait_for_turn(provider_client, "turn-success", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        listed_sessions = provider_client.ListSessions(agent_pb2.ListAgentProviderSessionsRequest())
+        listed_turns = provider_client.ListTurns(agent_pb2.ListAgentProviderTurnsRequest(session_id="session-success"))
         fetched_session = provider_client.GetSession(
             agent_pb2.GetAgentProviderSessionRequest(session_id="session-success")
         )
@@ -603,9 +574,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-success")
         )
         paged_events = provider_client.ListTurnEvents(
-            agent_pb2.ListAgentProviderTurnEventsRequest(
-                turn_id="turn-success", after_seq=2, limit=2
-            )
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-success", after_seq=2, limit=2)
         )
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
 
@@ -617,15 +586,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(created_session.id, "session-success")
         self.assertEqual(created_session.model, "openai/fake-model")
         self.assertEqual(created_session.client_ref, "cli-session-success")
-        self.assertEqual(
-            created_session.state, agent_pb2.AGENT_SESSION_STATE_ACTIVE
-        )
+        self.assertEqual(created_session.state, agent_pb2.AGENT_SESSION_STATE_ACTIVE)
         self.assertEqual([session.id for session in listed_sessions.sessions], ["session-success"])
         self.assertEqual(fetched_session.id, "session-success")
-        self.assertEqual(
-            fetched_session.last_turn_at.seconds > 0 or fetched_session.last_turn_at.nanos > 0,
-            True,
-        )
+        self.assertEqual(fetched_session.last_turn_at.seconds > 0 or fetched_session.last_turn_at.nanos > 0, True)
 
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(started.model, "openai/fake-model")
@@ -636,10 +600,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(started.messages[0].role, "user")
         self.assertEqual(started.messages[0].text, "")
         self.assertEqual(len(started.messages[0].parts), 1)
-        self.assertEqual(
-            started.messages[0].parts[0].type,
-            agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
-        )
+        self.assertEqual(started.messages[0].parts[0].type, agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT)
         self.assertEqual(started.messages[0].parts[0].text, "Who is Ada Lovelace?")
         self.assertEqual(started.messages[0].metadata.fields["source"].string_value, "slack")
         self.assertEqual(started.messages[0].metadata.fields["thread"].string_value, "thread-123")
@@ -654,24 +615,15 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.messages[0].role, "user")
         self.assertEqual(fetched.messages[0].text, "")
         self.assertEqual(len(fetched.messages[0].parts), 1)
-        self.assertEqual(
-            fetched.messages[0].parts[0].type,
-            agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
-        )
+        self.assertEqual(fetched.messages[0].parts[0].type, agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT)
         self.assertEqual(fetched.messages[0].parts[0].text, "Who is Ada Lovelace?")
         self.assertEqual(fetched.messages[0].metadata.fields["source"].string_value, "slack")
         self.assertEqual(fetched.messages[0].metadata.fields["thread"].string_value, "thread-123")
         self.assertEqual(fetched.messages[1].role, "assistant")
         self.assertEqual(fetched.messages[1].text, '{"summary":"Ada Lovelace is still relevant."}')
         self.assertEqual(len(fetched.messages[1].parts), 1)
-        self.assertEqual(
-            fetched.messages[1].parts[0].type,
-            agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT,
-        )
-        self.assertEqual(
-            fetched.messages[1].parts[0].text,
-            '{"summary":"Ada Lovelace is still relevant."}',
-        )
+        self.assertEqual(fetched.messages[1].parts[0].type, agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT)
+        self.assertEqual(fetched.messages[1].parts[0].text, '{"summary":"Ada Lovelace is still relevant."}')
         self.assertEqual(fetched.id, "turn-success")
         self.assertEqual(len(listed_turns.turns), 1)
 
@@ -732,20 +684,13 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(listed_events.events[1].data.fields["tool_id"].string_value, "__gestalt_search_tools__")
         self.assertEqual(listed_events.events[3].data.fields["tool_id"].string_value, "lookup")
         self.assertEqual(listed_events.events[4].data.fields["status"].number_value, 200)
-        self.assertEqual(
-            [event.type for event in paged_events.events],
-            ["tool.completed", "tool.started"],
-        )
+        self.assertEqual([event.type for event in paged_events.events], ["tool.completed", "tool.started"])
 
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
         assert _indexeddb_servicer is not None
 
         _, provider_client = _configure_provider()
-        _create_session(
-            provider_client,
-            session_id="session-busy-retry",
-            idempotency_key="session-idem-busy-retry",
-        )
+        _create_session(provider_client, session_id="session-busy-retry", idempotency_key="session-idem-busy-retry")
 
         fake_llm = _FakeOpenAIChatServer(
             responses=[
@@ -757,10 +702,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "retry survived",
-                            },
+                            "message": {"role": "assistant", "content": "retry survived"},
                             "finish_reason": "stop",
                         }
                     ],
@@ -771,9 +713,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        _indexeddb_servicer.fail_next_busy(
-            store=_SIMPLE_RUN_STORE, operation="put", count=12
-        )
+        _indexeddb_servicer.fail_next_busy(store=_SIMPLE_RUN_STORE, operation="put", count=12)
 
         provider_options = struct_pb2.Struct()
         provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
@@ -789,21 +729,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
             )
         )
 
-        fetched = _wait_for_turn(
-            provider_client,
-            "turn-busy-retry",
-            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
-        events = provider_client.ListTurnEvents(
-            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-busy-retry")
-        )
+        fetched = _wait_for_turn(provider_client, "turn-busy-retry", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-busy-retry"))
 
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(fetched.output_text, "retry survived")
         self.assertEqual(
-            [event.type for event in events.events],
-            ["turn.started", "assistant.completed", "turn.completed"],
+            [event.type for event in events.events], ["turn.started", "assistant.completed", "turn.completed"]
         )
 
     def test_text_only_turn_does_not_require_agent_host_socket(self) -> None:
@@ -812,11 +745,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         previous_socket = os.environ.pop(ENV_AGENT_HOST_SOCKET, None)
         try:
             _, provider_client = _configure_provider()
-            _create_session(
-                provider_client,
-                session_id="session-no-host",
-                idempotency_key="session-idem-no-host",
-            )
+            _create_session(provider_client, session_id="session-no-host", idempotency_key="session-idem-no-host")
 
             fake_llm = _FakeOpenAIChatServer(
                 responses=[
@@ -828,10 +757,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                         "choices": [
                             {
                                 "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "text-only response",
-                                },
+                                "message": {"role": "assistant", "content": "text-only response"},
                                 "finish_reason": "stop",
                             }
                         ],
@@ -855,11 +781,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     provider_options=provider_options,
                 )
             )
-            fetched = _wait_for_turn(
-                provider_client,
-                "turn-no-host",
-                agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-            )
+            fetched = _wait_for_turn(provider_client, "turn-no-host", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         finally:
             if previous_socket is None:
                 os.environ.pop(ENV_AGENT_HOST_SOCKET, None)
@@ -888,16 +810,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         def run_server() -> None:
             try:
-                with mock.patch.object(
-                    _runtime,
-                    "_register_shutdown_handlers",
-                    side_effect=capture_shutdown,
-                ):
-                    with mock.patch.dict(
-                        os.environ,
-                        {_runtime.ENV_PROVIDER_SOCKET: f"tcp://{address}"},
-                        clear=False,
-                    ):
+                with mock.patch.object(_runtime, "_register_shutdown_handlers", side_effect=capture_shutdown):
+                    with mock.patch.dict(os.environ, {_runtime.ENV_PROVIDER_SOCKET: f"tcp://{address}"}, clear=False):
                         _runtime.serve(provider, runtime_kind=ProviderKind.AGENT)
             except BaseException as exc:  # pragma: no cover - surfaced via assertions
                 failures.append(exc)
@@ -916,13 +830,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         provider_client = agent_pb2_grpc.AgentProviderStub(channel)
 
         try:
-            _configure_runtime(
-                lifecycle,
-            )
+            _configure_runtime(lifecycle)
             created_session = _create_session(
-                provider_client,
-                session_id="session-tcp",
-                idempotency_key="session-idem-tcp",
+                provider_client, session_id="session-tcp", idempotency_key="session-idem-tcp"
             )
 
             fake_llm = _FakeOpenAIChatServer(
@@ -935,10 +845,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                         "choices": [
                             {
                                 "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": "pong over tcp",
-                                },
+                                "message": {"role": "assistant", "content": "pong over tcp"},
                                 "finish_reason": "stop",
                             }
                         ],
@@ -963,11 +870,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 ),
                 timeout=5,
             )
-            fetched = _wait_for_turn(
-                provider_client,
-                "turn-tcp",
-                agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-            )
+            fetched = _wait_for_turn(provider_client, "turn-tcp", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         finally:
             if "server" in server_holder:
                 server_holder["server"].stop(grace=0).wait()
@@ -992,10 +895,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "config options applied",
-                            },
+                            "message": {"role": "assistant", "content": "config options applied"},
                             "finish_reason": "stop",
                         }
                     ],
@@ -1018,9 +918,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             }
         )
         _create_session(
-            provider_client,
-            session_id="session-config-options",
-            idempotency_key="session-idem-config-options",
+            provider_client, session_id="session-config-options", idempotency_key="session-idem-config-options"
         )
 
         provider_options = struct_pb2.Struct()
@@ -1036,11 +934,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 provider_options=provider_options,
             )
         )
-        fetched = _wait_for_turn(
-            provider_client,
-            "turn-config-options",
-            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
+        fetched = _wait_for_turn(provider_client, "turn-config-options", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -1057,11 +951,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
         _, provider_client = _configure_provider()
-        _create_session(
-            provider_client,
-            session_id="session-cancel",
-            idempotency_key="session-idem-cancel",
-        )
+        _create_session(provider_client, session_id="session-cancel", idempotency_key="session-idem-cancel")
 
         fake_llm = _FakeOpenAIChatServer(
             responses=[
@@ -1080,7 +970,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                     {
                                         "id": "call-search-10",
                                         "type": "function",
-                                        "function": {"name": "gestalt_search_tools", "arguments": '{"query":"person lookup"}'},
+                                        "function": {
+                                            "name": "gestalt_search_tools",
+                                            "arguments": '{"query":"person lookup"}',
+                                        },
                                     }
                                 ],
                             },
@@ -1148,20 +1041,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
             time.sleep(0.05)
 
         canceled = provider_client.CancelTurn(
-            agent_pb2.CancelAgentProviderTurnRequest(
-                turn_id="turn-cancel", reason="user canceled"
-            )
+            agent_pb2.CancelAgentProviderTurnRequest(turn_id="turn-cancel", reason="user canceled")
         )
         _host_servicer.wait_until_released.set()
         thread.join(timeout=5)
 
         started = started_holder["run"]
-        fetched = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel")
-        )
-        events = provider_client.ListTurnEvents(
-            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-cancel")
-        )
+        fetched = provider_client.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel"))
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-cancel"))
 
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(canceled.status_message, "user canceled")
@@ -1173,19 +1060,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
             [event.type for event in events.events],
             ["turn.started", "tool.started", "tool.completed", "tool.started", "turn.canceled"],
         )
-        self.assertEqual(
-            events.events[-1].data.fields["reason"].string_value, "user canceled"
-        )
+        self.assertEqual(events.events[-1].data.fields["reason"].string_value, "user canceled")
 
     def test_create_session_rejects_empty_session_id(self) -> None:
         _, provider_client = _configure_provider()
 
         with self.assertRaises(grpc.RpcError) as exc:
             provider_client.CreateSession(
-                agent_pb2.CreateAgentProviderSessionRequest(
-                    idempotency_key="session-idem-empty",
-                    model="fast",
-                )
+                agent_pb2.CreateAgentProviderSessionRequest(idempotency_key="session-idem-empty", model="fast")
             )
 
         self.assertEqual(_rpc_error_code(exc.exception), grpc.StatusCode.INVALID_ARGUMENT)
@@ -1207,30 +1089,17 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(created.metadata.fields["mode"].string_value, "sticky")
 
         cleared = provider_client.UpdateSession(
-            agent_pb2.UpdateAgentProviderSessionRequest(
-                session_id="session-update",
-                metadata=struct_pb2.Struct(),
-            )
+            agent_pb2.UpdateAgentProviderSessionRequest(session_id="session-update", metadata=struct_pb2.Struct())
         )
-        fetched = provider_client.GetSession(
-            agent_pb2.GetAgentProviderSessionRequest(session_id="session-update")
-        )
+        fetched = provider_client.GetSession(agent_pb2.GetAgentProviderSessionRequest(session_id="session-update"))
 
         self.assertEqual(dict(cleared.metadata.fields), {})
         self.assertEqual(dict(fetched.metadata.fields), {})
 
     def test_create_turn_rejects_cross_session_conflicts(self) -> None:
         _, provider_client = _configure_provider()
-        _create_session(
-            provider_client,
-            session_id="session-a",
-            idempotency_key="session-idem-a",
-        )
-        _create_session(
-            provider_client,
-            session_id="session-b",
-            idempotency_key="session-idem-b",
-        )
+        _create_session(provider_client, session_id="session-a", idempotency_key="session-idem-a")
+        _create_session(provider_client, session_id="session-b", idempotency_key="session-idem-b")
 
         fake_llm = _FakeOpenAIChatServer(
             responses=[
@@ -1240,14 +1109,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "created": 1710000030,
                     "model": "fake-model",
                     "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "Done.",
-                            },
-                            "finish_reason": "stop",
-                        }
+                        {"index": 0, "message": {"role": "assistant", "content": "Done."}, "finish_reason": "stop"}
                     ],
                     "usage": {"prompt_tokens": 8, "completion_tokens": 2, "total_tokens": 10},
                 }
@@ -1270,11 +1132,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             )
         )
         self.assertEqual(started.session_id, "session-a")
-        _wait_for_turn(
-            provider_client,
-            "turn-shared",
-            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
+        _wait_for_turn(provider_client, "turn-shared", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         with self.assertRaises(grpc.RpcError) as turn_id_exc:
             provider_client.CreateTurn(
@@ -1306,12 +1164,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
     def test_create_turn_completes_anthropic_tool_loop_and_persists_turn(self) -> None:
         _, provider_client = _configure_provider(
-            provider_options={
-                "anthropic": {
-                    "thinking": {"type": "adaptive"},
-                    "output_config": {"effort": "medium"},
-                }
-            }
+            provider_options={"anthropic": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "medium"}}}
         )
         _create_session(
             provider_client,
@@ -1338,7 +1191,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                             "id": "toolu-search-1",
                             "name": "gestalt_search_tools",
                             "input": {"query": "historical figure lookup", "max_results": 5},
-                        }
+                        },
                     ],
                     "stop_reason": "tool_use",
                     "stop_sequence": None,
@@ -1360,7 +1213,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                             "id": "toolu-1",
                             "name": "person_lookup",
                             "input": {"query": "Ada Lovelace"},
-                        }
+                        },
                     ],
                     "stop_reason": "tool_use",
                     "stop_sequence": None,
@@ -1401,11 +1254,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             )
         )
 
-        fetched = _wait_for_turn(
-            provider_client,
-            "turn-anthropic",
-            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
+        fetched = _wait_for_turn(provider_client, "turn-anthropic", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(started.model, "anthropic/claude-fake-model")
@@ -1462,13 +1311,77 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(third_request["messages"][3]["content"][1]["name"], "person_lookup")
         self.assertEqual(third_request["messages"][4]["content"][0]["type"], "tool_result")
 
-    def test_create_turn_keeps_openai_compatible_prefixed_models_and_legacy_nested_overrides(self) -> None:
+    def test_create_turn_returns_anthropic_tool_error_for_invalid_arguments(self) -> None:
         _, provider_client = _configure_provider()
         _create_session(
             provider_client,
-            session_id="session-compat",
-            idempotency_key="session-idem-compat",
-            model="groq/fake-model",
+            session_id="session-anthropic-tool-error",
+            idempotency_key="session-idem-anthropic-tool-error",
+            model="anthropic/claude-fake-model",
+        )
+
+        fake_anthropic = _FakeAnthropicMessagesServer(
+            responses=[
+                {
+                    "id": "msg-invalid-tool",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [{"type": "tool_use", "id": "toolu-invalid", "name": "person_lookup", "input": {}}],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+                {
+                    "id": "msg-recovered",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [{"type": "text", "text": "I need a query before using that tool."}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 20, "output_tokens": 5},
+                },
+            ]
+        )
+        fake_anthropic.start()
+        self.addCleanup(fake_anthropic.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key"})
+
+        started = provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-anthropic-tool-error",
+                session_id="session-anthropic-tool-error",
+                idempotency_key="idem-anthropic-tool-error",
+                model="anthropic/claude-fake-model",
+                messages=[agent_pb2.AgentMessage(role="user", text="Look up a person.")],
+                tools=[_fake_resolved_tool(name="person_lookup")],
+                provider_options=provider_options,
+            )
+        )
+
+        fetched = _wait_for_turn(
+            provider_client, "turn-anthropic-tool-error", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+        )
+
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(fetched.output_text, "I need a query before using that tool.")
+        assert _host_servicer is not None
+        self.assertEqual(_host_servicer.requests, [])
+        self.assertEqual(len(fake_anthropic.requests), 2)
+        tool_result = fake_anthropic.requests[1]["messages"][2]["content"][0]
+        self.assertEqual(tool_result["type"], "tool_result")
+        self.assertEqual(tool_result["tool_use_id"], "toolu-invalid")
+        self.assertEqual(tool_result["is_error"], True)
+        self.assertIn("query", tool_result["content"])
+        self.assertIn("required", tool_result["content"])
+
+    def test_create_turn_keeps_openai_compatible_prefixed_models_and_legacy_nested_overrides(self) -> None:
+        _, provider_client = _configure_provider()
+        _create_session(
+            provider_client, session_id="session-compat", idempotency_key="session-idem-compat", model="groq/fake-model"
         )
 
         fake_llm = _FakeOpenAIChatServer(
@@ -1515,11 +1428,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             )
         )
 
-        fetched = _wait_for_turn(
-            provider_client,
-            "turn-compat",
-            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
+        fetched = _wait_for_turn(provider_client, "turn-compat", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(started.model, "groq/fake-model")
@@ -1538,15 +1447,11 @@ def _wait_for_turn(provider_client: Any, turn_id: str, status: int, timeout_seco
     deadline = time.time() + timeout_seconds
     last = None
     while time.time() < deadline:
-        last = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(turn_id=turn_id)
-        )
+        last = provider_client.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id=turn_id))
         if last.status == status:
             return last
         time.sleep(0.05)
-    raise AssertionError(
-        f"turn {turn_id!r} did not reach status {status}; last={last}"
-    )
+    raise AssertionError(f"turn {turn_id!r} did not reach status {status}; last={last}")
 
 
 def _rpc_error_code(exc: grpc.RpcError) -> grpc.StatusCode:
