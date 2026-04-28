@@ -229,7 +229,13 @@ class FakeAuthorization:
 
     def search_subjects(self, request: Any) -> Any:
         self.requests.append(request)
-        return authorization_pb2.SubjectSearchResponse(subjects=self.subjects)
+        subject_type = str(getattr(request, "subject_type", "") or "").strip()
+        subjects = [
+            subject
+            for subject in self.subjects
+            if not subject_type or str(subject.type or "").strip() == subject_type
+        ]
+        return authorization_pb2.SubjectSearchResponse(subjects=subjects)
 
 
 class FakeWorkflowManager:
@@ -397,7 +403,7 @@ class SlackProviderTests(unittest.TestCase):
     def test_http_subject_resolves_slack_user_through_managed_external_identity(
         self,
     ) -> None:
-        subject = authorization_pb2.Subject(type="user", id="user:gestalt-123")
+        subject = authorization_pb2.Subject(type="subject", id="user:gestalt-123")
         subject.properties.update({"email": "ada@example.com"})
         authorization = FakeAuthorization([subject])
         payload = {
@@ -438,7 +444,7 @@ class SlackProviderTests(unittest.TestCase):
             ),
         )
         self.assertEqual(request.action.name, "assume")
-        self.assertEqual(request.subject_type, "user")
+        self.assertEqual(request.subject_type, "")
 
     def test_slack_event_handler_signals_workflow_with_user_tool_search(self) -> None:
         provider_module.configure(
