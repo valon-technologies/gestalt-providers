@@ -45,6 +45,12 @@ jobs:
           SOURCE="$(sed -nE "s/^[[:space:]]*source:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${PLUGIN_DIR}/manifest.yaml" | head -n1)"
           if [ -z "$SOURCE" ]; then echo "ERROR: unable to parse source"; exit 1; fi
           VERSION="${{ steps.version.outputs.release }}"
+          MANIFEST_VERSION="$(sed -nE "s/^[[:space:]]*version:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${PLUGIN_DIR}/manifest.yaml" | head -n1)"
+          if [ -z "$MANIFEST_VERSION" ]; then echo "ERROR: unable to parse version"; exit 1; fi
+          if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
+            echo "ERROR: manifest version ${MANIFEST_VERSION} does not match release version ${VERSION}"
+            exit 1
+          fi
           PRERELEASE=false
           case "$VERSION" in *-alpha*|*-beta*|*-rc*) PRERELEASE=true ;; esac
           { echo "name=${SOURCE##*/}"; echo "tag=${PLUGIN_DIR}/v${VERSION}"; echo "prerelease=${PRERELEASE}"; echo "root=${PLUGIN_DIR%%/*}"; } >> "$GITHUB_OUTPUT"
