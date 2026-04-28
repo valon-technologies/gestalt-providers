@@ -35,6 +35,7 @@ import (
 const (
 	providerVersion     = "0.0.1-alpha.13"
 	defaultPollInterval = time.Second
+	maxSignalAddRetries = 8
 
 	storeSchedules     = "schedules"
 	storeEventTriggers = "event_triggers"
@@ -257,6 +258,10 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	runStore := db.ObjectStore(storeRuns)
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
 	signalStore := db.ObjectStore(storeSignals)
+	if err := validateWorkflowSignalIndexes(ctx, signalStore); err != nil {
+		cleanup()
+		return fmt.Errorf("indexeddb workflow: validate signal indexes: %w", err)
+	}
 	if err := markStaleRunningRunsFailed(ctx, runStore, workflowKeyStore, signalStore, p.clock().UTC()); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: recover stale runs: %w", err)
@@ -1333,39 +1338,55 @@ func (p *Provider) enqueueSignalLocked(ctx context.Context, state *configuredSta
 	if strings.TrimSpace(signal.GetId()) == "" {
 		signal.Id = workflowSignalID(run, signal)
 	}
-	if signal.GetSequence() == 0 {
-		next, err := nextSignalSequence(ctx, state.signalStore, run.ID)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "assign signal sequence: %v", err)
-		}
-		signal.Sequence = next
-	}
-	record := workflowSignalRecord{
-		ID:             signal.GetId(),
-		RunID:          run.ID,
-		WorkflowKey:    run.WorkflowKey,
-		State:          signalStatePending,
-		Signal:         cloneSignal(signal),
-		IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
-		Sequence:       signal.GetSequence(),
-		StartedRun:     startedRun,
-		CreatedAt:      signal.GetCreatedAt().AsTime().UTC(),
-	}
-	if err := state.signalStore.Add(ctx, record.toRecord()); err != nil {
-		if !errors.Is(err, gestalt.ErrAlreadyExists) {
-			return nil, status.Errorf(codes.Internal, "store signal: %v", err)
-		}
-		existing, found, loadErr := loadSignalRecord(ctx, state.signalStore, record.ID)
-		if loadErr != nil {
-			return nil, status.Errorf(codes.Internal, "load existing signal: %v", loadErr)
-		}
-		if found {
-			if existing.RunID != run.ID {
-				return nil, status.Errorf(codes.FailedPrecondition, "workflow signal %q belongs to a different run", record.ID)
+	assignSequence := signal.GetSequence() == 0
+	var record workflowSignalRecord
+	storedSignal := false
+	for attempt := 0; attempt < maxSignalAddRetries; attempt++ {
+		if assignSequence {
+			next, err := nextSignalSequence(ctx, state.signalStore, run.ID)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "assign signal sequence: %v", err)
 			}
-			record = existing
-			signal = record.signalProto()
+			signal.Sequence = next
 		}
+		record = workflowSignalRecord{
+			ID:             signal.GetId(),
+			RunID:          run.ID,
+			WorkflowKey:    run.WorkflowKey,
+			State:          signalStatePending,
+			Signal:         cloneSignal(signal),
+			IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
+			Sequence:       signal.GetSequence(),
+			StartedRun:     startedRun,
+			CreatedAt:      signal.GetCreatedAt().AsTime().UTC(),
+		}
+		if err := state.signalStore.Add(ctx, record.toRecord()); err != nil {
+			if !errors.Is(err, gestalt.ErrAlreadyExists) {
+				return nil, status.Errorf(codes.Internal, "store signal: %v", err)
+			}
+			existing, found, loadErr := loadSignalRecord(ctx, state.signalStore, record.ID)
+			if loadErr != nil {
+				return nil, status.Errorf(codes.Internal, "load existing signal: %v", loadErr)
+			}
+			if found {
+				if existing.RunID != run.ID {
+					return nil, status.Errorf(codes.FailedPrecondition, "workflow signal %q belongs to a different run", record.ID)
+				}
+				record = existing
+				signal = record.signalProto()
+				storedSignal = true
+				break
+			}
+			if assignSequence {
+				continue
+			}
+			return nil, status.Errorf(codes.AlreadyExists, "workflow signal sequence %d already exists for run %q", record.Sequence, run.ID)
+		}
+		storedSignal = true
+		break
+	}
+	if !storedSignal {
+		return nil, status.Errorf(codes.Aborted, "could not assign workflow signal sequence for run %q after %d attempts", run.ID, maxSignalAddRetries)
 	}
 	if key := strings.TrimSpace(record.IdempotencyKey); key != "" {
 		if err := storeSignalIdempotencyRecord(ctx, state.idempotencyStore, run.PluginName, key, run.ID, record.ID, run.WorkflowKey, record.StartedRun, record.CreatedAt); err != nil {
@@ -1806,6 +1827,23 @@ func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient) erro
 	return nil
 }
 
+func validateWorkflowSignalIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
+	probes := []struct {
+		name   string
+		values []any
+	}{
+		{name: "by_run", values: []any{"__workflow_schema_probe__"}},
+		{name: "by_run_state", values: []any{"__workflow_schema_probe__", signalStatePending}},
+		{name: "by_run_sequence", values: []any{"__workflow_schema_probe__", int64(-1)}},
+	}
+	for _, probe := range probes {
+		if _, err := store.Index(probe.name).Count(ctx, nil, probe.values...); err != nil {
+			return fmt.Errorf("%s: %w", probe.name, err)
+		}
+	}
+	return nil
+}
+
 type storeSchemaDef struct {
 	name   string
 	schema *proto.ObjectStoreSchema
@@ -1861,6 +1899,7 @@ func workflowSignalSchema() *proto.ObjectStoreSchema {
 		Indexes: []*proto.IndexSchema{
 			{Name: "by_run", KeyPath: []string{"run_id"}},
 			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},
+			{Name: "by_run_sequence", KeyPath: []string{"run_id", "sequence"}, Unique: true},
 		},
 		Columns: []*proto.ColumnDef{
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
@@ -2177,11 +2216,15 @@ func nextRunnableRun(ctx context.Context, runStore, signalStore *gestalt.ObjectS
 }
 
 func hasPendingSignals(ctx context.Context, store *gestalt.ObjectStoreClient, runID string) (bool, error) {
-	signals, err := listSignalRecords(ctx, store, runID, signalStatePending)
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return false, nil
+	}
+	count, err := store.Index("by_run_state").Count(ctx, nil, runID, signalStatePending)
 	if err != nil {
 		return false, err
 	}
-	return len(signals) > 0, nil
+	return count > 0, nil
 }
 
 func signalProtos(records []workflowSignalRecord) []*proto.WorkflowSignal {
@@ -2329,7 +2372,20 @@ func loadSignalRecord(ctx context.Context, store *gestalt.ObjectStoreClient, sig
 }
 
 func listSignalRecords(ctx context.Context, store *gestalt.ObjectStoreClient, runID, state string) ([]workflowSignalRecord, error) {
-	records, err := store.GetAll(ctx, nil)
+	runID = strings.TrimSpace(runID)
+	state = strings.TrimSpace(state)
+	var (
+		records []gestalt.Record
+		err     error
+	)
+	switch {
+	case runID != "" && state != "":
+		records, err = store.Index("by_run_state").GetAll(ctx, nil, runID, state)
+	case runID != "":
+		records, err = store.Index("by_run").GetAll(ctx, nil, runID)
+	default:
+		records, err = store.GetAll(ctx, nil)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -2363,17 +2419,45 @@ func listSignalRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ru
 }
 
 func nextSignalSequence(ctx context.Context, store *gestalt.ObjectStoreClient, runID string) (int64, error) {
-	signals, err := listSignalRecords(ctx, store, runID, "")
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return 1, nil
+	}
+	cursor, err := store.Index("by_run_sequence").OpenKeyCursor(ctx, nil, gestalt.CursorPrev, runID)
 	if err != nil {
 		return 0, err
 	}
-	var max int64
-	for _, signal := range signals {
-		if signal.Sequence > max {
-			max = signal.Sequence
+	defer func() { _ = cursor.Close() }()
+	if !cursor.Continue() {
+		if err := cursor.Err(); err != nil {
+			return 0, err
 		}
+		return 1, nil
 	}
-	return max + 1, nil
+	sequence, ok := signalSequenceFromIndexKey(cursor.Key())
+	if !ok {
+		return 0, fmt.Errorf("workflow signal sequence index key %v is malformed", cursor.Key())
+	}
+	return sequence + 1, nil
+}
+
+func signalSequenceFromIndexKey(key any) (int64, bool) {
+	parts, ok := key.([]any)
+	if !ok || len(parts) == 0 {
+		return 0, false
+	}
+	switch raw := parts[len(parts)-1].(type) {
+	case int64:
+		return raw, true
+	case int:
+		return int64(raw), true
+	case int32:
+		return int64(raw), true
+	case float64:
+		return int64(raw), true
+	default:
+		return 0, false
+	}
 }
 
 func loadScheduleRecord(ctx context.Context, store *gestalt.ObjectStoreClient, pluginName, scheduleID string) (workflowScheduleRecord, bool, error) {

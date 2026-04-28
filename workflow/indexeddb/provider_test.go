@@ -16,6 +16,8 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -198,6 +200,9 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if first.GetSignal().GetId() == "" {
 		t.Fatalf("first signal id is empty")
 	}
+	if got := first.GetSignal().GetSequence(); got != 1 {
+		t.Fatalf("first signal sequence = %d, want 1", got)
+	}
 
 	firstCall, err := host.waitForCall(time.Second)
 	if err != nil {
@@ -230,6 +235,9 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	}
 	if second.GetRun().GetId() != first.GetRun().GetId() {
 		t.Fatalf("second run_id = %q, want %q", second.GetRun().GetId(), first.GetRun().GetId())
+	}
+	if got := second.GetSignal().GetSequence(); got != 2 {
+		t.Fatalf("second signal sequence = %d, want 2", got)
 	}
 
 	close(host.releaseCh)
@@ -354,6 +362,76 @@ func TestProviderSignalOrStartRunFailsQueuedSignalsWhenRunFails(t *testing.T) {
 	}
 	if !third.GetStartedRun() || third.GetRun().GetId() == first.GetRun().GetId() {
 		t.Fatalf("third response = %#v, want new run", third)
+	}
+}
+
+func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		return &indexedDBServerSpy{IndexedDBServer: inner, failUnscopedSignalGetAll: true}
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	largePayload := strings.Repeat("x", 256*1024)
+	for i := 0; i < 24; i++ {
+		signal := &proto.WorkflowSignal{
+			Id:             fmt.Sprintf("other-signal-%02d", i),
+			Name:           "github.app.webhook",
+			Payload:        mustStruct(t, map[string]any{"body": largePayload}),
+			CreatedAt:      timestamppb.New(now),
+			IdempotencyKey: fmt.Sprintf("other-event-%02d", i),
+			Sequence:       int64(i + 1),
+		}
+		record := workflowSignalRecord{
+			ID:             signal.GetId(),
+			RunID:          "other-run",
+			WorkflowKey:    "github:other",
+			State:          signalStateDelivered,
+			Signal:         signal,
+			IdempotencyKey: signal.GetIdempotencyKey(),
+			Sequence:       signal.GetSequence(),
+			CreatedAt:      now,
+		}
+		if err := provider.signalStore.Add(ctx, record.toRecord()); err != nil {
+			t.Fatalf("seed large signal %d: %v", i, err)
+		}
+	}
+
+	resp, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  "github:127579767:valon-technologies/toolshed:1",
+		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		ExecutionRef: "agent-ref",
+		Signal:       protoWorkflowSignal(t, "", "new-event", "new"),
+	})
+	if err != nil {
+		t.Fatalf("SignalOrStartRun: %v", err)
+	}
+	if got := resp.GetSignal().GetSequence(); got != 1 {
+		t.Fatalf("signal sequence = %d, want 1", got)
+	}
+}
+
+func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		return &indexedDBServerSpy{IndexedDBServer: inner, missingSignalIndex: "by_run_sequence"}
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
+	if err == nil {
+		t.Fatal("Configure succeeded, want missing signal index error")
+	}
+	if !strings.Contains(err.Error(), "validate signal indexes") || !strings.Contains(err.Error(), "by_run_sequence") {
+		t.Fatalf("Configure error = %v, want by_run_sequence validation failure", err)
 	}
 }
 
@@ -1559,6 +1637,11 @@ func (c *fakeClock) Set(now time.Time) {
 
 func startTestIndexedDBBackend(t *testing.T) {
 	t.Helper()
+	startTestIndexedDBBackendWithWrapper(t, nil)
+}
+
+func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(proto.IndexedDBServer) proto.IndexedDBServer) {
+	t.Helper()
 	socketPath := newSocketPath(t, "indexeddb.sock")
 	store := relationaldb.New()
 	if err := store.Configure(context.Background(), "workflow_state", map[string]any{
@@ -1570,8 +1653,12 @@ func startTestIndexedDBBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen(indexeddb): %v", err)
 	}
+	indexedDBServer := proto.IndexedDBServer(store)
+	if wrap != nil {
+		indexedDBServer = wrap(indexedDBServer)
+	}
 	server := grpc.NewServer()
-	proto.RegisterIndexedDBServer(server, store)
+	proto.RegisterIndexedDBServer(server, indexedDBServer)
 	go func() { _ = server.Serve(lis) }()
 	t.Cleanup(func() {
 		server.GracefulStop()
@@ -1580,6 +1667,26 @@ func startTestIndexedDBBackend(t *testing.T) {
 		_ = store.Close()
 	})
 	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
+}
+
+type indexedDBServerSpy struct {
+	proto.IndexedDBServer
+	failUnscopedSignalGetAll bool
+	missingSignalIndex       string
+}
+
+func (s *indexedDBServerSpy) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+	if s.failUnscopedSignalGetAll && req.GetStore() == storeSignals && req.GetRange() == nil {
+		return nil, status.Error(codes.Internal, "unexpected unscoped workflow_signals GetAll")
+	}
+	return s.IndexedDBServer.GetAll(ctx, req)
+}
+
+func (s *indexedDBServerSpy) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+	if req.GetStore() == storeSignals && req.GetIndex() == s.missingSignalIndex {
+		return nil, status.Errorf(codes.NotFound, "index not found: %s", req.GetIndex())
+	}
+	return s.IndexedDBServer.IndexCount(ctx, req)
 }
 
 func startTestWorkflowHost(t *testing.T, host proto.WorkflowHostServer) {
