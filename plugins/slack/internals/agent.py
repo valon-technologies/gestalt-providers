@@ -175,6 +175,11 @@ class SlackAssistantConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackAcknowledgementConfig:
+    reaction: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SlackWorkflowConfig:
     provider_name: str = ""
 
@@ -184,6 +189,9 @@ class SlackAgentConfig:
     plugin_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
+    acknowledgement: SlackAcknowledgementConfig = field(
+        default_factory=SlackAcknowledgementConfig
+    )
     workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
     agent_provider: str = ""
     agent_model: str = ""
@@ -324,9 +332,18 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
         return _handle_assistant_thread_event(event)
 
+    acknowledgement_reaction_error = ""
     assistant_status_error = ""
     try:
         reply_ref = _sign_reply_ref(event, req.subject.id, route)
+        try:
+            _add_acknowledgement_reaction(event)
+        except SlackAPIError as err:
+            error = str(err.body.get("error") or err.body)
+            if error != "already_reacted":
+                acknowledgement_reaction_error = error
+        except SlackClientError as err:
+            acknowledgement_reaction_error = str(err)
         if _agent_config.assistant.enabled:
             try:
                 _set_initial_assistant_status(event)
@@ -368,6 +385,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         "started_run": bool(workflow_response.started_run),
         "status": _workflow_run_status_name(workflow_response.run.status),
     }
+    if acknowledgement_reaction_error:
+        response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
         response["assistant_status_error"] = assistant_status_error
     return response
@@ -926,6 +945,18 @@ def _set_initial_assistant_status(event: SlackAgentEvent) -> None:
         icon_emoji=assistant.icon_emoji,
         icon_url=assistant.icon_url,
         username=assistant.username,
+    )
+
+
+def _add_acknowledgement_reaction(event: SlackAgentEvent) -> None:
+    reaction = _agent_config.acknowledgement.reaction.strip().strip(":")
+    if not reaction or not event.message_ts:
+        return
+    add_reaction(
+        _agent_config.bot.token,
+        channel=event.channel_id,
+        timestamp=event.message_ts,
+        name=reaction,
     )
 
 
@@ -1966,6 +1997,7 @@ def _agent_config_from_provider_config(
     routes = _agent_routes_from_provider_config(config, agent)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
+    acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
 
     return SlackAgentConfig(
@@ -1983,6 +2015,7 @@ def _agent_config_from_provider_config(
             )
         ),
         assistant=assistant,
+        acknowledgement=acknowledgement,
         workflow=workflow,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
@@ -2020,6 +2053,32 @@ def _assistant_config_from_provider_config(
         suggested_prompts_title=title,
         suggested_prompts=tuple(prompts),
     )
+
+
+def _acknowledgement_config_from_provider_config(
+    config: dict[str, Any], agent: dict[str, Any]
+) -> SlackAcknowledgementConfig:
+    acknowledgement = _config_dict(
+        agent, "acknowledgement", "acknowledgment", "ack"
+    )
+    if not acknowledgement:
+        acknowledgement = _config_dict(
+            config, "acknowledgement", "acknowledgment", "ack"
+        )
+    if not acknowledgement or not _config_bool(
+        acknowledgement, "enabled", default=True
+    ):
+        return SlackAcknowledgementConfig()
+    reaction = _config_string(
+        acknowledgement,
+        "reaction",
+        "reactionName",
+        "reaction_name",
+        "emoji",
+        "emojiName",
+        "emoji_name",
+    )
+    return SlackAcknowledgementConfig(reaction=reaction.strip().strip(":"))
 
 
 def _assistant_suggested_prompts_from_config(

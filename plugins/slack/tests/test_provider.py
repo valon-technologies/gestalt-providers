@@ -719,6 +719,162 @@ class SlackProviderTests(unittest.TestCase):
             ],
         )
 
+    def test_slack_event_handler_adds_acknowledgement_reaction_before_workflow(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "acknowledgement": {"reaction": ":eyes:"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        sequence: list[tuple[str, str]] = []
+
+        class RecordingWorkflowManager(FakeWorkflowManager):
+            def signal_or_start_run(self, request: Any) -> Any:
+                sequence.append(("workflow", "signal"))
+                return super().signal_or_start_run(request)
+
+        workflow_manager = RecordingWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAckReaction",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> deploy?",
+                "ts": "1712161829.000300",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            body = json.loads(cast(bytes, request.data).decode("utf-8"))
+            calls.append((parsed.path, body))
+            sequence.append(("slack", parsed.path))
+            return FakeHTTPResponse('{"ok": true}')
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch.object(
+                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+            ),
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertNotIn("acknowledgement_reaction_error", response)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        self.assertEqual(
+            sequence, [("slack", "/api/reactions.add"), ("workflow", "signal")]
+        )
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/reactions.add",
+                    {
+                        "channel": "C789",
+                        "timestamp": "1712161829.000300",
+                        "name": "eyes",
+                    },
+                )
+            ],
+        )
+
+    def test_slack_event_handler_treats_existing_acknowledgement_reaction_as_idempotent(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "acknowledgment": {"reaction": "eyes"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAckReactionDuplicate",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> deploy?",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/reactions.add")
+            return FakeHTTPResponse('{"ok": false, "error": "already_reacted"}')
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch.object(
+                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+            ),
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertNotIn("acknowledgement_reaction_error", response)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
     def test_assistant_thread_started_sets_configured_suggested_prompts(
         self,
     ) -> None:
