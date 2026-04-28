@@ -89,9 +89,11 @@ streaming Slack reply is better than a single final message.
 Use {title_tool} and {prompts_tool} to update native assistant thread metadata.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
-When you answer the Slack user, call {reply_tool} with the reply_ref exactly
-as provided and the Slack message text. Do not use raw Slack message-posting
-tools for the final reply.
+When you answer the Slack user, call {reply_tool} with both required arguments:
+reply_ref set exactly to the provided reply_ref, and text set to the complete
+Slack message body to post. Put the answer text inside the tool arguments, not
+only in assistant prose. Do not use raw Slack message-posting tools for the
+final reply.
 After posting to Slack, return a concise final summary of what you did.
 """.strip()
 
@@ -1720,6 +1722,10 @@ def _workflow_agent_prompt() -> str:
             "Handle Slack events and interactions delivered in the final workflow signal batch.",
             "Each signal payload includes user_prompt, reply_ref, and Slack event fields.",
             "Use the payload's user_prompt as the current Slack request.",
+            (
+                f"Final Slack replies must use {_agent_config.plugin_name}.{SLACK_REPLY_OPERATION} "
+                "with both required arguments: reply_ref and text."
+            ),
             "If the batch contains multiple Slack events, handle them in sequence.",
         ]
     )
@@ -1845,6 +1851,8 @@ def _interaction_user_prompt(
         f"action_ts: {string_field(selected_action, 'action_ts')}",
         f"trigger_id: {str(payload.get('trigger_id') or '').strip()}",
         f"reply_ref: {interaction_ref.reply_ref}",
+        "",
+        *_reply_tool_contract_lines(interaction_ref.reply_ref),
         "",
         "Thread context tool:",
         f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
@@ -2217,6 +2225,8 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         f"reply_thread_ts: {event.reply_thread_ts}",
         f"reply_ref: {reply_ref}",
         "",
+        *_reply_tool_contract_lines(reply_ref),
+        "",
         "Thread context tool:",
         f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
         f"channel: {event.channel_id}",
@@ -2236,6 +2246,16 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _reply_tool_contract_lines(reply_ref: str) -> list[str]:
+    return [
+        "Final reply tool:",
+        f"operation: {_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
+        "required arguments:",
+        f"reply_ref: {reply_ref}",
+        "text: <complete Slack message body to post>",
+    ]
 
 
 def _event_file_summaries(event: SlackAgentEvent) -> list[str]:
