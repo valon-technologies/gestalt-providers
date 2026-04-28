@@ -34,6 +34,20 @@ properties:
       pull_request_review, pull_request_review_comment, and workflow_run.
     items:
       type: string
+  webhook:
+    type: object
+    description: GitHub App webhook handling configuration.
+    additionalProperties: false
+    properties:
+      dispatch:
+        type: string
+        enum:
+          - direct
+          - workflow
+        description: >-
+          How accepted GitHub App webhooks are dispatched. direct starts the
+          agent inline from the HTTP request. workflow publishes a
+          github.app.webhook event to the Workflow provider.
   ignoreBotSender:
     type: boolean
     description: >-

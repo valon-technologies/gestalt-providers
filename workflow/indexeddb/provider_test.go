@@ -547,6 +547,151 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 }
 
+func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	provider.now = func() time.Time {
+		return time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	}
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	target := protoBoundTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{
+		"_gestalt": map[string]any{
+			"eventRunPermissions": []any{
+				map[string]any{
+					"plugin": "github",
+					"operations": []any{
+						"bot.commitFiles",
+						"bot.openPullRequest",
+						"bot.createPullRequest",
+					},
+				},
+			},
+		},
+	})
+	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId: "github-webhook",
+		Match:     &proto.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
+		Target:    target,
+		RequestedBy: &proto.WorkflowActor{
+			SubjectId: "system:config",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger(legacy): %v", err)
+	}
+	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId: "github-webhook",
+		Match:     &proto.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
+		Target:    target,
+		RequestedBy: &proto.WorkflowActor{
+			SubjectId:   "system:config",
+			SubjectKind: "system",
+			DisplayName: "Gestalt config",
+			AuthSource:  "config",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger: %v", err)
+	}
+
+	publishedBy := &proto.WorkflowActor{
+		SubjectId:   "workload:github_app_installation:127579767:repo:valon-technologies/gestalt",
+		SubjectKind: "workload",
+		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
+		AuthSource:  "github_app_webhook",
+	}
+	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		PluginName:  "github",
+		PublishedBy: publishedBy,
+		Event:       githubWebhookWorkflowEvent(t),
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetExecutionRef() == "" || call.GetExecutionRef() == "event-ref" {
+		t.Fatalf("execution_ref = %q, want publisher-scoped event ref", call.GetExecutionRef())
+	}
+	if call.GetCreatedBy().GetSubjectId() != publishedBy.GetSubjectId() {
+		t.Fatalf("created_by.subject_id = %q, want %q", call.GetCreatedBy().GetSubjectId(), publishedBy.GetSubjectId())
+	}
+	ref, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: call.GetExecutionRef()})
+	if err != nil {
+		t.Fatalf("GetExecutionReference: %v", err)
+	}
+	if ref.GetSubjectId() != publishedBy.GetSubjectId() || ref.GetSubjectKind() != "workload" || ref.GetAuthSource() != "github_app_webhook" {
+		t.Fatalf("execution ref subject = (%q, %q, %q), want published GitHub workload", ref.GetSubjectId(), ref.GetSubjectKind(), ref.GetAuthSource())
+	}
+	if ref.GetCredentialSubjectId() != publishedBy.GetSubjectId() {
+		t.Fatalf("credential_subject_id = %q, want publisher subject", ref.GetCredentialSubjectId())
+	}
+	if ref.GetTargetFingerprint() == "" {
+		t.Fatal("target_fingerprint is required for event execution refs")
+	}
+	gotOperations := map[string]bool{}
+	for _, permission := range ref.GetPermissions() {
+		if permission.GetPlugin() != "github" {
+			continue
+		}
+		for _, operation := range permission.GetOperations() {
+			gotOperations[operation] = true
+		}
+	}
+	for _, operation := range []string{"events.runAgentFromWorkflowEvent", "bot.commitFiles", "bot.openPullRequest", "bot.createPullRequest"} {
+		if !gotOperations[operation] {
+			t.Fatalf("permissions = %#v, missing github/%s", ref.GetPermissions(), operation)
+		}
+	}
+
+	duplicatePublisher := &proto.WorkflowActor{
+		SubjectId:   "workload:github_app_installation:127579767:repo:valon-technologies/other",
+		SubjectKind: "workload",
+		DisplayName: "GitHub App installation 127579767 (valon-technologies/other)",
+		AuthSource:  "github_app_webhook",
+	}
+	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		PluginName:  "github",
+		PublishedBy: duplicatePublisher,
+		Event:       githubWebhookWorkflowEvent(t),
+	}); err != nil {
+		t.Fatalf("PublishEvent(duplicate): %v", err)
+	}
+	ref, err = provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: call.GetExecutionRef()})
+	if err != nil {
+		t.Fatalf("GetExecutionReference(after duplicate): %v", err)
+	}
+	if ref.GetSubjectId() != publishedBy.GetSubjectId() {
+		t.Fatalf("duplicate publish replaced execution ref subject = %q, want %q", ref.GetSubjectId(), publishedBy.GetSubjectId())
+	}
+	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs.GetRuns()) != 1 {
+		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.GetRuns()))
+	}
+}
+
+func githubWebhookWorkflowEvent(t *testing.T) *proto.WorkflowEvent {
+	t.Helper()
+	return &proto.WorkflowEvent{
+		Id:          "github:delivery-1",
+		Source:      "github",
+		Type:        "github.app.webhook",
+		SpecVersion: "1.0",
+		Data:        mustStruct(t, map[string]any{"repository": "valon-technologies/gestalt"}),
+	}
+}
+
 func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)

@@ -5,6 +5,10 @@ operations:
   description: Handle GitHub App webhook callbacks and delegate repository events
     to a Gestalt agent
   visible: false
+- id: events.runAgentFromWorkflowEvent
+  method: POST
+  description: Start the GitHub webhook agent from a Workflow event trigger
+  visible: false
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
