@@ -16,8 +16,9 @@ plugins:
 See [Getting Started](https://gestaltd.ai/getting-started) and
 [Configuration](https://gestaltd.ai/configuration).
 
-Slack Events API agent replies use the app's bot token. Configure it as a
-provider secret-backed value:
+Slack Events API agent replies and declarative REST operations that run as the
+bot use the app's bot token. Configure it as both a provider secret-backed value
+for event helper code and a deployment-owned `bot` connection for REST calls:
 
 ```yaml
 plugins:
@@ -28,7 +29,24 @@ plugins:
           secret:
             provider: secrets
             name: slack-bot-token
+    connections:
+      bot:
+        mode: platform
+        auth:
+          type: bearer
+          token:
+            secret:
+              provider: secrets
+              name: slack-bot-token
 ```
+
+Because Gestalt does not perform Slack bot OAuth for this connection, the Slack
+app that issues `slack-bot-token` must be granted the bot scopes needed by the
+enabled behaviors. The full scope set used by this provider's bot behaviors is:
+`app_mentions:read`, `channels:read`, `channels:history`, `groups:read`,
+`groups:history`, `im:read`, `im:history`, `mpim:read`, `mpim:history`,
+`users:read`, `files:read`, `chat:write`, `assistant:write`,
+`reactions:write`, `channels:manage`, `groups:write`, and `canvases:write`.
 
 ## Capabilities
 
@@ -39,7 +57,9 @@ scheduling messages, searching messages, managing reactions, setting channel
 topics, inviting users, creating canvases, building thread context, and reading
 Slack file or image contents.
 
-Authenticates with Slack OAuth 2.0 (user scope).
+Authenticates user operations with Slack OAuth 2.0 (user scope). Operations with
+`actor=bot` and fixed bot operations use the deployment-owned `bot` bearer
+connection instead of prompting each user to connect the bot.
 
 The requested scopes cover public channels, private channels, direct messages,
 and multi-person direct messages. That matches the provider's current

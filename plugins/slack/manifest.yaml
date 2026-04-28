@@ -556,29 +556,6 @@ spec:
         - canvases:write
     bot:
       displayName: Bot
-      mode: user
+      mode: platform
       auth:
-        type: oauth2
-        authorizationUrl: https://slack.com/oauth/v2/authorize
-        tokenUrl: https://slack.com/api/oauth.v2.access
-        accessTokenPath: access_token
-        scopeParam: scope
-        scopeSeparator: ','
-        scopes:
-        - app_mentions:read
-        - channels:read
-        - channels:history
-        - groups:read
-        - groups:history
-        - im:read
-        - im:history
-        - mpim:read
-        - mpim:history
-        - users:read
-        - files:read
-        - chat:write
-        - assistant:write
-        - reactions:write
-        - channels:manage
-        - groups:write
-        - canvases:write
+        type: bearer
