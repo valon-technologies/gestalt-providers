@@ -110,7 +110,7 @@ func sqlType(d dialect, colType int32, indexed bool) string {
 			if indexed {
 				return "VARBINARY(255)"
 			}
-			return "BLOB"
+			return "LONGBLOB"
 		case dialectSQLServer:
 			if indexed {
 				return "VARBINARY(255)"

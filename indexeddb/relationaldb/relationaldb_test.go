@@ -688,6 +688,26 @@ func TestMetadataTableSQLMySQLUsesVarcharPrimaryKey(t *testing.T) {
 	}
 }
 
+func TestCreateGenericRecordsTableSQLMySQLUsesLongBlobPayloads(t *testing.T) {
+	got := createGenericRecordsTableSQL(dialectMySQL, "_gestalt_records")
+	if !strings.Contains(got, "`pk_bytes` LONGBLOB NOT NULL") {
+		t.Fatalf("createGenericRecordsTableSQL(mysql) missing longblob primary key bytes: %s", got)
+	}
+	if !strings.Contains(got, "`record_blob` LONGBLOB NOT NULL") {
+		t.Fatalf("createGenericRecordsTableSQL(mysql) missing longblob record payload: %s", got)
+	}
+}
+
+func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T) {
+	got := createGenericIndexEntriesTableSQL(dialectMySQL, "_gestalt_index_entries")
+	if !strings.Contains(got, "`index_key_bytes` LONGBLOB NOT NULL") {
+		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob index key bytes: %s", got)
+	}
+	if !strings.Contains(got, "`pk_bytes` LONGBLOB NOT NULL") {
+		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob primary key bytes: %s", got)
+	}
+}
+
 func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
 	t.Helper()
 	pbValue, err := gestalt.TypedValueFromAny(value)

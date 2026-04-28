@@ -262,6 +262,99 @@ func (s *Store) ensureGenericTables(ctx context.Context) error {
 			return fmt.Errorf("relationaldb: create generic storage index: %w", err)
 		}
 	}
+	if err := s.ensureGenericMySQLLongBlobColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureGenericMySQLLongBlobColumns(ctx context.Context) error {
+	if s.dialect != dialectMySQL {
+		return nil
+	}
+	schema := strings.TrimSpace(s.schemaName)
+	if schema == "" {
+		if err := s.scanOne(ctx, "SELECT DATABASE()", nil, &schema); err != nil {
+			return fmt.Errorf("relationaldb: inspect mysql database: %w", err)
+		}
+	}
+	tables := []struct {
+		name      string
+		qualified string
+		columns   []string
+	}{
+		{
+			name:      s.tablePrefix + genericRecordsTableName,
+			qualified: s.genericRecordsTable(),
+			columns:   []string{"pk_bytes", "record_blob"},
+		},
+		{
+			name:      s.tablePrefix + genericIndexTableName,
+			qualified: s.genericIndexTable(),
+			columns:   []string{"index_key_bytes", "pk_bytes"},
+		},
+		{
+			name:      s.tablePrefix + genericUniqueIndexTableName,
+			qualified: s.genericUniqueIndexTable(),
+			columns:   []string{"index_key_bytes", "pk_bytes"},
+		},
+	}
+	for _, table := range tables {
+		if err := s.ensureMySQLLongBlobColumns(ctx, schema, table.name, table.qualified, table.columns); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ensureMySQLLongBlobColumns(ctx context.Context, schema, table, qualified string, columns []string) error {
+	if len(columns) == 0 {
+		return nil
+	}
+	placeholders := make([]string, 0, len(columns))
+	args := []any{schema, table}
+	for _, col := range columns {
+		placeholders = append(placeholders, "?")
+		args = append(args, col)
+	}
+	rows, err := s.query(ctx,
+		"SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME IN ("+strings.Join(placeholders, ", ")+")",
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("relationaldb: inspect mysql generic storage columns: %w", err)
+	}
+	defer rows.Close()
+
+	columnTypes := map[string]string{}
+	for rows.Next() {
+		var name, dataType string
+		if err := rows.Scan(&name, &dataType); err != nil {
+			return fmt.Errorf("relationaldb: scan mysql generic storage column: %w", err)
+		}
+		columnTypes[name] = strings.ToLower(strings.TrimSpace(dataType))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("relationaldb: inspect mysql generic storage columns: %w", err)
+	}
+
+	clauses := make([]string, 0, len(columns))
+	for _, col := range columns {
+		dataType, ok := columnTypes[col]
+		if !ok {
+			return fmt.Errorf("relationaldb: mysql generic storage column missing: %s.%s", qualified, col)
+		}
+		if dataType == "longblob" {
+			continue
+		}
+		clauses = append(clauses, "MODIFY COLUMN "+quoteIdent(s.dialect, col)+" LONGBLOB NOT NULL")
+	}
+	if len(clauses) == 0 {
+		return nil
+	}
+	if _, err := s.exec(ctx, "ALTER TABLE "+quoteTableName(s.dialect, qualified)+" "+strings.Join(clauses, ", ")); err != nil {
+		return fmt.Errorf("relationaldb: widen mysql generic storage columns: %w", err)
+	}
 	return nil
 }
 
