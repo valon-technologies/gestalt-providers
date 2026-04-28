@@ -100,6 +100,23 @@ Notes:
 - `CreateTurn` returns after the turn is persisted in `RUNNING`; the provider continues the model/tool loop in the background and callers should use `GetTurn`, `ListTurns`, or `ListTurnEvents` to observe terminal state.
 - The provider advertises native tool search. Each turn initially exposes a small `gestalt_search_tools` function; matching authorized integration tools are loaded lazily through `AgentHost.SearchTools` before the model invokes them.
 
+## Hosted runtime image
+
+Release tags publish a provider release archive and a matching multi-arch runtime
+image. Hosted runtimes can use the image directly instead of receiving a staged
+plugin bundle on every sandbox launch:
+
+```yaml
+providers:
+  agent:
+    simple:
+      execution:
+        mode: hosted
+        runtime:
+          provider: modal
+          image: ghcr.io/valon-technologies/agent-simple-runtime:0.0.1-alpha.22
+```
+
 ## YAML configuration
 
 ```yaml
