@@ -35,15 +35,16 @@ operations:
   visible: false
 - id: events.reply
   method: POST
-  description: Reply to the Slack event that started an agent turn
+  description: Reply to the Slack event that started an agent turn; requires reply_ref
+    and text
   parameters:
   - name: reply_ref
     type: string
-    description: Opaque Slack event reply reference
+    description: Opaque Slack event reply reference from the current Slack signal
     required: true
   - name: text
     type: string
-    description: Slack message text to send
+    description: Required complete Slack message body to post in the event thread
     required: true
   visible: false
 - id: events.setStatus

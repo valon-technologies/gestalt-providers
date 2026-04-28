@@ -281,6 +281,17 @@ class SlackProviderTests(unittest.TestCase):
             _catalog_parameter_names(catalog_ops["events.reply"]),
             ["reply_ref", "text"],
         )
+        self.assertIn("requires reply_ref and text", catalog_ops["events.reply"]["description"])
+        reply_parameters = {
+            parameter["name"]: parameter
+            for parameter in catalog_ops["events.reply"]["parameters"]
+        }
+        self.assertIn(
+            "current Slack signal", reply_parameters["reply_ref"]["description"]
+        )
+        self.assertIn(
+            "complete Slack message body", reply_parameters["text"]["description"]
+        )
         self.assertEqual(
             _catalog_parameter_names(catalog_ops["events.clearAssistantStatus"]),
             ["reply_ref"],
@@ -618,6 +629,8 @@ class SlackProviderTests(unittest.TestCase):
             BASE_EVENT_TOOL_REFS + WORKFLOW_EVENT_TOOL_REFS,
         )
         self.assertIn("slack.events.reply", agent_target.messages[0].text)
+        self.assertIn("both required arguments", agent_target.messages[0].text)
+        self.assertIn("text set to the complete", agent_target.messages[0].text)
         self.assertIn("slack.events.setStatus", agent_target.messages[0].text)
         self.assertIn("slack.interactions.request", agent_target.messages[0].text)
         self.assertIn(
@@ -658,6 +671,12 @@ class SlackProviderTests(unittest.TestCase):
         )
         reply_ref = signal_payload["reply_ref"]
         self.assertIn(f"reply_ref: {reply_ref}", signal_payload["user_prompt"])
+        self.assertIn("Final reply tool:", signal_payload["user_prompt"])
+        self.assertIn("operation: slack.events.reply", signal_payload["user_prompt"])
+        self.assertIn(
+            "text: <complete Slack message body to post>",
+            signal_payload["user_prompt"],
+        )
         verified_ref = provider_module._verify_reply_ref(reply_ref, "user:gestalt-123")
         self.assertEqual(verified_ref.team_id, "T123")
         self.assertEqual(verified_ref.channel_id, "C789")
@@ -1258,6 +1277,12 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_payload["slack"]["action_value"], "approved")
         self.assertEqual(signal_payload["slack"]["trigger_id"], "1337.abcdef")
         self.assertIn("reply_ref: ", signal_payload["user_prompt"])
+        self.assertIn("Final reply tool:", signal_payload["user_prompt"])
+        self.assertIn("operation: slack.events.reply", signal_payload["user_prompt"])
+        self.assertIn(
+            "text: <complete Slack message body to post>",
+            signal_payload["user_prompt"],
+        )
 
     def test_slack_event_status_and_reactions_use_reply_ref_contract(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})

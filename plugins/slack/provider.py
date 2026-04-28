@@ -189,8 +189,12 @@ class GetFileInput(gestalt.Model):
 
 
 class SlackEventReplyInput(gestalt.Model):
-    reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
-    text: str = gestalt.field(description="Slack message text to send")
+    reply_ref: str = gestalt.field(
+        description="Opaque Slack event reply reference from the current Slack signal"
+    )
+    text: str = gestalt.field(
+        description="Required complete Slack message body to post in the event thread"
+    )
 
 
 class SlackEventReplyRefInput(gestalt.Model):
@@ -430,7 +434,7 @@ def slack_interactions_request(
 @gestalt.operation(
     id=SLACK_REPLY_OPERATION,
     method="POST",
-    description="Reply to the Slack event that started an agent turn",
+    description="Reply to the Slack event that started an agent turn; requires reply_ref and text",
     visible=False,
 )
 def slack_events_reply(
