@@ -105,6 +105,8 @@ plugins:
           secret:
             provider: secrets
             name: slack-bot-token
+      acknowledgement:
+        reaction: eyes
       agent:
         provider: simple
         model: deep
@@ -136,6 +138,12 @@ plugins:
         provider: simple
         model: deep
 ```
+
+When `acknowledgement.reaction` is configured, `events.handle` adds that
+reaction to the source Slack message before signaling the workflow. Emoji names
+may be written with or without colons, and Slack's `already_reacted` response is
+treated as idempotent success so retried events can continue to signal the
+workflow run.
 
 `events.handle` calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
 workflow_key="slack:${team_id}:${channel_id}:${root_ts}", signal.name="slack.event")`.
