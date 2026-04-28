@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-github"
-version = "0.0.1a7"
+version = "0.0.1a8"
 requires-python = "==3.14.*"
 dependencies = [
   "cryptography==46.0.7",
@@ -21,7 +21,7 @@ package = false
 gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
 
 [tool.gestalt]
-plugin = "provider"
+provider = "provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
