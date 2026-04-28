@@ -10,7 +10,7 @@ security:
 paths:
   /v1/search:
     post:
-      operationId: api_search
+      operationId: search
       summary: Search pages and data sources
       description: Search across pages and data sources that the integration can access.
       tags: [Search]
@@ -26,7 +26,7 @@ paths:
 
   /v1/pages:
     post:
-      operationId: api_create_page
+      operationId: pages.create
       summary: Create a page
       description: Create a new page in a page, database, or data source parent.
       tags: [Pages]
@@ -42,7 +42,7 @@ paths:
 
   /v1/pages/{page_id}:
     get:
-      operationId: api_retrieve_page
+      operationId: pages.retrieve
       summary: Retrieve a page
       description: Retrieve a page object by page ID.
       tags: [Pages]
@@ -52,7 +52,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     patch:
-      operationId: api_update_page
+      operationId: pages.update
       summary: Update a page
       description: Update page properties or archive state.
       tags: [Pages]
@@ -70,7 +70,7 @@ paths:
 
   /v1/pages/{page_id}/properties/{property_id}:
     get:
-      operationId: api_retrieve_page_property_item
+      operationId: pages.properties.retrieve
       summary: Retrieve a page property item
       description: Retrieve a single page property value, including paginated property items.
       tags: [Pages]
@@ -85,7 +85,7 @@ paths:
 
   /v1/pages/{page_id}/markdown:
     get:
-      operationId: api_retrieve_page_markdown
+      operationId: pages.retrieveMarkdown
       summary: Retrieve a page as markdown
       description: Retrieve enhanced Markdown for a page.
       tags: [Pages]
@@ -95,7 +95,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     patch:
-      operationId: api_update_page_markdown
+      operationId: pages.updateMarkdown
       summary: Update a page's content as markdown
       description: Insert or replace page content using Notion's enhanced Markdown commands.
       tags: [Pages]
@@ -113,7 +113,7 @@ paths:
 
   /v1/blocks/{block_id}:
     get:
-      operationId: api_retrieve_block
+      operationId: blocks.retrieve
       summary: Retrieve a block
       description: Retrieve a block object by block ID.
       tags: [Blocks]
@@ -123,7 +123,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     patch:
-      operationId: api_update_block
+      operationId: blocks.update
       summary: Update a block
       description: Update a supported block type or its archived state.
       tags: [Blocks]
@@ -139,7 +139,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     delete:
-      operationId: api_delete_block
+      operationId: blocks.delete
       summary: Delete a block
       description: Archive a block by block ID.
       tags: [Blocks]
@@ -151,7 +151,7 @@ paths:
 
   /v1/blocks/{block_id}/children:
     get:
-      operationId: api_retrieve_block_children
+      operationId: blocks.children.list
       summary: Retrieve block children
       description: Retrieve the child blocks for a block or page.
       tags: [Blocks]
@@ -163,7 +163,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     patch:
-      operationId: api_append_block_children
+      operationId: blocks.children.append
       summary: Append block children
       description: Append new child blocks after an existing block or at the end of the children list.
       tags: [Blocks]
@@ -181,7 +181,7 @@ paths:
 
   /v1/comments:
     get:
-      operationId: api_retrieve_comments
+      operationId: comments.list
       summary: Retrieve comments
       description: Retrieve comments, optionally filtered to a specific block or page discussion.
       tags: [Comments]
@@ -193,7 +193,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     post:
-      operationId: api_create_comment
+      operationId: comments.create
       summary: Create a comment
       description: Create a comment on a page, block, or existing discussion thread.
       tags: [Comments]
@@ -209,7 +209,7 @@ paths:
 
   /v1/databases:
     post:
-      operationId: api_create_database
+      operationId: databases.create
       summary: Create a database
       description: Create a database and its initial data source.
       tags: [Databases]
@@ -225,7 +225,7 @@ paths:
 
   /v1/databases/{database_id}:
     get:
-      operationId: api_retrieve_database
+      operationId: databases.retrieve
       summary: Retrieve a database
       description: Retrieve a database object by database ID.
       tags: [Databases]
@@ -235,7 +235,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     patch:
-      operationId: api_update_database
+      operationId: databases.update
       summary: Update a database
       description: Update database title, description, cover, or trash state.
       tags: [Databases]
@@ -253,7 +253,7 @@ paths:
 
   /v1/data_sources:
     post:
-      operationId: api_create_data_source
+      operationId: dataSources.create
       summary: Create a data source
       description: Create an additional data source under an existing database.
       tags: [Data sources]
@@ -269,7 +269,7 @@ paths:
 
   /v1/data_sources/{data_source_id}:
     get:
-      operationId: api_retrieve_data_source
+      operationId: dataSources.retrieve
       summary: Retrieve a data source
       description: Retrieve a data source object by data source ID.
       tags: [Data sources]
@@ -279,7 +279,7 @@ paths:
         '200':
           $ref: '#/components/responses/GenericObject'
     patch:
-      operationId: api_update_data_source
+      operationId: dataSources.update
       summary: Update a data source
       description: Update a data source schema, name, description, or icon.
       tags: [Data sources]
@@ -297,7 +297,7 @@ paths:
 
   /v1/data_sources/{data_source_id}/query:
     post:
-      operationId: api_query_data_source
+      operationId: dataSources.query
       summary: Query a data source
       description: Query rows in a data source with filter, sort, and pagination options.
       tags: [Data sources]
@@ -315,7 +315,7 @@ paths:
 
   /v1/data_sources/{data_source_id}/templates:
     get:
-      operationId: api_list_data_source_templates
+      operationId: dataSources.templates.list
       summary: List data source templates
       description: List templates available for a data source.
       tags: [Data sources]
@@ -330,7 +330,7 @@ paths:
 
   /v1/users:
     get:
-      operationId: api_list_users
+      operationId: users.list
       summary: List all users
       description: List users visible to the authenticated integration.
       tags: [Users]
@@ -343,7 +343,7 @@ paths:
 
   /v1/users/me:
     get:
-      operationId: api_get_self
+      operationId: users.me
       summary: Retrieve your token's bot user
       description: Retrieve the bot user associated with the current token.
       tags: [Users]
@@ -353,7 +353,7 @@ paths:
 
   /v1/users/{user_id}:
     get:
-      operationId: api_retrieve_user
+      operationId: users.retrieve
       summary: Retrieve a user
       description: Retrieve a user by user ID.
       tags: [Users]
