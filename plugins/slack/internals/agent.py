@@ -50,7 +50,6 @@ SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
 SLACK_DEFAULT_CONNECTION = "default"
 SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
 SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
-SLACK_WORKFLOW_DISPATCH_MODE = "workflow"
 SLACK_EVENT_OPERATION = "events.handle"
 SLACK_INTERACTION_HANDLE_OPERATION = "interactions.handle"
 SLACK_INTERACTION_REQUEST_OPERATION = "interactions.request"
@@ -178,7 +177,6 @@ class SlackAssistantConfig:
 @dataclass(frozen=True, slots=True)
 class SlackWorkflowConfig:
     provider_name: str = ""
-    dispatch_mode: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,61 +334,39 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 assistant_status_error = str(err.body.get("error") or err.body)
             except SlackClientError as err:
                 assistant_status_error = str(err)
-        if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
-            if not _workflow_manager_contract_available():
-                return _server_error(
-                    "workflow dispatch requires a Gestalt SDK/runtime with workflow signal-or-start support"
-                )
-            workflow_manager_factory = getattr(req, "workflow_manager", None)
-            if workflow_manager_factory is None:
-                return _server_error(
-                    "workflow dispatch requires a Gestalt SDK/runtime with workflow manager support"
-                )
-            with workflow_manager_factory() as workflow_manager:
-                workflow_request = _build_workflow_signal_or_start_request(
-                    event, route, reply_ref
-                )
-                workflow_response = workflow_manager.signal_or_start_run(
-                    workflow_request
-                )
-            response = {
-                "ok": True,
-                "workflow_provider": workflow_response.provider_name
-                or _agent_config.workflow.provider_name,
-                "workflow_run_id": workflow_response.run.id,
-                "workflow_key": workflow_response.workflow_key
-                or workflow_response.run.workflow_key
-                or _agent_session_ref(event),
-                "workflow_signal_id": workflow_response.signal.id,
-                "started_run": bool(workflow_response.started_run),
-                "status": _workflow_run_status_name(workflow_response.run.status),
-            }
-            if assistant_status_error:
-                response["assistant_status_error"] = assistant_status_error
-            return response
-
-        with req.agent_manager() as agent_manager:
-            session_request = _build_agent_session_request(event, route)
-            session = agent_manager.create_session(session_request)
-            session_id = str(session.id or "").strip()
-            if not session_id:
-                return _server_error("agent manager did not return a session id")
-
-            turn_request = _build_agent_turn_request(
-                event, route, session_id, reply_ref
+        if not _agent_config.workflow.provider_name:
+            return gestalt.Response(
+                status=HTTPStatus.PRECONDITION_FAILED,
+                body={"error": "Slack workflow provider is not configured"},
             )
-            turn = agent_manager.create_turn(turn_request)
+        if not _workflow_manager_contract_available():
+            return _server_error(
+                "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start support"
+            )
+        workflow_manager_factory = getattr(req, "workflow_manager", None)
+        if workflow_manager_factory is None:
+            return _server_error(
+                "Slack event handling requires a Gestalt SDK/runtime with workflow manager support"
+            )
+        with workflow_manager_factory() as workflow_manager:
+            workflow_request = _build_workflow_signal_or_start_request(
+                event, route, reply_ref
+            )
+            workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
-        if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
-            return _server_error(f"failed to signal workflow run: {err}")
-        return _server_error(f"failed to start agent turn: {err}")
+        return _server_error(f"failed to signal workflow run: {err}")
 
     response = {
         "ok": True,
-        "agent_session_id": session_id,
-        "agent_turn_id": turn.id,
-        "agent_provider": session.provider_name or _agent_provider(route),
-        "status": _agent_execution_status_name(turn.status),
+        "workflow_provider": workflow_response.provider_name
+        or _agent_config.workflow.provider_name,
+        "workflow_run_id": workflow_response.run.id,
+        "workflow_key": workflow_response.workflow_key
+        or workflow_response.run.workflow_key
+        or _agent_session_ref(event),
+        "workflow_signal_id": workflow_response.signal.id,
+        "started_run": bool(workflow_response.started_run),
+        "status": _workflow_run_status_name(workflow_response.run.status),
     }
     if assistant_status_error:
         response["assistant_status_error"] = assistant_status_error
@@ -407,11 +383,6 @@ def request_slack_interaction(
     normalized_text = text.strip()
     if not normalized_text:
         return _bad_request("text is required")
-    if _agent_config.workflow.dispatch_mode != SLACK_WORKFLOW_DISPATCH_MODE:
-        return gestalt.Response(
-            status=HTTPStatus.PRECONDITION_FAILED,
-            body={"error": "Slack interactions require workflow dispatch mode"},
-        )
     try:
         normalized_actions = _normalized_interaction_actions(actions)
     except ValueError as err:
@@ -460,10 +431,10 @@ def handle_slack_interaction(input: dict[str, Any], req: gestalt.Request) -> Ope
         return gestalt.Response(
             status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
         )
-    if _agent_config.workflow.dispatch_mode != SLACK_WORKFLOW_DISPATCH_MODE:
+    if not _agent_config.workflow.provider_name:
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
-            body={"error": "Slack interactions require workflow dispatch mode"},
+            body={"error": "Slack workflow provider is not configured"},
         )
     if not _workflow_manager_contract_available():
         return _server_error(
@@ -1645,46 +1616,6 @@ def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
     )
 
 
-def _build_agent_session_request(
-    event: SlackAgentEvent,
-    route: SlackAgentRoute | None,
-) -> Any:
-    request = agent_pb2.AgentManagerCreateSessionRequest(
-        provider_name=_agent_provider(route),
-        model=_agent_model(route),
-        client_ref=_agent_session_ref(event),
-        idempotency_key=_agent_session_idempotency_key(event),
-    )
-    request.metadata.CopyFrom(_agent_session_metadata(event))
-    return request
-
-
-def _build_agent_turn_request(
-    event: SlackAgentEvent,
-    route: SlackAgentRoute | None,
-    session_id: str,
-    reply_ref: str,
-) -> Any:
-    request = agent_pb2.AgentManagerCreateTurnRequest(
-        session_id=session_id,
-        model=_agent_model(route),
-        messages=[
-            agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
-            agent_pb2.AgentMessage(
-                role="user", text=_agent_user_prompt(event, reply_ref)
-            ),
-        ],
-        tool_source=_agent_tool_source_native_search(),
-        tool_refs=_agent_event_tool_refs(route),
-        idempotency_key=_agent_turn_idempotency_key(event),
-    )
-    request.metadata.CopyFrom(_agent_metadata(event, route))
-    provider_options = _agent_provider_options(route)
-    if provider_options:
-        request.provider_options.CopyFrom(_dict_to_struct(provider_options))
-    return request
-
-
 def _build_workflow_signal_or_start_request(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
@@ -1898,8 +1829,7 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
                 SLACK_STREAM_STOP_OPERATION,
             ]
         )
-    if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
-        operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
+    operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
     return [
         _agent_tool_ref(plugin=AGENT_GLOBAL_TOOL_SEARCH_PLUGIN, operation=""),
         *[
@@ -2004,12 +1934,11 @@ def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
         parts.append(_agent_config.agent_system_prompt.strip())
     if route is not None and route.agent_system_prompt:
         parts.append(route.agent_system_prompt.strip())
-    if _agent_config.workflow.dispatch_mode == SLACK_WORKFLOW_DISPATCH_MODE:
-        parts.append(
-            f"Use {_agent_config.plugin_name}.{SLACK_INTERACTION_REQUEST_OPERATION} "
-            "when you need the Slack user to choose from explicit button actions. "
-            "Slack will deliver the selected action back as a workflow signal."
-        )
+    parts.append(
+        f"Use {_agent_config.plugin_name}.{SLACK_INTERACTION_REQUEST_OPERATION} "
+        "when you need the Slack user to choose from explicit button actions. "
+        "Slack will deliver the selected action back as a workflow signal."
+    )
     return "\n\n".join(parts)
 
 
@@ -2121,14 +2050,6 @@ def _workflow_config_from_provider_config(
             workflow, "provider", "providerName", "provider_name"
         )
         or _config_string(config, "workflowProvider", "workflow_provider"),
-        dispatch_mode=(
-            _config_string(
-                workflow,
-                "dispatchMode",
-                "dispatch_mode",
-            )
-            or _config_string(config, "workflowDispatchMode", "workflow_dispatch_mode")
-        ).lower(),
     )
 
 
@@ -2269,23 +2190,10 @@ def _agent_session_ref(event: SlackAgentEvent) -> str:
     return f"slack:{event.team_id}:{event.channel_id}:{root_ts}"
 
 
-def _agent_session_idempotency_key(event: SlackAgentEvent) -> str:
-    return f"slack:session:{_agent_session_ref(event)}"
-
-
 def _agent_turn_idempotency_key(event: SlackAgentEvent) -> str:
     if event.event_id:
         return f"slack:event:{event.event_id}"
     return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
-
-
-def _agent_execution_status_name(status: int) -> str:
-    if not status:
-        return ""
-    try:
-        return agent_pb2.AgentExecutionStatus.Name(status)
-    except ValueError:
-        return str(status)
 
 
 def _workflow_run_status_name(status: int) -> str:

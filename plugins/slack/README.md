@@ -123,7 +123,8 @@ plugins:
               message: Summarize this thread and call out open questions.
 ```
 
-For durable per-thread dispatch, opt in explicitly with the workflow mode:
+Slack event handling always uses the workflow manager for durable per-thread
+dispatch:
 
 ```yaml
 plugins:
@@ -131,26 +132,24 @@ plugins:
     config:
       workflow:
         provider: local
-        dispatchMode: workflow
       agent:
         provider: simple
         model: deep
 ```
 
-In workflow mode, `events.handle` calls
-`WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
+`events.handle` calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
 workflow_key="slack:${team_id}:${channel_id}:${root_ts}", signal.name="slack.event")`.
-The workflow target is an agent target built from the same `agent` and
-`agent.routes` configuration as direct dispatch. The Slack event, `reply_ref`,
-and generated user prompt are delivered in the signal payload, so later Slack
-messages in the same thread signal the existing keyed run instead of replacing
-its target or authorization context.
+The workflow target is an agent target built from the `agent` and `agent.routes`
+configuration. The Slack event, `reply_ref`, and generated user prompt are
+delivered in the signal payload, so later Slack messages in the same thread
+signal the existing keyed run instead of replacing its target or authorization
+context.
 
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
 declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
 with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user through the managed
-`external_identity` authorization relationship. Workflow-mode agent runs use
+`external_identity` authorization relationship. Workflow-started agent runs use
 `toolSource=native_search` with scoped Slack event helper refs plus native tool
 search for the resolved Gestalt user.
 
@@ -159,13 +158,14 @@ search for the resolved Gestalt user.
 the native stream helpers, and the interaction helpers are hidden operations
 (`visible: false`).
 `events.handle` is invoked by the signed Slack webhook binding. It starts an
-agent turn and passes an opaque `reply_ref` in the user prompt. The agent should
-call `slack.events.reply` with that `reply_ref` and response text; the provider
-validates that the ref belongs to the invoking Gestalt subject before posting to
-Slack with the configured bot token. The same `reply_ref` scopes progress
-statuses, native assistant updates, streaming replies, suggested prompts, thread
-titles, and reactions to the source event channel, so the agent never needs raw
-`chat.postMessage` access for event replies.
+or signals a keyed workflow run and passes an opaque `reply_ref` in the signal
+payload's user prompt. The agent should call `slack.events.reply` with that
+`reply_ref` and response text; the provider validates that the ref belongs to
+the invoking Gestalt subject before posting to Slack with the configured bot
+token. The same `reply_ref` scopes progress statuses, native assistant updates,
+streaming replies, suggested prompts, thread titles, and reactions to the source
+event channel, so the agent never needs raw `chat.postMessage` access for event
+replies.
 
 Agent-facing event helper examples:
 
@@ -237,7 +237,7 @@ Use `slack.events.startStream`, `slack.events.appendStream`, and
 {"reply_ref":"...","stream_ts":"1712161831.000500","markdown_text":"Done"}
 ```
 
-Use `slack.interactions.request` in workflow mode to post signed Slack buttons.
+Use `slack.interactions.request` to post signed Slack buttons.
 When the Slack user clicks a button, the interactivity webhook validates the
 signed metadata and calls `WorkflowManager.SignalOrStartRun` with
 `signal.name="slack.interaction"` for the same `workflow_key`:
@@ -283,7 +283,8 @@ base64:
 ```
 
 If `agent.routes` is omitted, the provider uses its default behavior:
-`app_mention` events and direct-message `message` events start an agent run.
+`app_mention` events and direct-message `message` events start or signal a
+workflow run.
 Plain channel messages are ignored unless a route explicitly opts them in.
 For the native Slack assistant experience, enable the app's Agents & AI Apps
 features in Slack, add the bot `assistant:write` scope, and subscribe the bot to
@@ -364,11 +365,11 @@ plugins:
               systemPrompt: Help engineers inspect deployment status.
 ```
 
-When `agent.routes` is present, only matching routes start an agent run. Match
-rules support singular or plural forms of `team`, `channel`, `channelType`,
-`eventType`, and `user`. Route-level `agent` fields override the top-level
-agent settings, `prompt` is accepted as an alias for `systemPrompt`, and
-`providerOptions` are merged with route-level values taking precedence.
+When `agent.routes` is present, only matching routes start or signal a workflow
+run. Match rules support singular or plural forms of `team`, `channel`,
+`channelType`, `eventType`, and `user`. Route-level `agent` fields override the
+top-level agent settings, `prompt` is accepted as an alias for `systemPrompt`,
+and `providerOptions` are merged with route-level values taking precedence.
 
 ## Documentation
 
