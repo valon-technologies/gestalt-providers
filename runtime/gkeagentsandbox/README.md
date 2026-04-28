@@ -14,32 +14,32 @@ This is a manifest-driven `kind: runtime` provider implemented against
 
 GKE Agent Sandbox is a good fit for the `RuntimeProvider` interface when the
 unit of isolation is a Kubernetes sandbox pod. The provider maps one Gestalt
-runtime session to one Agent Sandbox `SandboxClaim` or direct `Sandbox`, stages
-the executable plugin bundle into that pod, starts the plugin process there,
-and returns a host-reachable `tcp://127.0.0.1:<port>` dial target through a
-Kubernetes port-forward.
+runtime session to one Agent Sandbox `SandboxClaim` or direct `Sandbox`, starts
+the plugin process already present in the runtime image, and returns a
+host-reachable `tcp://127.0.0.1:<port>` dial target through a Kubernetes
+port-forward.
 
 It is not a Modal-equivalent hosted process API. The runtime image or template
-must contain the tools required to stage and launch the plugin process.
+must contain the tools required to launch the plugin process.
 
 ## Provider Contract
 
-- `StartSession` creates a namespaced `SandboxClaim` when `config.template`,
-  `plugins.<name>.execution.runtime.template`, or
+- `StartSession` creates a namespaced `SandboxClaim` when
+  `plugins.<name>.execution.runtime.template` or
   `providers.agent.<name>.execution.runtime.template` is set.
 - `StartSession` creates a direct `agents.x-k8s.io/v1alpha1` `Sandbox` when no
   template is configured. In this mode `execution.runtime.image` is required on
   the plugin or hosted agent provider.
-- `StartPlugin` copies `bundle_dir` to `/workspace/plugin`, starts the command
-  with `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix
-  socket to `config.pluginPort` with `socat`, and opens a Kubernetes
-  port-forward back to `gestaltd`.
+- `StartPlugin` starts the manifest-derived command with
+  `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix socket to
+  `config.pluginPort` with `socat`, and opens a Kubernetes port-forward back to
+  `gestaltd`.
 - `BindHostService` accepts relay-backed bindings only. This matches the public
   relay path that `gestaltd` uses for hosted runtimes without direct host
   sockets, including hosted agent bindings such as
   `GESTALT_AGENT_HOST_SOCKET`.
-- Capabilities advertise Linux/amd64 bundle launch, hostname-based egress when
-  the runtime can enforce proxy-only outbound access, and no direct
+- Capabilities advertise hostname-based egress when the runtime can enforce
+  proxy-only outbound access, and no direct
   host-service sockets.
 
 ## Configuration
@@ -58,7 +58,6 @@ runtime:
         path: ./runtime/gkeagentsandbox/manifest.yaml
       config:
         namespace: gestalt-runtime
-        template: gestalt-plugin-runtime
         container: runtime
         pluginPort: 50051
         sandboxReadyTimeout: 3m
@@ -70,6 +69,8 @@ plugins:
   github:
     execution:
       mode: hosted
+      runtime:
+        template: gestalt-plugin-runtime
 
 providers:
   agent:
@@ -77,6 +78,7 @@ providers:
       execution:
         mode: hosted
         runtime:
+          template: gestalt-plugin-runtime
           pool:
             minReadyInstances: 1
             maxReadyInstances: 2
@@ -136,9 +138,9 @@ providers:
 The selected template image or direct image must include:
 
 - a POSIX shell at `sh`
-- `tar` for bundle staging
 - `socat` for bridging the SDK Unix socket to the Kubernetes port-forward
-- the plugin runtime dependencies needed by the command in the plugin manifest
+- the provider package layout and runtime dependencies needed by the command in
+  the plugin manifest
 
 For template mode, keep the container alive and ready before `StartPlugin`
 runs. The provider launches the plugin later with Kubernetes `exec`; it does

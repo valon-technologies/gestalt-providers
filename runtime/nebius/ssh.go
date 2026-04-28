@@ -1,15 +1,11 @@
 package nebius
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -116,114 +112,6 @@ func runRemoteCommand(ctx context.Context, client *ssh.Client, command string) (
 		<-waitCh
 		return "", ctx.Err()
 	}
-}
-
-func uploadBundleDir(ctx context.Context, client *ssh.Client, localDir, remoteDir string) error {
-	session, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		return err
-	}
-	var stderr bytes.Buffer
-	session.Stderr = &stderr
-	command := "mkdir -p " + shellQuote(remoteDir) + " && tar -xzf - -C " + shellQuote(remoteDir)
-	if err := session.Start(command); err != nil {
-		return err
-	}
-
-	writeErrCh := make(chan error, 1)
-	go func() {
-		writeErrCh <- writeTarGz(stdin, localDir)
-		_ = stdin.Close()
-	}()
-
-	waitCh := make(chan error, 1)
-	go func() {
-		waitCh <- session.Wait()
-	}()
-
-	select {
-	case err := <-waitCh:
-		writeErr := <-writeErrCh
-		if writeErr != nil {
-			return writeErr
-		}
-		if err != nil {
-			return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-		}
-		return nil
-	case <-ctx.Done():
-		_ = session.Close()
-		<-waitCh
-		<-writeErrCh
-		return ctx.Err()
-	}
-}
-
-func writeTarGz(w io.Writer, root string) error {
-	gzw := gzip.NewWriter(w)
-	tw := tar.NewWriter(gzw)
-
-	err := filepath.Walk(root, func(localPath string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(root, localPath)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-
-		linkTarget := ""
-		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err = os.Readlink(localPath)
-			if err != nil {
-				return err
-			}
-		}
-		header, err := tar.FileInfoHeader(info, linkTarget)
-		if err != nil {
-			return err
-		}
-		header.Name = rel
-		if info.IsDir() && !strings.HasSuffix(header.Name, "/") {
-			header.Name += "/"
-		}
-		if err := tw.WriteHeader(header); err != nil {
-			return err
-		}
-		if info.Mode().IsRegular() {
-			file, err := os.Open(localPath)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(tw, file); err != nil {
-				_ = file.Close()
-				return err
-			}
-			if err := file.Close(); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	closeErr := tw.Close()
-	gzipErr := gzw.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return gzipErr
 }
 
 func newLocalForwarder(client *ssh.Client, remoteHost string, remotePort int) (*localForwarder, error) {

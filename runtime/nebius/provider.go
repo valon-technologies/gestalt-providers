@@ -176,11 +176,6 @@ func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRun
 		CanHostPlugins:    true,
 		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
 		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE,
-		LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
-		ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
-			Goos:   "linux",
-			Goarch: "amd64",
-		},
 	}, nil
 }
 
@@ -381,13 +376,6 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		closeInstance(inst)
 	}()
 
-	remoteBundle := remoteBundleDir(cfg.Username, req.GetSessionId())
-	if req.GetBundleDir() != "" {
-		if err := uploadBundleDir(ctx, inst.client, req.GetBundleDir(), remoteBundle); err != nil {
-			return nil, status.Errorf(codes.Internal, "upload plugin bundle: %v", err)
-		}
-	}
-
 	env := cloneStringMap(req.GetEnv())
 	if env == nil {
 		env = map[string]string{}
@@ -398,7 +386,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort)
 
 	containerName := dockerContainerName(req.GetPluginName(), req.GetSessionId())
-	runCmd := buildDockerRunCommand(containerName, image, remoteBundle, req.GetBundleDir() != "", req.GetCommand(), req.GetArgs(), env)
+	runCmd := buildDockerRunCommand(containerName, image, req.GetCommand(), req.GetArgs(), env)
 	if _, err := runRemoteCommand(ctx, inst.client, runCmd); err != nil {
 		return nil, status.Errorf(codes.Internal, "start plugin container in nebius vm: %v", err)
 	}
@@ -827,11 +815,8 @@ func stopInstance(ctx context.Context, sdk *gosdk.SDK, instanceID string) error 
 	return nil
 }
 
-func buildDockerRunCommand(containerName, image, remoteBundle string, hasBundle bool, command string, args []string, env map[string]string) string {
+func buildDockerRunCommand(containerName, image, command string, args []string, env map[string]string) string {
 	argv := []string{"sudo", "docker", "run", "-d", "--rm", "--name", containerName, "--network", "host"}
-	if hasBundle {
-		argv = append(argv, "-v", remoteBundle+":"+gestalt.HostedPluginBundleRoot+":ro", "-w", gestalt.HostedPluginBundleRoot)
-	}
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -979,10 +964,6 @@ func generateEphemeralSSHHostKey() (ssh.PublicKey, string, string, error) {
 		return nil, "", "", err
 	}
 	return signer.PublicKey(), string(pem.EncodeToMemory(block)), strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))), nil
-}
-
-func remoteBundleDir(username, sessionID string) string {
-	return path.Join("/home", username, ".gestalt-runtime", sessionID, "bundle")
 }
 
 func resourceName(prefix, pluginName, sessionID string) string {

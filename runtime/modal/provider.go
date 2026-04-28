@@ -6,12 +6,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
-	"os"
-	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -181,11 +177,6 @@ func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRun
 		CanHostPlugins:    true,
 		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
 		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME,
-		LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
-		ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
-			Goos:   "linux",
-			Goarch: "amd64",
-		},
 	}, nil
 }
 
@@ -532,22 +523,6 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}()
 
 	command := req.GetCommand()
-	if req.GetBundleDir() != "" {
-		if err := uploadBundleDir(ctx, sandbox, req.GetBundleDir(), gestalt.HostedPluginBundleRoot, logs); err != nil {
-			logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "upload plugin bundle: "+err.Error(), time.Now())
-			return nil, status.Errorf(codes.Internal, "upload plugin bundle: %v", err)
-		}
-		if strings.HasPrefix(command, gestalt.HostedPluginBundleRoot+"/") || command == gestalt.HostedPluginBundleRoot {
-			startedAt := time.Now()
-			logRuntimePhase(logs, "plugin entrypoint chmod: starting command=%q", command)
-			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", "0755", command}, logs); err != nil {
-				logRuntimePhase(logs, "plugin entrypoint chmod: failed after %s: %v", elapsed(startedAt), err)
-				logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "mark plugin entrypoint executable: "+err.Error(), time.Now())
-				return nil, status.Errorf(codes.Internal, "mark plugin entrypoint executable: %v", err)
-			}
-			logRuntimePhase(logs, "plugin entrypoint chmod: completed in %s", elapsed(startedAt))
-		}
-	}
 
 	env := cloneStringMap(req.GetEnv())
 	if env == nil {
@@ -565,12 +540,6 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		Stdout: modalclient.Pipe,
 		Stderr: modalclient.Pipe,
 		Env:    env,
-		Workdir: func() string {
-			if req.GetBundleDir() != "" {
-				return gestalt.HostedPluginBundleRoot
-			}
-			return ""
-		}(),
 	})
 	if err != nil {
 		logRuntimePhase(logs, "plugin exec: failed after %s: %v", elapsed(startedAt), err)
@@ -1238,92 +1207,6 @@ func configuredDuration(value time.Duration) string {
 		return "modal-default"
 	}
 	return value.String()
-}
-
-func uploadBundleDir(ctx context.Context, sandbox *modalclient.Sandbox, localDir, remoteDir string, logs *sessionLogSink) error {
-	startedAt := time.Now()
-	logRuntimePhase(logs, "bundle upload: starting local=%q remote=%q", localDir, remoteDir)
-	if err := runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", remoteDir}, logs); err != nil {
-		logRuntimePhase(logs, "bundle upload: failed after %s: %v", elapsed(startedAt), err)
-		return err
-	}
-	var files int
-	var bytes int64
-	err := filepath.Walk(localDir, func(localPath string, info os.FileInfo, walkErr error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(localDir, localPath)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		remotePath := path.Join(remoteDir, filepath.ToSlash(rel))
-		if info.IsDir() {
-			return runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", remotePath}, logs)
-		}
-		if err := runSandboxCommand(ctx, sandbox, []string{"mkdir", "-p", path.Dir(remotePath)}, logs); err != nil {
-			logRuntimePhase(logs, "bundle upload: failed after %s: %v", elapsed(startedAt), err)
-			return err
-		}
-		src, err := os.Open(localPath)
-		if err != nil {
-			logRuntimePhase(logs, "bundle upload: failed opening %q after %s: %v", rel, elapsed(startedAt), err)
-			return err
-		}
-		fileStartedAt := time.Now()
-		logRuntimePhase(logs, "bundle upload file: starting path=%q bytes=%d", rel, info.Size())
-		dst, err := sandbox.Open(ctx, remotePath, "wb")
-		if err != nil {
-			_ = src.Close()
-			logRuntimePhase(logs, "bundle upload file: failed opening remote path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
-			return err
-		}
-		if _, err := io.Copy(dst, src); err != nil {
-			_ = src.Close()
-			_ = dst.Close()
-			logRuntimePhase(logs, "bundle upload file: failed copying path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
-			return err
-		}
-		if err := src.Close(); err != nil {
-			_ = dst.Close()
-			logRuntimePhase(logs, "bundle upload file: failed closing source path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
-			return err
-		}
-		if err := dst.Flush(); err != nil {
-			_ = dst.Close()
-			logRuntimePhase(logs, "bundle upload file: failed flushing path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
-			return err
-		}
-		if err := dst.Close(); err != nil {
-			logRuntimePhase(logs, "bundle upload file: failed closing remote path=%q after %s: %v", rel, elapsed(fileStartedAt), err)
-			return err
-		}
-		files++
-		bytes += info.Size()
-		logRuntimePhase(logs, "bundle upload file: completed path=%q bytes=%d in %s", rel, info.Size(), elapsed(fileStartedAt))
-		if info.Mode().Perm()&0o111 != 0 {
-			if err := runSandboxCommand(ctx, sandbox, []string{"chmod", fmt.Sprintf("%03o", info.Mode().Perm()), remotePath}, logs); err != nil {
-				logRuntimePhase(logs, "bundle upload: failed chmod path=%q after %s: %v", rel, elapsed(startedAt), err)
-				return err
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		logRuntimePhase(logs, "bundle upload: failed after %s: %v", elapsed(startedAt), err)
-		return err
-	}
-	logRuntimePhase(logs, "bundle upload: completed files=%d bytes=%d in %s", files, bytes, elapsed(startedAt))
-	return nil
 }
 
 func runSandboxCommand(ctx context.Context, sandbox *modalclient.Sandbox, argv []string, logs *sessionLogSink) error {
