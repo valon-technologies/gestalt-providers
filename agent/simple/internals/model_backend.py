@@ -96,7 +96,9 @@ class ModelBackend:
         request_options: dict[str, Any],
     ) -> BackendStep:
         timeout = request_options.pop("timeout", self._config.timeout_seconds)
-        max_tokens = request_options.pop("max_tokens", request_options.pop("max_completion_tokens", DEFAULT_ANTHROPIC_MAX_TOKENS))
+        max_tokens = request_options.pop(
+            "max_tokens", request_options.pop("max_completion_tokens", DEFAULT_ANTHROPIC_MAX_TOKENS)
+        )
         client = Anthropic(**self._anthropic_client_options(request_options, timeout))
         system_prompt, anthropic_messages = self._messages_for_anthropic(messages)
 
@@ -149,7 +151,9 @@ class ModelBackend:
         elif raw_tool_calls:
             assistant_message["content"] = None
         if raw_tool_calls:
-            assistant_message["tool_calls"] = [self._openai_tool_call_message(raw_tool_call) for raw_tool_call in raw_tool_calls]
+            assistant_message["tool_calls"] = [
+                self._openai_tool_call_message(raw_tool_call) for raw_tool_call in raw_tool_calls
+            ]
         return assistant_message
 
     def _anthropic_response_to_step_parts(
@@ -175,7 +179,9 @@ class ModelBackend:
             if block_type != "tool_use":
                 continue
 
-            arguments = self._coerce_tool_arguments(self._block_value(raw_block, "input"), block_id=self._block_text(raw_block, key="id"))
+            arguments = self._coerce_tool_arguments(
+                self._block_value(raw_block, "input"), block_id=self._block_text(raw_block, key="id")
+            )
             tool_call_id = self._block_text(raw_block, key="id")
             tool_name = self._block_text(raw_block, key="name")
             tool_calls.append(BackendToolCall(call_id=tool_call_id, tool_id=tool_name, arguments=arguments))
@@ -249,13 +255,14 @@ class ModelBackend:
                 tool_use_id = str(raw_message.get("tool_call_id", "") or "").strip()
                 if not tool_use_id:
                     raise ValueError("tool_result messages require tool_call_id for anthropic models")
-                pending_tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tool_use_id,
-                        "content": self._normalize_content(raw_message.get("content")),
-                    }
-                )
+                tool_result: dict[str, Any] = {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": self._normalize_content(raw_message.get("content")),
+                }
+                if raw_message.get("is_error"):
+                    tool_result["is_error"] = True
+                pending_tool_results.append(tool_result)
                 continue
 
             flush_tool_results()
@@ -347,7 +354,9 @@ class ModelBackend:
             )
         return calls
 
-    def _request_options(self, *, option_provider_names: tuple[str, ...], provider_options: dict[str, Any]) -> dict[str, Any]:
+    def _request_options(
+        self, *, option_provider_names: tuple[str, ...], provider_options: dict[str, Any]
+    ) -> dict[str, Any]:
         options: dict[str, Any] = {}
         self._merge_request_options(options, self._config.provider_options, option_provider_names=option_provider_names)
         self._merge_request_options(options, provider_options, option_provider_names=option_provider_names)
@@ -382,13 +391,13 @@ class ModelBackend:
         if not provider_model:
             raise ValueError(f"model {model!r} must include a model name after provider prefix")
         if provider_name == "anthropic":
-            return ModelRoute(backend_name="anthropic", request_model=provider_model, option_provider_names=("anthropic",))
+            return ModelRoute(
+                backend_name="anthropic", request_model=provider_model, option_provider_names=("anthropic",)
+            )
         if provider_name == "openai":
             return ModelRoute(backend_name="openai", request_model=provider_model, option_provider_names=("openai",))
         return ModelRoute(
-            backend_name="openai",
-            request_model=raw_model,
-            option_provider_names=("openai", provider_name),
+            backend_name="openai", request_model=raw_model, option_provider_names=("openai", provider_name)
         )
 
     def _coerce_tool_arguments(self, raw_value: Any, *, block_id: str) -> dict[str, Any]:

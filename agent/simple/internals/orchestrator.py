@@ -64,12 +64,7 @@ class SimpleAgentOrchestrator:
         self._backend = ModelBackend(config)
 
     def create_turn(
-        self,
-        request: Any,
-        context: grpc.ServicerContext,
-        *,
-        session_model: str = "",
-        provider_name: str = "",
+        self, request: Any, context: grpc.ServicerContext, *, session_model: str = "", provider_name: str = ""
     ) -> Any:
         turn_id = str(request.turn_id or "").strip()
         if not turn_id:
@@ -81,9 +76,7 @@ class SimpleAgentOrchestrator:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
 
         try:
-            resolved_model = self._config.resolve_model(
-                str(request.model or "").strip() or session_model
-            )
+            resolved_model = self._config.resolve_model(str(request.model or "").strip() or session_model)
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
@@ -123,9 +116,7 @@ class SimpleAgentOrchestrator:
         return self.turn_to_proto(started)
 
     def _complete_turn(self, prepared: "PreparedTurn") -> None:
-        tool_specs, function_name_to_tool_id, loaded_tool_ids = _copy_tool_registry(
-            prepared.tool_specs_and_names
-        )
+        tool_specs, function_name_to_tool_id, loaded_tool_ids = _copy_tool_registry(prepared.tool_specs_and_names)
         conversation = _build_initial_conversation(
             system_prompt=self._config.system_prompt,
             projected_messages=prepared.messages,
@@ -192,18 +183,32 @@ class SimpleAgentOrchestrator:
                                 turn_id=prepared.turn_id,
                                 event_type="tool.completed",
                                 source=prepared.provider_name,
+                                data={"tool_call_id": tool_call.call_id, "tool_id": resolved_tool_id, "status": 200},
+                            )
+                            conversation.append(
+                                {"role": "tool", "tool_call_id": tool_call.call_id, "content": tool_response_body}
+                            )
+                            continue
+
+                        validation_error = _tool_arguments_validation_error(
+                            tool_name=tool_call.tool_id, arguments=tool_call.arguments, tool_specs=tool_specs
+                        )
+                        if validation_error:
+                            self._store.append_turn_event(
+                                turn_id=prepared.turn_id,
+                                event_type="tool.completed",
+                                source=prepared.provider_name,
                                 data={
                                     "tool_call_id": tool_call.call_id,
                                     "tool_id": resolved_tool_id,
-                                    "status": 200,
+                                    "status": 400,
+                                    "error": validation_error,
                                 },
                             )
                             conversation.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.call_id,
-                                    "content": tool_response_body,
-                                }
+                                _tool_result_message(
+                                    tool_call_id=tool_call.call_id, content=validation_error, is_error=True
+                                )
                             )
                             continue
 
@@ -231,11 +236,11 @@ class SimpleAgentOrchestrator:
                             },
                         )
                         conversation.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.call_id,
-                                "content": str(tool_response.body or ""),
-                            }
+                            _tool_result_message(
+                                tool_call_id=tool_call.call_id,
+                                content=str(tool_response.body or ""),
+                                is_error=int(tool_response.status or 0) >= 400,
+                            )
                         )
                     continue
 
@@ -266,11 +271,7 @@ class SimpleAgentOrchestrator:
             )
             return
         except Exception as exc:
-            self._fail_turn(
-                prepared=prepared,
-                messages=prepared.messages,
-                status_message=str(exc),
-            )
+            self._fail_turn(prepared=prepared, messages=prepared.messages, status_message=str(exc))
             return
 
         self._fail_turn(
@@ -279,14 +280,8 @@ class SimpleAgentOrchestrator:
             status_message=f"run exceeded maxSteps ({self._config.max_steps})",
         )
 
-    def _fail_turn(
-        self, *, prepared: "PreparedTurn", messages: list[dict[str, Any]], status_message: str
-    ) -> None:
-        self._store.mark_turn_failed(
-            turn_id=prepared.turn_id,
-            messages=messages,
-            status_message=status_message,
-        )
+    def _fail_turn(self, *, prepared: "PreparedTurn", messages: list[dict[str, Any]], status_message: str) -> None:
+        self._store.mark_turn_failed(turn_id=prepared.turn_id, messages=messages, status_message=status_message)
 
     def turn_to_proto(self, run: StoredRun) -> Any:
         proto = agent_pb2.AgentTurn(
@@ -358,6 +353,43 @@ def _search_tools_for_model(
         loaded_tool_ids=loaded_tool_ids,
     )
     return json.dumps({"tools": available_tools}, separators=(",", ":"))
+
+
+def _tool_arguments_validation_error(
+    *, tool_name: str, arguments: dict[str, Any], tool_specs: list[dict[str, Any]]
+) -> str:
+    schema = _tool_parameters_schema(tool_name=tool_name, tool_specs=tool_specs)
+    if not schema:
+        return ""
+    try:
+        validate(instance=arguments, schema=schema)
+    except ValidationError as exc:
+        return f"Tool arguments failed schema validation for {tool_name}: {exc.message}"
+    return ""
+
+
+def _tool_parameters_schema(*, tool_name: str, tool_specs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    tool_name = tool_name.strip()
+    if not tool_name:
+        return None
+    for tool_spec in tool_specs:
+        function_spec = tool_spec.get("function")
+        if not isinstance(function_spec, dict):
+            continue
+        if str(function_spec.get("name", "") or "").strip() != tool_name:
+            continue
+        parameters = function_spec.get("parameters")
+        if isinstance(parameters, dict):
+            return parameters
+        return None
+    return None
+
+
+def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = False) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "tool", "tool_call_id": tool_call_id, "content": content}
+    if is_error:
+        message["is_error"] = True
+    return message
 
 
 def _tool_search_max_results(raw_value: Any) -> int:
@@ -563,27 +595,20 @@ def _tool_registry_from_resolved_tools(tools: Any) -> tuple[list[dict[str, Any]]
     function_name_to_tool_id = {TOOL_SEARCH_FUNCTION_NAME: TOOL_SEARCH_TOOL_ID}
     loaded_tool_ids: set[str] = set()
     _register_resolved_tools(
-        tools,
-        tool_specs=tool_specs,
-        function_name_to_tool_id=function_name_to_tool_id,
-        loaded_tool_ids=loaded_tool_ids,
+        tools, tool_specs=tool_specs, function_name_to_tool_id=function_name_to_tool_id, loaded_tool_ids=loaded_tool_ids
     )
     return tool_specs, function_name_to_tool_id, loaded_tool_ids
 
 
 def _copy_tool_registry(
-    registry: tuple[list[dict[str, Any]], dict[str, str], set[str]]
+    registry: tuple[list[dict[str, Any]], dict[str, str], set[str]],
 ) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
     tool_specs, function_name_to_tool_id, loaded_tool_ids = registry
     return copy.deepcopy(tool_specs), dict(function_name_to_tool_id), set(loaded_tool_ids)
 
 
 def _register_resolved_tools(
-    tools: Any,
-    *,
-    tool_specs: list[dict[str, Any]],
-    function_name_to_tool_id: dict[str, str],
-    loaded_tool_ids: set[str],
+    tools: Any, *, tool_specs: list[dict[str, Any]], function_name_to_tool_id: dict[str, str], loaded_tool_ids: set[str]
 ) -> list[dict[str, Any]]:
     available_tools: list[dict[str, Any]] = []
     for tool in tools:
@@ -595,9 +620,7 @@ def _register_resolved_tools(
             if function_name:
                 available_tools.append(
                     _tool_search_result_entry(
-                        function_name=function_name,
-                        tool=tool,
-                        description=_tool_description(tool),
+                        function_name=function_name, tool=tool, description=_tool_description(tool)
                     )
                 )
             continue
@@ -616,7 +639,9 @@ def _register_resolved_tools(
                 "function": {"name": function_name, "description": description, "parameters": parameters},
             }
         )
-        available_tools.append(_tool_search_result_entry(function_name=function_name, tool=tool, description=description))
+        available_tools.append(
+            _tool_search_result_entry(function_name=function_name, tool=tool, description=description)
+        )
     return available_tools
 
 
@@ -648,10 +673,7 @@ def _unique_function_name(raw_value: str, function_name_to_tool_id: dict[str, st
 
 
 def _tool_search_result_entry(*, function_name: str, tool: Any, description: str) -> dict[str, Any]:
-    return {
-        "name": function_name,
-        "description": description,
-    }
+    return {"name": function_name, "description": description}
 
 
 def _sanitize_function_name(raw_value: str) -> str:
