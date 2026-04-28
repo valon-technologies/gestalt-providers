@@ -791,6 +791,117 @@ class SimpleAgentProviderTests(unittest.TestCase):
             {"reply_ref": "reply-ref-1", "text": "Here are your open pull requests."},
         )
 
+    def test_create_turn_injects_slack_reply_ref_from_workflow_signal_batch(self) -> None:
+        assert _host_servicer is not None
+        _, provider_client = _configure_provider()
+        _create_session(
+            provider_client,
+            session_id="session-slack-reply-ref",
+            idempotency_key="session-idem-slack-reply-ref",
+            model="anthropic/claude-fake-model",
+        )
+
+        tool_parameters = struct_pb2.Struct()
+        tool_parameters.update(
+            {
+                "type": "object",
+                "properties": {
+                    "reply_ref": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+                "required": ["reply_ref", "text"],
+            }
+        )
+        slack_reply_tool = agent_pb2.ResolvedAgentTool(
+            id="slack/events.reply?credentialMode=none",
+            name="slack_events_reply",
+            description="Reply to a Slack event",
+            target=agent_pb2.BoundAgentToolTarget(plugin="slack", operation="events.reply"),
+            parameters_schema=tool_parameters,
+        )
+        signal_batch = json.dumps(
+            {"signals": [{"payload": {"reply_ref": "reply-ref-from-signal"}}]},
+            separators=(",", ":"),
+        )
+
+        fake_anthropic = _FakeAnthropicMessagesServer(
+            responses=[
+                {
+                    "id": "msg-slack-reply",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu-slack-reply",
+                            "name": "slack_events_reply",
+                            "input": {"text": "Here are your open pull requests."},
+                        }
+                    ],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+                {
+                    "id": "msg-slack-done",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [{"type": "text", "text": "Posted to Slack."}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 20, "output_tokens": 5},
+                },
+            ]
+        )
+        fake_anthropic.start()
+        self.addCleanup(fake_anthropic.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key"})
+
+        provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-slack-reply-ref",
+                session_id="session-slack-reply-ref",
+                idempotency_key="idem-slack-reply-ref",
+                model="anthropic/claude-fake-model",
+                messages=[
+                    agent_pb2.AgentMessage(
+                        role="user",
+                        text=f"Workflow signal batch:\n{signal_batch}",
+                    )
+                ],
+                provider_options=provider_options,
+                tools=[slack_reply_tool],
+            )
+        )
+
+        fetched = _wait_for_turn(
+            provider_client,
+            "turn-slack-reply-ref",
+            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+        )
+
+        self.assertEqual(fetched.output_text, "Posted to Slack.")
+        self.assertEqual(len(_host_servicer.requests), 1)
+        self.assertEqual(
+            _host_servicer.requests[0]["arguments"],
+            {
+                "reply_ref": "reply-ref-from-signal",
+                "text": "Here are your open pull requests.",
+            },
+        )
+        self.assertEqual(len(fake_anthropic.requests), 2)
+        reply_tool_schema = next(
+            tool["input_schema"]
+            for tool in fake_anthropic.requests[0]["tools"]
+            if tool["name"] == "slack_events_reply"
+        )
+        self.assertEqual(reply_tool_schema["required"], ["text"])
+        self.assertEqual(set(reply_tool_schema["properties"]), {"text"})
+
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
         assert _indexeddb_servicer is not None
 

@@ -28,7 +28,9 @@ TOOL_SEARCH_TOOL_ID = "__gestalt_search_tools__"
 TOOL_SEARCH_DEFAULT_MAX_RESULTS = 8
 TOOL_SEARCH_MAX_RESULTS = 20
 SLACK_EVENTS_REPLY_TOOL_ID = "slack/events.reply"
+SLACK_REPLY_REF_ARGUMENT_FIELD = "reply_ref"
 SLACK_REPLY_TEXT_ARGUMENT_FIELDS = ("text", "markdown_text")
+WORKFLOW_SIGNAL_BATCH_PREFIX = "Workflow signal batch:"
 TOOL_SEARCH_SYSTEM_PROMPT = (
     "When a user asks you to use an external integration or read external data and the needed tool is not already "
     f"available, call `{TOOL_SEARCH_FUNCTION_NAME}` before saying you do not have access."
@@ -121,6 +123,7 @@ class SimpleAgentOrchestrator:
 
     def _complete_turn(self, prepared: "PreparedTurn") -> None:
         tool_specs, function_name_to_tool_id, loaded_tool_ids = _copy_tool_registry(prepared.tool_specs_and_names)
+        slack_reply_ref = _slack_reply_ref_from_messages(prepared.messages)
         conversation = _build_initial_conversation(
             system_prompt=self._config.system_prompt,
             projected_messages=prepared.messages,
@@ -170,6 +173,14 @@ class SimpleAgentOrchestrator:
                             tool_specs=tool_specs,
                             assistant_text=step.output_text,
                         )
+                        validation_error = _tool_arguments_validation_error(
+                            tool_name=tool_call.tool_id, arguments=arguments, tool_specs=tool_specs
+                        )
+                        execution_arguments, slack_reply_ref_error = _inject_slack_reply_ref(
+                            resolved_tool_id=resolved_tool_id,
+                            arguments=arguments,
+                            default_reply_ref=slack_reply_ref,
+                        )
                         self._store.append_turn_event(
                             turn_id=prepared.turn_id,
                             event_type="tool.started",
@@ -177,7 +188,7 @@ class SimpleAgentOrchestrator:
                             data={
                                 "tool_call_id": tool_call.call_id,
                                 "tool_id": resolved_tool_id,
-                                "arguments": arguments,
+                                "arguments": execution_arguments,
                             },
                         )
                         if resolved_tool_id == TOOL_SEARCH_TOOL_ID:
@@ -201,9 +212,8 @@ class SimpleAgentOrchestrator:
                             )
                             continue
 
-                        validation_error = _tool_arguments_validation_error(
-                            tool_name=tool_call.tool_id, arguments=arguments, tool_specs=tool_specs
-                        )
+                        if slack_reply_ref_error:
+                            validation_error = slack_reply_ref_error
                         if validation_error:
                             self._store.append_turn_event(
                                 turn_id=prepared.turn_id,
@@ -230,7 +240,7 @@ class SimpleAgentOrchestrator:
                                     turn_id=prepared.turn_id,
                                     tool_call_id=tool_call.call_id,
                                     tool_id=resolved_tool_id,
-                                    arguments=_dict_to_struct(arguments),
+                                    arguments=_dict_to_struct(execution_arguments),
                                 )
                             )
                         canceled = self._store.get_turn(prepared.turn_id)
@@ -415,6 +425,21 @@ def _is_slack_event_reply_tool(resolved_tool_id: str) -> bool:
     return resolved_tool_id.split("?", 1)[0] == SLACK_EVENTS_REPLY_TOOL_ID
 
 
+def _inject_slack_reply_ref(
+    *, resolved_tool_id: str, arguments: dict[str, Any], default_reply_ref: str
+) -> tuple[dict[str, Any], str]:
+    if not _is_slack_event_reply_tool(resolved_tool_id):
+        return arguments, ""
+    if _argument_value_is_present(arguments.get(SLACK_REPLY_REF_ARGUMENT_FIELD)):
+        return arguments, ""
+    if not default_reply_ref:
+        return arguments, "Tool arguments failed schema validation for slack_events_reply: 'reply_ref' is required"
+
+    augmented = copy.deepcopy(arguments)
+    augmented[SLACK_REPLY_REF_ARGUMENT_FIELD] = default_reply_ref
+    return augmented, ""
+
+
 def _tool_argument_schema(*, tool_name: str, tool_specs: list[dict[str, Any]]) -> ToolArgumentSchema | None:
     schema = _tool_parameters_schema(tool_name=tool_name, tool_specs=tool_specs)
     if schema is None:
@@ -465,6 +490,58 @@ def _schema_property_accepts_string(property_schema: Any) -> bool:
     if isinstance(raw_type, list) and "string" in raw_type:
         return True
     return raw_type is None
+
+
+def _slack_reply_ref_from_messages(messages: list[dict[str, Any]]) -> str:
+    for message in reversed(messages):
+        content = _message_content_text(message)
+        reply_ref = _slack_reply_ref_from_signal_batch_text(content)
+        if reply_ref:
+            return reply_ref
+
+    for message in reversed(messages):
+        content = _message_content_text(message)
+        reply_ref = _slack_reply_ref_from_prompt_lines(content)
+        if reply_ref:
+            return reply_ref
+    return ""
+
+
+def _slack_reply_ref_from_signal_batch_text(content: str) -> str:
+    _, separator, raw_batch = content.partition(WORKFLOW_SIGNAL_BATCH_PREFIX)
+    if not separator:
+        return ""
+    try:
+        batch = json.loads(raw_batch.strip())
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(batch, dict):
+        return ""
+
+    raw_signals = batch.get("signals")
+    if not isinstance(raw_signals, list):
+        return ""
+    for raw_signal_value in reversed(raw_signals):
+        if not isinstance(raw_signal_value, dict):
+            continue
+        raw_signal = cast(dict[str, Any], raw_signal_value)
+        payload = raw_signal.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        reply_ref = str(payload.get(SLACK_REPLY_REF_ARGUMENT_FIELD, "") or "").strip()
+        if reply_ref:
+            return reply_ref
+    return ""
+
+
+def _slack_reply_ref_from_prompt_lines(content: str) -> str:
+    for line in reversed(content.splitlines()):
+        name, separator, value = line.partition(":")
+        if separator and name.strip() == SLACK_REPLY_REF_ARGUMENT_FIELD:
+            reply_ref = value.strip()
+            if reply_ref and not reply_ref.startswith("<"):
+                return reply_ref
+    return ""
 
 
 def _tool_parameters_schema(*, tool_name: str, tool_specs: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -727,7 +804,10 @@ def _register_resolved_tools(
         function_name_to_tool_id[function_name] = tool_id
         loaded_tool_ids.add(tool_id)
         description = _tool_description(tool)
-        parameters = _struct_to_dict(tool.parameters_schema) or {"type": "object", "properties": {}}
+        parameters = _model_tool_parameters(
+            tool_id=tool_id,
+            raw_parameters=_struct_to_dict(tool.parameters_schema),
+        )
         if not isinstance(parameters, dict):
             parameters = {"type": "object", "properties": {}}
         if "type" not in parameters:
@@ -742,6 +822,40 @@ def _register_resolved_tools(
             _tool_search_result_entry(function_name=function_name, tool=tool, description=description)
         )
     return available_tools
+
+
+def _model_tool_parameters(*, tool_id: str, raw_parameters: Any) -> dict[str, Any]:
+    parameters = copy.deepcopy(raw_parameters) if isinstance(raw_parameters, dict) else {}
+    if not parameters:
+        parameters = {"type": "object", "properties": {}}
+    if not _is_slack_event_reply_tool(tool_id):
+        return parameters
+
+    raw_properties = parameters.get("properties")
+    if not isinstance(raw_properties, dict):
+        return parameters
+
+    text_properties = {
+        name: copy.deepcopy(raw_properties[name])
+        for name in SLACK_REPLY_TEXT_ARGUMENT_FIELDS
+        if isinstance(raw_properties.get(name), dict)
+    }
+    if not text_properties:
+        return parameters
+
+    text_required = [
+        name
+        for name in SLACK_REPLY_TEXT_ARGUMENT_FIELDS
+        if name in text_properties and name in _string_list(parameters.get("required"))
+    ]
+    if not text_required:
+        text_required = [next(iter(text_properties))]
+
+    return {
+        "type": "object",
+        "properties": text_properties,
+        "required": text_required,
+    }
 
 
 def _function_name_for_tool_id(tool_id: str, function_name_to_tool_id: dict[str, str]) -> str:
@@ -773,6 +887,12 @@ def _unique_function_name(raw_value: str, function_name_to_tool_id: dict[str, st
 
 def _tool_search_result_entry(*, function_name: str, tool: Any, description: str) -> dict[str, Any]:
     return {"name": function_name, "description": description}
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _sanitize_function_name(raw_value: str) -> str:
