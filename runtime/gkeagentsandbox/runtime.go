@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +37,6 @@ type sandboxRuntime interface {
 	Start(context.Context, startSandboxRequest) (sandboxHandle, error)
 	Get(context.Context, sandboxHandle) (sandboxHandle, error)
 	Stop(context.Context, sandboxHandle) error
-	CopyBundle(context.Context, sandboxHandle, string, string) error
 	Exec(context.Context, sandboxHandle, []string, io.Reader) error
 	ForwardPort(context.Context, sandboxHandle, int) (tunnel, error)
 	EnsureHostnameEgressPolicy(context.Context, sandboxHandle, hostnameEgressConfig) (string, error)
@@ -351,24 +349,6 @@ func (r *kubernetesSandboxRuntime) Stop(ctx context.Context, handle sandboxHandl
 		}
 		return nil
 	}
-}
-
-func (r *kubernetesSandboxRuntime) CopyBundle(ctx context.Context, handle sandboxHandle, localDir, remoteDir string) error {
-	localDir = strings.TrimSpace(localDir)
-	if localDir == "" {
-		return nil
-	}
-	if info, err := os.Stat(localDir); err != nil {
-		return fmt.Errorf("stat plugin bundle dir: %w", err)
-	} else if !info.IsDir() {
-		return fmt.Errorf("plugin bundle path %q is not a directory", localDir)
-	}
-	var bundle bytes.Buffer
-	if err := writeTarDir(&bundle, localDir); err != nil {
-		return err
-	}
-	command := []string{"sh", "-c", "mkdir -p " + shellQuote(remoteDir) + " && tar -xf - -C " + shellQuote(remoteDir)}
-	return r.Exec(ctx, handle, command, bytes.NewReader(bundle.Bytes()))
 }
 
 func (r *kubernetesSandboxRuntime) EnsureHostnameEgressPolicy(ctx context.Context, handle sandboxHandle, cfg hostnameEgressConfig) (string, error) {

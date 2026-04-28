@@ -127,10 +127,11 @@ Authentication uses the Nebius Go SDK:
 ## Execution Model
 
 Each runtime session lazily provisions a Nebius VM, injects an ephemeral SSH key
-and a pinned SSH host key through cloud-init, installs Docker, uploads the
-plugin bundle over SSH, and launches the requested runtime image with
-`docker run --network host`. The hosted plugin binds only on guest loopback and
-the host talks to it through a local SSH port forward to the VM.
+and a pinned SSH host key through cloud-init, installs Docker, and launches the
+requested runtime image with `docker run --network host`. The image must already
+contain the provider package layout expected by the manifest entrypoint. The
+hosted plugin binds only on guest loopback and the host talks to it through a
+local SSH port forward to the VM.
 
 ## Current Limitations
 

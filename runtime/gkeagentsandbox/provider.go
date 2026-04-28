@@ -25,8 +25,6 @@ const (
 	sessionStateRunning  = "running"
 	sessionStateStopped  = "stopped"
 	sessionStateFailed   = "failed"
-
-	remoteBundleRoot = gestalt.HostedPluginBundleRoot
 )
 
 type Provider struct {
@@ -131,11 +129,6 @@ func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRun
 		CanHostPlugins:    true,
 		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
 		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME,
-		LaunchMode:        proto.PluginRuntimeLaunchMode_PLUGIN_RUNTIME_LAUNCH_MODE_BUNDLE,
-		ExecutionTarget: &proto.PluginRuntimeExecutionTarget{
-			Goos:   "linux",
-			Goarch: "amd64",
-		},
 	}, nil
 }
 
@@ -146,12 +139,9 @@ func (p *Provider) StartSession(ctx context.Context, req *proto.StartPluginRunti
 	}
 
 	template := strings.TrimSpace(req.GetTemplate())
-	if template == "" {
-		template = cfg.Template
-	}
 	image := strings.TrimSpace(req.GetImage())
 	if template == "" && image == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when no GKE Agent Sandbox template is configured", req.GetPluginName())
+		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.execution.runtime.image or execution.runtime.template is required when using the gke agent sandbox runtime", req.GetPluginName())
 	}
 
 	sessionID := p.newID("session")
@@ -387,11 +377,6 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 
 	execCtx, cancel := context.WithTimeout(ctx, cfg.ExecTimeout)
 	defer cancel()
-	if req.GetBundleDir() != "" {
-		if err := runtime.CopyBundle(execCtx, handle, req.GetBundleDir(), remoteBundleRoot); err != nil {
-			return nil, status.Errorf(codes.Internal, "stage plugin bundle: %v", err)
-		}
-	}
 
 	env := cloneStringMap(req.GetEnv())
 	if env == nil {
@@ -414,15 +399,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}
 
 	launchScript := buildLaunchScript(startProcessRequest{
-		Command: req.GetCommand(),
-		Args:    req.GetArgs(),
-		Env:     env,
-		Workdir: func() string {
-			if req.GetBundleDir() != "" {
-				return remoteBundleRoot
-			}
-			return ""
-		}(),
+		Command:    req.GetCommand(),
+		Args:       req.GetArgs(),
+		Env:        env,
 		PluginPort: cfg.PluginPort,
 		SocketPath: env[proto.EnvProviderSocket],
 	})

@@ -27,7 +27,6 @@ const (
 
 type Config struct {
 	Namespace           string        `yaml:"namespace,omitempty"`
-	Template            string        `yaml:"template,omitempty"`
 	Container           string        `yaml:"container,omitempty"`
 	Kubeconfig          string        `yaml:"kubeconfig,omitempty"`
 	Context             string        `yaml:"context,omitempty"`
@@ -137,7 +136,6 @@ func (c *Config) Normalize() {
 	if c.Namespace == "" {
 		c.Namespace = defaultNamespace
 	}
-	c.Template = strings.TrimSpace(c.Template)
 	c.Container = strings.TrimSpace(c.Container)
 	if c.Container == "" {
 		c.Container = defaultContainer
@@ -165,9 +163,6 @@ func (c *Config) Normalize() {
 func (c Config) Validate() error {
 	if !isDNSLabel(c.Namespace) {
 		return fmt.Errorf("gke agent sandbox runtime namespace %q is not a valid Kubernetes DNS label", c.Namespace)
-	}
-	if c.Template != "" && !isDNSSubdomain(c.Template) {
-		return fmt.Errorf("gke agent sandbox runtime template %q is not a valid Kubernetes DNS subdomain", c.Template)
 	}
 	if !isDNSLabel(c.Container) {
 		return fmt.Errorf("gke agent sandbox runtime container %q is not a valid Kubernetes DNS label", c.Container)

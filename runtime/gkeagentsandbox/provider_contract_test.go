@@ -4,8 +4,6 @@ import (
 	"context"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -32,7 +30,6 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -58,6 +55,7 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 
 	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
 		PluginName: pluginName,
+		Template:   "python-runtime",
 		Metadata: map[string]string{
 			"tenant": "dev",
 		},
@@ -111,10 +109,6 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		t.Fatalf("BindHostService relay = %q, want %q", got, want)
 	}
 
-	bundleDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bundleDir, "plugin"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write plugin bundle: %v", err)
-	}
 	hosted, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:  session.GetId(),
 		PluginName: pluginName,
@@ -123,7 +117,6 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		Env: map[string]string{
 			"CUSTOM": "value",
 		},
-		BundleDir: bundleDir,
 	})
 	if err != nil {
 		t.Fatalf("StartPlugin: %v", err)
@@ -133,19 +126,9 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	}
 
 	fake.mu.Lock()
-	copyCalls := slices.Clone(fake.copyCalls)
 	execCalls := slices.Clone(fake.execCalls)
 	forwardPorts := slices.Clone(fake.forwardPorts)
 	fake.mu.Unlock()
-	if len(copyCalls) != 1 {
-		t.Fatalf("runtime CopyBundle calls = %d, want 1", len(copyCalls))
-	}
-	if got, want := copyCalls[0].localDir, bundleDir; got != want {
-		t.Fatalf("runtime CopyBundle localDir = %q, want %q", got, want)
-	}
-	if got, want := copyCalls[0].remoteDir, remoteBundleRoot; got != want {
-		t.Fatalf("runtime CopyBundle remoteDir = %q, want %q", got, want)
-	}
 	if len(execCalls) != 1 {
 		t.Fatalf("runtime Exec calls = %d, want 1", len(execCalls))
 	}
@@ -157,7 +140,6 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		"command -v socat",
 		"TCP-LISTEN:50051",
 		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
-		"cd '/workspace/plugin'",
 		"'GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock'",
 		"'GESTALT_CACHE_SOCKET=https://gestaltd.example.internal/runtime/session/relay'",
 		"'CUSTOM=value'",
@@ -204,7 +186,6 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -218,6 +199,7 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 	ctx := context.Background()
 	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
 		PluginName: "agent-provider",
+		Template:   "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -244,15 +226,10 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 		}
 	}
 
-	bundleDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bundleDir, "plugin"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write plugin bundle: %v", err)
-	}
 	if _, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:     session.GetId(),
 		PluginName:    "agent-provider",
 		Command:       "./plugin",
-		BundleDir:     bundleDir,
 		AllowedHosts:  []string{"api.github.com"},
 		DefaultAction: "deny",
 		Env: map[string]string{
@@ -320,7 +297,6 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -332,7 +308,7 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github"})
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
@@ -367,7 +343,6 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -381,6 +356,7 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 	ctx := context.Background()
 	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
 		PluginName: "agent-provider",
+		Template:   "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -395,15 +371,10 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 		t.Fatalf("BindHostService agent host: %v", err)
 	}
 
-	bundleDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bundleDir, "plugin"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write plugin bundle: %v", err)
-	}
 	if _, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:  session.GetId(),
 		PluginName: "agent-provider",
 		Command:    "./plugin",
-		BundleDir:  bundleDir,
 		AllowedHosts: []string{
 			"agent-relay.gestalt.example",
 		},
@@ -448,7 +419,6 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -460,20 +430,15 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "agent-provider"})
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "agent-provider", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
-	bundleDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bundleDir, "plugin"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write plugin bundle: %v", err)
-	}
 	_, err = client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:     session.GetId(),
 		PluginName:    "agent-provider",
 		Command:       "./plugin",
-		BundleDir:     bundleDir,
 		AllowedHosts:  []string{"api.github.com"},
 		DefaultAction: "deny",
 		Env: map[string]string{
@@ -556,7 +521,6 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -568,7 +532,7 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github"})
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
@@ -616,7 +580,6 @@ func TestRuntimeProviderContractKeepsFailedStateStickyAfterPluginDeath(t *testin
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -628,7 +591,7 @@ func TestRuntimeProviderContractKeepsFailedStateStickyAfterPluginDeath(t *testin
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github"})
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
@@ -667,7 +630,6 @@ func TestRuntimeProviderContractCanRetryStopAfterDeleteFailure(t *testing.T) {
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
-			Template:            "python-runtime",
 			PluginPort:          50051,
 			SandboxReadyTimeout: 2 * time.Second,
 			PluginReadyTimeout:  2 * time.Second,
@@ -679,19 +641,14 @@ func TestRuntimeProviderContractCanRetryStopAfterDeleteFailure(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github"})
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
-	}
-	bundleDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bundleDir, "plugin"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write plugin bundle: %v", err)
 	}
 	if _, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:     session.GetId(),
 		PluginName:    "github",
 		Command:       "./plugin",
-		BundleDir:     bundleDir,
 		AllowedHosts:  []string{"api.github.com"},
 		DefaultAction: "deny",
 		Env: map[string]string{
@@ -735,7 +692,6 @@ type fakeSandboxRuntime struct {
 	mu sync.Mutex
 
 	startRequests           []startSandboxRequest
-	copyCalls               []copyBundleCall
 	execCalls               []execCall
 	forwardPorts            []int
 	stopped                 []sandboxHandle
@@ -752,12 +708,6 @@ type fakeSandboxRuntime struct {
 	hostnameEgressErr error
 	execErrors        []error
 	forwardPortErr    error
-}
-
-type copyBundleCall struct {
-	handle    sandboxHandle
-	localDir  string
-	remoteDir string
 }
 
 type execCall struct {
@@ -810,13 +760,6 @@ func (f *fakeSandboxRuntime) Stop(_ context.Context, handle sandboxHandle) error
 		return status.Error(codes.Unavailable, "injected stop failure")
 	}
 	f.stopped = append(f.stopped, handle)
-	return nil
-}
-
-func (f *fakeSandboxRuntime) CopyBundle(_ context.Context, handle sandboxHandle, localDir, remoteDir string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.copyCalls = append(f.copyCalls, copyBundleCall{handle: handle, localDir: localDir, remoteDir: remoteDir})
 	return nil
 }
 

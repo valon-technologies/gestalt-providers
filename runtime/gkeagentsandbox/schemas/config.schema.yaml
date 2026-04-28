@@ -4,9 +4,6 @@ properties:
   namespace:
     type: string
     description: Kubernetes namespace where SandboxClaims or Sandboxes are created.
-  template:
-    type: string
-    description: Default SandboxTemplate used for claim-backed sessions.
   container:
     type: string
     description: Container name inside the sandbox pod.
@@ -29,7 +26,7 @@ properties:
     description: Go duration to wait for the plugin gRPC endpoint.
   execTimeout:
     type: string
-    description: Go duration for bundle staging and launch exec calls.
+    description: Go duration for plugin launch exec calls.
   cleanupTimeout:
     type: string
     description: Go duration for best-effort cleanup calls.
