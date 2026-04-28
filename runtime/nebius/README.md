@@ -44,7 +44,7 @@ providers:
       execution:
         mode: hosted
         runtime:
-          image: ghcr.io/valon-technologies/agent-simple-runtime:latest
+          image: ghcr.io/valon-technologies/agent-simple-runtime:0.0.1-alpha.22
           pool:
             minReadyInstances: 1
             maxReadyInstances: 2
@@ -108,7 +108,7 @@ providers:
         mode: hosted
         runtime:
           provider: nebius
-          image: ghcr.io/valon-technologies/agent-simple-runtime:latest
+          image: ghcr.io/valon-technologies/agent-simple-runtime:0.0.1-alpha.22
           pool:
             minReadyInstances: 1
             maxReadyInstances: 2

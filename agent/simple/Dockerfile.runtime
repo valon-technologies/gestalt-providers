@@ -1,0 +1,18 @@
+ARG ALPINE_VERSION=3.23
+
+FROM alpine:${ALPINE_VERSION}
+
+ARG TARGETARCH
+
+WORKDIR /app
+
+RUN apk add --no-cache ca-certificates libstdc++ zlib
+
+COPY runtime-image-dist/ /tmp/runtime-image-dist/
+RUN archive="/tmp/runtime-image-dist/gestalt-plugin-simple_linux_${TARGETARCH}.tar.gz" \
+    && test -f "$archive" \
+    && tar -xzf "$archive" -C /app \
+    && chmod +x /app/gestalt-plugin-simple \
+    && rm -rf /tmp/runtime-image-dist
+
+CMD ["tail", "-f", "/dev/null"]
