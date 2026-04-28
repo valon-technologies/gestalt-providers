@@ -12,7 +12,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from enum import StrEnum
 from http import HTTPStatus
-from typing import Any, TypeAlias
+from typing import Any, Iterable, TypeAlias
 
 import gestalt
 from google.protobuf import json_format
@@ -1357,10 +1357,10 @@ def _resolve_slack_subject(
                 type=EXTERNAL_IDENTITY_RESOURCE_TYPE, id=resource_id
             ),
             action=authorization_pb2.Action(name=EXTERNAL_IDENTITY_ASSUME_ACTION),
-            page_size=2,
+            page_size=10,
         )
     )
-    subjects = list(response.subjects)
+    subjects = _dedupe_resolved_subjects(response.subjects)
     if len(subjects) > 1:
         raise gestalt.http_subject_error(
             HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -1379,6 +1379,22 @@ def _resolve_slack_subject(
         display_name=_subject_display_name(subject),
         auth_source="authorization",
     )
+
+
+def _dedupe_resolved_subjects(subjects: Iterable[Any]) -> list[Any]:
+    unique: dict[tuple[str, str], Any] = {}
+    for subject in subjects:
+        subject_id = str(getattr(subject, "id", "") or "").strip()
+        if not subject_id:
+            continue
+        key = (_resolved_subject_kind(subject), subject_id)
+        existing = unique.get(key)
+        if existing is None or (
+            str(getattr(existing, "type", "") or "").strip() != "subject"
+            and str(getattr(subject, "type", "") or "").strip() == "subject"
+        ):
+            unique[key] = subject
+    return list(unique.values())
 
 
 def _resolved_subject_kind(subject: Any) -> str:
