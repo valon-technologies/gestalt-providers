@@ -1,6 +1,6 @@
 import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 import grpc
@@ -8,10 +8,11 @@ from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
+from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from internals import SimpleAgentConfig, SimpleAgentOrchestrator, SimpleRunStore
-from internals.agent_proto_compat import agent_pb2
 from internals.store import StoredSession
 
+agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
 
@@ -36,7 +37,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.18",
+            version="0.0.1-alpha.20",
         )
 
     def warnings(self) -> list[str]:

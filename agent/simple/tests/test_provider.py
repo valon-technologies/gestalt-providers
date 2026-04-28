@@ -17,14 +17,15 @@ from google.protobuf import struct_pb2 as _struct_pb2
 
 import provider as provider_module
 from gestalt import ENV_AGENT_HOST_SOCKET, ProviderKind, _runtime, indexeddb_socket_env
+from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt.gen.v1 import datastore_pb2 as _datastore_pb2
 from gestalt.gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
 from gestalt.gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt.gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
-from internals.agent_proto_compat import agent_pb2
 from internals.config import SimpleAgentConfig
 
+agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 datastore_pb2: Any = _datastore_pb2
 datastore_pb2_grpc: Any = _datastore_pb2_grpc
@@ -908,7 +909,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         _, provider_client = _configure_provider(
             provider_options={
-                "litellm": {"top_p": 0.8},
+                "litellm": {"presence_penalty": 1.5, "top_p": 0.1},
+                "top_p": 0.8,
                 "openai": {
                     "base_url": f"{fake_llm.base_url}/v1",
                     "api_key": "config-key",
@@ -947,6 +949,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(request["top_p"], 0.8)
         self.assertEqual(request["temperature"], 0.7)
         self.assertEqual(request["max_completion_tokens"], 64)
+        self.assertNotIn("litellm", request)
+        self.assertNotIn("presence_penalty", request)
 
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
@@ -1378,7 +1382,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertIn("query", tool_result["content"])
         self.assertIn("required", tool_result["content"])
 
-    def test_create_turn_keeps_openai_compatible_prefixed_models_and_legacy_nested_overrides(self) -> None:
+    def test_create_turn_keeps_openai_compatible_prefixed_models_and_provider_overrides(self) -> None:
         _, provider_client = _configure_provider()
         _create_session(
             provider_client, session_id="session-compat", idempotency_key="session-idem-compat", model="groq/fake-model"
@@ -1412,7 +1416,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         provider_options.update(
             {
                 "timeout": 7,
-                "litellm": {"temperature": 0.2},
+                "litellm": {"frequency_penalty": 1.1, "temperature": 0.9},
+                "temperature": 0.2,
                 "groq": {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key", "top_p": 0.9},
             }
         )
@@ -1441,6 +1446,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(request["model"], "groq/fake-model")
         self.assertEqual(request["temperature"], 0.2)
         self.assertEqual(request["top_p"], 0.9)
+        self.assertNotIn("litellm", request)
+        self.assertNotIn("frequency_penalty", request)
 
 
 def _wait_for_turn(provider_client: Any, turn_id: str, status: int, timeout_seconds: float = 5) -> Any:

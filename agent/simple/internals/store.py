@@ -3,12 +3,14 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 import grpc
 
-from .agent_proto_compat import agent_pb2
+from gestalt.gen.v1 import agent_pb2 as _agent_pb2
+
+agent_pb2: Any = cast(Any, _agent_pb2)
 
 TERMINAL_STATUSES = {
     agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
