@@ -124,6 +124,7 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Operation:   "sync",
 		Input:       map[string]any{"mode": "full"},
+		Target:      protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   now,
 	}
@@ -377,6 +378,7 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Operation:   "sync",
 		Input:       map[string]any{"kind": "pending"},
+		Target:      protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "pending"}),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   now,
 	}
@@ -400,6 +402,7 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
 		Operation:   "sync",
+		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   now,
 		StartedAt:   timePtr(now),
@@ -1067,6 +1070,134 @@ func TestProviderIgnoresReservedTargetUnknownFields(t *testing.T) {
 	}
 }
 
+func TestProviderRequiresStoredTargetJSON(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	stopProviderWorker(t, provider)
+
+	now := time.Now().UTC()
+	cases := []struct {
+		name string
+		put  func() error
+		read func() error
+		want string
+	}{
+		{
+			name: "schedule missing target json",
+			put: func() error {
+				return provider.scheduleStore.Put(ctx, gestalt.Record{
+					"id":          "legacy-schedule",
+					"plugin_name": "roadmap",
+					"cron":        "* * * * *",
+					"timezone":    "UTC",
+					"operation":   "sync",
+					"created_at":  now,
+					"updated_at":  now,
+				})
+			},
+			read: func() error {
+				_, err := provider.GetSchedule(ctx, &proto.GetWorkflowProviderScheduleRequest{ScheduleId: "legacy-schedule"})
+				return err
+			},
+			want: "missing target_json",
+		},
+		{
+			name: "event trigger missing target json",
+			put: func() error {
+				return provider.eventTriggerStore.Put(ctx, gestalt.Record{
+					"id":            "legacy-trigger",
+					"plugin_name":   "roadmap",
+					"match_type":    "task.updated",
+					"match_source":  "tests",
+					"match_subject": "task-1",
+					"operation":     "sync",
+					"created_at":    now,
+					"updated_at":    now,
+				})
+			},
+			read: func() error {
+				_, err := provider.GetEventTrigger(ctx, &proto.GetWorkflowProviderEventTriggerRequest{TriggerId: "legacy-trigger"})
+				return err
+			},
+			want: "missing target_json",
+		},
+		{
+			name: "run missing target json",
+			put: func() error {
+				return provider.runStore.Put(ctx, gestalt.Record{
+					"id":           "legacy-run",
+					"plugin_name":  "roadmap",
+					"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
+					"operation":    "sync",
+					"trigger_kind": triggerKindManual,
+					"created_at":   now,
+				})
+			},
+			read: func() error {
+				_, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "legacy-run"})
+				return err
+			},
+			want: "missing target_json",
+		},
+		{
+			name: "execution reference missing target json",
+			put: func() error {
+				return provider.executionRefStore.Put(ctx, gestalt.Record{
+					"id":               "legacy-ref",
+					"provider_name":    "workflow",
+					"target_plugin":    "roadmap",
+					"target_operation": "sync",
+					"subject_id":       "user-1",
+					"created_at":       now,
+				})
+			},
+			read: func() error {
+				_, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "legacy-ref"})
+				return err
+			},
+			want: "missing target_json",
+		},
+		{
+			name: "flat-shaped target json",
+			put: func() error {
+				return provider.runStore.Put(ctx, gestalt.Record{
+					"id":           "flat-json-run",
+					"plugin_name":  "roadmap",
+					"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
+					"operation":    "sync",
+					"target_json":  `{"pluginName":"roadmap","operation":"sync"}`,
+					"trigger_kind": triggerKindManual,
+					"created_at":   now,
+				})
+			},
+			read: func() error {
+				_, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "flat-json-run"})
+				return err
+			},
+			want: "target_json must contain plugin or agent target",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.put(); err != nil {
+				t.Fatalf("put: %v", err)
+			}
+			if err := tc.read(); err == nil {
+				t.Fatal("read succeeded, want target_json error")
+			} else if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("read error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -1163,6 +1294,7 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 		Status:              proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Operation:           "sync",
 		Input:               map[string]any{"kind": "schedule"},
+		Target:              protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "schedule"}),
 		TriggerKind:         triggerKindSchedule,
 		TriggerScheduleID:   schedule.GetId(),
 		TriggerScheduledFor: timePtr(latestDue),
@@ -1254,6 +1386,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
 		Operation:   "sync",
+		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
 		TriggerKind: triggerKindManual,
 		CreatedAt:   startedAt.Add(-time.Second),
 		StartedAt:   &startedAt,
