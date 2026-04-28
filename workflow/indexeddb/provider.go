@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.7"
+	providerVersion     = "0.0.1-alpha.8"
 	defaultPollInterval = time.Second
 
 	storeSchedules     = "schedules"
@@ -56,8 +56,6 @@ const (
 
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
-
-	legacyExplicitNoToolsPlugin = "__gestalt_legacy_explicit_no_tools__"
 )
 
 type config struct {
@@ -2087,149 +2085,15 @@ func targetJSON(target *proto.BoundWorkflowTarget) string {
 }
 
 func targetFromRecordValue(raw any) *proto.BoundWorkflowTarget {
-	target, _ := targetFromRecordValueWithMigration(raw)
-	return target
-}
-
-func targetFromRecordValueWithMigration(raw any) (*proto.BoundWorkflowTarget, bool) {
 	value := strings.TrimSpace(stringValue(raw))
 	if value == "" {
-		return nil, false
+		return nil
 	}
-	value, migrated := migrateStoredTargetJSON(value)
 	target := &proto.BoundWorkflowTarget{}
 	if err := workflowTargetJSONUnmarshal.Unmarshal([]byte(value), target); err != nil {
-		return nil, false
+		return nil
 	}
-	return cloneTarget(target), migrated
-}
-
-func migrateStoredTargetJSON(value string) (string, bool) {
-	var target map[string]any
-	if err := json.Unmarshal([]byte(value), &target); err != nil {
-		return value, false
-	}
-	changed := migrateStoredPluginTarget(target)
-	agent, ok := target["agent"].(map[string]any)
-	if ok {
-		changed = migrateStoredAgentTarget(agent) || changed
-	}
-	if !changed {
-		return value, false
-	}
-	data, err := json.Marshal(target)
-	if err != nil {
-		return value, false
-	}
-	return string(data), true
-}
-
-func migrateStoredPluginTarget(target map[string]any) bool {
-	plugin, hasPlugin := target["plugin"].(map[string]any)
-	if !hasPlugin {
-		plugin = map[string]any{}
-	}
-	changed := false
-	if value := firstStringField(plugin, target, "pluginName", "plugin_name"); value != "" && stringField(plugin, "pluginName") == "" {
-		plugin["pluginName"] = value
-		changed = true
-	}
-	if rawPlugin, ok := target["plugin"].(string); ok {
-		value := strings.TrimSpace(rawPlugin)
-		if value != "" && stringField(plugin, "pluginName") == "" {
-			plugin["pluginName"] = value
-			changed = true
-		}
-		if value == "" && len(plugin) == 0 {
-			delete(target, "plugin")
-			changed = true
-		}
-	}
-	if value := firstStringField(plugin, target, "operation"); value != "" && stringField(plugin, "operation") == "" {
-		plugin["operation"] = value
-		changed = true
-	}
-	if value := firstStringField(plugin, target, "connection"); value != "" && stringField(plugin, "connection") == "" {
-		plugin["connection"] = value
-		changed = true
-	}
-	if value := firstStringField(plugin, target, "instance"); value != "" && stringField(plugin, "instance") == "" {
-		plugin["instance"] = value
-		changed = true
-	}
-	if _, ok := plugin["input"]; !ok {
-		if input, ok := target["input"]; ok {
-			plugin["input"] = input
-			changed = true
-		}
-	}
-	if len(plugin) > 0 && !hasPlugin {
-		target["plugin"] = plugin
-		changed = true
-	}
-	for _, key := range []string{"pluginName", "plugin_name", "operation", "input", "connection", "instance"} {
-		if _, ok := target[key]; ok {
-			delete(target, key)
-			changed = true
-		}
-	}
-	return changed
-}
-
-func firstStringField(primary map[string]any, fallback map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value := stringField(primary, key); value != "" {
-			return value
-		}
-		if value := stringField(fallback, key); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func migrateStoredAgentTarget(agent map[string]any) bool {
-	changed := false
-	rawRefs, _ := agent["toolRefs"].([]any)
-	for _, rawRef := range rawRefs {
-		ref, ok := rawRef.(map[string]any)
-		if !ok {
-			continue
-		}
-		if stringField(ref, "plugin") == "" {
-			if pluginName := stringField(ref, "pluginName"); pluginName != "" {
-				ref["plugin"] = pluginName
-				changed = true
-			}
-		}
-		if _, ok := ref["pluginName"]; ok {
-			delete(ref, "pluginName")
-			changed = true
-		}
-	}
-	if stringField(agent, "toolSource") != "AGENT_TOOL_SOURCE_MODE_EXPLICIT" {
-		return changed
-	}
-	agent["toolSource"] = "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH"
-	changed = true
-	if hasStoredAgentToolRef(rawRefs) {
-		return changed
-	}
-	agent["toolRefs"] = []any{map[string]any{
-		"plugin":      legacyExplicitNoToolsPlugin,
-		"description": "legacy explicit target without tool refs; fail closed instead of searching all tools",
-	}}
-	return true
-}
-
-func hasStoredAgentToolRef(refs []any) bool {
-	for _, rawRef := range refs {
-		ref, ok := rawRef.(map[string]any)
-		if ok && stringField(ref, "plugin") != "" {
-			return true
-		}
-	}
-	return false
+	return cloneTarget(target)
 }
 
 type workflowFingerprintTarget struct {
@@ -3014,7 +2878,6 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 
 func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {
 	value := map[string]any(record)
-	target, migratedTarget := targetFromRecordValueWithMigration(value["target_json"])
 	out := workflowExecutionReferenceRecord{
 		ID:                  stringField(value, "id"),
 		ProviderName:        stringField(value, "provider_name"),
@@ -3022,18 +2885,11 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		TargetOperation:     stringField(value, "target_operation"),
 		TargetConnection:    stringField(value, "target_connection"),
 		TargetInstance:      stringField(value, "target_instance"),
-		Target:              target,
+		Target:              targetFromRecordValue(value["target_json"]),
 		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
-	}
-	if migratedTarget && out.Target.GetAgent() != nil {
-		fingerprint, err := workflowTargetFingerprint(out.Target)
-		if err != nil {
-			return workflowExecutionReferenceRecord{}, fmt.Errorf("target_fingerprint migration: %w", err)
-		}
-		out.TargetFingerprint = fingerprint
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
