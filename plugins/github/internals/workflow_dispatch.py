@@ -58,36 +58,6 @@ def build_workflow_event(payload: dict[str, Any]) -> Any:
     return event
 
 
-def workflow_payload_from_context(workflow: dict[str, Any]) -> dict[str, Any]:
-    event = _workflow_event_from_context(workflow)
-    if not event:
-        raise ValueError("workflow trigger event is missing")
-    if (
-        event.get("source") != "github"
-        or event.get("type") != GITHUB_WORKFLOW_EVENT_TYPE
-    ):
-        raise ValueError("workflow trigger event is not a GitHub webhook event")
-
-    data = event.get("data")
-    if not isinstance(data, dict):
-        raise ValueError("workflow trigger event data is missing")
-
-    payload = data.get("payload")
-    if not isinstance(payload, dict):
-        raise ValueError("workflow trigger event data.payload is missing")
-    return payload
-
-
-def _workflow_event_from_context(workflow: dict[str, Any]) -> dict[str, Any]:
-    trigger = workflow.get("trigger")
-    if not isinstance(trigger, dict):
-        return {}
-    event = trigger.get("event")
-    if isinstance(event, dict):
-        return event
-    return {}
-
-
 def _workflow_subject(summary: dict[str, Any], installation_id: int) -> str:
     repository = str(summary.get("repository", "")).strip()
     if repository:
