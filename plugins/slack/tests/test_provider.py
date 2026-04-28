@@ -317,6 +317,57 @@ class SlackProviderTests(unittest.TestCase):
             _manifest_parameter_types(rest_ops["chat.stopStream"], "blocks"),
             ["array"],
         )
+
+    def test_manifest_models_bot_connection_as_platform_bearer(self) -> None:
+        manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())
+        rest_ops = {
+            op["name"]: op for op in manifest["spec"]["surfaces"]["rest"]["operations"]
+        }
+        connections = manifest["spec"]["connections"]
+
+        self.assertEqual(connections["default"]["auth"]["type"], "oauth2")
+        self.assertEqual(
+            connections["default"]["auth"]["accessTokenPath"],
+            "authed_user.access_token",
+        )
+        bot_connection = connections["bot"]
+        self.assertEqual(bot_connection["mode"], "platform")
+        self.assertEqual(bot_connection["auth"], {"type": "bearer"})
+        self.assertNotIn("instance" + "Selector", json.dumps(manifest))
+
+        selector_operations = (
+            "conversations.list",
+            "chat.postMessage",
+            "conversations.history",
+            "conversations.replies",
+        )
+        for operation_name in selector_operations:
+            operation = rest_ops[operation_name]
+            self.assertEqual(
+                operation["connectionSelector"],
+                {
+                    "parameter": "actor",
+                    "default": "bot",
+                    "values": {"bot": "bot", "user": "default"},
+                },
+            )
+            self.assertIn("actor", _manifest_parameter_names(operation))
+
+        self.assertEqual(rest_ops["search.messages"]["connection"], "default")
+        self.assertNotIn("connectionSelector", rest_ops["search.messages"])
+        for operation_name in (
+            "assistant.threads.setStatus",
+            "assistant.threads.setTitle",
+            "assistant.threads.setSuggestedPrompts",
+            "chat.startStream",
+            "chat.appendStream",
+            "chat.stopStream",
+        ):
+            operation = rest_ops[operation_name]
+            self.assertEqual(operation["connection"], "bot")
+            self.assertNotIn("connectionSelector", operation)
+            self.assertNotIn("actor", _manifest_parameter_names(operation))
+
     def test_agent_tool_source_native_search_handles_new_and_legacy_sdks(self) -> None:
         class NativeAgentPB:
             AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH = 7
