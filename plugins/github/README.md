@@ -29,10 +29,7 @@ The source-backed bot operations use a configured GitHub App instead of a user
 connection:
 
 - `events.handle` receives signed GitHub App webhooks at `/github/event` and
-  starts a Gestalt agent as a workload subject for the webhook installation, or
-  publishes a Workflow event when `webhook.dispatch: workflow` is configured.
-- `events.runAgentFromWorkflowEvent` is a hidden Workflow target that starts the
-  webhook agent from a published `github.app.webhook` event.
+  signals or starts a Workflow run for the webhook installation.
 - `bot.commitFiles` creates a commit on a branch using an installation access
   token.
 - `bot.openPullRequest` opens a pull request using an installation access token.
@@ -56,8 +53,8 @@ plugins:
     config:
       appId: "123456"
       appPrivateKeyEnv: GITHUB_APP_PRIVATE_KEY
-      webhook:
-        dispatch: direct
+      workflow:
+        provider: local
       agent:
         provider: simple
         model: gpt-5.4
@@ -76,6 +73,10 @@ turns or bot operations.
 The private key can also be supplied with `appPrivateKey`,
 `appPrivateKeyPath`, `GITHUB_APP_PRIVATE_KEY`, or
 `GITHUB_APP_PRIVATE_KEY_PATH`.
+
+`workflow.provider` is required because GitHub App webhooks always dispatch
+through the configured Workflow provider. The workflow run target is an agent
+target built from the same `agent` configuration and GitHub bot tool refs.
 
 The provider derives the GitHub App bot identity from the configured app. It
 uses `/app` to read the app name and slug, then resolves `{slug}[bot]` to the
@@ -98,55 +99,44 @@ By default, webhook-triggered agents are started for `check_run`, `check_suite`,
 enabled by default so commits created by the bot do not recursively start new
 agent turns. Set `webhookEvents` to override the allowlist.
 
-`webhook.dispatch` controls what happens after signature validation and event
-filtering:
-
-- `direct` starts the agent during the webhook HTTP request. This is the default
-  for backward compatibility.
-- `workflow` publishes one Workflow event and returns from the webhook request
-  without starting the agent inline. Publish failures return a retryable 503.
-
-Workflow dispatch publishes events with this interface:
+After signature validation and event filtering, `events.handle` calls
+`WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
+workflow_key="github:${installation_id}:${owner}/${repo}:${number}",
+signal.name="github.app.webhook")` and returns from the webhook request without
+starting the agent inline. Dispatch failures return a retryable 503. The signal
+payload has this interface:
 
 ```json
 {
-  "type": "github.app.webhook",
-  "source": "github",
-  "subject": "acme/widgets",
-  "data": {
-    "github_event": "pull_request",
-    "github_action": "opened",
-    "delivery_id": "<x-github-delivery>",
-    "installation": {"id": 99},
-    "repository": {"full_name": "acme/widgets"},
-    "sender": {"login": "octocat"},
-    "payload": {"action": "opened"}
-  }
+  "github_event": "pull_request",
+  "github_action": "opened",
+  "delivery_id": "<x-github-delivery>",
+  "installation": {"id": 99},
+  "repository": {"full_name": "acme/widgets"},
+  "sender": {"login": "octocat"},
+  "summary": {"repository": "acme/widgets", "number": 7},
+  "payload": {"action": "opened"},
+  "payload_sha256": "<payload digest>",
+  "payload_truncated": false,
+  "user_prompt": "GitHub App webhook:\n..."
 }
 ```
 
-Configure one generic Workflow trigger to run the hidden wrapper:
+Configure the agent's bot operation dependencies with plugin `invokes`:
 
 ```yaml
-workflows:
-  eventTriggers:
-    github_app_webhook:
-      provider: indexeddb
-      match:
-        type: github.app.webhook
-        source: github
-      target:
-        plugin:
-          name: github
-          operation: events.runAgentFromWorkflowEvent
-          input:
-            _gestalt:
-              eventRunPermissions:
-                - plugin: github
-                  operations:
-                    - bot.commitFiles
-                    - bot.openPullRequest
-                    - bot.createPullRequest
+plugins:
+  github:
+    invokes:
+      - plugin: github
+        operation: bot.commitFiles
+        credentialMode: none
+      - plugin: github
+        operation: bot.openPullRequest
+        credentialMode: none
+      - plugin: github
+        operation: bot.createPullRequest
+        credentialMode: none
 ```
 
 ## Bot Operation Interfaces

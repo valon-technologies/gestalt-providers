@@ -10,11 +10,6 @@ from .constants import (
     GITHUB_DEFAULT_WEB_BASE_URL,
 )
 
-WEBHOOK_DISPATCH_DIRECT = "direct"
-WEBHOOK_DISPATCH_WORKFLOW = "workflow"
-WEBHOOK_DISPATCH_MODES = frozenset({WEBHOOK_DISPATCH_DIRECT, WEBHOOK_DISPATCH_WORKFLOW})
-
-
 @dataclass(frozen=True, slots=True)
 class GitHubAppConfig:
     app_id: str = ""
@@ -23,7 +18,7 @@ class GitHubAppConfig:
     api_base_url: str = GITHUB_DEFAULT_API_BASE_URL
     web_base_url: str = GITHUB_DEFAULT_WEB_BASE_URL
     webhook_events: tuple[str, ...] = DEFAULT_WEBHOOK_EVENTS
-    webhook_dispatch: str = WEBHOOK_DISPATCH_DIRECT
+    workflow_provider: str = ""
     ignore_bot_sender: bool = True
     agent_provider: str = ""
     agent_model: str = ""
@@ -91,14 +86,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
         private_key_path = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
 
     webhook_events = config_string_list(config, "webhookEvents", "webhook_events")
-    webhook_dispatch = (
-        webhook_config_string(config, "dispatch") or WEBHOOK_DISPATCH_DIRECT
-    ).lower()
-    if webhook_dispatch not in WEBHOOK_DISPATCH_MODES:
-        raise ValueError(
-            "webhook dispatch must be one of: "
-            + ", ".join(sorted(WEBHOOK_DISPATCH_MODES))
-        )
+    workflow_provider = workflow_config_string(config, "provider")
     return GitHubAppConfig(
         app_id=app_id,
         private_key=normalize_private_key(private_key),
@@ -119,7 +107,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
                 else list(DEFAULT_WEBHOOK_EVENTS)
             )
         ),
-        webhook_dispatch=webhook_dispatch,
+        workflow_provider=workflow_provider,
         ignore_bot_sender=config_bool(
             config, "ignoreBotSender", "ignore_bot_sender", default=True
         ),
@@ -152,9 +140,9 @@ def config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
     return {}
 
 
-def webhook_config_string(config: dict[str, Any], *keys: str) -> str:
-    webhook = config_dict(config, "webhook")
-    return config_string(webhook, *keys)
+def workflow_config_string(config: dict[str, Any], *keys: str) -> str:
+    workflow = config_dict(config, "workflow")
+    return config_string(workflow, *keys)
 
 
 def agent_config_string(config: dict[str, Any], *keys: str) -> str:

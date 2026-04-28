@@ -29,25 +29,22 @@ properties:
   webhookEvents:
     type: array
     description: >-
-      GitHub webhook event types that should start agents. Defaults to
+      GitHub webhook event types that should signal workflow runs. Defaults to
       check_run, check_suite, issue_comment, issues, pull_request,
       pull_request_review, pull_request_review_comment, and workflow_run.
     items:
       type: string
-  webhook:
+  workflow:
     type: object
-    description: GitHub App webhook handling configuration.
+    description: Workflow provider used for GitHub App webhook dispatch.
     additionalProperties: false
     properties:
-      dispatch:
+      provider:
         type: string
-        enum:
-          - direct
-          - workflow
-        description: >-
-          How accepted GitHub App webhooks are dispatched. direct starts the
-          agent inline from the HTTP request. workflow publishes a
-          github.app.webhook event to the Workflow provider.
+        minLength: 1
+        description: Workflow provider name that receives GitHub App webhook events.
+    required:
+      - provider
   ignoreBotSender:
     type: boolean
     description: >-
@@ -71,4 +68,6 @@ properties:
         type: object
         description: Provider-specific options for GitHub App webhook-triggered turns.
         additionalProperties: true
+required:
+  - workflow
 additionalProperties: false

@@ -99,7 +99,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-github"
-version = "0.0.1a8"
+version = "0.0.1a9"
 source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },
@@ -129,7 +129,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#403db4298d29164a19996fc249e8bbc0614d616a" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#b9cd70111267fb5984e3fda1757bf75eee39bce6" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },

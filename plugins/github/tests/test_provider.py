@@ -42,39 +42,6 @@ class FakeHTTPResponse:
         return self._body
 
 
-class FakeAgentManager:
-    def __init__(self) -> None:
-        self.session_requests: list[Any] = []
-        self.turn_requests: list[Any] = []
-        self.requests = self.turn_requests
-
-    def __enter__(self) -> FakeAgentManager:
-        return self
-
-    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
-        return None
-
-    def create_session(self, request: Any) -> Any:
-        self.session_requests.append(request)
-        return agent_pb2.AgentSession(
-            id="session-123",
-            provider_name=request.provider_name or "simple",
-            model=request.model,
-            client_ref=request.client_ref,
-            state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
-        )
-
-    def create_turn(self, request: Any) -> Any:
-        self.turn_requests.append(request)
-        return agent_pb2.AgentTurn(
-            id="turn-123",
-            session_id=request.session_id,
-            provider_name="simple",
-            model=request.model,
-            status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
-        )
-
-
 class FakeWorkflowManager:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
@@ -86,13 +53,26 @@ class FakeWorkflowManager:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def publish_event(self, request: Any) -> Any:
+    def signal_or_start_run(self, request: Any) -> Any:
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("workflow manager unavailable")
-        event = workflow_pb2.WorkflowEvent()
-        event.CopyFrom(request.event)
-        return event
+        run = workflow_pb2.BoundWorkflowRun(
+            id="workflow-run-123",
+            status=workflow_pb2.WORKFLOW_RUN_STATUS_RUNNING,
+            target=request.target,
+            workflow_key=request.workflow_key,
+        )
+        signal = workflow_pb2.WorkflowSignal(id="signal-123")
+        signal.CopyFrom(request.signal)
+        signal.id = "signal-123"
+        return workflow_pb2.ManagedWorkflowRunSignal(
+            provider_name=request.provider_name,
+            run=run,
+            signal=signal,
+            started_run=True,
+            workflow_key=request.workflow_key,
+        )
 
 
 def request_json(request: urllib.request.Request) -> dict[str, Any]:
@@ -145,6 +125,7 @@ class GitHubProviderTests(unittest.TestCase):
             {
                 "appId": "12345",
                 "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
                 "agent": {
                     "provider": "simple",
                     "model": "deep",
@@ -172,11 +153,6 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")
         self.assertEqual(security["signaturePrefix"], "sha256=")
         self.assertEqual(security["payloadTemplate"], "{raw_body}")
-
-        catalog_path = pathlib.Path(__file__).resolve().parents[1] / "catalog.yaml"
-        catalog = yaml.safe_load(catalog_path.read_text())
-        operations = {operation["id"]: operation for operation in catalog["operations"]}
-        self.assertFalse(operations["events.runAgentFromWorkflowEvent"]["visible"])
 
     def test_bot_identity_is_derived_from_github_app(self) -> None:
         calls: list[tuple[str, str]] = []
@@ -325,87 +301,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(subject.auth_source, "github_app_webhook")
         self.assertIn("acme/widgets", subject.display_name)
 
-    def test_webhook_handler_starts_agent_with_bot_tools(self) -> None:
-        agent_manager = FakeAgentManager()
-        payload = {
-            "action": "opened",
-            "installation": {"id": 99.0},
-            "repository": {
-                "full_name": "acme/widgets",
-                "name": "widgets",
-                "owner": {"login": "acme"},
-            },
-            "pull_request": {
-                "number": 7.0,
-                "head": {"ref": "feature"},
-                "base": {"ref": "main"},
-            },
-            "sender": {"login": "octocat"},
-        }
-
-        with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
-        ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
-
-        self.assertEqual(result["ok"], True)
-        self.assertEqual(result["agent_session_id"], "session-123")
-        self.assertEqual(result["agent_turn_id"], "turn-123")
-        self.assertEqual(result["status"], "AGENT_EXECUTION_STATUS_RUNNING")
-        self.assertEqual(len(agent_manager.session_requests), 1)
-        self.assertEqual(len(agent_manager.turn_requests), 1)
-
-        session_request = agent_manager.session_requests[0]
-        self.assertEqual(session_request.provider_name, "simple")
-        self.assertEqual(session_request.model, "deep")
-        self.assertEqual(session_request.client_ref, "github:99:acme/widgets:7")
-        self.assertEqual(
-            session_request.idempotency_key,
-            "github:session:github:99:acme/widgets:7",
-        )
-        session_metadata = json_format.MessageToDict(session_request.metadata)
-        self.assertEqual(session_metadata["github"]["installation_id"], 99)
-        self.assertEqual(session_metadata["github"]["repository"], "acme/widgets")
-        self.assertEqual(session_metadata["github"]["number"], 7)
-        self.assertNotIn("action", session_metadata["github"])
-        self.assertNotIn("sender", session_metadata["github"])
-
-        turn_request = agent_manager.turn_requests[0]
-        self.assertEqual(turn_request.session_id, "session-123")
-        self.assertEqual(turn_request.model, "deep")
-        turn_options = json_format.MessageToDict(turn_request.provider_options)
-        self.assertEqual(turn_options["temperature"], 0)
-        self.assertEqual(
-            turn_request.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
-        )
-        self.assertEqual(
-            [tool.plugin for tool in turn_request.tool_refs],
-            ["github", "github", "github"],
-        )
-        self.assertEqual(
-            [tool.operation for tool in turn_request.tool_refs],
-            [
-                provider_module.BOT_COMMIT_FILES_OPERATION,
-                provider_module.BOT_OPEN_PULL_REQUEST_OPERATION,
-                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
-            ],
-        )
-        self.assertIn("GitHub App webhook", turn_request.messages[1].text)
-        self.assertTrue(turn_request.idempotency_key.startswith("github:event:"))
-        turn_metadata = json_format.MessageToDict(turn_request.metadata)
-        self.assertEqual(turn_metadata["github"]["action"], "opened")
-        self.assertEqual(turn_metadata["github"]["sender"], "octocat")
-
-    def test_webhook_handler_publishes_workflow_event_when_configured(self) -> None:
-        provider_module.configure(
-            "github",
-            {
-                "appId": "12345",
-                "appPrivateKey": "unused-in-tests",
-                "webhook": {"dispatch": "workflow"},
-                "agent": {"provider": "simple", "model": "deep"},
-            },
-        )
+    def test_webhook_handler_signals_workflow_run(self) -> None:
         workflow_manager = FakeWorkflowManager()
         payload = {
             "action": "opened",
@@ -446,39 +342,61 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(result["dispatch"], "workflow")
-        self.assertEqual(result["workflow_event_type"], "github.app.webhook")
-        self.assertEqual(result["workflow_event_subject"], "acme/widgets")
+        self.assertEqual(result["workflow_provider"], "local")
+        self.assertEqual(result["workflow_run_id"], "workflow-run-123")
+        self.assertEqual(result["workflow_key"], "github:99:acme/widgets:7")
+        self.assertEqual(result["workflow_signal_id"], "signal-123")
+        self.assertEqual(result["workflow_started_run"], True)
         self.assertEqual(len(workflow_manager.requests), 1)
 
-        event = workflow_manager.requests[0].event
-        self.assertEqual(event.id, result["workflow_event_id"])
-        self.assertEqual(event.id, "github:delivery-123")
-        self.assertEqual(event.source, "github")
-        self.assertEqual(event.type, "github.app.webhook")
-        self.assertEqual(event.subject, "acme/widgets")
-        data = json_format.MessageToDict(event.data)
+        request = workflow_manager.requests[0]
+        self.assertEqual(request.provider_name, "local")
+        self.assertEqual(request.workflow_key, "github:99:acme/widgets:7")
+        self.assertTrue(
+            request.idempotency_key.startswith(
+                "github:event:acme/widgets:pull_request:opened:"
+            )
+        )
+
+        agent = request.target.agent
+        self.assertEqual(agent.provider_name, "simple")
+        self.assertEqual(agent.model, "deep")
+        self.assertEqual(
+            [tool.plugin for tool in agent.tool_refs],
+            ["github", "github", "github"],
+        )
+        self.assertEqual(
+            [tool.operation for tool in agent.tool_refs],
+            [
+                provider_module.BOT_COMMIT_FILES_OPERATION,
+                provider_module.BOT_OPEN_PULL_REQUEST_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
+            ],
+        )
+        self.assertEqual(
+            agent.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
+        )
+        metadata = json_format.MessageToDict(agent.metadata)
+        self.assertEqual(metadata["github"]["installation_id"], 99)
+        self.assertEqual(metadata["github"]["repository"], "acme/widgets")
+        self.assertEqual(metadata["github"]["number"], 7)
+
+        self.assertEqual(request.signal.name, "github.app.webhook")
+        data = json_format.MessageToDict(request.signal.payload)
         self.assertEqual(data["delivery_id"], "delivery-123")
         self.assertEqual(data["github_event"], "pull_request")
         self.assertEqual(data["github_action"], "opened")
         self.assertEqual(data["installation"]["id"], 99)
         self.assertEqual(data["repository"]["full_name"], "acme/widgets")
         self.assertEqual(data["sender"]["login"], "octocat")
+        self.assertIn("GitHub App webhook", data["user_prompt"])
         self.assertEqual(
             data["payload"]["headers"]["X-Hub-Signature-256"], "[redacted]"
         )
 
-    def test_webhook_handler_workflow_mode_fails_retryable_without_manager(
+    def test_webhook_handler_fails_retryable_without_workflow_manager(
         self,
     ) -> None:
-        provider_module.configure(
-            "github",
-            {
-                "appId": "12345",
-                "appPrivateKey": "unused-in-tests",
-                "webhook": {"dispatch": "workflow"},
-                "agent": {"provider": "simple", "model": "deep"},
-            },
-        )
         payload = {
             "action": "opened",
             "installation": {"id": 99.0},
@@ -492,18 +410,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertIn("failed to publish workflow event", response.body["error"])
+        self.assertIn("failed to dispatch workflow run", response.body["error"])
 
-    def test_webhook_handler_workflow_publish_failure_is_retryable(self) -> None:
-        provider_module.configure(
-            "github",
-            {
-                "appId": "12345",
-                "appPrivateKey": "unused-in-tests",
-                "webhook": {"dispatch": "workflow"},
-                "agent": {"provider": "simple", "model": "deep"},
-            },
-        )
+    def test_webhook_handler_workflow_dispatch_failure_is_retryable(self) -> None:
         payload = {
             "action": "opened",
             "installation": {"id": 99.0},
@@ -524,68 +433,6 @@ class GitHubProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertIn("workflow manager unavailable", response.body["error"])
-
-    def test_workflow_wrapper_starts_agent_from_trigger_event(self) -> None:
-        agent_manager = FakeAgentManager()
-        payload = {
-            "action": "opened",
-            "installation": {"id": 99.0},
-            "repository": {
-                "full_name": "acme/widgets",
-                "name": "widgets",
-                "owner": {"login": "acme"},
-            },
-            "pull_request": {
-                "number": 7.0,
-                "head": {"ref": "feature"},
-                "base": {"ref": "main"},
-            },
-            "sender": {"login": "octocat"},
-        }
-        event = provider_module.build_workflow_event(payload)
-        workflow = {
-            "trigger": {
-                "event": json_format.MessageToDict(
-                    event, preserving_proto_field_name=True
-                )
-            }
-        }
-
-        with mock.patch.object(
-            gestalt.Request, "agent_manager", return_value=agent_manager
-        ):
-            result = provider_module.github_events_run_agent_from_workflow_event(
-                {}, gestalt.Request(workflow=workflow)
-            )
-
-        self.assertEqual(result["ok"], True)
-        self.assertEqual(result["agent_session_id"], "session-123")
-        self.assertEqual(len(agent_manager.session_requests), 1)
-        self.assertEqual(len(agent_manager.turn_requests), 1)
-        self.assertEqual(
-            agent_manager.session_requests[0].client_ref,
-            "github:99:acme/widgets:7",
-        )
-        self.assertTrue(
-            agent_manager.turn_requests[0].idempotency_key.startswith(
-                "github:event:acme/widgets:pull_request:opened:"
-            )
-        )
-
-    def test_workflow_wrapper_rejects_malformed_workflow_context(self) -> None:
-        with mock.patch.object(
-            gestalt.Request,
-            "agent_manager",
-            side_effect=AssertionError("agent manager should not be called"),
-        ):
-            result = provider_module.github_events_run_agent_from_workflow_event(
-                {}, gestalt.Request(workflow={})
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
-        self.assertIn("workflow trigger event is missing", response.body["error"])
 
     def test_commit_files_creates_branch_commit_and_bot_coauthor(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []
@@ -860,7 +707,6 @@ class GitHubProviderTests(unittest.TestCase):
     def test_webhook_handler_filters_unsupported_and_configured_bot_events(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager()
         push_payload = {
             "ref": "refs/heads/feature",
             "commits": [],
@@ -878,7 +724,10 @@ class GitHubProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                gestalt.Request, "agent_manager", return_value=agent_manager
+                gestalt.Request,
+                "workflow_manager",
+                side_effect=AssertionError("workflow manager should not be called"),
+                create=True,
             ),
             mock.patch(
                 "internals.webhook.bot_identity",
@@ -901,12 +750,10 @@ class GitHubProviderTests(unittest.TestCase):
             push_result, {"ok": True, "ignored": "unsupported_event_type:push"}
         )
         self.assertEqual(bot_result, {"ok": True, "ignored": "configured_bot_sender"})
-        self.assertEqual(agent_manager.requests, [])
 
     def test_webhook_handler_ignores_bot_sender_when_identity_derivation_fails(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager()
         payload = {
             "action": "opened",
             "installation": {"id": 99},
@@ -917,7 +764,10 @@ class GitHubProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                gestalt.Request, "agent_manager", return_value=agent_manager
+                gestalt.Request,
+                "workflow_manager",
+                side_effect=AssertionError("workflow manager should not be called"),
+                create=True,
             ),
             mock.patch(
                 "internals.webhook.bot_identity",
@@ -927,7 +777,6 @@ class GitHubProviderTests(unittest.TestCase):
             result = provider_module.github_events_handle(payload, gestalt.Request())
 
         self.assertEqual(result, {"ok": True, "ignored": "unresolved_bot_sender"})
-        self.assertEqual(agent_manager.requests, [])
 
 
 if __name__ == "__main__":
