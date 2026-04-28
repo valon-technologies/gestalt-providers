@@ -43,11 +43,14 @@ class ModelBackend:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         provider_options: dict[str, Any],
+        disable_tools: bool = False,
     ) -> BackendStep:
         route = self._resolve_model(model)
         request_options = self._request_options(
             option_provider_names=route.option_provider_names, provider_options=provider_options
         )
+        if disable_tools:
+            request_options = self._request_options_without_tools(request_options)
         if route.backend_name == "anthropic":
             return self._complete_anthropic(
                 model=route.request_model, messages=messages, tools=tools, request_options=request_options
@@ -361,6 +364,12 @@ class ModelBackend:
         self._merge_request_options(options, self._config.provider_options, option_provider_names=option_provider_names)
         self._merge_request_options(options, provider_options, option_provider_names=option_provider_names)
         return options
+
+    def _request_options_without_tools(self, options: dict[str, Any]) -> dict[str, Any]:
+        filtered = deepcopy(options)
+        for key in ("tools", "tool_choice", "parallel_tool_calls"):
+            filtered.pop(key, None)
+        return filtered
 
     def _merge_request_options(
         self, options: dict[str, Any], provider_options: dict[str, Any], *, option_provider_names: tuple[str, ...]

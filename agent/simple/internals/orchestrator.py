@@ -173,13 +173,27 @@ class SimpleAgentOrchestrator:
                             tool_specs=tool_specs,
                             assistant_text=step.output_text,
                         )
+                        arguments = self._repair_missing_slack_reply_text(
+                            prepared=prepared,
+                            conversation=conversation[:-1],
+                            assistant_message=step.assistant_message,
+                            tool_call_id=tool_call.call_id,
+                            resolved_tool_id=resolved_tool_id,
+                            tool_name=tool_call.tool_id,
+                            arguments=arguments,
+                            tool_specs=tool_specs,
+                            default_reply_ref=slack_reply_ref,
+                        )
+                        canceled = self._store.get_turn(prepared.turn_id)
+                        if canceled is None:
+                            return
+                        if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                            return
                         validation_error = _tool_arguments_validation_error(
                             tool_name=tool_call.tool_id, arguments=arguments, tool_specs=tool_specs
                         )
                         execution_arguments, slack_reply_ref_error = _inject_slack_reply_ref(
-                            resolved_tool_id=resolved_tool_id,
-                            arguments=arguments,
-                            default_reply_ref=slack_reply_ref,
+                            resolved_tool_id=resolved_tool_id, arguments=arguments, default_reply_ref=slack_reply_ref
                         )
                         self._store.append_turn_event(
                             turn_id=prepared.turn_id,
@@ -304,6 +318,46 @@ class SimpleAgentOrchestrator:
     def _fail_turn(self, *, prepared: "PreparedTurn", messages: list[dict[str, Any]], status_message: str) -> None:
         self._store.mark_turn_failed(turn_id=prepared.turn_id, messages=messages, status_message=status_message)
 
+    def _repair_missing_slack_reply_text(
+        self,
+        *,
+        prepared: "PreparedTurn",
+        conversation: list[dict[str, Any]],
+        assistant_message: dict[str, Any],
+        tool_call_id: str,
+        resolved_tool_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        tool_specs: list[dict[str, Any]],
+        default_reply_ref: str,
+    ) -> dict[str, Any]:
+        field_name = _missing_slack_reply_text_argument_name(
+            resolved_tool_id=resolved_tool_id, tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
+        )
+        if field_name is None:
+            return arguments
+        reply_ref = str(arguments.get(SLACK_REPLY_REF_ARGUMENT_FIELD, "") or "").strip() or default_reply_ref
+        if not reply_ref:
+            return arguments
+
+        repair_step = self._backend.complete(
+            model=prepared.resolved_model,
+            messages=_slack_reply_text_repair_conversation(
+                conversation=conversation, tool_name=tool_name, field_name=field_name, reply_ref=reply_ref
+            ),
+            tools=[],
+            provider_options=prepared.provider_options,
+            disable_tools=True,
+        )
+        text = repair_step.output_text.strip()
+        if not text:
+            return arguments
+
+        repaired = copy.deepcopy(arguments)
+        repaired[field_name] = text
+        _replace_tool_call_arguments(assistant_message, tool_call_id=tool_call_id, arguments=repaired)
+        return repaired
+
     def turn_to_proto(self, run: StoredRun) -> Any:
         proto = agent_pb2.AgentTurn(
             id=run.run_id,
@@ -419,6 +473,72 @@ def _augment_tool_arguments_from_assistant_text(
     augmented = copy.deepcopy(arguments)
     augmented[field_name] = text
     return augmented
+
+
+def _missing_slack_reply_text_argument_name(
+    *, resolved_tool_id: str, tool_name: str, arguments: dict[str, Any], tool_specs: list[dict[str, Any]]
+) -> str | None:
+    if not _is_slack_event_reply_tool(resolved_tool_id):
+        return None
+    schema = _tool_argument_schema(tool_name=tool_name, tool_specs=tool_specs)
+    if not schema:
+        return None
+    return _missing_slack_reply_text_field(schema=schema, arguments=arguments)
+
+
+def _slack_reply_text_repair_prompt(*, tool_name: str, field_name: str, reply_ref: str) -> str:
+    return "\n".join(
+        [
+            "Compose the complete Slack message body that should be posted now.",
+            "Return only the Slack message body. Do not return JSON, code fences, or a tool call.",
+            f"The agent runtime will call `{tool_name}` separately with your message in `{field_name}`.",
+            f"Use the existing reply_ref for that tool call: {reply_ref}",
+        ]
+    )
+
+
+def _slack_reply_text_repair_conversation(
+    *, conversation: list[dict[str, Any]], tool_name: str, field_name: str, reply_ref: str
+) -> list[dict[str, Any]]:
+    repair_conversation = [message for message in conversation if not _is_response_schema_system_message(message)]
+    repair_conversation.append(
+        {
+            "role": "user",
+            "content": _slack_reply_text_repair_prompt(tool_name=tool_name, field_name=field_name, reply_ref=reply_ref),
+        }
+    )
+    return repair_conversation
+
+
+def _is_response_schema_system_message(message: dict[str, Any]) -> bool:
+    if str(message.get("role", "") or "").strip() != "system":
+        return False
+    content = str(message.get("content", "") or "").strip()
+    return content.startswith("Return only valid JSON that matches this schema.")
+
+
+def _replace_tool_call_arguments(
+    assistant_message: dict[str, Any], *, tool_call_id: str, arguments: dict[str, Any]
+) -> None:
+    encoded_arguments = json.dumps(arguments, separators=(",", ":"))
+    raw_tool_calls = assistant_message.get("tool_calls")
+    if isinstance(raw_tool_calls, list):
+        for raw_tool_call in raw_tool_calls:
+            if not isinstance(raw_tool_call, dict):
+                continue
+            if str(raw_tool_call.get("id", "") or "").strip() != tool_call_id:
+                continue
+            function = raw_tool_call.get("function")
+            if isinstance(function, dict):
+                function["arguments"] = encoded_arguments
+
+    raw_anthropic_content = assistant_message.get("anthropic_content")
+    if isinstance(raw_anthropic_content, list):
+        for block in raw_anthropic_content:
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("id", "") or "").strip() == tool_call_id and block.get("type") == "tool_use":
+                block["input"] = copy.deepcopy(arguments)
 
 
 def _is_slack_event_reply_tool(resolved_tool_id: str) -> bool:
@@ -571,7 +691,7 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
 def _tool_search_max_results(raw_value: Any) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return TOOL_SEARCH_DEFAULT_MAX_RESULTS
     if value <= 0:
         return TOOL_SEARCH_DEFAULT_MAX_RESULTS
@@ -804,10 +924,7 @@ def _register_resolved_tools(
         function_name_to_tool_id[function_name] = tool_id
         loaded_tool_ids.add(tool_id)
         description = _tool_description(tool)
-        parameters = _model_tool_parameters(
-            tool_id=tool_id,
-            raw_parameters=_struct_to_dict(tool.parameters_schema),
-        )
+        parameters = _model_tool_parameters(tool_id=tool_id, raw_parameters=_struct_to_dict(tool.parameters_schema))
         if not isinstance(parameters, dict):
             parameters = {"type": "object", "properties": {}}
         if "type" not in parameters:
@@ -851,11 +968,7 @@ def _model_tool_parameters(*, tool_id: str, raw_parameters: Any) -> dict[str, An
     if not text_required:
         text_required = [next(iter(text_properties))]
 
-    return {
-        "type": "object",
-        "properties": text_properties,
-        "required": text_required,
-    }
+    return {"type": "object", "properties": text_properties, "required": text_required}
 
 
 def _function_name_for_tool_id(tool_id: str, function_name_to_tool_id: dict[str, str]) -> str:
