@@ -159,11 +159,9 @@ type workflowIdempotencyRecord struct {
 }
 
 type workflowKeyRecord struct {
-	ID                string
-	WorkflowKey       string
-	RunID             string
-	TargetFingerprint string
-	CreatedAt         time.Time
+	ID        string
+	RunID     string
+	CreatedAt time.Time
 }
 
 type workflowSignalRecord struct {
@@ -262,10 +260,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	if err := validateWorkflowSignalIndexes(ctx, signalStore); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: validate signal indexes: %w", err)
-	}
-	if err := migrateWorkflowTargetFingerprints(ctx, executionRefStore, workflowKeyStore, runStore); err != nil {
-		cleanup()
-		return fmt.Errorf("indexeddb workflow: migrate target fingerprints: %w", err)
 	}
 	if err := markStaleRunningRunsFailed(ctx, runStore, workflowKeyStore, signalStore, p.clock().UTC()); err != nil {
 		cleanup()
@@ -390,13 +384,6 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 	actor := cloneActor(req.GetCreatedBy())
 	key := strings.TrimSpace(req.GetIdempotencyKey())
 	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
-	targetFingerprint := ""
-	if workflowKey != "" {
-		targetFingerprint, err = workflowTargetFingerprint(target.Target)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "target fingerprint: %v", err)
-		}
-	}
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -499,7 +486,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.PluginName, key, run.ID, now)
 	}
 	if workflowKey != "" {
-		if err := storeWorkflowKeyRecord(ctx, state.workflowKeyStore, workflowKey, run.ID, targetFingerprint, now); err != nil {
+		if err := storeWorkflowKeyRecord(ctx, state.workflowKeyStore, workflowKey, run.ID, now); err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "store workflow key: %v", err)
 		}
@@ -698,10 +685,6 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	targetFingerprint, err := workflowTargetFingerprint(target.Target)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "target fingerprint: %v", err)
-	}
 	now := p.clock().UTC()
 	signal, err := normalizeWorkflowSignal(req.GetSignal(), now)
 	if err != nil {
@@ -761,7 +744,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "create workflow run: %v", err)
 		}
-		if err := storeWorkflowKeyRecord(ctx, state.workflowKeyStore, workflowKey, run.ID, targetFingerprint, now); err != nil {
+		if err := storeWorkflowKeyRecord(ctx, state.workflowKeyStore, workflowKey, run.ID, now); err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "store workflow key: %v", err)
 		}
@@ -1891,9 +1874,7 @@ func workflowKeySchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
 		Columns: []*proto.ColumnDef{
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
-			{Name: "workflow_key", Type: columnTypeString, NotNull: true},
 			{Name: "run_id", Type: columnTypeString, NotNull: true},
-			{Name: "target_fingerprint", Type: columnTypeString},
 			{Name: "created_at", Type: columnTypeTime},
 		},
 	}
@@ -1982,71 +1963,6 @@ func markStaleRunningRunsFailed(ctx context.Context, runStore, workflowKeyStore,
 		}
 		signals = append(signals, claimedSignals...)
 		if err := markSignalsFailed(ctx, signalStore, signals, now, run.StatusMessage); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func migrateWorkflowTargetFingerprints(ctx context.Context, executionRefStore, workflowKeyStore, runStore *gestalt.ObjectStoreClient) error {
-	if err := migrateExecutionReferenceTargetFingerprints(ctx, executionRefStore); err != nil {
-		return fmt.Errorf("execution refs: %w", err)
-	}
-	if err := migrateWorkflowKeyTargetFingerprints(ctx, workflowKeyStore, runStore); err != nil {
-		return fmt.Errorf("workflow keys: %w", err)
-	}
-	return nil
-}
-
-func migrateExecutionReferenceTargetFingerprints(ctx context.Context, store *gestalt.ObjectStoreClient) error {
-	records, err := store.GetAll(ctx, nil)
-	if err != nil {
-		return err
-	}
-	for _, raw := range records {
-		ref, err := executionReferenceRecordFromRecord(raw)
-		if err != nil {
-			// Leave already-unreadable rows to fail on explicit access instead of
-			// turning a best-effort fingerprint migration into startup failure.
-			continue
-		}
-		changed, err := canonicalizeExecutionReferenceTargetFingerprint(&ref)
-		if err != nil {
-			// The migration can only fix stale fingerprints, not malformed targets.
-			continue
-		}
-		if changed {
-			if err := store.Put(ctx, ref.toRecord()); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func migrateWorkflowKeyTargetFingerprints(ctx context.Context, workflowKeyStore, runStore *gestalt.ObjectStoreClient) error {
-	records, err := workflowKeyStore.GetAll(ctx, nil)
-	if err != nil {
-		return err
-	}
-	for _, raw := range records {
-		key := workflowKeyRecordFromRecord(raw)
-		run, found, err := loadRunRecord(ctx, runStore, "", key.RunID)
-		if err != nil {
-			return err
-		}
-		if !found {
-			continue
-		}
-		fingerprint, err := workflowTargetFingerprint(run.Target)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(key.TargetFingerprint) == fingerprint {
-			continue
-		}
-		key.TargetFingerprint = fingerprint
-		if err := workflowKeyStore.Put(ctx, key.toRecord()); err != nil {
 			return err
 		}
 	}
@@ -2390,13 +2306,11 @@ func loadWorkflowKeyRecord(ctx context.Context, store *gestalt.ObjectStoreClient
 	return workflowKeyRecordFromRecord(record), true, nil
 }
 
-func storeWorkflowKeyRecord(ctx context.Context, store *gestalt.ObjectStoreClient, workflowKey, runID, targetFingerprint string, createdAt time.Time) error {
+func storeWorkflowKeyRecord(ctx context.Context, store *gestalt.ObjectStoreClient, workflowKey, runID string, createdAt time.Time) error {
 	record := workflowKeyRecord{
-		ID:                workflowKeyID(workflowKey),
-		WorkflowKey:       strings.TrimSpace(workflowKey),
-		RunID:             strings.TrimSpace(runID),
-		TargetFingerprint: strings.TrimSpace(targetFingerprint),
-		CreatedAt:         createdAt,
+		ID:        workflowKeyID(workflowKey),
+		RunID:     strings.TrimSpace(runID),
+		CreatedAt: createdAt,
 	}
 	return store.Put(ctx, record.toRecord())
 }
@@ -2714,15 +2628,6 @@ func loadExecutionReferenceRecord(ctx context.Context, store *gestalt.ObjectStor
 	if err != nil {
 		return workflowExecutionReferenceRecord{}, false, err
 	}
-	changed, err := canonicalizeExecutionReferenceTargetFingerprint(&ref)
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, false, err
-	}
-	if changed {
-		if err := store.Put(ctx, ref.toRecord()); err != nil {
-			return workflowExecutionReferenceRecord{}, false, err
-		}
-	}
 	return ref, true, nil
 }
 
@@ -2746,15 +2651,6 @@ func listExecutionReferenceRecords(ctx context.Context, store *gestalt.ObjectSto
 		}
 		if subjectID != "" && ref.SubjectID != subjectID {
 			continue
-		}
-		changed, err := canonicalizeExecutionReferenceTargetFingerprint(&ref)
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			if err := store.Put(ctx, ref.toRecord()); err != nil {
-				return nil, err
-			}
 		}
 		out = append(out, ref)
 	}
@@ -3910,21 +3806,17 @@ func idempotencyRecordFromRecord(record gestalt.Record) (workflowIdempotencyReco
 
 func (r workflowKeyRecord) toRecord() gestalt.Record {
 	return gestalt.Record{
-		"id":                 r.ID,
-		"workflow_key":       r.WorkflowKey,
-		"run_id":             r.RunID,
-		"target_fingerprint": r.TargetFingerprint,
-		"created_at":         r.CreatedAt.UTC(),
+		"id":         r.ID,
+		"run_id":     r.RunID,
+		"created_at": r.CreatedAt.UTC(),
 	}
 }
 
 func workflowKeyRecordFromRecord(record gestalt.Record) workflowKeyRecord {
 	value := map[string]any(record)
 	out := workflowKeyRecord{
-		ID:                stringField(value, "id"),
-		WorkflowKey:       stringField(value, "workflow_key"),
-		RunID:             stringField(value, "run_id"),
-		TargetFingerprint: stringField(value, "target_fingerprint"),
+		ID:    stringField(value, "id"),
+		RunID: stringField(value, "run_id"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -4037,9 +3929,11 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
 		CallerPluginName:    strings.TrimSpace(ref.GetCallerPluginName()),
 	}
-	if _, err := canonicalizeExecutionReferenceTargetFingerprint(&record); err != nil {
+	fingerprint, err := workflowTargetFingerprint(record.Target)
+	if err != nil {
 		return workflowExecutionReferenceRecord{}, fmt.Errorf("target_fingerprint: %w", err)
 	}
+	record.TargetFingerprint = fingerprint
 	if record.ID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("id is required")
 	}
@@ -4064,21 +3958,6 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		record.RevokedAt = timePtr(ts.AsTime())
 	}
 	return record, nil
-}
-
-func canonicalizeExecutionReferenceTargetFingerprint(ref *workflowExecutionReferenceRecord) (bool, error) {
-	if ref == nil || ref.Target == nil {
-		return false, nil
-	}
-	fingerprint, err := workflowTargetFingerprint(ref.Target)
-	if err != nil {
-		return false, err
-	}
-	if strings.TrimSpace(ref.TargetFingerprint) == fingerprint {
-		return false, nil
-	}
-	ref.TargetFingerprint = fingerprint
-	return true, nil
 }
 
 func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {
