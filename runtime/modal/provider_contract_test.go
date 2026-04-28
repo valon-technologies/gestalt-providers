@@ -2,12 +2,17 @@ package modal
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	modalclient "github.com/modal-labs/modal-client/go"
+	modalproto "github.com/modal-labs/modal-client/go/proto/modal_proto"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
@@ -15,6 +20,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestRuntimeProviderContractAcceptsAgentHostRelayBinding(t *testing.T) {
@@ -188,6 +194,306 @@ func TestRuntimeProviderContractResetSessionSandboxClearsLifecycle(t *testing.T)
 	}
 }
 
+func TestRuntimeProviderContractRestoresTaggedModalSandboxAcrossProviders(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	sessionID := "session-cross"
+	fakeModal.addSandbox(&fakeModalSandbox{
+		id:    "sb-restored",
+		appID: fakeModal.appID,
+		name:  sandboxName("agent-provider", sessionID),
+		tags: modalSessionTags(sessionID, "modal", map[string]string{
+			"provider_name": "agent-provider",
+			"provider_kind": "agent",
+		}),
+	})
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	session, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
+		SessionId: sessionID,
+	})
+	if err != nil {
+		t.Fatalf("GetSession restore: %v", err)
+	}
+	if got, want := session.GetId(), sessionID; got != want {
+		t.Fatalf("restored session id = %q, want %q", got, want)
+	}
+	if got, want := session.GetState(), sessionStateRunning; got != want {
+		t.Fatalf("restored session state = %q, want %q", got, want)
+	}
+	if got, want := session.GetMetadata()["provider_name"], "agent-provider"; got != want {
+		t.Fatalf("restored provider_name = %q, want %q", got, want)
+	}
+	if got, want := session.GetMetadata()["provider_kind"], "agent"; got != want {
+		t.Fatalf("restored provider_kind = %q, want %q", got, want)
+	}
+	if got, want := session.GetStateReason(), "restored"; got != want {
+		t.Fatalf("restored state_reason = %q, want %q", got, want)
+	}
+	if !strings.Contains(session.GetStateMessage(), "plugin process handle is unavailable") {
+		t.Fatalf("restored state_message = %q, want process-handle limitation", session.GetStateMessage())
+	}
+
+	provider.mu.Lock()
+	cached := provider.sessions[sessionID]
+	provider.mu.Unlock()
+	if cached == nil || !cached.restored {
+		t.Fatalf("cached session = %#v, want restored session", cached)
+	}
+
+	exitCode := 0
+	fakeModal.setPollCode("sb-restored", &exitCode)
+	session, err = client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
+		SessionId: sessionID,
+	})
+	if err != nil {
+		t.Fatalf("GetSession revalidate: %v", err)
+	}
+	if got, want := session.GetState(), sessionStateStopped; got != want {
+		t.Fatalf("revalidated session state = %q, want %q", got, want)
+	}
+	if got, want := session.GetStateReason(), "exited"; got != want {
+		t.Fatalf("revalidated state_reason = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeProviderContractStopsRestoredModalSandboxAcrossProviders(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	sessionID := "session-stop"
+	fakeModal.addSandbox(&fakeModalSandbox{
+		id:    "sb-stop",
+		appID: fakeModal.appID,
+		name:  sandboxName("agent-provider", sessionID),
+		tags: modalSessionTags(sessionID, "modal", map[string]string{
+			"provider_name": "agent-provider",
+			"provider_kind": "agent",
+		}),
+	})
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	if _, err := client.StopSession(context.Background(), &proto.StopPluginRuntimeSessionRequest{
+		SessionId: sessionID,
+	}); err != nil {
+		t.Fatalf("StopSession: %v", err)
+	}
+	if !fakeModal.isTerminated("sb-stop") {
+		t.Fatal("restored sandbox is still active after StopSession")
+	}
+}
+
+func TestRuntimeProviderContractRestoredSessionCannotLaunchOrBind(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	sessionID := "session-readonly"
+	fakeModal.addSandbox(&fakeModalSandbox{
+		id:    "sb-readonly",
+		appID: fakeModal.appID,
+		name:  sandboxName("agent-provider", sessionID),
+		tags: modalSessionTags(sessionID, "modal", map[string]string{
+			"provider_name": "agent-provider",
+			"provider_kind": "agent",
+		}),
+	})
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	if _, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
+		SessionId: sessionID,
+	}); err != nil {
+		t.Fatalf("GetSession restore: %v", err)
+	}
+	_, bindErr := client.BindHostService(context.Background(), &proto.BindPluginRuntimeHostServiceRequest{
+		SessionId: sessionID,
+		EnvVar:    gestalt.EnvAgentHostSocket,
+		Relay: &proto.PluginRuntimeHostServiceRelay{
+			DialTarget: "tls://gestaltd.example.test:443",
+		},
+	})
+	if status.Code(bindErr) != codes.FailedPrecondition {
+		t.Fatalf("BindHostService code = %v, want FailedPrecondition: %v", status.Code(bindErr), bindErr)
+	}
+
+	_, launchErr := client.StartPlugin(context.Background(), &proto.StartHostedPluginRequest{
+		SessionId:  sessionID,
+		PluginName: "agent-provider",
+		Command:    "/bin/true",
+	})
+	if status.Code(launchErr) != codes.FailedPrecondition {
+		t.Fatalf("StartPlugin code = %v, want FailedPrecondition: %v", status.Code(launchErr), launchErr)
+	}
+}
+
+func TestRuntimeProviderContractDuplicateTaggedModalSandboxesFailClosed(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	sessionID := "session-duplicate"
+	tags := modalSessionTags(sessionID, "modal", map[string]string{
+		"provider_name": "agent-provider",
+		"provider_kind": "agent",
+	})
+	fakeModal.addSandbox(&fakeModalSandbox{
+		id:    "sb-duplicate-1",
+		appID: fakeModal.appID,
+		name:  sandboxName("agent-provider", sessionID),
+		tags:  tags,
+	})
+	fakeModal.addSandbox(&fakeModalSandbox{
+		id:    "sb-duplicate-2",
+		appID: fakeModal.appID,
+		name:  sandboxName("agent-provider", sessionID),
+		tags:  tags,
+	})
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	_, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
+		SessionId: sessionID,
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("GetSession code = %v, want FailedPrecondition: %v", status.Code(err), err)
+	}
+}
+
+func TestRuntimeProviderContractRestoreTreatsSandboxGoneAfterListAsNotFound(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		configure func(*fakeModalSandbox)
+	}{
+		{
+			name: "tags",
+			configure: func(sandbox *fakeModalSandbox) {
+				sandbox.missingOnTagsGet = true
+			},
+		},
+		{
+			name: "poll",
+			configure: func(sandbox *fakeModalSandbox) {
+				sandbox.missingOnWait = true
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fakeModal := newFakeModalControlPlane()
+			sessionID := "session-gone-" + tc.name
+			sandbox := &fakeModalSandbox{
+				id:    "sb-gone-" + tc.name,
+				appID: fakeModal.appID,
+				name:  sandboxName("agent-provider", sessionID),
+				tags: modalSessionTags(sessionID, "modal", map[string]string{
+					"provider_name": "agent-provider",
+					"provider_kind": "agent",
+				}),
+			}
+			tc.configure(sandbox)
+			fakeModal.addSandbox(sandbox)
+			provider := newFakeModalProvider(t, fakeModal)
+			client := startRuntimeProviderServer(t, provider)
+
+			_, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
+				SessionId: sessionID,
+			})
+			if status.Code(err) != codes.NotFound {
+				t.Fatalf("GetSession code = %v, want NotFound: %v", status.Code(err), err)
+			}
+		})
+	}
+}
+
+func TestRuntimeProviderContractStopRestoredIgnoresSandboxGoneAfterList(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	sessionID := "session-stop-gone"
+	fakeModal.addSandbox(&fakeModalSandbox{
+		id:                 "sb-stop-gone",
+		appID:              fakeModal.appID,
+		name:               sandboxName("agent-provider", sessionID),
+		missingOnTerminate: true,
+		tags: modalSessionTags(sessionID, "modal", map[string]string{
+			"provider_name": "agent-provider",
+			"provider_kind": "agent",
+		}),
+	})
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	if _, err := client.StopSession(context.Background(), &proto.StopPluginRuntimeSessionRequest{
+		SessionId: sessionID,
+	}); err != nil {
+		t.Fatalf("StopSession: %v", err)
+	}
+}
+
+func TestRuntimeProviderContractTagsModalSandboxBeforeTunnelLookup(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	provider := newFakeModalProvider(t, fakeModal)
+	sessionID := "session-tagged"
+	provider.sessions[sessionID] = &session{
+		id:       sessionID,
+		state:    sessionStateReady,
+		image:    "python:3.14-slim-bookworm",
+		metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
+		bindings: map[string]string{},
+	}
+	req := &proto.StartHostedPluginRequest{
+		SessionId:  sessionID,
+		PluginName: "agent-provider",
+	}
+	logs := newSessionLogSink(sessionID, &provider.sessions[sessionID].logSeq, nil)
+
+	sandbox, tunnel, err := provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, req, logs)
+	if err != nil {
+		t.Fatalf("ensureSessionSandbox: %v", err)
+	}
+	if sandbox == nil {
+		t.Fatal("ensureSessionSandbox sandbox = nil")
+	}
+	if tunnel == nil {
+		t.Fatal("ensureSessionSandbox tunnel = nil")
+	}
+
+	created := fakeModal.sandboxByID(sandbox.SandboxID)
+	if created == nil {
+		t.Fatalf("fake sandbox %q was not recorded", sandbox.SandboxID)
+	}
+	if got, want := created.name, "gestalt-session-tagged"; got != want {
+		t.Fatalf("sandbox name = %q, want %q", got, want)
+	}
+	wantTags := modalSessionTags(sessionID, "modal", map[string]string{
+		"provider_name": "agent-provider",
+		"provider_kind": "agent",
+	})
+	for key, want := range wantTags {
+		if got := created.tags[key]; got != want {
+			t.Fatalf("sandbox tag %s = %q, want %q", key, got, want)
+		}
+	}
+	events := fakeModal.eventsSnapshot()
+	tagIndex := indexEvent(events, "tags-set:"+sandbox.SandboxID)
+	tunnelIndex := indexEvent(events, "tunnels:"+sandbox.SandboxID)
+	if tagIndex < 0 || tunnelIndex < 0 {
+		t.Fatalf("events = %v, want tag and tunnel events", events)
+	}
+	if tagIndex > tunnelIndex {
+		t.Fatalf("events = %v, want tags-set before tunnels", events)
+	}
+}
+
 func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *testing.T) {
 	t.Parallel()
 
@@ -263,4 +569,358 @@ func startRuntimeProviderServer(t *testing.T, provider *Provider) proto.PluginRu
 		_ = listener.Close()
 	})
 	return proto.NewPluginRuntimeProviderClient(conn)
+}
+
+type fakeModalControlPlane struct {
+	modalproto.UnimplementedModalClientServer
+
+	mu            sync.Mutex
+	appID         string
+	nextSandboxID int
+	sandboxes     map[string]*fakeModalSandbox
+	events        []string
+}
+
+type fakeModalSandbox struct {
+	id         string
+	appID      string
+	name       string
+	tags       map[string]string
+	terminated bool
+	pollCode   *int
+	createdAt  float64
+
+	missingOnTagsGet   bool
+	missingOnWait      bool
+	missingOnTerminate bool
+}
+
+func newFakeModalControlPlane() *fakeModalControlPlane {
+	return &fakeModalControlPlane{
+		appID:     "app-test",
+		sandboxes: map[string]*fakeModalSandbox{},
+	}
+}
+
+func newFakeModalProvider(t *testing.T, fakeModal *fakeModalControlPlane) *Provider {
+	t.Helper()
+	client := startFakeModalClient(t, fakeModal)
+	provider := New()
+	provider.name = "modal"
+	provider.client = client
+	provider.cfg = Config{
+		App:         "gestalt-test",
+		Environment: "test-env",
+		Timeout:     5 * time.Minute,
+	}
+	provider.sessions = map[string]*session{}
+	return provider
+}
+
+func startFakeModalClient(t *testing.T, fakeModal *fakeModalControlPlane) *modalclient.Client {
+	t.Helper()
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	modalproto.RegisterModalClientServer(server, fakeModal)
+	go func() {
+		if err := server.Serve(listener); err != nil {
+			t.Logf("fake modal server stopped: %v", err)
+		}
+	}()
+
+	conn, err := grpc.NewClient(
+		"passthrough:///modal-control-plane",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("connect fake modal server: %v", err)
+	}
+	client, err := modalclient.NewClientWithOptions(&modalclient.ClientParams{
+		TokenID:            "test-token-id",
+		TokenSecret:        "test-token-secret",
+		Environment:        "test-env",
+		Logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ControlPlaneClient: modalproto.NewModalClientClient(conn),
+		ControlPlaneConn:   conn,
+	})
+	if err != nil {
+		t.Fatalf("create fake modal client: %v", err)
+	}
+	t.Cleanup(func() {
+		client.Close()
+		server.Stop()
+		_ = listener.Close()
+	})
+	return client
+}
+
+func (f *fakeModalControlPlane) AppGetOrCreate(ctx context.Context, req *modalproto.AppGetOrCreateRequest) (*modalproto.AppGetOrCreateResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.appID == "" {
+		if req.GetObjectCreationType() != modalproto.ObjectCreationType_OBJECT_CREATION_TYPE_CREATE_IF_MISSING {
+			return nil, status.Error(codes.NotFound, "app not found")
+		}
+		f.appID = "app-test"
+	}
+	return modalproto.AppGetOrCreateResponse_builder{AppId: f.appID}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) ImageGetOrCreate(ctx context.Context, _ *modalproto.ImageGetOrCreateRequest) (*modalproto.ImageGetOrCreateResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return modalproto.ImageGetOrCreateResponse_builder{
+		ImageId: "image-test",
+		Result: modalproto.GenericResult_builder{
+			Status: modalproto.GenericResult_GENERIC_STATUS_SUCCESS,
+		}.Build(),
+	}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) SandboxCreate(ctx context.Context, req *modalproto.SandboxCreateRequest) (*modalproto.SandboxCreateResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextSandboxID++
+	sandboxID := fmt.Sprintf("sb-created-%d", f.nextSandboxID)
+	name := ""
+	if req.GetDefinition() != nil {
+		name = req.GetDefinition().GetName()
+	}
+	f.sandboxes[sandboxID] = &fakeModalSandbox{
+		id:        sandboxID,
+		appID:     req.GetAppId(),
+		name:      name,
+		tags:      map[string]string{},
+		createdAt: float64(f.nextSandboxID),
+	}
+	f.events = append(f.events, "create:"+sandboxID)
+	return modalproto.SandboxCreateResponse_builder{SandboxId: sandboxID}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) SandboxTagsSet(ctx context.Context, req *modalproto.SandboxTagsSetRequest) (*emptypb.Empty, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sandbox := f.sandboxes[req.GetSandboxId()]
+	if sandbox == nil {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	sandbox.tags = modalTagsToMap(req.GetTags())
+	f.events = append(f.events, "tags-set:"+sandbox.id)
+	return &emptypb.Empty{}, nil
+}
+
+func (f *fakeModalControlPlane) SandboxGetTunnels(ctx context.Context, req *modalproto.SandboxGetTunnelsRequest) (*modalproto.SandboxGetTunnelsResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sandboxes[req.GetSandboxId()] == nil {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	f.events = append(f.events, "tunnels:"+req.GetSandboxId())
+	return modalproto.SandboxGetTunnelsResponse_builder{
+		Tunnels: []*modalproto.TunnelData{
+			modalproto.TunnelData_builder{
+				Host:          "plugin.example.test",
+				Port:          443,
+				ContainerPort: uint32(pluginGRPCPort),
+			}.Build(),
+		},
+	}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) SandboxList(ctx context.Context, req *modalproto.SandboxListRequest) (*modalproto.SandboxListResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if req.GetBeforeTimestamp() != 0 {
+		return modalproto.SandboxListResponse_builder{}.Build(), nil
+	}
+	wantTags := modalTagsToMap(req.GetTags())
+	var sandboxes []*modalproto.SandboxInfo
+	for _, sandbox := range f.sandboxes {
+		if sandbox == nil || sandbox.terminated {
+			continue
+		}
+		if req.GetAppId() != "" && sandbox.appID != req.GetAppId() {
+			continue
+		}
+		if !modalSessionTagsMatch(sandbox.tags, wantTags) {
+			continue
+		}
+		sandboxes = append(sandboxes, modalproto.SandboxInfo_builder{
+			Id:        sandbox.id,
+			AppId:     sandbox.appID,
+			Name:      sandbox.name,
+			Tags:      mapToModalTags(sandbox.tags),
+			CreatedAt: sandbox.createdAt,
+		}.Build())
+	}
+	return modalproto.SandboxListResponse_builder{Sandboxes: sandboxes}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) SandboxTagsGet(ctx context.Context, req *modalproto.SandboxTagsGetRequest) (*modalproto.SandboxTagsGetResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sandbox := f.sandboxes[req.GetSandboxId()]
+	if sandbox == nil {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	if sandbox.missingOnTagsGet {
+		sandbox.terminated = true
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	return modalproto.SandboxTagsGetResponse_builder{Tags: mapToModalTags(sandbox.tags)}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) SandboxWait(ctx context.Context, req *modalproto.SandboxWaitRequest) (*modalproto.SandboxWaitResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sandbox := f.sandboxes[req.GetSandboxId()]
+	if sandbox == nil {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	if sandbox.missingOnWait {
+		sandbox.terminated = true
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	if sandbox.pollCode == nil && !sandbox.terminated {
+		return modalproto.SandboxWaitResponse_builder{}.Build(), nil
+	}
+	exitCode := int32(137)
+	statusCode := modalproto.GenericResult_GENERIC_STATUS_TERMINATED
+	if sandbox.pollCode != nil {
+		exitCode = int32(*sandbox.pollCode)
+		statusCode = modalproto.GenericResult_GENERIC_STATUS_SUCCESS
+	}
+	return modalproto.SandboxWaitResponse_builder{
+		Result: modalproto.GenericResult_builder{
+			Status:   statusCode,
+			Exitcode: exitCode,
+		}.Build(),
+	}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) SandboxTerminate(ctx context.Context, req *modalproto.SandboxTerminateRequest) (*modalproto.SandboxTerminateResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sandbox := f.sandboxes[req.GetSandboxId()]
+	if sandbox == nil {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	if sandbox.missingOnTerminate {
+		sandbox.terminated = true
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	sandbox.terminated = true
+	f.events = append(f.events, "terminate:"+sandbox.id)
+	return modalproto.SandboxTerminateResponse_builder{}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) addSandbox(sandbox *fakeModalSandbox) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sandbox.appID == "" {
+		sandbox.appID = f.appID
+	}
+	if sandbox.tags == nil {
+		sandbox.tags = map[string]string{}
+	}
+	if sandbox.createdAt == 0 {
+		f.nextSandboxID++
+		sandbox.createdAt = float64(f.nextSandboxID)
+	}
+	f.sandboxes[sandbox.id] = cloneFakeModalSandbox(sandbox)
+}
+
+func (f *fakeModalControlPlane) setPollCode(sandboxID string, code *int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sandbox := f.sandboxes[sandboxID]; sandbox != nil {
+		sandbox.pollCode = code
+	}
+}
+
+func (f *fakeModalControlPlane) isTerminated(sandboxID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sandbox := f.sandboxes[sandboxID]
+	return sandbox != nil && sandbox.terminated
+}
+
+func (f *fakeModalControlPlane) sandboxByID(sandboxID string) *fakeModalSandbox {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return cloneFakeModalSandbox(f.sandboxes[sandboxID])
+}
+
+func (f *fakeModalControlPlane) eventsSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.events...)
+}
+
+func cloneFakeModalSandbox(sandbox *fakeModalSandbox) *fakeModalSandbox {
+	if sandbox == nil {
+		return nil
+	}
+	cloned := *sandbox
+	cloned.tags = cloneStringMap(sandbox.tags)
+	return &cloned
+}
+
+func mapToModalTags(tags map[string]string) []*modalproto.SandboxTag {
+	out := make([]*modalproto.SandboxTag, 0, len(tags))
+	for key, value := range tags {
+		out = append(out, modalproto.SandboxTag_builder{
+			TagName:  key,
+			TagValue: value,
+		}.Build())
+	}
+	return out
+}
+
+func modalTagsToMap(tags []*modalproto.SandboxTag) map[string]string {
+	out := make(map[string]string, len(tags))
+	for _, tag := range tags {
+		if tag == nil {
+			continue
+		}
+		out[tag.GetTagName()] = tag.GetTagValue()
+	}
+	return out
+}
+
+func indexEvent(events []string, event string) int {
+	for i, got := range events {
+		if got == event {
+			return i
+		}
+	}
+	return -1
 }
