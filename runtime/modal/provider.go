@@ -45,6 +45,13 @@ const (
 	sessionStateFailed  = "failed"
 
 	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
+
+	modalSandboxTagSchemaVersion = "gestalt_schema_version"
+	modalSandboxTagVersion       = "1"
+	modalSandboxTagSessionID     = "gestalt_session_id"
+	modalSandboxTagRuntime       = "gestalt_runtime_provider"
+	modalSandboxTagProviderName  = "gestalt_provider_name"
+	modalSandboxTagProviderKind  = "gestalt_provider_kind"
 )
 
 var sandboxNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -93,6 +100,7 @@ type session struct {
 	tunnel             *modalclient.Tunnel
 	plugin             *plugin
 	logSeq             uint64
+	restored           bool
 }
 
 type plugin struct {
@@ -211,11 +219,16 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 }
 
 func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
+	sessionID := strings.TrimSpace(req.GetSessionId())
 	p.mu.Lock()
-	session, err := p.sessionLocked(req.GetSessionId())
+	session, err := p.sessionLocked(sessionID)
+	if err == nil && session.restored {
+		p.mu.Unlock()
+		return p.restoreSession(ctx, sessionID)
+	}
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Error(codes.NotFound, err.Error())
+		return p.restoreSession(ctx, sessionID)
 	}
 	sandbox := session.sandbox
 	cloned := cloneSession(session)
@@ -226,7 +239,7 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 	}
 	if code, pollErr := sandbox.Poll(ctx); pollErr == nil && code != nil {
 		p.mu.Lock()
-		session, err = p.sessionLocked(req.GetSessionId())
+		session, err = p.sessionLocked(sessionID)
 		if err != nil {
 			p.mu.Unlock()
 			return nil, status.Error(codes.NotFound, err.Error())
@@ -240,6 +253,140 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 		p.mu.Unlock()
 	}
 	return cloned, nil
+}
+
+type modalSessionMatch struct {
+	sandbox *modalclient.Sandbox
+	tags    map[string]string
+}
+
+func (p *Provider) restoreSession(ctx context.Context, sessionID string) (*proto.PluginRuntimeSession, error) {
+	matches, err := p.findModalSessionSandboxes(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if len(matches) == 0 {
+		p.forgetRestoredSession(sessionID)
+		return nil, status.Errorf(codes.NotFound, "plugin runtime session %q not found", strings.TrimSpace(sessionID))
+	}
+	if len(matches) > 1 {
+		return nil, status.Errorf(codes.FailedPrecondition, "multiple active modal sandboxes found for plugin runtime session %q", strings.TrimSpace(sessionID))
+	}
+	match := matches[0]
+	code, err := match.sandbox.Poll(ctx)
+	if err != nil {
+		if isModalNotFound(err) {
+			p.forgetRestoredSession(sessionID)
+			return nil, status.Errorf(codes.NotFound, "plugin runtime session %q not found", strings.TrimSpace(sessionID))
+		}
+		return nil, status.Errorf(codes.Unavailable, "poll restored modal sandbox: %v", err)
+	}
+	restored := restoredSessionFromModalSandbox(sessionID, match.sandbox, match.tags, code)
+
+	p.mu.Lock()
+	if p.sessions == nil {
+		p.sessions = make(map[string]*session)
+	}
+	p.sessions[restored.id] = restored
+	p.mu.Unlock()
+
+	return cloneSession(restored), nil
+}
+
+func (p *Provider) terminateRestoredSession(ctx context.Context, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	matches, err := p.findModalSessionSandboxes(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, match := range matches {
+		if match.sandbox == nil {
+			continue
+		}
+		if _, err := match.sandbox.Terminate(ctx, nil); err != nil {
+			if isModalNotFound(err) {
+				continue
+			}
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return status.Errorf(codes.Internal, "terminate modal sandbox for session %q: %v", sessionID, err)
+	}
+	return nil
+}
+
+func (p *Provider) findModalSessionSandboxes(ctx context.Context, sessionID string) ([]modalSessionMatch, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, status.Error(codes.NotFound, "plugin runtime session id is required")
+	}
+	client, cfg, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	runtimeProvider := p.runtimeProviderName()
+	app, err := client.Apps.FromName(ctx, cfg.App, &modalclient.AppFromNameParams{
+		Environment:     cfg.Environment,
+		CreateIfMissing: false,
+	})
+	if err != nil {
+		if isModalNotFound(err) {
+			return nil, nil
+		}
+		return nil, status.Errorf(codes.Internal, "lookup modal app %q: %v", cfg.App, err)
+	}
+
+	lookupTags := modalSessionLookupTags(sessionID, runtimeProvider)
+	seq, err := client.Sandboxes.List(ctx, &modalclient.SandboxListParams{
+		AppID:       app.AppID,
+		Environment: cfg.Environment,
+		Tags:        lookupTags,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list modal sandboxes for session %q: %v", sessionID, err)
+	}
+
+	var matches []modalSessionMatch
+	for sandbox, iterErr := range seq {
+		if iterErr != nil {
+			return nil, status.Errorf(codes.Internal, "list modal sandboxes for session %q: %v", sessionID, iterErr)
+		}
+		if sandbox == nil {
+			continue
+		}
+		tags, err := sandbox.GetTags(ctx)
+		if err != nil {
+			if isModalNotFound(err) {
+				continue
+			}
+			return nil, status.Errorf(codes.Internal, "get modal sandbox tags for session %q: %v", sessionID, err)
+		}
+		if !modalSessionTagsMatch(tags, lookupTags) {
+			continue
+		}
+		matches = append(matches, modalSessionMatch{
+			sandbox: sandbox,
+			tags:    tags,
+		})
+	}
+	return matches, nil
+}
+
+func (p *Provider) forgetRestoredSession(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if session := p.sessions[sessionID]; session != nil && session.restored {
+		delete(p.sessions, sessionID)
+	}
 }
 
 func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeSessionsRequest) (*proto.ListPluginRuntimeSessionsResponse, error) {
@@ -269,18 +416,32 @@ func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeS
 
 func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntimeSessionRequest) (*emptypb.Empty, error) {
 	var sandbox *modalclient.Sandbox
+	var restored bool
+	var found bool
 
+	sessionID := strings.TrimSpace(req.GetSessionId())
 	p.mu.Lock()
-	if session, ok := p.sessions[req.GetSessionId()]; ok {
-		delete(p.sessions, req.GetSessionId())
+	if session, ok := p.sessions[sessionID]; ok {
+		found = true
+		delete(p.sessions, sessionID)
 		session.state = sessionStateStopped
 		sandbox = session.sandbox
+		restored = session.restored
 	}
 	p.mu.Unlock()
 
-	if sandbox != nil {
+	if sandbox != nil && !restored {
 		if _, err := sandbox.Terminate(ctx, nil); err != nil {
 			return nil, status.Errorf(codes.Internal, "terminate modal sandbox: %v", err)
+		}
+		return &emptypb.Empty{}, nil
+	}
+	if found && !restored {
+		return &emptypb.Empty{}, nil
+	}
+	if restored || !found {
+		if err := p.terminateRestoredSession(ctx, sessionID); err != nil {
+			return nil, err
 		}
 	}
 	return &emptypb.Empty{}, nil
@@ -308,6 +469,9 @@ func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRunti
 	session, err := p.sessionLocked(req.GetSessionId())
 	if err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	if session.restored {
+		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q was restored from Modal and cannot bind host services", req.GetSessionId())
 	}
 	if session.plugin != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
@@ -343,6 +507,10 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	if session.plugin != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
+	}
+	if session.restored {
+		p.mu.Unlock()
+		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q was restored from Modal and cannot launch a plugin", req.GetSessionId())
 	}
 	bindings := cloneStringMap(session.bindings)
 	logs := newSessionLogSink(session.id, &session.logSeq, nil)
@@ -470,6 +638,9 @@ func (p *Provider) Close() error {
 	p.closed = true
 	sessionIDs := make([]string, 0, len(p.sessions))
 	for id := range p.sessions {
+		if p.sessions[id] != nil && p.sessions[id].restored {
+			continue
+		}
 		sessionIDs = append(sessionIDs, id)
 	}
 	client := p.client
@@ -517,6 +688,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	imageRef := strings.TrimSpace(session.image)
 	sessionID := session.id
 	bindings := cloneStringMap(session.bindings)
+	metadata := cloneStringMap(session.metadata)
 	p.mu.Unlock()
 
 	if imageRef == "" {
@@ -552,6 +724,13 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 		return nil, nil, status.Errorf(codes.Internal, "create modal sandbox: %v", err)
 	}
 	logRuntimePhase(logs, "modal sandbox create: completed in %s", elapsed(startedAt))
+	tags := modalSessionTags(sessionID, p.runtimeProviderName(), metadata)
+	if err := sandbox.SetTags(ctx, tags); err != nil {
+		logRuntimePhase(logs, "modal sandbox tag: failed after %s: %v", elapsed(startedAt), err)
+		_, _ = sandbox.Terminate(context.Background(), nil)
+		return nil, nil, status.Errorf(codes.Internal, "tag modal sandbox: %v", err)
+	}
+	logRuntimePhase(logs, "modal sandbox tag: completed")
 
 	startedAt = time.Now()
 	logRuntimePhase(logs, "modal sandbox tunnel lookup: starting port=%d", pluginGRPCPort)
@@ -838,11 +1017,95 @@ func (p *Provider) newID(prefix string) string {
 }
 
 func newInstanceID() string {
-	var buf [4]byte
+	var buf [16]byte
 	if _, err := rand.Read(buf[:]); err == nil {
 		return fmt.Sprintf("%x", buf[:])
 	}
 	return fmt.Sprintf("%08x", time.Now().UnixNano())
+}
+
+func (p *Provider) runtimeProviderName() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	name := strings.TrimSpace(p.name)
+	if name == "" {
+		return "modal"
+	}
+	return name
+}
+
+func modalSessionTags(sessionID, runtimeProvider string, metadata map[string]string) map[string]string {
+	tags := modalSessionLookupTags(sessionID, runtimeProvider)
+	if providerName := strings.TrimSpace(metadata["provider_name"]); providerName != "" {
+		tags[modalSandboxTagProviderName] = providerName
+	}
+	if providerKind := strings.TrimSpace(metadata["provider_kind"]); providerKind != "" {
+		tags[modalSandboxTagProviderKind] = providerKind
+	}
+	return tags
+}
+
+func modalSessionLookupTags(sessionID, runtimeProvider string) map[string]string {
+	runtimeProvider = strings.TrimSpace(runtimeProvider)
+	if runtimeProvider == "" {
+		runtimeProvider = "modal"
+	}
+	return map[string]string{
+		modalSandboxTagSchemaVersion: modalSandboxTagVersion,
+		modalSandboxTagSessionID:     strings.TrimSpace(sessionID),
+		modalSandboxTagRuntime:       runtimeProvider,
+	}
+}
+
+func modalSessionTagsMatch(tags, want map[string]string) bool {
+	if len(want) == 0 {
+		return false
+	}
+	for key, value := range want {
+		if strings.TrimSpace(tags[key]) != strings.TrimSpace(value) {
+			return false
+		}
+	}
+	return true
+}
+
+func isModalNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var notFound modalclient.NotFoundError
+	return errors.As(err, &notFound) || status.Code(err) == codes.NotFound
+}
+
+func restoredSessionFromModalSandbox(sessionID string, sandbox *modalclient.Sandbox, tags map[string]string, code *int) *session {
+	metadata := map[string]string{}
+	if providerName := strings.TrimSpace(tags[modalSandboxTagProviderName]); providerName != "" {
+		metadata["provider_name"] = providerName
+	}
+	if providerKind := strings.TrimSpace(tags[modalSandboxTagProviderKind]); providerKind != "" {
+		metadata["provider_kind"] = providerKind
+	}
+	state := sessionStateRunning
+	reason := "restored"
+	message := "active Modal sandbox found; plugin process handle is unavailable after restore"
+	if code != nil {
+		reason = "exited"
+		message = fmt.Sprintf("modal sandbox process exited with status %d", *code)
+		if *code == 0 {
+			state = sessionStateStopped
+		} else {
+			state = sessionStateFailed
+		}
+	}
+	return &session{
+		id:           strings.TrimSpace(sessionID),
+		state:        state,
+		metadata:     metadata,
+		stateReason:  reason,
+		stateMessage: message,
+		sandbox:      sandbox,
+		restored:     true,
+	}
 }
 
 func decodeConfig(raw map[string]any) (Config, error) {
@@ -1131,16 +1394,16 @@ func dialTLSPlugin(_ context.Context, host string, port int) (*grpc.ClientConn, 
 }
 
 func sandboxName(pluginName, sessionID string) string {
-	name := strings.ToLower(strings.TrimSpace(pluginName))
+	name := strings.ToLower(strings.TrimSpace(sessionID))
 	if name == "" {
-		name = "plugin"
+		name = strings.ToLower(strings.TrimSpace(pluginName))
 	}
 	name = sandboxNamePattern.ReplaceAllString(name, "-")
 	name = strings.Trim(name, "-")
 	if name == "" {
-		name = "plugin"
+		name = "session"
 	}
-	value := fmt.Sprintf("gestalt-%s-%s", name, sessionID)
+	value := "gestalt-" + name
 	if len(value) <= 63 {
 		return value
 	}
