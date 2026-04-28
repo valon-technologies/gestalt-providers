@@ -4,7 +4,7 @@ import threading
 import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 import grpc
@@ -13,11 +13,13 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from jsonschema import ValidationError, validate
 
-from .agent_proto_compat import agent_pb2
+from gestalt.gen.v1 import agent_pb2 as _agent_pb2
+
 from .config import SimpleAgentConfig
 from .model_backend import ModelBackend
 from .store import SimpleRunStore, StoredRun
 
+agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
 

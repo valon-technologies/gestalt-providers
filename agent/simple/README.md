@@ -154,9 +154,8 @@ Supported model families today are:
 Other prefixed model IDs are still forwarded through the OpenAI-compatible
 path with the full model string preserved. Use config `providerOptions` for
 provider-wide defaults and per-turn `provider_options` for request-specific
-overrides. Both support `providerOptions.<prefix>` for provider-specific
-values, and `providerOptions.litellm` remains accepted as a legacy generic
-override block during migration.
+overrides. Both support top-level generic request options and
+`providerOptions.<prefix>` for provider-specific values.
 
 When targeting Anthropic, set `providerOptions.max_tokens` (or
 `providerOptions.anthropic.max_tokens`) to control the response budget. If you

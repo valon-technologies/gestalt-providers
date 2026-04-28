@@ -368,9 +368,6 @@ class ModelBackend:
         for key, value in provider_options.items():
             if not isinstance(value, dict):
                 options[key] = deepcopy(value)
-        legacy = provider_options.get("litellm")
-        if isinstance(legacy, dict):
-            options.update(deepcopy(legacy))
         for provider_name in option_provider_names:
             nested = provider_options.get(provider_name)
             if isinstance(nested, dict):
