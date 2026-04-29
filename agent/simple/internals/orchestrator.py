@@ -733,19 +733,19 @@ class SimpleAgentOrchestrator:
         _replace_tool_call_arguments(assistant_message, tool_call_id=tool_call_id, arguments=repaired)
         return repaired
 
-    def turn_to_proto(self, run: StoredRun) -> Any:
+    def turn_to_proto(self, run: StoredRun, *, summary_only: bool = False) -> Any:
         proto = agent_pb2.AgentTurn(
             id=run.run_id,
             session_id=run.session_ref,
             provider_name=run.provider_name,
             model=run.model,
             status=run.status,
-            messages=[_message_from_dict(message) for message in run.messages],
-            output_text=run.output_text,
+            messages=[] if summary_only else [_message_from_dict(message) for message in run.messages],
+            output_text="" if summary_only else run.output_text,
             status_message=run.status_message,
             execution_ref=run.execution_ref,
         )
-        if run.structured_output:
+        if run.structured_output and not summary_only:
             proto.structured_output.CopyFrom(_dict_to_struct(run.structured_output))
         if run.created_by:
             proto.created_by.CopyFrom(

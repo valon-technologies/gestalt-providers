@@ -84,9 +84,19 @@ class SimpleAgentRuntimeProvider(
 
     def ListSessions(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
+        limit = int(getattr(request, "limit", 0) or 0)
+        if limit < 0:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
+        summary_only = bool(getattr(request, "summary_only", False))
         return agent_pb2.ListAgentProviderSessionsResponse(
             sessions=[
-                _session_to_proto(session) for session in store.list_sessions()
+                _session_to_proto(session, summary_only=summary_only)
+                for session in store.list_sessions(
+                    session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
+                    subject_id=_subject_id(request),
+                    state=int(getattr(request, "state", 0) or 0),
+                    limit=limit,
+                )
             ]
         )
 
@@ -134,10 +144,20 @@ class SimpleAgentRuntimeProvider(
 
     def ListTurns(self, request: Any, context: grpc.ServicerContext) -> Any:
         orchestrator, store, _ = self._require_runtime(context)
+        limit = int(getattr(request, "limit", 0) or 0)
+        if limit < 0:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
+        summary_only = bool(getattr(request, "summary_only", False))
         return agent_pb2.ListAgentProviderTurnsResponse(
             turns=[
-                orchestrator.turn_to_proto(turn)
-                for turn in store.list_turns(str(request.session_id or "").strip())
+                orchestrator.turn_to_proto(turn, summary_only=summary_only)
+                for turn in store.list_turns(
+                    str(request.session_id or "").strip(),
+                    turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
+                    subject_id=_subject_id(request),
+                    status=int(getattr(request, "status", 0) or 0),
+                    limit=limit,
+                )
             ]
         )
 
@@ -197,6 +217,7 @@ class SimpleAgentRuntimeProvider(
             resumable_turns=config.resume.enabled,
             reasoning_summaries=False,
             native_tool_search=True,
+            bounded_list_hydration=True,
         )
 
     def _require_runtime(
@@ -232,7 +253,7 @@ class SimpleAgentRuntimeProvider(
             os.environ["OPENAI_API_KEY"] = config.openai_api_key
 
 
-def _session_to_proto(session: StoredSession) -> Any:
+def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
     proto = agent_pb2.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
@@ -240,7 +261,7 @@ def _session_to_proto(session: StoredSession) -> Any:
         client_ref=session.client_ref,
         state=session.state,
     )
-    if session.metadata:
+    if session.metadata and not summary_only:
         proto.metadata.CopyFrom(_dict_to_struct(session.metadata))
     if session.created_by:
         proto.created_by.CopyFrom(
@@ -294,11 +315,15 @@ def _actor_to_dict(actor: Any) -> dict[str, str]:
     }
 
 
+def _subject_id(request: Any) -> str:
+    subject = getattr(request, "subject", None)
+    return str(getattr(subject, "subject_id", "") or "").strip()
+
+
 def _datetime_to_timestamp(value: datetime) -> Any:
     stamp = timestamp_pb2.Timestamp()
     stamp.FromDatetime(value.astimezone(UTC))
     return stamp
-
 
 
 provider = SimpleAgentRuntimeProvider()

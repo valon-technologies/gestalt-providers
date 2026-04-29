@@ -257,12 +257,42 @@ class SimpleRunStore:
         except gestalt.NotFoundError:
             return None
 
-    def list_sessions(self) -> list[StoredSession]:
-        sessions = [_record_to_session(record) for record in self._sessions.get_all()]
+    def list_sessions(
+        self,
+        *,
+        session_ids: list[str] | None = None,
+        subject_id: str = "",
+        state: int = 0,
+        limit: int = 0,
+    ) -> list[StoredSession]:
+        requested_ids = _normalized_unique_ids(session_ids)
+        if requested_ids:
+            sessions = [self.get_session(session_id) for session_id in requested_ids]
+        else:
+            sessions = [
+                _record_to_session(record) for record in self._sessions.get_all()
+            ]
         sessions = [session for session in sessions if session is not None]
-        return sorted(
-            sessions, key=lambda session: (session.last_turn_at or session.updated_at, session.session_id), reverse=True
+        subject_id = subject_id.strip()
+        if subject_id:
+            sessions = [
+                session
+                for session in sessions
+                if str(session.created_by.get("subject_id", "") or "").strip() == subject_id
+            ]
+        if state:
+            sessions = [session for session in sessions if session.state == state]
+        sessions = sorted(
+            sessions,
+            key=lambda session: (
+                session.last_turn_at or session.updated_at,
+                session.session_id,
+            ),
+            reverse=True,
         )
+        if limit > 0:
+            sessions = sessions[:limit]
+        return sessions
 
     def update_session(
         self, *, session_id: str, client_ref: str, state: int, metadata: dict[str, Any] | None
@@ -370,8 +400,35 @@ class SimpleRunStore:
     def get_turn(self, turn_id: str) -> StoredRun | None:
         return self.get_run(turn_id)
 
-    def list_turns(self, session_id: str) -> list[StoredRun]:
-        return [run for run in self.list_runs() if run.session_ref == session_id]
+    def list_turns(
+        self,
+        session_id: str,
+        *,
+        turn_ids: list[str] | None = None,
+        subject_id: str = "",
+        status: int = 0,
+        limit: int = 0,
+    ) -> list[StoredRun]:
+        requested_ids = _normalized_unique_ids(turn_ids)
+        if requested_ids:
+            runs = [self.get_run(turn_id) for turn_id in requested_ids]
+            turns = [run for run in runs if run is not None]
+        else:
+            if not session_id.strip():
+                return []
+            turns = self.list_runs()
+        session_id = session_id.strip()
+        if session_id:
+            turns = [run for run in turns if run.session_ref == session_id]
+        subject_id = subject_id.strip()
+        if subject_id:
+            turns = [run for run in turns if str(run.created_by.get("subject_id", "") or "").strip() == subject_id]
+        if status:
+            turns = [run for run in turns if run.status == status]
+        turns = sorted(turns, key=lambda run: (run.created_at, run.run_id), reverse=True)
+        if limit > 0:
+            turns = turns[:limit]
+        return turns
 
     def cancel_turn(self, turn_id: str, reason: str) -> StoredRun | None:
         with self._mutation_lock:
@@ -1049,6 +1106,20 @@ def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             messages.append(copy.deepcopy(item))
     return messages
+
+
+def _normalized_unique_ids(raw_ids: list[str] | None) -> list[str]:
+    if raw_ids is None:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw_id in raw_ids:
+        value = str(raw_id or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
 
 
 def _coerce_string_dict(raw_value: Any) -> dict[str, str]:
