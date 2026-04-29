@@ -486,8 +486,8 @@ export async function disconnectIntegration(
   connection?: string,
 ): Promise<void> {
   const query = new URLSearchParams();
-  if (instance) query.set("instance", instance);
-  if (connection) query.set("connection", connection);
+  if (instance) query.set("_instance", instance);
+  if (connection) query.set("_connection", connection);
   const params = query.toString();
   await fetchAPI(
     `/api/v1/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
@@ -862,8 +862,8 @@ export async function disconnectManagedIdentityIntegration(
   connection?: string,
 ): Promise<void> {
   const query = new URLSearchParams();
-  if (instance) query.set("instance", instance);
-  if (connection) query.set("connection", connection);
+  if (instance) query.set("_instance", instance);
+  if (connection) query.set("_connection", connection);
   const params = query.toString();
   await fetchAPI(
     `/api/v1/identities/${encodeURIComponent(id)}/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
