@@ -57,6 +57,7 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	first, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
@@ -112,6 +113,119 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	}
 }
 
+func TestProviderStartControlsPollLoopLifecycle(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms", "deferStart": true}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	pending, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "pending-before-start",
+		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "pending"}),
+	})
+	if err != nil {
+		t.Fatalf("StartRun(before Start): %v", err)
+	}
+	if _, err := host.waitForCall(100 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("host call before Start error = %v, want deadline exceeded", err)
+	}
+
+	startCtx, cancelStart := context.WithCancel(ctx)
+	if err := provider.Start(startCtx); err != nil {
+		t.Fatalf("Start(first): %v", err)
+	}
+	provider.mu.Lock()
+	firstDone := provider.pollDone
+	provider.mu.Unlock()
+	if err := provider.Start(ctx); err != nil {
+		t.Fatalf("Start(second): %v", err)
+	}
+	provider.mu.Lock()
+	secondDone := provider.pollDone
+	provider.mu.Unlock()
+	if firstDone == nil || firstDone != secondDone {
+		t.Fatalf("Start was not idempotent: first done=%p second done=%p", firstDone, secondDone)
+	}
+	cancelStart()
+
+	firstCall, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(first): %v", err)
+	}
+	if firstCall.GetRunId() != pending.GetId() {
+		t.Fatalf("first call run_id = %q, want %q", firstCall.GetRunId(), pending.GetId())
+	}
+
+	second, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "after-start-context-cancel",
+		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "after-cancel"}),
+	})
+	if err != nil {
+		t.Fatalf("StartRun(after Start context cancel): %v", err)
+	}
+	secondCall, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(second): %v", err)
+	}
+	if secondCall.GetRunId() != second.GetId() {
+		t.Fatalf("second call run_id = %q, want %q", secondCall.GetRunId(), second.GetId())
+	}
+	if len(host.calls()) != 2 {
+		t.Fatalf("host calls = %d, want 2", len(host.calls()))
+	}
+
+	if err := provider.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.pollCancel != nil || provider.pollDone != nil || provider.wake != nil {
+		t.Fatalf("poll worker state after Close = cancel:%v done:%p wake:%p, want cleared", provider.pollCancel != nil, provider.pollDone, provider.wake)
+	}
+}
+
+func TestProviderConfigureAutostartsPollLoopByDefault(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	provider.mu.Lock()
+	done := provider.pollDone
+	provider.mu.Unlock()
+	if done == nil {
+		t.Fatal("poll worker was not started by Configure")
+	}
+
+	run, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "default-autostart",
+		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "compat"}),
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != run.GetId() {
+		t.Fatalf("run_id = %q, want %q", call.GetRunId(), run.GetId())
+	}
+}
+
 func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -122,6 +236,7 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	now := time.Now().UTC()
@@ -187,6 +302,7 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	target := protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
@@ -307,6 +423,7 @@ func TestProviderSignalOrStartRunFailsQueuedSignalsWhenRunFails(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	target := protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
@@ -842,6 +959,7 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "100ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	trigger, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
@@ -970,6 +1088,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	target := protoBoundTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{
@@ -1115,6 +1234,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "100ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
@@ -1426,6 +1546,7 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
+	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
@@ -1871,6 +1992,13 @@ func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("condition not satisfied before timeout")
+}
+
+func startProviderWorker(t *testing.T, provider *Provider) {
+	t.Helper()
+	if err := provider.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 }
 
 func stopProviderWorker(t *testing.T, provider *Provider) {

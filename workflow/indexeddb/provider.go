@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.15"
+	providerVersion     = "0.0.1-alpha.16"
 	defaultPollInterval = time.Second
 	maxSignalAddRetries = 8
 
@@ -72,6 +72,7 @@ const (
 
 type config struct {
 	PollInterval time.Duration `yaml:"pollInterval"`
+	DeferStart   bool          `yaml:"deferStart"`
 }
 
 type Provider struct {
@@ -267,8 +268,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	p.name = strings.TrimSpace(name)
 	p.cfg = cfg
 	p.db = db
@@ -282,9 +281,36 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.executionRefStore = executionRefStore
 	p.workflowKeyStore = workflowKeyStore
 	p.signalStore = signalStore
+	p.mu.Unlock()
+
+	if !cfg.DeferStart {
+		if err := p.Start(ctx); err != nil {
+			_ = p.Close()
+			return fmt.Errorf("indexeddb workflow: start worker: %w", err)
+		}
+	}
+	return nil
+}
+
+func (p *Provider) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, err := p.requireConfiguredLocked(); err != nil {
+		return err
+	}
+	if p.pollCancel != nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	p.wake = make(chan struct{}, 1)
 	p.pollDone = make(chan struct{})
-
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
 	go p.pollLoop(loopCtx, p.cfg.PollInterval, p.pollDone, p.wake)

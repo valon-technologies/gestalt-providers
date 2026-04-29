@@ -8,6 +8,7 @@ from .config import get_github_config
 from .constants import (
     GITHUB_INSTALLATION_SUBJECT_PREFIX,
     GITHUB_REPOSITORY_SUBJECT_SEPARATOR,
+    MAX_GITHUB_TITLE_CHARS,
 )
 from .errors import GitHubAPIError, GitHubConfigError
 from .helpers import int_field, map_field, nested_str, str_field
@@ -47,6 +48,8 @@ def event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, An
     sender = map_field(payload, "sender")
     pull_request = map_field(payload, "pull_request")
     issue = map_field(payload, "issue")
+    comment = map_field(payload, "comment")
+    review = map_field(payload, "review")
     summary: dict[str, Any] = {
         "installation_id": installation_id,
         "event_type": github_event_type(payload),
@@ -63,7 +66,43 @@ def event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, An
         summary["head_ref"] = nested_str(pull_request, "head", "ref")
     if str_field(pull_request, "base", "ref"):
         summary["base_ref"] = nested_str(pull_request, "base", "ref")
+    subject = pull_request or issue
+    if str_field(subject, "title"):
+        summary["title"] = bounded_text(
+            str_field(subject, "title"), MAX_GITHUB_TITLE_CHARS
+        )
+    if str_field(subject, "state"):
+        summary["state"] = str_field(subject, "state")
+    if str_field(subject, "html_url"):
+        summary["html_url"] = str_field(subject, "html_url")
+    if comment:
+        comment_id = int_field(comment, "id")
+        if comment_id > 0:
+            summary["comment_id"] = comment_id
+        if str_field(comment, "html_url"):
+            summary["comment_url"] = str_field(comment, "html_url")
+    if review:
+        review_id = int_field(review, "id")
+        if review_id > 0:
+            summary["review_id"] = review_id
+        if str_field(review, "state"):
+            summary["review_state"] = str_field(review, "state")
+        if str_field(review, "html_url"):
+            summary["review_url"] = str_field(review, "html_url")
+    for key in ("ref", "base_ref", "before", "after", "compare", "ref_type"):
+        if str_field(payload, key):
+            summary[key] = str_field(payload, key)
+    for key in ("created", "deleted", "forced"):
+        value = payload.get(key)
+        if isinstance(value, bool):
+            summary[key] = value
     return {key: value for key, value in summary.items() if value not in ("", 0)}
+
+
+def bounded_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars] + "\n...<truncated>"
 
 
 def installation_id_from_payload(payload: dict[str, Any]) -> int:

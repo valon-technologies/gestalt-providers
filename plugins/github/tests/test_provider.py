@@ -315,8 +315,11 @@ class GitHubProviderTests(unittest.TestCase):
             },
             "pull_request": {
                 "number": 7.0,
-                "head": {"ref": "feature"},
-                "base": {"ref": "main"},
+                "title": "Add widget workflow",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
             },
             "headers": {
                 "X-GitHub-Delivery": "delivery-123",
@@ -389,10 +392,209 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["installation"]["id"], 99)
         self.assertEqual(data["repository"]["full_name"], "acme/widgets")
         self.assertEqual(data["sender"]["login"], "octocat")
-        self.assertIn("GitHub App webhook", data["user_prompt"])
+        self.assertEqual(data["summary"]["head_ref"], "feature")
+        self.assertEqual(data["summary"]["base_ref"], "main")
+        self.assertEqual(data["payload_omitted"], True)
+        self.assertIn("payload_sha256", data)
+        self.assertNotIn("payload", data)
+        self.assertNotIn("_gestalt_payload_preview_json", json.dumps(data))
+        agent_request = data["agent_request"]
+        self.assertEqual(agent_request["subject"]["repository"], "acme/widgets")
+        self.assertEqual(agent_request["subject"]["number"], 7)
         self.assertEqual(
-            data["payload"]["headers"]["X-Hub-Signature-256"], "[redacted]"
+            agent_request["subject"]["html_url"],
+            "https://github.com/acme/widgets/pull/7",
         )
+        self.assertEqual(agent_request["pull_request"]["head_ref"], "feature")
+        self.assertEqual(agent_request["pull_request"]["base_ref"], "main")
+        self.assertEqual(agent_request["pull_request"]["title"], "Add widget workflow")
+        self.assertIn("GitHub App webhook", agent_request["user_prompt"])
+        self.assertIn("head_ref: feature", agent_request["user_prompt"])
+
+    def _workflow_signal_request(self, payload: dict[str, Any]) -> Any:
+        workflow_manager = FakeWorkflowManager()
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                side_effect=AssertionError("agent manager should not be called"),
+            ),
+        ):
+            result = provider_module.github_events_handle(payload, gestalt.Request())
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(result["dispatch"], "workflow")
+        self.assertEqual(len(workflow_manager.requests), 1)
+        return workflow_manager.requests[0]
+
+    def _workflow_signal_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        request = self._workflow_signal_request(payload)
+        return cast(
+            dict[str, Any],
+            json_format.MessageToDict(request.signal.payload),
+        )
+
+    def test_webhook_handler_compacts_issue_comment_and_review_context(self) -> None:
+        long_body = "please update this workflow\n" + ("x" * 10000)
+        base = {
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "sender": {"id": 10, "login": "octocat", "type": "User"},
+        }
+
+        issue_comment_request = self._workflow_signal_request(
+            {
+                **base,
+                "action": "created",
+                "issue": {
+                    "number": 7,
+                    "title": "Broken widget",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/issues/7",
+                },
+                "comment": {
+                    "id": 111,
+                    "html_url": "https://github.com/acme/widgets/issues/7#issuecomment-111",
+                    "body": long_body,
+                    "user": {"login": "octocat"},
+                },
+            }
+        )
+        issue_comment = cast(
+            dict[str, Any],
+            json_format.MessageToDict(issue_comment_request.signal.payload),
+        )
+        self.assertEqual(issue_comment["github_event"], "issue_comment")
+        self.assertNotIn("payload", issue_comment)
+        self.assertNotIn("_gestalt_payload_preview_json", json.dumps(issue_comment))
+        self.assertNotIn("comment_body", issue_comment["summary"])
+        self.assertNotIn(
+            "please update this workflow", json.dumps(issue_comment["summary"])
+        )
+        issue_metadata = json_format.MessageToDict(
+            issue_comment_request.signal.metadata
+        )
+        self.assertNotIn("comment_body", issue_metadata["github"])
+        self.assertNotIn("please update this workflow", json.dumps(issue_metadata))
+        comment = issue_comment["agent_request"]["comment"]
+        self.assertEqual(comment["id"], 111)
+        self.assertLess(len(comment["body"]), 5000)
+        self.assertTrue(comment["body"].endswith("...<truncated>"))
+        self.assertIn(
+            "please update this workflow", issue_comment["agent_request"]["user_prompt"]
+        )
+
+        review_request = self._workflow_signal_request(
+            {
+                **base,
+                "action": "submitted",
+                "pull_request": {
+                    "number": 8,
+                    "title": "Refactor widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/8",
+                    "head": {"ref": "feature"},
+                    "base": {"ref": "main"},
+                },
+                "review": {
+                    "id": 222,
+                    "state": "commented",
+                    "html_url": "https://github.com/acme/widgets/pull/8#pullrequestreview-222",
+                    "body": long_body,
+                    "user": {"login": "reviewer"},
+                },
+            }
+        )
+        review = cast(
+            dict[str, Any],
+            json_format.MessageToDict(review_request.signal.payload),
+        )
+        self.assertEqual(review["github_event"], "pull_request_review")
+        self.assertNotIn("review_body", review["summary"])
+        self.assertNotIn("please update this workflow", json.dumps(review["summary"]))
+        review_metadata = json_format.MessageToDict(review_request.signal.metadata)
+        self.assertNotIn("review_body", review_metadata["github"])
+        self.assertNotIn("please update this workflow", json.dumps(review_metadata))
+        self.assertLess(len(review["agent_request"]["review"]["body"]), 5000)
+        self.assertIn("review:", review["agent_request"]["user_prompt"])
+
+        review_comment = self._workflow_signal_payload(
+            {
+                **base,
+                "action": "created",
+                "pull_request": {
+                    "number": 9,
+                    "title": "Fix widget docs",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/9",
+                    "head": {"ref": "docs"},
+                    "base": {"ref": "main"},
+                },
+                "comment": {
+                    "id": 333,
+                    "html_url": "https://github.com/acme/widgets/pull/9#discussion_r333",
+                    "body": long_body,
+                    "user": {"login": "reviewer"},
+                },
+            }
+        )
+        self.assertEqual(review_comment["github_event"], "pull_request_review_comment")
+        self.assertLess(len(review_comment["agent_request"]["comment"]["body"]), 5000)
+        self.assertIn("comment:", review_comment["agent_request"]["user_prompt"])
+
+    def test_webhook_handler_compacts_ref_event_when_configured(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "webhookEvents": ["push"],
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        payload = {
+            "ref": "refs/heads/feature",
+            "before": "0" * 40,
+            "after": "1" * 40,
+            "base_ref": "refs/heads/main",
+            "compare": "https://github.com/acme/widgets/compare/0...1",
+            "created": False,
+            "deleted": False,
+            "forced": True,
+            "head_commit": {
+                "id": "1" * 40,
+                "message": "Update widgets",
+                "url": "https://github.com/acme/widgets/commit/1111",
+            },
+            "commits": [{"id": "raw-commit-that-should-not-be-copied"}],
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "sender": {"login": "octocat"},
+        }
+
+        data = self._workflow_signal_payload(payload)
+
+        self.assertEqual(data["github_event"], "push")
+        self.assertNotIn("payload", data)
+        agent_request = data["agent_request"]
+        self.assertEqual(agent_request["ref"], "refs/heads/feature")
+        self.assertEqual(agent_request["before"], "0" * 40)
+        self.assertEqual(agent_request["after"], "1" * 40)
+        self.assertEqual(agent_request["base_ref"], "refs/heads/main")
+        self.assertEqual(agent_request["forced"], True)
+        self.assertEqual(agent_request["head_commit"]["id"], "1" * 40)
+        self.assertNotIn("commits", agent_request)
+        self.assertIn("ref: refs/heads/feature", agent_request["user_prompt"])
 
     def test_webhook_handler_fails_retryable_without_workflow_manager(
         self,
