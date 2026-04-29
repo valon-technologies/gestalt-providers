@@ -774,7 +774,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
 
         try:
-            _configure_runtime(lifecycle)
+            _configure_runtime(lifecycle, resume={"enabled": False})
             identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
         finally:
             if previous_socket is None:
@@ -786,6 +786,32 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
+
+    def test_configure_provider_runs_startup_resume_in_background(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        done = threading.Event()
+
+        def blocking_resume(self: Any) -> None:
+            del self
+            started.set()
+            release.wait(timeout=5)
+            done.set()
+
+        with mock.patch.object(
+            provider_module.SimpleAgentOrchestrator,
+            "resume_incomplete_turns",
+            blocking_resume,
+        ):
+            started_at = time.monotonic()
+            try:
+                _configure_provider()
+                elapsed = time.monotonic() - started_at
+                self.assertLess(elapsed, 1.0)
+                self.assertTrue(started.wait(timeout=1.0))
+            finally:
+                release.set()
+            self.assertTrue(done.wait(timeout=1.0))
 
     def test_configure_resumes_running_turn_from_atomic_checkpoint(self) -> None:
         fake_llm = _FakeOpenAIChatServer(

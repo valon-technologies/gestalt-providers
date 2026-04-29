@@ -1,4 +1,6 @@
+import logging
 import os
+import threading
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -15,6 +17,7 @@ from internals.store import StoredSession
 agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
+logger = logging.getLogger(__name__)
 
 
 class SimpleAgentRuntimeProvider(
@@ -26,6 +29,8 @@ class SimpleAgentRuntimeProvider(
         self._config: SimpleAgentConfig | None = None
         self._store: SimpleRunStore | None = None
         self._orchestrator: SimpleAgentOrchestrator | None = None
+        self._resume_generation = 0
+        self._resume_lock = threading.Lock()
 
     def configure(self, name: str, config: dict[str, Any]) -> None:
         self._name = name.strip() or "simple"
@@ -37,7 +42,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.27",
+            version="0.0.1-alpha.28",
         )
 
     def warnings(self) -> list[str]:
@@ -235,10 +240,32 @@ class SimpleAgentRuntimeProvider(
         self._store = SimpleRunStore(run_store=config.run_store, idempotency_store=config.idempotency_store)
         self._orchestrator = SimpleAgentOrchestrator(config=config, store=self._store)
         self._warnings = self._build_warnings(config)
-        try:
-            self._orchestrator.resume_incomplete_turns()
-        except grpc.RpcError:
-            pass
+        self._schedule_resume_incomplete_turns(self._orchestrator)
+
+    def _schedule_resume_incomplete_turns(self, orchestrator: SimpleAgentOrchestrator) -> None:
+        config = self._config
+        with self._resume_lock:
+            self._resume_generation += 1
+            generation = self._resume_generation
+        if config is None or not config.resume.enabled:
+            return
+
+        def resume() -> None:
+            with self._resume_lock:
+                if generation != self._resume_generation:
+                    return
+            try:
+                orchestrator.resume_incomplete_turns()
+            except grpc.RpcError as exc:
+                code = getattr(exc, "code", None)
+                if callable(code) and code() == grpc.StatusCode.CANCELLED:
+                    logger.debug("agent/simple startup resume canceled")
+                    return
+                logger.exception("agent/simple startup resume failed")
+            except Exception:
+                logger.exception("agent/simple startup resume failed")
+
+        threading.Thread(target=resume, name=f"agent-simple-resume-{generation}", daemon=True).start()
 
     def _build_warnings(self, config: SimpleAgentConfig) -> list[str]:
         warnings: list[str] = []
