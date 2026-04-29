@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: Gong Public API
+  version: 0.0.1-alpha.1
+  description: Curated Gong public API operations for calls, transcripts, users, and privacy exports.
+servers:
+  - url: https://api.gong.io
+security:
+  - basic_auth: []
+  - bearer_auth: []
+paths:
+  /v2/calls/{call_id}:
+    get:
+      operationId: get_call
+      summary: Get call
+      description: Retrieve analyzed call data for a single Gong call.
+      tags: [Calls]
+      parameters:
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Gong call ID.
+      responses:
+        '200':
+          description: Call details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+  /v2/calls/extensive:
+    post:
+      operationId: list_calls
+      summary: List calls
+      description: Search Gong calls with optional filters and cursor pagination.
+      tags: [Calls]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallsExtensiveRequest'
+      responses:
+        '200':
+          description: Matching calls.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+  /v2/calls/transcript:
+    post:
+      operationId: get_call_transcripts
+      summary: Get call transcripts
+      description: Retrieve transcripts for calls matching the supplied filters.
+      tags: [Calls]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscriptRequest'
+      responses:
+        '200':
+          description: Call transcripts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+  /v2/users:
+    get:
+      operationId: list_users
+      summary: List users
+      description: List Gong users available to the connected account.
+      tags: [Users]
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor returned by a previous response.
+      responses:
+        '200':
+          description: Gong users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+  /v2/data-privacy/data-for-email-address:
+    get:
+      operationId: get_data_for_email_address
+      summary: Get data for email address
+      description: Retrieve Gong data references associated with an email address.
+      tags: [Data Privacy]
+      parameters:
+        - name: emailAddress
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+          description: Email address to search for.
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Cursor returned by a previous response.
+      responses:
+        '200':
+          description: Data references for the email address.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+components:
+  securitySchemes:
+    basic_auth:
+      type: http
+      scheme: basic
+    bearer_auth:
+      type: http
+      scheme: bearer
+      bearerFormat: OAuth2 access token
+  schemas:
+    CallsExtensiveRequest:
+      type: object
+      required:
+        - filter
+      properties:
+        filter:
+          $ref: '#/components/schemas/CallsFilter'
+        contentSelector:
+          $ref: '#/components/schemas/ContentSelector'
+        cursor:
+          type: string
+          description: Cursor returned by a previous response.
+      additionalProperties: true
+    TranscriptRequest:
+      type: object
+      required:
+        - filter
+      properties:
+        filter:
+          $ref: '#/components/schemas/CallsFilter'
+        cursor:
+          type: string
+          description: Cursor returned by a previous response.
+      additionalProperties: true
+    CallsFilter:
+      type: object
+      properties:
+        callIds:
+          type: array
+          items:
+            type: string
+        primaryUserIds:
+          type: array
+          items:
+            type: string
+        fromDateTime:
+          type: string
+          format: date-time
+        toDateTime:
+          type: string
+          format: date-time
+        participantsEmails:
+          type: array
+          items:
+            type: string
+            format: email
+      additionalProperties: true
+    ContentSelector:
+      type: object
+      properties:
+        context:
+          type: string
+          enum:
+            - None
+            - Extended
+        contextTiming:
+          type: array
+          items:
+            type: string
+            enum:
+              - Now
+              - TimeOfCall
+        exposedFields:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    ObjectResponse:
+      type: object
+      additionalProperties: true

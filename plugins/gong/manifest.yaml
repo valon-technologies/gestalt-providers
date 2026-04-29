@@ -1,0 +1,45 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/gong
+version: 0.0.1-alpha.1
+displayName: Gong
+description: Retrieve Gong calls, transcripts, users, and data-privacy exports.
+kind: plugin
+spec:
+  defaultConnection: default
+  mcp: true
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  allowedOperations:
+    get_call: {}
+    list_calls:
+      description: Search Gong calls with filters and optional cursor pagination.
+    get_call_transcripts:
+      description: Retrieve transcripts for calls matching the supplied filters.
+    list_users:
+      description: List Gong users available to the connected account.
+    get_data_for_email_address:
+      description: Retrieve Gong data references associated with an email address.
+  connections:
+    default:
+      displayName: API key
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: access_key_id
+          label: Access Key ID
+          description: Gong API access key ID. In Gong, this is the Basic auth username.
+        - name: secret_key
+          label: Access Key Secret
+          description: Gong API access key secret. In Gong, this is the Basic auth password.
+        authMapping:
+          basic:
+            username:
+              valueFrom:
+                credentialFieldRef:
+                  name: access_key_id
+            password:
+              valueFrom:
+                credentialFieldRef:
+                  name: secret_key
