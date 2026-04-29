@@ -144,6 +144,7 @@ class SimpleAgentOrchestrator:
             messages=projected_messages,
             response_schema=response_schema,
             provider_options=provider_options,
+            tool_grant=str(request.tool_grant or "").strip(),
             tool_specs_and_names=tool_specs_and_names,
             system_prompt=self._config.system_prompt,
         )
@@ -772,6 +773,7 @@ class PreparedTurn:
     messages: list[dict[str, Any]]
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
+    tool_grant: str
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]]
 
 
@@ -780,6 +782,7 @@ def _resume_seed_from_request(
     messages: list[dict[str, Any]],
     response_schema: dict[str, Any],
     provider_options: dict[str, Any],
+    tool_grant: str,
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]],
     system_prompt: str,
 ) -> dict[str, Any]:
@@ -793,6 +796,7 @@ def _resume_seed_from_request(
         ),
         "response_schema": copy.deepcopy(response_schema),
         "provider_options": copy.deepcopy(provider_options),
+        "tool_grant": tool_grant,
         "tool_specs": copy.deepcopy(tool_specs),
         "function_name_to_tool_id": dict(function_name_to_tool_id),
         "loaded_tool_ids": sorted(loaded_tool_ids),
@@ -812,6 +816,7 @@ def _prepared_from_checkpoint(checkpoint: StoredTurnCheckpoint) -> PreparedTurn:
         messages=copy.deepcopy(checkpoint.messages),
         response_schema=copy.deepcopy(checkpoint.response_schema),
         provider_options=copy.deepcopy(checkpoint.provider_options),
+        tool_grant=checkpoint.tool_grant,
         tool_specs_and_names=_tool_registry_from_checkpoint(checkpoint),
     )
 
@@ -914,6 +919,7 @@ def _execute_tool_request(
         tool_call_id=tool_call_id,
         tool_id=resolved_tool_id,
         arguments=_dict_to_struct(execution_arguments),
+        tool_grant=checkpoint.tool_grant,
     )
     if "idempotency_key" in request.DESCRIPTOR.fields_by_name:
         request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
@@ -951,7 +957,12 @@ def _search_tools_for_model(
     load_refs = _tool_search_load_refs(tool_call_arguments.get("load_refs"))
     if not query and not load_refs:
         query = _tool_search_query(prepared.messages)
-    request = agent_pb2.SearchAgentToolsRequest(session_id=prepared.session_id, turn_id=prepared.turn_id, query=query)
+    request = agent_pb2.SearchAgentToolsRequest(
+        session_id=prepared.session_id,
+        turn_id=prepared.turn_id,
+        query=query,
+        tool_grant=prepared.tool_grant,
+    )
     adaptive_supported = _proto_message_has_field(request, "candidate_limit")
     load_refs_supported = _proto_message_has_field(request, "load_refs")
     candidate_limit = _tool_search_candidate_limit(

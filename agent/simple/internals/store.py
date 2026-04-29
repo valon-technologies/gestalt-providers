@@ -55,6 +55,7 @@ class StoredTurnCheckpoint:
     conversation: list[dict[str, Any]]
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
+    tool_grant: str
     tool_specs: list[dict[str, Any]]
     function_name_to_tool_id: dict[str, str]
     loaded_tool_ids: list[str]
@@ -790,6 +791,7 @@ def _turn_checkpoint_to_record(checkpoint: StoredTurnCheckpoint) -> dict[str, An
         "conversation": copy.deepcopy(checkpoint.conversation),
         "response_schema": copy.deepcopy(checkpoint.response_schema),
         "provider_options": copy.deepcopy(checkpoint.provider_options),
+        "tool_grant": checkpoint.tool_grant,
         "tool_specs": copy.deepcopy(checkpoint.tool_specs),
         "function_name_to_tool_id": dict(checkpoint.function_name_to_tool_id),
         "loaded_tool_ids": list(checkpoint.loaded_tool_ids),
@@ -817,6 +819,7 @@ def _checkpoint_from_seed(run: StoredRun, seed: dict[str, Any], *, now: datetime
         conversation=_coerce_messages(seed.get("conversation")),
         response_schema=_coerce_optional_dict(seed.get("response_schema")) or {},
         provider_options=_coerce_optional_dict(seed.get("provider_options")) or {},
+        tool_grant=str(seed.get("tool_grant") or ""),
         tool_specs=_coerce_messages(seed.get("tool_specs")),
         function_name_to_tool_id=_coerce_string_dict(seed.get("function_name_to_tool_id")),
         loaded_tool_ids=_coerce_string_list(seed.get("loaded_tool_ids")),
@@ -851,6 +854,7 @@ def _record_to_turn_checkpoint(record: dict[str, Any] | None) -> StoredTurnCheck
         conversation=_coerce_messages(record.get("conversation")),
         response_schema=_coerce_optional_dict(record.get("response_schema")) or {},
         provider_options=_coerce_optional_dict(record.get("provider_options")) or {},
+        tool_grant=str(record.get("tool_grant") or ""),
         tool_specs=_coerce_messages(record.get("tool_specs")),
         function_name_to_tool_id=_coerce_string_dict(record.get("function_name_to_tool_id")),
         loaded_tool_ids=_coerce_string_list(record.get("loaded_tool_ids")),
