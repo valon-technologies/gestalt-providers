@@ -467,6 +467,21 @@ func TestRuntimeProviderContractTagsModalSandboxBeforeTunnelLookup(t *testing.T)
 		t.Fatal("ensureSessionSandbox tunnel = nil")
 	}
 
+	if secretRequests := fakeModal.secretRequestsSnapshot(); len(secretRequests) != 0 {
+		t.Fatalf("SecretGetOrCreate requests = %d, want 0 for public image", len(secretRequests))
+	}
+	imageRequests := fakeModal.imageRequestsSnapshot()
+	if len(imageRequests) != 1 {
+		t.Fatalf("ImageGetOrCreate requests = %d, want 1", len(imageRequests))
+	}
+	imageRequest := imageRequests[0]
+	if got, want := imageRequest.registryAuthType, modalproto.RegistryAuthType_REGISTRY_AUTH_TYPE_UNSPECIFIED; got != want {
+		t.Fatalf("image registry auth type = %v, want %v for public image", got, want)
+	}
+	if imageRequest.registrySecretID != "" {
+		t.Fatalf("image registry secret id = %q, want empty for public image", imageRequest.registrySecretID)
+	}
+
 	created := fakeModal.sandboxByID(sandbox.SandboxID)
 	if created == nil {
 		t.Fatalf("fake sandbox %q was not recorded", sandbox.SandboxID)
@@ -491,6 +506,129 @@ func TestRuntimeProviderContractTagsModalSandboxBeforeTunnelLookup(t *testing.T)
 	}
 	if tagIndex > tunnelIndex {
 		t.Fatalf("events = %v, want tags-set before tunnels", events)
+	}
+}
+
+func TestRuntimeProviderContractUsesImagePullCredentialsForPrivateRegistry(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "agent-provider",
+		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
+		ImagePullCredentials: &proto.PluginRuntimeImagePullCredentials{
+			Username: " ghcr-user ",
+			Password: " ghcr-token ",
+		},
+		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	var logSeq uint64
+	sandbox, tunnel, err := provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, &proto.StartHostedPluginRequest{
+		SessionId:  session.GetId(),
+		PluginName: "agent-provider",
+	}, newSessionLogSink(session.GetId(), &logSeq, nil))
+	if err != nil {
+		t.Fatalf("ensureSessionSandbox: %v", err)
+	}
+	if sandbox == nil {
+		t.Fatal("ensureSessionSandbox sandbox = nil")
+	}
+	if tunnel == nil {
+		t.Fatal("ensureSessionSandbox tunnel = nil")
+	}
+
+	secretRequests := fakeModal.secretRequestsSnapshot()
+	if len(secretRequests) != 1 {
+		t.Fatalf("SecretGetOrCreate requests = %d, want 1", len(secretRequests))
+	}
+	secretRequest := secretRequests[0]
+	if got, want := secretRequest.env[registryUsernameEnv], "ghcr-user"; got != want {
+		t.Fatalf("registry username secret value = %q, want %q", got, want)
+	}
+	if got, want := secretRequest.env[registryPasswordEnv], " ghcr-token "; got != want {
+		t.Fatalf("registry password secret value = %q, want %q", got, want)
+	}
+	if got, want := secretRequest.environment, "test-env"; got != want {
+		t.Fatalf("secret environment = %q, want %q", got, want)
+	}
+	if got, want := secretRequest.objectCreationType, modalproto.ObjectCreationType_OBJECT_CREATION_TYPE_EPHEMERAL; got != want {
+		t.Fatalf("secret object creation type = %v, want %v", got, want)
+	}
+
+	imageRequests := fakeModal.imageRequestsSnapshot()
+	if len(imageRequests) != 1 {
+		t.Fatalf("ImageGetOrCreate requests = %d, want 1", len(imageRequests))
+	}
+	imageRequest := imageRequests[0]
+	if got, want := imageRequest.registryAuthType, modalproto.RegistryAuthType_REGISTRY_AUTH_TYPE_STATIC_CREDS; got != want {
+		t.Fatalf("image registry auth type = %v, want %v", got, want)
+	}
+	if got, want := imageRequest.registrySecretID, secretRequest.secretID; got != want {
+		t.Fatalf("image registry secret id = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeProviderContractRejectsInvalidImagePullCredentials(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		creds *proto.PluginRuntimeImagePullCredentials
+	}{
+		{
+			name: "missing username",
+			creds: &proto.PluginRuntimeImagePullCredentials{
+				Password: "ghcr-token",
+			},
+		},
+		{
+			name: "missing password",
+			creds: &proto.PluginRuntimeImagePullCredentials{
+				Username: "ghcr-user",
+			},
+		},
+		{
+			name: "blank password",
+			creds: &proto.PluginRuntimeImagePullCredentials{
+				Username: "ghcr-user",
+				Password: " \t ",
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			provider := New()
+			provider.name = "modal"
+			provider.client = &modalclient.Client{}
+			provider.cfg = Config{App: "gestalt-test", Timeout: 5 * time.Minute}
+			client := startRuntimeProviderServer(t, provider)
+
+			_, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+				PluginName:           "agent-provider",
+				Image:                "ghcr.io/valon-technologies/agent-simple-runtime:latest",
+				ImagePullCredentials: tc.creds,
+			})
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("StartSession code = %v, want InvalidArgument: %v", status.Code(err), err)
+			}
+
+			provider.mu.Lock()
+			sessionCount := len(provider.sessions)
+			provider.mu.Unlock()
+			if sessionCount != 0 {
+				t.Fatalf("provider sessions = %d, want 0", sessionCount)
+			}
+		})
 	}
 }
 
@@ -577,8 +715,24 @@ type fakeModalControlPlane struct {
 	mu            sync.Mutex
 	appID         string
 	nextSandboxID int
+	nextSecretID  int
 	sandboxes     map[string]*fakeModalSandbox
+	secrets       []fakeSecretRequest
+	images        []fakeImageRequest
 	events        []string
+}
+
+type fakeSecretRequest struct {
+	secretID           string
+	environment        string
+	objectCreationType modalproto.ObjectCreationType
+	env                map[string]string
+}
+
+type fakeImageRequest struct {
+	registryAuthType modalproto.RegistryAuthType
+	registrySecretID string
+	dockerfile       []string
 }
 
 type fakeModalSandbox struct {
@@ -672,10 +826,38 @@ func (f *fakeModalControlPlane) AppGetOrCreate(ctx context.Context, req *modalpr
 	return modalproto.AppGetOrCreateResponse_builder{AppId: f.appID}.Build(), nil
 }
 
-func (f *fakeModalControlPlane) ImageGetOrCreate(ctx context.Context, _ *modalproto.ImageGetOrCreateRequest) (*modalproto.ImageGetOrCreateResponse, error) {
+func (f *fakeModalControlPlane) SecretGetOrCreate(ctx context.Context, req *modalproto.SecretGetOrCreateRequest) (*modalproto.SecretGetOrCreateResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextSecretID++
+	secretID := fmt.Sprintf("secret-%d", f.nextSecretID)
+	f.secrets = append(f.secrets, fakeSecretRequest{
+		secretID:           secretID,
+		environment:        req.GetEnvironmentName(),
+		objectCreationType: req.GetObjectCreationType(),
+		env:                cloneStringMap(req.GetEnvDict()),
+	})
+	return modalproto.SecretGetOrCreateResponse_builder{SecretId: secretID}.Build(), nil
+}
+
+func (f *fakeModalControlPlane) ImageGetOrCreate(ctx context.Context, req *modalproto.ImageGetOrCreateRequest) (*modalproto.ImageGetOrCreateResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	imageRequest := fakeImageRequest{}
+	if image := req.GetImage(); image != nil {
+		imageRequest.dockerfile = append([]string(nil), image.GetDockerfileCommands()...)
+		if registryConfig := image.GetImageRegistryConfig(); registryConfig != nil {
+			imageRequest.registryAuthType = registryConfig.GetRegistryAuthType()
+			imageRequest.registrySecretID = registryConfig.GetSecretId()
+		}
+	}
+	f.images = append(f.images, imageRequest)
 	return modalproto.ImageGetOrCreateResponse_builder{
 		ImageId: "image-test",
 		Result: modalproto.GenericResult_builder{
@@ -883,6 +1065,28 @@ func (f *fakeModalControlPlane) eventsSnapshot() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.events...)
+}
+
+func (f *fakeModalControlPlane) secretRequestsSnapshot() []fakeSecretRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]fakeSecretRequest, len(f.secrets))
+	for i, req := range f.secrets {
+		out[i] = req
+		out[i].env = cloneStringMap(req.env)
+	}
+	return out
+}
+
+func (f *fakeModalControlPlane) imageRequestsSnapshot() []fakeImageRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]fakeImageRequest, len(f.images))
+	for i, req := range f.images {
+		out[i] = req
+		out[i].dockerfile = append([]string(nil), req.dockerfile...)
+	}
+	return out
 }
 
 func cloneFakeModalSandbox(sandbox *fakeModalSandbox) *fakeModalSandbox {
