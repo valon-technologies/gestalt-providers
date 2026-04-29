@@ -1,6 +1,6 @@
 # Gong
 
-Retrieve Gong calls, transcripts, users, and data-privacy exports.
+Access the Gong public API v2.
 
 ## Configuration
 
@@ -17,6 +17,10 @@ The default connection uses Gong API key credentials as HTTP Basic auth:
 
 - `access_key_id` maps to the Basic auth username.
 - `secret_key` maps to the Basic auth password.
+
+Gong's manual API-key token is `Base64(<accessKey>:<accessKeySecret>)` and is
+sent as `Authorization: Basic <token>`. OAuth uses a separate access token and
+is sent as `Authorization: Bearer <token>`.
 
 The OpenAPI surface defaults to `https://api.gong.io`. Override
 `plugins.gong.surfaces.openapi.baseUrl` when using a tenant-specific Gong API
@@ -47,13 +51,9 @@ plugins:
 
 ## Capabilities
 
-Declarative OpenAPI-backed provider exposing common Gong public API operations:
-
-- get a single call
-- search calls
-- retrieve call transcripts
-- list users
-- retrieve data references for an email address
+Declarative OpenAPI-backed provider generated from Gong's public API v2
+specification. The provider exposes Gong operations for calls, users, stats,
+settings, CRM, library, coaching, call outcomes, and data-privacy workflows.
 
 ## Documentation
 
