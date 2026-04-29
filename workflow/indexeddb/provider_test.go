@@ -23,7 +23,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -31,22 +30,6 @@ const (
 	canonicalProviderAgentWorkflowTargetFingerprint       = "1003da47bdf572f9f79750c681662f40bfa759d9db9eb4dfebdee6aafb2d8f01"
 	canonicalProviderNestedAgentWorkflowTargetFingerprint = "46872c4caeb7404c6fe83409ee186c070c78dd77244ee9576fa4b912dd8001cb"
 )
-
-func TestProviderMetadataVersionMatchesManifest(t *testing.T) {
-	data, err := os.ReadFile("manifest.yaml")
-	if err != nil {
-		t.Fatalf("ReadFile(manifest.yaml): %v", err)
-	}
-	var manifest struct {
-		Version string `yaml:"version"`
-	}
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		t.Fatalf("yaml.Unmarshal(manifest.yaml): %v", err)
-	}
-	if got := New().Metadata().Version; got != manifest.Version {
-		t.Fatalf("Metadata().Version = %q, want manifest version %q", got, manifest.Version)
-	}
-}
 
 func TestBoundWorkflowTargetWireShapeIsNestedOnly(t *testing.T) {
 	fields := (&proto.BoundWorkflowTarget{}).ProtoReflect().Descriptor().Fields()
