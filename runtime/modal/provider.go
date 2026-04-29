@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.1"
+	providerVersion     = "0.0.1-alpha.11"
 	pluginGRPCPort      = 50051
 	tunnelLookupTimeout = 30 * time.Second
 	dialTimeout         = 15 * time.Second
@@ -41,6 +41,8 @@ const (
 	sessionStateFailed  = "failed"
 
 	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
+	registryUsernameEnv    = "REGISTRY_USERNAME"
+	registryPasswordEnv    = "REGISTRY_PASSWORD"
 
 	modalSandboxTagSchemaVersion = "gestalt_schema_version"
 	modalSandboxTagVersion       = "1"
@@ -82,27 +84,33 @@ type Provider struct {
 }
 
 type session struct {
-	id                 string
-	state              string
-	metadata           map[string]string
-	bindings           map[string]string
-	image              string
-	startedAt          time.Time
-	recommendedDrainAt *time.Time
-	expiresAt          *time.Time
-	stateReason        string
-	stateMessage       string
-	sandbox            *modalclient.Sandbox
-	tunnel             *modalclient.Tunnel
-	plugin             *plugin
-	logSeq             uint64
-	restored           bool
+	id                   string
+	state                string
+	metadata             map[string]string
+	bindings             map[string]string
+	image                string
+	imagePullCredentials *imagePullCredentials
+	startedAt            time.Time
+	recommendedDrainAt   *time.Time
+	expiresAt            *time.Time
+	stateReason          string
+	stateMessage         string
+	sandbox              *modalclient.Sandbox
+	tunnel               *modalclient.Tunnel
+	plugin               *plugin
+	logSeq               uint64
+	restored             bool
 }
 
 type plugin struct {
 	id      string
 	name    string
 	process *modalclient.ContainerProcess
+}
+
+type imagePullCredentials struct {
+	username string
+	password string
 }
 
 func New() *Provider {
@@ -188,13 +196,18 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 	if strings.TrimSpace(req.GetImage()) == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the modal runtime", req.GetPluginName())
 	}
+	imagePullCredentials, err := pluginRuntimeImagePullCredentials(req.GetImagePullCredentials())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	sessionID := p.newID("session")
 
 	session := &session{
-		id:       sessionID,
-		state:    sessionStateReady,
-		metadata: cloneStringMap(req.GetMetadata()),
-		image:    strings.TrimSpace(req.GetImage()),
+		id:                   sessionID,
+		state:                sessionStateReady,
+		metadata:             cloneStringMap(req.GetMetadata()),
+		image:                strings.TrimSpace(req.GetImage()),
+		imagePullCredentials: imagePullCredentials,
 	}
 	if session.metadata == nil {
 		session.metadata = map[string]string{}
@@ -207,6 +220,21 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 	}
 	p.sessions[sessionID] = session
 	return cloneSession(session), nil
+}
+
+func pluginRuntimeImagePullCredentials(creds *proto.PluginRuntimeImagePullCredentials) (*imagePullCredentials, error) {
+	if creds == nil {
+		return nil, nil
+	}
+	username := strings.TrimSpace(creds.GetUsername())
+	password := creds.GetPassword()
+	if username == "" || strings.TrimSpace(password) == "" {
+		return nil, fmt.Errorf("image_pull_credentials.username and image_pull_credentials.password are required when image_pull_credentials is set")
+	}
+	return &imagePullCredentials{
+		username: username,
+		password: password,
+	}, nil
 }
 
 func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
@@ -658,6 +686,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	sessionID := session.id
 	bindings := cloneStringMap(session.bindings)
 	metadata := cloneStringMap(session.metadata)
+	imagePullCredentials := cloneImagePullCredentials(session.imagePullCredentials)
 	p.mu.Unlock()
 
 	if imageRef == "" {
@@ -687,7 +716,12 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	startedAt = time.Now()
 	logRuntimePhase(logs, "modal sandbox create: starting image=%q timeout=%s idle_timeout=%s", imageRef, configuredDuration(cfg.Timeout), configuredDuration(cfg.IdleTimeout))
 	sandboxStartedAt := startedAt.UTC()
-	sandbox, err := client.Sandboxes.Create(ctx, app, client.Images.FromRegistry(imageRef, nil), createParams)
+	imageParams, err := imageFromRegistryParams(ctx, client, cfg, imagePullCredentials, logs)
+	if err != nil {
+		logRuntimePhase(logs, "modal sandbox create: failed after %s: %v", elapsed(startedAt), err)
+		return nil, nil, err
+	}
+	sandbox, err := client.Sandboxes.Create(ctx, app, client.Images.FromRegistry(imageRef, imageParams), createParams)
 	if err != nil {
 		logRuntimePhase(logs, "modal sandbox create: failed after %s: %v", elapsed(startedAt), err)
 		return nil, nil, status.Errorf(codes.Internal, "create modal sandbox: %v", err)
@@ -743,6 +777,26 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	p.mu.Unlock()
 	logRuntimePhase(logs, "modal sandbox: registered for session %q", req.GetSessionId())
 	return sandbox, tunnel, nil
+}
+
+func imageFromRegistryParams(ctx context.Context, client *modalclient.Client, cfg Config, creds *imagePullCredentials, logs *sessionLogSink) (*modalclient.ImageFromRegistryParams, error) {
+	if creds == nil {
+		return nil, nil
+	}
+	startedAt := time.Now()
+	logRuntimePhase(logs, "modal image registry credentials: creating ephemeral secret")
+	secret, err := client.Secrets.FromMap(ctx, map[string]string{
+		registryUsernameEnv: creds.username,
+		registryPasswordEnv: creds.password,
+	}, &modalclient.SecretFromMapParams{
+		Environment: cfg.Environment,
+	})
+	if err != nil {
+		logRuntimePhase(logs, "modal image registry credentials: failed after %s: %v", elapsed(startedAt), err)
+		return nil, status.Errorf(codes.Internal, "create modal image registry secret: %v", err)
+	}
+	logRuntimePhase(logs, "modal image registry credentials: secret ready in %s", elapsed(startedAt))
+	return &modalclient.ImageFromRegistryParams{Secret: secret}, nil
 }
 
 func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartHostedPluginRequest, sessionID string, bindings map[string]string) (*modalclient.SandboxCreateParams, error) {
@@ -1302,6 +1356,16 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[key] = value
 	}
 	return dst
+}
+
+func cloneImagePullCredentials(src *imagePullCredentials) *imagePullCredentials {
+	if src == nil {
+		return nil
+	}
+	return &imagePullCredentials{
+		username: src.username,
+		password: src.password,
+	}
 }
 
 func isIndexedDBSocketEnv(envVar string) bool {

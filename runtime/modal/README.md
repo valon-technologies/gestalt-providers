@@ -52,7 +52,16 @@ providers:
       execution:
         mode: hosted
         runtime:
-          image: python:3.14-alpine
+          image: ghcr.io/acme/private-agent-runtime:latest
+          imagePullCredentials:
+            username:
+              secret:
+                provider: secrets
+                name: ghcr-username
+            password:
+              secret:
+                provider: secrets
+                name: ghcr-token
           pool:
             minReadyInstances: 1
             maxReadyInstances: 2
@@ -72,6 +81,12 @@ The runtime also requires `execution.runtime.image` so Modal can create a
 sandbox from a concrete runtime image. For plugins, set
 `plugins.<name>.execution.runtime.image`; for hosted agent providers, set
 `providers.agent.<name>.execution.runtime.image`.
+
+For private registry images, set
+`execution.runtime.imagePullCredentials`. The Modal runtime provider turns those
+credentials into an ephemeral Modal secret and passes it to Modal image
+resolution, so the registry token is not written into provider config or
+sandbox environment variables.
 
 ## Current Limitations
 
