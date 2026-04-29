@@ -624,6 +624,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - uses: docker/build-push-action@v6
+        id: build-runtime-image
         with:
           context: .
           file: agent/simple/Dockerfile.runtime
@@ -638,3 +639,20 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
             org.opencontainers.image.title=Gestalt Simple Agent Runtime
+      - name: Check runtime image contract
+        env:
+          RUNTIME_IMAGE: ghcr.io/valon-technologies/agent-simple-runtime:${{ needs.metadata.outputs.version }}
+        run: .github/scripts/check_agent_simple_runtime_image.sh "${RUNTIME_IMAGE}"
+      - name: Summarize runtime image
+        env:
+          RUNTIME_IMAGE: ghcr.io/valon-technologies/agent-simple-runtime:${{ needs.metadata.outputs.version }}
+          RUNTIME_IMAGE_DIGEST: ${{ steps.build-runtime-image.outputs.digest }}
+        run: |
+          {
+            echo "### Simple Agent runtime image"
+            echo
+            echo "- Image: \`${RUNTIME_IMAGE}\`"
+            echo "- Digest: \`${RUNTIME_IMAGE_DIGEST}\`"
+            echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            echo "- Launch contract: \`/gestalt-plugin-simple\` and \`/app/gestalt-plugin-simple\` are executable; \`./gestalt-plugin-simple\` execs from \`/\`."
+          } >> "${GITHUB_STEP_SUMMARY}"

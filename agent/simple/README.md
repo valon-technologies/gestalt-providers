@@ -117,6 +117,33 @@ providers:
           image: ghcr.io/valon-technologies/agent-simple-runtime:0.0.1-alpha.22
 ```
 
+Production deploys should pin the image by digest and provide registry auth as a
+Docker config JSON secret when the registry is private:
+
+```yaml
+providers:
+  agent:
+    simple:
+      execution:
+        mode: hosted
+        runtime:
+          provider: modal
+          image: ghcr.io/valon-technologies/agent-simple-runtime@sha256:...
+          imagePullAuth:
+            dockerConfigJson:
+              secret:
+                provider: secrets
+                name: agent-runtime-registry-dockerconfigjson
+```
+
+The hosted image launch command is derived from the provider manifest
+`entrypoint.artifactPath`. For the Simple Agent this resolves to
+`./gestalt-plugin-simple`, and runtime providers currently launch without an
+explicit working directory. The image therefore exposes both
+`/app/gestalt-plugin-simple` and `/gestalt-plugin-simple`; release automation
+checks that `./gestalt-plugin-simple` can be executed from `/` for
+`linux/amd64` and `linux/arm64`.
+
 ## YAML configuration
 
 ```yaml
