@@ -147,7 +147,6 @@ func (l *keyedLocks) lock(key string) func() {
 
 type workflowScheduleRecord struct {
 	ID           string
-	PluginName   string
 	Cron         string
 	Timezone     string
 	Target       *proto.BoundWorkflowTarget
@@ -161,7 +160,6 @@ type workflowScheduleRecord struct {
 
 type workflowEventTriggerRecord struct {
 	ID           string
-	PluginName   string
 	MatchType    string
 	MatchSource  string
 	MatchSubject string
@@ -175,7 +173,6 @@ type workflowEventTriggerRecord struct {
 
 type workflowRunRecord struct {
 	ID                    string
-	PluginName            string
 	Status                proto.WorkflowRunStatus
 	Target                *proto.BoundWorkflowTarget
 	TriggerKind           string
@@ -207,6 +204,18 @@ type workflowKeyRecord struct {
 	ID        string
 	RunID     string
 	CreatedAt time.Time
+}
+
+func (r workflowScheduleRecord) ownerKey() string {
+	return targetOwnerKey(r.Target)
+}
+
+func (r workflowEventTriggerRecord) ownerKey() string {
+	return targetOwnerKey(r.Target)
+}
+
+func (r workflowRunRecord) ownerKey() string {
+	return targetOwnerKey(r.Target)
 }
 
 type workflowSignalRecord struct {
@@ -243,8 +252,8 @@ type workflowExecutionReferenceRecord struct {
 }
 
 type scopedTarget struct {
-	PluginName string
-	Target     *proto.BoundWorkflowTarget
+	OwnerKey string
+	Target   *proto.BoundWorkflowTarget
 }
 
 type workflowPluginTargetFields struct {
@@ -469,13 +478,13 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 	}
 
 	if key != "" {
-		existing, found, err := loadIdempotencyRecord(ctx, state.idempotencyStore, target.PluginName, key)
+		existing, found, err := loadIdempotencyRecord(ctx, state.idempotencyStore, target.OwnerKey, key)
 		if err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "load idempotency key: %v", err)
 		}
 		if found {
-			run, found, err := loadRunRecord(ctx, state.runStore, target.PluginName, existing.RunID)
+			run, found, err := loadRunRecord(ctx, state.runStore, target.OwnerKey, existing.RunID)
 			if err != nil {
 				p.mu.Unlock()
 				return nil, status.Errorf(codes.Internal, "load idempotent run: %v", err)
@@ -496,14 +505,14 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 	if key != "" {
 		// Deterministic IDs let retries re-adopt the same run if the idempotency
 		// mapping write is lost after the run row has already been stored.
-		runID = idempotentManualRunID(target.PluginName, key)
-		run, found, err := loadRunRecord(ctx, state.runStore, target.PluginName, runID)
+		runID = idempotentManualRunID(target.OwnerKey, key)
+		run, found, err := loadRunRecord(ctx, state.runStore, target.OwnerKey, runID)
 		if err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "load idempotent run by deterministic id: %v", err)
 		}
 		if found {
-			_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.PluginName, key, run.ID, now)
+			_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.OwnerKey, key, run.ID, now)
 			resp, err := run.toProto()
 			p.mu.Unlock()
 			if err != nil {
@@ -529,7 +538,6 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 	}
 	run := workflowRunRecord{
 		ID:           runID,
-		PluginName:   target.PluginName,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:       cloneTarget(target.Target),
 		TriggerKind:  triggerKindManual,
@@ -540,13 +548,13 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 	}
 	if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 		if key != "" && errors.Is(err, gestalt.ErrAlreadyExists) {
-			existing, found, loadErr := loadRunRecord(ctx, state.runStore, target.PluginName, run.ID)
+			existing, found, loadErr := loadRunRecord(ctx, state.runStore, target.OwnerKey, run.ID)
 			if loadErr != nil {
 				p.mu.Unlock()
 				return nil, status.Errorf(codes.Internal, "load existing idempotent run: %v", loadErr)
 			}
 			if found {
-				_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.PluginName, key, existing.ID, now)
+				_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.OwnerKey, key, existing.ID, now)
 				resp, err := existing.toProto()
 				p.mu.Unlock()
 				if err != nil {
@@ -559,7 +567,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		return nil, status.Errorf(codes.Internal, "create run: %v", err)
 	}
 	if key != "" {
-		_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.PluginName, key, run.ID, now)
+		_ = storeIdempotencyRecord(ctx, state.idempotencyStore, target.OwnerKey, key, run.ID, now)
 	}
 	if workflowKey != "" {
 		if err := storeWorkflowKeyRecord(ctx, state.workflowKeyStore, workflowKey, run.ID, now); err != nil {
@@ -913,7 +921,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 		p.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	existing, found, err := loadScheduleRecord(ctx, state.scheduleStore, target.PluginName, scheduleID)
+	existing, found, err := loadScheduleRecord(ctx, state.scheduleStore, target.OwnerKey, scheduleID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.Internal, "load schedule: %v", err)
@@ -924,16 +932,15 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "check schedule id collision: %v", err)
 		}
-		if otherFound && other.PluginName != target.PluginName {
+		if otherFound && other.ownerKey() != target.OwnerKey {
 			p.mu.Unlock()
-			return nil, status.Errorf(codes.AlreadyExists, "workflow schedule %q is already owned by plugin %q", scheduleID, other.PluginName)
+			return nil, status.Errorf(codes.AlreadyExists, "workflow schedule %q is already owned by target owner %q", scheduleID, other.ownerKey())
 		}
 	}
 
 	now := p.clock().UTC()
 	record := workflowScheduleRecord{
 		ID:           scheduleID,
-		PluginName:   target.PluginName,
 		Cron:         cronSpec,
 		Timezone:     timezone,
 		Target:       cloneTarget(target.Target),
@@ -1098,7 +1105,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 		p.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	existing, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, target.PluginName, triggerID)
+	existing, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, target.OwnerKey, triggerID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.Internal, "load event trigger: %v", err)
@@ -1109,15 +1116,14 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "check event trigger id collision: %v", err)
 		}
-		if otherFound && other.PluginName != target.PluginName {
+		if otherFound && other.ownerKey() != target.OwnerKey {
 			p.mu.Unlock()
-			return nil, status.Errorf(codes.AlreadyExists, "workflow event trigger %q is already owned by plugin %q", triggerID, other.PluginName)
+			return nil, status.Errorf(codes.AlreadyExists, "workflow event trigger %q is already owned by target owner %q", triggerID, other.ownerKey())
 		}
 	}
 	now := p.clock().UTC()
 	record := workflowEventTriggerRecord{
 		ID:           triggerID,
-		PluginName:   target.PluginName,
 		MatchType:    matchType,
 		MatchSource:  matchSource,
 		MatchSubject: matchSubject,
@@ -1284,7 +1290,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		if strings.TrimSpace(event.GetId()) != "" {
 			runID = eventRunID(trigger.ID, event.GetSource(), event.GetId())
 		}
-		if _, found, err := loadRunRecord(ctx, state.runStore, trigger.PluginName, runID); err != nil {
+		if _, found, err := loadRunRecord(ctx, state.runStore, trigger.ownerKey(), runID); err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "load event run: %v", err)
 		} else if found {
@@ -1319,7 +1325,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		}
 		run := workflowRunRecord{
 			ID:                    runID,
-			PluginName:            trigger.PluginName,
 			Status:                proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Target:                cloneTarget(trigger.Target),
 			TriggerKind:           triggerKindEvent,
@@ -1481,12 +1486,12 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 		return nil, "", status.Errorf(codes.FailedPrecondition, "workflow run %q is %s", runID, run.Status.String())
 	}
 	if key := strings.TrimSpace(signal.GetIdempotencyKey()); key != "" {
-		existing, found, err := loadIdempotencyRecordTx(ctx, stores.idempotencyStore, run.PluginName, key)
+		existing, found, err := loadIdempotencyRecordTx(ctx, stores.idempotencyStore, run.ownerKey(), key)
 		if err != nil {
 			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
 		}
 		if found && existing.SignalID != "" {
-			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, run.PluginName, existing)
+			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, run.ownerKey(), existing)
 			return resp, existing.SignalID, err
 		}
 	}
@@ -1495,12 +1500,12 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 
 func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, now time.Time) (*proto.SignalWorkflowRunResponse, string, error) {
 	if key := strings.TrimSpace(signal.GetIdempotencyKey()); key != "" {
-		existing, found, err := loadIdempotencyRecordTx(ctx, stores.idempotencyStore, target.PluginName, key)
+		existing, found, err := loadIdempotencyRecordTx(ctx, stores.idempotencyStore, target.OwnerKey, key)
 		if err != nil {
 			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
 		}
 		if found && existing.SignalID != "" {
-			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, target.PluginName, existing)
+			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, target.OwnerKey, existing)
 			return resp, existing.SignalID, err
 		}
 	}
@@ -1520,7 +1525,6 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 		startedRun = true
 		run = workflowRunRecord{
 			ID:           uuid.NewString(),
-			PluginName:   target.PluginName,
 			Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Target:       cloneTarget(target.Target),
 			TriggerKind:  triggerKindManual,
@@ -1588,7 +1592,7 @@ func enqueueSignalInTransaction(ctx context.Context, idempotencyStore recordPutt
 	}
 
 	if key := strings.TrimSpace(record.IdempotencyKey); key != "" {
-		if err := storeSignalIdempotencyRecord(ctx, idempotencyStore, run.PluginName, key, run.ID, record.ID, run.WorkflowKey, record.StartedRun, record.CreatedAt); err != nil {
+		if err := storeSignalIdempotencyRecord(ctx, idempotencyStore, run.ownerKey(), key, run.ID, record.ID, run.WorkflowKey, record.StartedRun, record.CreatedAt); err != nil {
 			return nil, record.ID, status.Errorf(codes.Internal, "store signal idempotency key: %v", err)
 		}
 	}
@@ -1834,7 +1838,6 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 		}
 		run := workflowRunRecord{
 			ID:                  scheduleRunID(schedule.ID, latestDue),
-			PluginName:          schedule.PluginName,
 			Status:              proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Target:              cloneTarget(schedule.Target),
 			TriggerKind:         triggerKindSchedule,
@@ -1951,7 +1954,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	if err != nil {
 		return true, err
 	}
-	current, found, err := loadRunRecord(ctx, state.runStore, pending.PluginName, pending.ID)
+	current, found, err := loadRunRecord(ctx, state.runStore, pending.ownerKey(), pending.ID)
 	if err != nil {
 		return true, err
 	}
@@ -2364,8 +2367,8 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 			return scopedTarget{}, err
 		}
 		return scopedTarget{
-			PluginName: "agent:" + agentProvider,
-			Target:     normalized,
+			OwnerKey: "agent:" + agentProvider,
+			Target:   normalized,
 		}, nil
 	}
 	pluginFields := pluginTargetFields(target)
@@ -2388,8 +2391,8 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	}
 	normalized := pluginTargetProto(pluginName, operation, connection, instance, input)
 	return scopedTarget{
-		PluginName: pluginName,
-		Target:     normalized,
+		OwnerKey: pluginName,
+		Target:   normalized,
 	}, nil
 }
 
@@ -2799,7 +2802,7 @@ func workflowSignalID(run workflowRunRecord, signal *proto.WorkflowSignal) strin
 		return uuid.NewString()
 	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		strings.TrimSpace(run.PluginName),
+		strings.TrimSpace(run.ownerKey()),
 		strings.TrimSpace(run.ID),
 		key,
 	}, "\x00")))
@@ -3023,7 +3026,7 @@ func waitIndexedDBRetry(ctx context.Context, attempt int) error {
 	}
 }
 
-func loadScheduleRecord(ctx context.Context, store *gestalt.ObjectStoreClient, pluginName, scheduleID string) (workflowScheduleRecord, bool, error) {
+func loadScheduleRecord(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey, scheduleID string) (workflowScheduleRecord, bool, error) {
 	record, err := store.Get(ctx, scheduleID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -3035,13 +3038,13 @@ func loadScheduleRecord(ctx context.Context, store *gestalt.ObjectStoreClient, p
 	if err != nil {
 		return workflowScheduleRecord{}, false, err
 	}
-	if pluginName != "" && schedule.PluginName != pluginName {
+	if ownerKey != "" && schedule.ownerKey() != ownerKey {
 		return workflowScheduleRecord{}, false, nil
 	}
 	return schedule, true, nil
 }
 
-func listScheduleRecords(ctx context.Context, store *gestalt.ObjectStoreClient, pluginName string) ([]workflowScheduleRecord, error) {
+func listScheduleRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey string) ([]workflowScheduleRecord, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -3052,7 +3055,7 @@ func listScheduleRecords(ctx context.Context, store *gestalt.ObjectStoreClient, 
 		if err != nil {
 			return nil, err
 		}
-		if pluginName != "" && schedule.PluginName != pluginName {
+		if ownerKey != "" && schedule.ownerKey() != ownerKey {
 			continue
 		}
 		out = append(out, schedule)
@@ -3066,7 +3069,7 @@ func listScheduleRecords(ctx context.Context, store *gestalt.ObjectStoreClient, 
 	return out, nil
 }
 
-func loadEventTriggerRecord(ctx context.Context, store *gestalt.ObjectStoreClient, pluginName, triggerID string) (workflowEventTriggerRecord, bool, error) {
+func loadEventTriggerRecord(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey, triggerID string) (workflowEventTriggerRecord, bool, error) {
 	record, err := store.Get(ctx, triggerID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -3078,13 +3081,13 @@ func loadEventTriggerRecord(ctx context.Context, store *gestalt.ObjectStoreClien
 	if err != nil {
 		return workflowEventTriggerRecord{}, false, err
 	}
-	if pluginName != "" && trigger.PluginName != pluginName {
+	if ownerKey != "" && trigger.ownerKey() != ownerKey {
 		return workflowEventTriggerRecord{}, false, nil
 	}
 	return trigger, true, nil
 }
 
-func listEventTriggerRecords(ctx context.Context, store *gestalt.ObjectStoreClient, pluginName string) ([]workflowEventTriggerRecord, error) {
+func listEventTriggerRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey string) ([]workflowEventTriggerRecord, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -3095,7 +3098,7 @@ func listEventTriggerRecords(ctx context.Context, store *gestalt.ObjectStoreClie
 		if err != nil {
 			return nil, err
 		}
-		if pluginName != "" && trigger.PluginName != pluginName {
+		if ownerKey != "" && trigger.ownerKey() != ownerKey {
 			continue
 		}
 		out = append(out, trigger)
@@ -3109,7 +3112,7 @@ func listEventTriggerRecords(ctx context.Context, store *gestalt.ObjectStoreClie
 	return out, nil
 }
 
-func loadRunRecord(ctx context.Context, store recordGetter, pluginName, runID string) (workflowRunRecord, bool, error) {
+func loadRunRecord(ctx context.Context, store recordGetter, ownerKey, runID string) (workflowRunRecord, bool, error) {
 	record, err := store.Get(ctx, runID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -3121,13 +3124,13 @@ func loadRunRecord(ctx context.Context, store recordGetter, pluginName, runID st
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
-	if pluginName != "" && run.PluginName != pluginName {
+	if ownerKey != "" && run.ownerKey() != ownerKey {
 		return workflowRunRecord{}, false, nil
 	}
 	return run, true, nil
 }
 
-func loadRunRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore, pluginName, runID string) (workflowRunRecord, bool, error) {
+func loadRunRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore, ownerKey, runID string) (workflowRunRecord, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, strings.TrimSpace(runID))
 	if err != nil || !found {
 		return workflowRunRecord{}, false, err
@@ -3136,13 +3139,13 @@ func loadRunRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore,
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
-	if pluginName != "" && run.PluginName != pluginName {
+	if ownerKey != "" && run.ownerKey() != ownerKey {
 		return workflowRunRecord{}, false, nil
 	}
 	return run, true, nil
 }
 
-func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, pluginName string) ([]workflowRunRecord, error) {
+func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey string) ([]workflowRunRecord, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -3153,7 +3156,7 @@ func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, plugi
 		if err != nil {
 			return nil, err
 		}
-		if pluginName != "" && run.PluginName != pluginName {
+		if ownerKey != "" && run.ownerKey() != ownerKey {
 			continue
 		}
 		out = append(out, run)
@@ -3167,8 +3170,8 @@ func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, plugi
 	return out, nil
 }
 
-func loadIdempotencyRecord(ctx context.Context, store recordGetter, pluginName, key string) (workflowIdempotencyRecord, bool, error) {
-	record, err := store.Get(ctx, idempotencyID(pluginName, key))
+func loadIdempotencyRecord(ctx context.Context, store recordGetter, ownerKey, key string) (workflowIdempotencyRecord, bool, error) {
+	record, err := store.Get(ctx, idempotencyID(ownerKey, key))
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
 			return workflowIdempotencyRecord{}, false, nil
@@ -3182,8 +3185,8 @@ func loadIdempotencyRecord(ctx context.Context, store recordGetter, pluginName, 
 	return value, true, nil
 }
 
-func loadIdempotencyRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore, pluginName, key string) (workflowIdempotencyRecord, bool, error) {
-	record, found, err := transactionGetRecord(ctx, store, idempotencyID(pluginName, key))
+func loadIdempotencyRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore, ownerKey, key string) (workflowIdempotencyRecord, bool, error) {
+	record, found, err := transactionGetRecord(ctx, store, idempotencyID(ownerKey, key))
 	if err != nil || !found {
 		return workflowIdempotencyRecord{}, false, err
 	}
@@ -3194,9 +3197,9 @@ func loadIdempotencyRecordTx(ctx context.Context, store *gestalt.TransactionObje
 	return value, true, nil
 }
 
-func storeIdempotencyRecord(ctx context.Context, store recordPutter, pluginName, key, runID string, createdAt time.Time) error {
+func storeIdempotencyRecord(ctx context.Context, store recordPutter, ownerKey, key, runID string, createdAt time.Time) error {
 	record := workflowIdempotencyRecord{
-		ID:             idempotencyID(pluginName, key),
+		ID:             idempotencyID(ownerKey, key),
 		IdempotencyKey: key,
 		RunID:          runID,
 		CreatedAt:      createdAt,
@@ -3204,9 +3207,9 @@ func storeIdempotencyRecord(ctx context.Context, store recordPutter, pluginName,
 	return store.Put(ctx, record.toRecord())
 }
 
-func storeSignalIdempotencyRecord(ctx context.Context, store recordPutter, pluginName, key, runID, signalID, workflowKey string, startedRun bool, createdAt time.Time) error {
+func storeSignalIdempotencyRecord(ctx context.Context, store recordPutter, ownerKey, key, runID, signalID, workflowKey string, startedRun bool, createdAt time.Time) error {
 	record := workflowIdempotencyRecord{
-		ID:             idempotencyID(pluginName, key),
+		ID:             idempotencyID(ownerKey, key),
 		IdempotencyKey: key,
 		RunID:          runID,
 		SignalID:       signalID,
@@ -3280,12 +3283,12 @@ func eventMatchesTrigger(event *proto.WorkflowEvent, trigger workflowEventTrigge
 	return true
 }
 
-func idempotencyID(pluginName, key string) string {
-	return pluginName + ":" + key
+func idempotencyID(ownerKey, key string) string {
+	return ownerKey + ":" + key
 }
 
-func idempotentManualRunID(pluginName, key string) string {
-	sum := sha256.Sum256([]byte(pluginName + "\x00" + key))
+func idempotentManualRunID(ownerKey, key string) string {
+	sum := sha256.Sum256([]byte(ownerKey + "\x00" + key))
 	return "manual:" + hex.EncodeToString(sum[:16])
 }
 
@@ -4146,7 +4149,6 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 	}
 	out := workflowScheduleRecord{
 		ID:           id,
-		PluginName:   targetOwnerKey(target),
 		Cron:         stringField(value, "cron"),
 		Timezone:     stringField(value, "timezone"),
 		Target:       target,
@@ -4203,7 +4205,6 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 	}
 	out := workflowEventTriggerRecord{
 		ID:           id,
-		PluginName:   targetOwnerKey(target),
 		MatchType:    stringField(value, "match_type"),
 		MatchSource:  stringField(value, "match_source"),
 		MatchSubject: stringField(value, "match_subject"),
@@ -4281,7 +4282,6 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 	}
 	out := workflowRunRecord{
 		ID:                    id,
-		PluginName:            targetOwnerKey(target),
 		Status:                proto.WorkflowRunStatus(intField(value, "status")),
 		Target:                target,
 		TriggerKind:           stringField(value, "trigger_kind"),
@@ -4509,8 +4509,8 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 	if record.ProviderName == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("provider_name is required")
 	}
-	if target.PluginName == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("target plugin scope is required")
+	if target.OwnerKey == "" {
+		return workflowExecutionReferenceRecord{}, errors.New("target owner is required")
 	}
 	if record.SubjectID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("subject_id is required")

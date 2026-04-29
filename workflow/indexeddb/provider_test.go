@@ -265,7 +265,6 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	runID := idempotentManualRunID("roadmap", "manual-sync")
 	run := workflowRunRecord{
 		ID:          runID,
-		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:      protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
 		TriggerKind: triggerKindManual,
@@ -707,7 +706,6 @@ func TestProviderTerminalKeyedRunWithPendingSignalIsRunnable(t *testing.T) {
 	now := time.Now().UTC()
 	run := workflowRunRecord{
 		ID:          "terminal-keyed-run",
-		PluginName:  "agent:managed",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
 		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
 		TriggerKind: triggerKindManual,
@@ -795,7 +793,6 @@ func TestProviderFinalizingOldTerminalRunDoesNotDeleteNewerWorkflowKey(t *testin
 	workflowKey := "github:127579767:valon-technologies/gestalt:issue_comment:42"
 	oldRun := workflowRunRecord{
 		ID:          "old-terminal-run",
-		PluginName:  "agent:managed",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
 		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
 		TriggerKind: triggerKindManual,
@@ -805,7 +802,6 @@ func TestProviderFinalizingOldTerminalRunDoesNotDeleteNewerWorkflowKey(t *testin
 	}
 	newRun := workflowRunRecord{
 		ID:          "new-active-run",
-		PluginName:  "agent:managed",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
 		TriggerKind: triggerKindManual,
@@ -874,7 +870,6 @@ func TestProviderSignalRunConcurrentSignalsUseUniqueSequences(t *testing.T) {
 	now := time.Now().UTC()
 	run := workflowRunRecord{
 		ID:          "signal-run-concurrent",
-		PluginName:  "agent:managed",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
 		TriggerKind: triggerKindManual,
@@ -943,7 +938,6 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	for runIndex := 0; runIndex < defaultWorkerCount; runIndex++ {
 		oldRun := workflowRunRecord{
 			ID:          fmt.Sprintf("old-hot-run-%d", runIndex),
-			PluginName:  "agent:managed",
 			Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
 			TriggerKind: triggerKindManual,
@@ -1060,7 +1054,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 	now := time.Now().UTC()
 	pending := workflowRunRecord{
 		ID:          "pending-run",
-		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:      protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "pending"}),
 		TriggerKind: triggerKindManual,
@@ -1083,7 +1076,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 
 	running := workflowRunRecord{
 		ID:          "running-run",
-		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
 		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
 		TriggerKind: triggerKindManual,
@@ -2091,7 +2083,6 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 	runID := scheduleRunID(schedule.GetId(), latestDue)
 	if err := provider.runStore.Put(ctx, workflowRunRecord{
 		ID:                  runID,
-		PluginName:          "roadmap",
 		Status:              proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:              protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "schedule"}),
 		TriggerKind:         triggerKindSchedule,
@@ -2182,7 +2173,6 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	startedAt := time.Now().UTC().Add(-time.Minute)
 	if err := first.runStore.Put(ctx, workflowRunRecord{
 		ID:          "stale-run",
-		PluginName:  "roadmap",
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
 		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
 		TriggerKind: triggerKindManual,
