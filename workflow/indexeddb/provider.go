@@ -2051,9 +2051,6 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	}
 	pluginName = strings.TrimSpace(pluginName)
 	if agentTarget := target.GetAgent(); agentTarget != nil {
-		if target.GetPlugin() != nil {
-			return scopedTarget{}, errors.New("target cannot include both agent and plugin fields")
-		}
 		if pluginName != "" {
 			return scopedTarget{}, fmt.Errorf("agent target is outside scoped plugin %q", pluginName)
 		}
@@ -2061,7 +2058,9 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 		if agentProvider == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
 		}
-		normalized := &proto.BoundWorkflowTarget{Agent: cloneAgentTarget(agentTarget)}
+		normalized := &proto.BoundWorkflowTarget{
+			Kind: &proto.BoundWorkflowTarget_Agent{Agent: cloneAgentTarget(agentTarget)},
+		}
 		if err := normalizeAgentTarget(normalized.GetAgent(), agentProvider); err != nil {
 			return scopedTarget{}, err
 		}
@@ -2102,13 +2101,6 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 	target.ProviderName = strings.TrimSpace(providerName)
 	target.Model = strings.TrimSpace(target.GetModel())
 	target.Prompt = strings.TrimSpace(target.GetPrompt())
-	switch target.GetToolSource() {
-	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_UNSPECIFIED:
-		target.ToolSource = proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
-	case proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH:
-	default:
-		return fmt.Errorf("target.agent.tool_source %v is invalid", target.GetToolSource())
-	}
 	if target.GetPrompt() == "" && len(target.GetMessages()) == 0 {
 		return errors.New("target.agent.prompt or messages is required")
 	}
@@ -3262,7 +3254,6 @@ type workflowFingerprintAgentTarget struct {
 	Prompt          string
 	Messages        []agentFingerprintMessage
 	ToolRefs        []agentFingerprintToolRef
-	ToolSource      string
 	ResponseSchema  map[string]any
 	ProviderOptions map[string]any
 	Metadata        map[string]any
@@ -3314,9 +3305,6 @@ type agentFingerprintToolRef struct {
 }
 
 func workflowTargetFingerprint(target *proto.BoundWorkflowTarget) (string, error) {
-	if target.GetAgent() != nil && workflowPluginTargetSet(target) {
-		return "", errors.New("target cannot include both agent and plugin fields")
-	}
 	payload := normalizedWorkflowTargetFingerprintPayload(target)
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -3370,7 +3358,6 @@ func workflowAgentFingerprintPayload(agent *proto.BoundWorkflowAgentTarget) *wor
 		Prompt:          agent.GetPrompt(),
 		Messages:        nilIfEmptySlice(agentMessagesFingerprintPayload(agent.GetMessages())),
 		ToolRefs:        nilIfEmptySlice(agentToolRefsFingerprintPayload(agent.GetToolRefs())),
-		ToolSource:      agentToolSourceFingerprintValue(agent.GetToolSource()),
 		ResponseSchema:  nilIfEmptyMap(cloneStructMap(agent.GetResponseSchema())),
 		Metadata:        nilIfEmptyMap(cloneStructMap(agent.GetMetadata())),
 		ProviderOptions: nilIfEmptyMap(cloneStructMap(agent.GetProviderOptions())),
@@ -3460,13 +3447,6 @@ func agentToolRefsFingerprintPayload(refs []*proto.AgentToolRef) []agentFingerpr
 		})
 	}
 	return out
-}
-
-func agentToolSourceFingerprintValue(source proto.AgentToolSourceMode) string {
-	if source == proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
-		return "native_search"
-	}
-	return ""
 }
 
 func agentMessagePartTypeFingerprintValue(partType proto.AgentMessagePartType) string {
@@ -4259,12 +4239,14 @@ func cloneAgentTarget(target *proto.BoundWorkflowAgentTarget) *proto.BoundWorkfl
 
 func pluginTargetProto(pluginName, operation, connection, instance string, input map[string]any) *proto.BoundWorkflowTarget {
 	return &proto.BoundWorkflowTarget{
-		Plugin: &proto.BoundWorkflowPluginTarget{
-			PluginName: pluginName,
-			Operation:  operation,
-			Connection: connection,
-			Instance:   instance,
-			Input:      structFromAny(input),
+		Kind: &proto.BoundWorkflowTarget_Plugin{
+			Plugin: &proto.BoundWorkflowPluginTarget{
+				PluginName: pluginName,
+				Operation:  operation,
+				Connection: connection,
+				Instance:   instance,
+				Input:      structFromAny(input),
+			},
 		},
 	}
 }
