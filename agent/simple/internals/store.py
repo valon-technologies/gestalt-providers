@@ -20,6 +20,32 @@ TERMINAL_STATUSES = {
 
 BUSY_RETRY_INITIAL_DELAY_SECONDS = 0.02
 BUSY_RETRY_MAX_DELAY_SECONDS = 0.25
+CHECKPOINT_SCHEMA_VERSION = 1
+UNSUPPORTED_CHECKPOINT_RECORD_PHASE = "unsupported_record_shape"
+CHECKPOINT_RECORD_FIELDS = frozenset(
+    {
+        "id",
+        "schema_version",
+        "provider_name",
+        "session_id",
+        "model",
+        "phase",
+        "messages",
+        "conversation",
+        "response_schema",
+        "provider_options",
+        "tool_grant",
+        "tool_specs",
+        "function_name_to_tool_id",
+        "loaded_tool_ids",
+        "step_index",
+        "pending_tool_call",
+        "attempt",
+        "lease_owner",
+        "lease_expires_at",
+        "updated_at",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -59,10 +85,8 @@ class StoredTurnCheckpoint:
     tool_specs: list[dict[str, Any]]
     function_name_to_tool_id: dict[str, str]
     loaded_tool_ids: list[str]
-    slack_reply_ref: str
     step_index: int
     pending_tool_call: dict[str, Any] | None
-    repaired_arguments: dict[str, Any] | None
     attempt: int
     lease_owner: str
     lease_expires_at: datetime | None
@@ -869,10 +893,8 @@ def _turn_checkpoint_to_record(checkpoint: StoredTurnCheckpoint) -> dict[str, An
         "tool_specs": copy.deepcopy(checkpoint.tool_specs),
         "function_name_to_tool_id": dict(checkpoint.function_name_to_tool_id),
         "loaded_tool_ids": list(checkpoint.loaded_tool_ids),
-        "slack_reply_ref": checkpoint.slack_reply_ref,
         "step_index": checkpoint.step_index,
         "pending_tool_call": copy.deepcopy(checkpoint.pending_tool_call),
-        "repaired_arguments": copy.deepcopy(checkpoint.repaired_arguments),
         "attempt": checkpoint.attempt,
         "lease_owner": checkpoint.lease_owner,
         "lease_expires_at": checkpoint.lease_expires_at,
@@ -897,10 +919,8 @@ def _checkpoint_from_seed(run: StoredRun, seed: dict[str, Any], *, now: datetime
         tool_specs=_coerce_messages(seed.get("tool_specs")),
         function_name_to_tool_id=_coerce_string_dict(seed.get("function_name_to_tool_id")),
         loaded_tool_ids=_coerce_string_list(seed.get("loaded_tool_ids")),
-        slack_reply_ref=str(seed.get("slack_reply_ref") or ""),
         step_index=int(seed.get("step_index") or 0),
         pending_tool_call=_coerce_optional_dict(seed.get("pending_tool_call")),
-        repaired_arguments=_coerce_optional_dict(seed.get("repaired_arguments")),
         attempt=0,
         lease_owner="",
         lease_expires_at=None,
@@ -934,10 +954,8 @@ def _terminal_checkpoint_for_run(
             tool_specs=[],
             function_name_to_tool_id={},
             loaded_tool_ids=[],
-            slack_reply_ref="",
             step_index=0,
             pending_tool_call=None,
-            repaired_arguments=None,
             attempt=0,
             lease_owner="",
             lease_expires_at=None,
@@ -968,6 +986,8 @@ def _checkpoint_with_existing_lease(
 def _record_to_turn_checkpoint(record: dict[str, Any] | None) -> StoredTurnCheckpoint | None:
     if record is None:
         return None
+    if _checkpoint_record_has_unsupported_shape(record):
+        return _unsupported_turn_checkpoint_from_record(record)
     return StoredTurnCheckpoint(
         turn_id=str(record.get("id") or ""),
         schema_version=int(record.get("schema_version") or 1),
@@ -983,14 +1003,42 @@ def _record_to_turn_checkpoint(record: dict[str, Any] | None) -> StoredTurnCheck
         tool_specs=_coerce_messages(record.get("tool_specs")),
         function_name_to_tool_id=_coerce_string_dict(record.get("function_name_to_tool_id")),
         loaded_tool_ids=_coerce_string_list(record.get("loaded_tool_ids")),
-        slack_reply_ref=str(record.get("slack_reply_ref") or ""),
         step_index=int(record.get("step_index") or 0),
         pending_tool_call=_coerce_optional_dict(record.get("pending_tool_call")),
-        repaired_arguments=_coerce_optional_dict(record.get("repaired_arguments")),
         attempt=int(record.get("attempt") or 0),
         lease_owner=str(record.get("lease_owner") or ""),
         lease_expires_at=_coerce_datetime(record.get("lease_expires_at")),
         updated_at=_coerce_required_datetime(record.get("updated_at")),
+    )
+
+
+def _checkpoint_record_has_unsupported_shape(record: dict[str, Any]) -> bool:
+    schema_version = int(record.get("schema_version") or CHECKPOINT_SCHEMA_VERSION)
+    return schema_version != CHECKPOINT_SCHEMA_VERSION or any(key not in CHECKPOINT_RECORD_FIELDS for key in record)
+
+
+def _unsupported_turn_checkpoint_from_record(record: dict[str, Any]) -> StoredTurnCheckpoint:
+    return StoredTurnCheckpoint(
+        turn_id=str(record.get("id") or ""),
+        schema_version=int(record.get("schema_version") or CHECKPOINT_SCHEMA_VERSION),
+        provider_name=str(record.get("provider_name") or ""),
+        session_id=str(record.get("session_id") or ""),
+        model=str(record.get("model") or ""),
+        phase=UNSUPPORTED_CHECKPOINT_RECORD_PHASE,
+        messages=_coerce_messages(record.get("messages")),
+        conversation=_coerce_messages(record.get("conversation")),
+        response_schema=_coerce_optional_dict(record.get("response_schema")) or {},
+        provider_options=_coerce_optional_dict(record.get("provider_options")) or {},
+        tool_grant=str(record.get("tool_grant") or ""),
+        tool_specs=[],
+        function_name_to_tool_id={},
+        loaded_tool_ids=[],
+        step_index=int(record.get("step_index") or 0),
+        pending_tool_call=None,
+        attempt=int(record.get("attempt") or 0),
+        lease_owner=str(record.get("lease_owner") or ""),
+        lease_expires_at=_coerce_datetime(record.get("lease_expires_at")),
+        updated_at=_coerce_datetime(record.get("updated_at")) or _utcnow(),
     )
 
 

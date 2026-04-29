@@ -648,7 +648,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertIn("slack.events.reply", agent_target.messages[0].text)
         self.assertIn("text set to the complete", agent_target.messages[0].text)
-        self.assertIn("runtime supplies it", agent_target.messages[0].text)
+        self.assertIn("reply_ref set exactly", agent_target.messages[0].text)
         self.assertIn("slack.events.setStatus", agent_target.messages[0].text)
         self.assertIn("slack.interactions.request", agent_target.messages[0].text)
         self.assertIn(
