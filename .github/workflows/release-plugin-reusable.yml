@@ -233,7 +233,7 @@ jobs:
         env:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh linux/arm64 "python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}" gestaltd GESTALT_PYTHON_LINUX_ARM64 linux/arm64/musl "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
+          .github/scripts/package_python_docker.sh linux/arm64 "python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}" gestaltd GESTALT_PYTHON_LINUX_ARM64 linux/arm64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
       - name: Package TypeScript linux/arm64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
