@@ -319,6 +319,8 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             "query": request.query,
             "max_results": request.max_results,
         }
+        if str(getattr(request, "tool_grant", "") or "").strip():
+            search_request["tool_grant"] = request.tool_grant
         if _proto_message_has_field(request, "candidate_limit"):
             search_request["candidate_limit"] = request.candidate_limit
         if _proto_message_has_field(request, "load_refs"):
@@ -335,16 +337,17 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
         arguments = json_format.MessageToDict(request.arguments)
-        self.requests.append(
-            {
-                "session_id": request.session_id,
-                "turn_id": request.turn_id,
-                "tool_call_id": request.tool_call_id,
-                "tool_id": request.tool_id,
-                "arguments": arguments,
-                "idempotency_key": getattr(request, "idempotency_key", ""),
-            }
-        )
+        recorded_request = {
+            "session_id": request.session_id,
+            "turn_id": request.turn_id,
+            "tool_call_id": request.tool_call_id,
+            "tool_id": request.tool_id,
+            "arguments": arguments,
+            "idempotency_key": getattr(request, "idempotency_key", ""),
+        }
+        if str(getattr(request, "tool_grant", "") or "").strip():
+            recorded_request["tool_grant"] = request.tool_grant
+        self.requests.append(recorded_request)
         if self.pause_on_lookup:
             self.wait_until_released.wait(timeout=5)
         if self.tool_responses:
@@ -417,9 +420,17 @@ def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
 
 
 def _expected_search_request(
-    *, session_id: str, turn_id: str, query: str, max_results: int, candidate_limit: int | None = None
+    *,
+    session_id: str,
+    turn_id: str,
+    query: str,
+    max_results: int,
+    candidate_limit: int | None = None,
+    tool_grant: str = "",
 ) -> dict[str, Any]:
     request: dict[str, Any] = {"session_id": session_id, "turn_id": turn_id, "query": query, "max_results": max_results}
+    if tool_grant:
+        request["tool_grant"] = tool_grant
     if candidate_limit is not None and _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "candidate_limit"):
         request["candidate_limit"] = candidate_limit
     if _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "load_refs"):
@@ -849,6 +860,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 conversation=[{"role": "user", "content": "Use the tool"}],
                 response_schema={},
                 provider_options={},
+                tool_grant="",
                 tool_specs=[],
                 function_name_to_tool_id={},
                 loaded_tool_ids=[],
@@ -955,6 +967,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "required": ["posted"],
                 },
                 provider_options=provider_options,
+                tool_grant="",
                 tool_specs=[
                     {
                         "type": "function",
@@ -1250,6 +1263,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 ],
                 response_schema=response_schema,
                 provider_options=provider_options,
+                tool_grant="grant-success",
                 execution_ref="exec-1",
                 created_by=agent_pb2.AgentActor(
                     subject_id="user-123", subject_kind="human", display_name="Ada", auth_source="session"
@@ -1331,6 +1345,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     query="historical figure lookup",
                     max_results=5,
                     candidate_limit=10,
+                    tool_grant="grant-success",
                 )
             ],
         )
@@ -1344,6 +1359,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool_id": "lookup",
                 "arguments": {"query": "Ada Lovelace"},
                 "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-1"),
+                "tool_grant": "grant-success",
             },
         )
         self.assertEqual(
@@ -1355,6 +1371,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool_id": "lookup",
                 "arguments": {"query": "Analytical Engine"},
                 "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-2"),
+                "tool_grant": "grant-success",
             },
         )
 
