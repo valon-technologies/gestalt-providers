@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"os"
@@ -33,9 +34,11 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.17"
-	defaultPollInterval = time.Second
-	maxSignalAddRetries = 8
+	providerVersion           = "0.0.1-alpha.18"
+	defaultPollInterval       = time.Second
+	defaultWorkerCount        = 4
+	defaultMaxSignalsPerBatch = 25
+	maxSignalAddRetries       = 8
 
 	storeSchedules     = "schedules"
 	storeEventTriggers = "event_triggers"
@@ -94,7 +97,7 @@ type Provider struct {
 	signalStore       *gestalt.ObjectStoreClient
 	pollCancel        context.CancelFunc
 	pollDone          chan struct{}
-	wake              chan struct{}
+	wake              chan string
 
 	now func() time.Time
 }
@@ -302,12 +305,24 @@ func (p *Provider) Start(ctx context.Context) error {
 		return err
 	}
 
-	p.wake = make(chan struct{}, 1)
+	p.wake = make(chan string, max(128, defaultWorkerCount*8))
 	p.pollDone = make(chan struct{})
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
-	go p.pollLoop(loopCtx, p.cfg.PollInterval, p.pollDone, p.wake)
-	p.signalWorkerLocked()
+	var wg sync.WaitGroup
+	wg.Add(defaultWorkerCount)
+	for range defaultWorkerCount {
+		go func() {
+			defer wg.Done()
+			p.pollLoop(loopCtx, p.cfg.PollInterval, p.wake)
+		}()
+	}
+	done := p.pollDone
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	p.signalWorkerLocked("")
 	return nil
 }
 
@@ -511,7 +526,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		}
 	}
 	resp, err := run.toProto()
-	p.signalWorkerLocked()
+	p.signalWorkerLocked(run.ID)
 	p.mu.Unlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build run response: %v", err)
@@ -687,7 +702,7 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 		p.mu.Unlock()
 		return nil, err
 	}
-	p.signalWorkerLocked()
+	p.signalWorkerLocked(run.ID)
 	p.mu.Unlock()
 	return resp, nil
 }
@@ -773,7 +788,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 		p.mu.Unlock()
 		return nil, err
 	}
-	p.signalWorkerLocked()
+	p.signalWorkerLocked(run.ID)
 	p.mu.Unlock()
 	return resp, nil
 }
@@ -855,7 +870,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 		return nil, status.Errorf(codes.Internal, "upsert schedule: %v", err)
 	}
 	resp, err := record.toProto()
-	p.signalWorkerLocked()
+	p.signalWorkerLocked("")
 	p.mu.Unlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build schedule response: %v", err)
@@ -1172,6 +1187,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 	providerName := strings.TrimSpace(p.name)
 	publishedBy := cloneActor(req.GetPublishedBy())
 	enqueued := false
+	preferredRunID := ""
 	for _, trigger := range triggers {
 		if trigger.Paused || !eventMatchesTrigger(event, trigger) {
 			continue
@@ -1236,9 +1252,12 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			return nil, status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
 		}
 		enqueued = true
+		if preferredRunID == "" {
+			preferredRunID = run.ID
+		}
 	}
 	if enqueued {
-		p.signalWorkerLocked()
+		p.signalWorkerLocked(preferredRunID)
 	}
 	p.mu.Unlock()
 	return &emptypb.Empty{}, nil
@@ -1477,7 +1496,7 @@ func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, schedul
 			return nil, status.Errorf(codes.Internal, "parse schedule cron: %v", err)
 		}
 		record.NextRunAt = next
-		p.signalWorkerLocked()
+		p.signalWorkerLocked("")
 	}
 	if err := state.scheduleStore.Put(ctx, record.toRecord()); err != nil {
 		p.mu.Unlock()
@@ -1525,40 +1544,62 @@ func (p *Provider) updateEventTriggerPaused(ctx context.Context, pluginName, tri
 	return resp, nil
 }
 
-func (p *Provider) pollLoop(ctx context.Context, pollInterval time.Duration, done chan struct{}, wake <-chan struct{}) {
-	defer close(done)
-	_ = p.tick(ctx)
+func (p *Provider) pollLoop(ctx context.Context, pollInterval time.Duration, wake <-chan string) {
+	p.logTickError(ctx, p.tick(ctx, ""))
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
+		preferredRunID := ""
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-		case <-wake:
+		case preferredRunID = <-wake:
+			preferredRunID = drainPreferredRunID(preferredRunID, wake)
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		_ = p.tick(ctx)
+		p.logTickError(ctx, p.tick(ctx, preferredRunID))
 	}
 }
 
-func (p *Provider) tick(ctx context.Context) error {
+func drainPreferredRunID(preferredRunID string, wake <-chan string) string {
+	preferredRunID = strings.TrimSpace(preferredRunID)
+	for {
+		select {
+		case next := <-wake:
+			if next = strings.TrimSpace(next); next != "" {
+				preferredRunID = next
+			}
+		default:
+			return preferredRunID
+		}
+	}
+}
+
+func (p *Provider) logTickError(ctx context.Context, err error) {
+	if err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "indexeddb workflow tick failed", "provider", p.providerName(), "error", err)
+	}
+}
+
+func (p *Provider) tick(ctx context.Context, preferredRunID string) error {
 	if err := p.enqueueDueSchedules(ctx); err != nil {
 		return err
 	}
-	for {
-		processed, err := p.processNextPendingRun(ctx)
-		if err != nil {
-			return err
-		}
-		if !processed {
-			return nil
-		}
+	processed, err := p.processNextPendingRun(ctx, preferredRunID)
+	if err != nil {
+		return err
 	}
+	if processed {
+		p.mu.Lock()
+		p.signalWorkerLocked("")
+		p.mu.Unlock()
+	}
+	return nil
 }
 
 func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
@@ -1577,6 +1618,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 	now := p.clock().UTC()
 	parser := cronParser()
 	enqueued := false
+	preferredRunID := ""
 
 	for _, schedule := range records {
 		if schedule.Paused || schedule.NextRunAt == nil || schedule.NextRunAt.After(now) {
@@ -1613,21 +1655,24 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			return fmt.Errorf("schedule %q advance: %w", schedule.ID, err)
 		}
 		enqueued = true
+		if preferredRunID == "" {
+			preferredRunID = run.ID
+		}
 	}
 	if enqueued {
-		p.signalWorkerLocked()
+		p.signalWorkerLocked(preferredRunID)
 	}
 	return nil
 }
 
-func (p *Provider) processNextPendingRun(ctx context.Context) (bool, error) {
+func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID string) (bool, error) {
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
 		p.mu.Unlock()
 		return false, err
 	}
-	pending, found, err := nextRunnableRun(ctx, state.runStore, state.signalStore)
+	pending, found, err := nextRunnableRun(ctx, state.runStore, state.signalStore, preferredRunID)
 	if err != nil {
 		p.mu.Unlock()
 		return false, err
@@ -1642,7 +1687,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context) (bool, error) {
 	batchID := uuid.NewString()
 	var pendingSignals []workflowSignalRecord
 	if pending.WorkflowKey != "" {
-		pendingSignals, err = listSignalRecords(ctx, state.signalStore, pending.ID, signalStatePending)
+		pendingSignals, err = listSignalRecordsLimit(ctx, state.signalStore, pending.ID, signalStatePending, defaultMaxSignalsPerBatch)
 		if err != nil {
 			p.mu.Unlock()
 			return false, err
@@ -1755,13 +1800,25 @@ func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
 	}, nil
 }
 
-func (p *Provider) signalWorkerLocked() {
+func (p *Provider) signalWorkerLocked(preferredRunID string) {
 	if p.wake == nil {
 		return
 	}
+	preferredRunID = strings.TrimSpace(preferredRunID)
 	select {
-	case p.wake <- struct{}{}:
+	case p.wake <- preferredRunID:
 	default:
+		if preferredRunID == "" {
+			return
+		}
+		select {
+		case <-p.wake:
+		default:
+		}
+		select {
+		case p.wake <- preferredRunID:
+		default:
+		}
 	}
 }
 
@@ -2197,27 +2254,50 @@ func nextPendingRun(ctx context.Context, store *gestalt.ObjectStoreClient) (work
 	return workflowRunRecord{}, false, nil
 }
 
-func nextRunnableRun(ctx context.Context, runStore, signalStore *gestalt.ObjectStoreClient) (workflowRunRecord, bool, error) {
+func nextRunnableRun(ctx context.Context, runStore, signalStore *gestalt.ObjectStoreClient, preferredRunID string) (workflowRunRecord, bool, error) {
+	if preferredRunID = strings.TrimSpace(preferredRunID); preferredRunID != "" {
+		run, found, err := loadRunRecord(ctx, runStore, "", preferredRunID)
+		if err != nil {
+			return workflowRunRecord{}, false, err
+		}
+		if found {
+			runnable, err := workflowRunRunnable(ctx, signalStore, run)
+			if err != nil {
+				return workflowRunRecord{}, false, err
+			}
+			if runnable {
+				return run, true, nil
+			}
+		}
+	}
 	runs, err := listRunRecords(ctx, runStore, "")
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
 	for _, run := range runs {
-		if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
-			continue
-		}
-		if strings.TrimSpace(run.WorkflowKey) == "" {
-			return run, true, nil
-		}
-		hasPending, err := hasPendingSignals(ctx, signalStore, run.ID)
+		runnable, err := workflowRunRunnable(ctx, signalStore, run)
 		if err != nil {
 			return workflowRunRecord{}, false, err
 		}
-		if hasPending {
+		if runnable {
 			return run, true, nil
 		}
 	}
 	return workflowRunRecord{}, false, nil
+}
+
+func workflowRunRunnable(ctx context.Context, signalStore *gestalt.ObjectStoreClient, run workflowRunRecord) (bool, error) {
+	if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
+		return false, nil
+	}
+	if strings.TrimSpace(run.WorkflowKey) == "" {
+		return true, nil
+	}
+	hasPending, err := hasPendingSignals(ctx, signalStore, run.ID)
+	if err != nil {
+		return false, err
+	}
+	return hasPending, nil
 }
 
 func hasPendingSignals(ctx context.Context, store *gestalt.ObjectStoreClient, runID string) (bool, error) {
@@ -2418,6 +2498,53 @@ func listSignalRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ru
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
+	return out, nil
+}
+
+func listSignalRecordsLimit(ctx context.Context, store *gestalt.ObjectStoreClient, runID, state string, limit int) ([]workflowSignalRecord, error) {
+	runID = strings.TrimSpace(runID)
+	state = strings.TrimSpace(state)
+	if runID == "" || limit <= 0 {
+		return listSignalRecords(ctx, store, runID, state)
+	}
+
+	cursor, err := store.Index("by_run_sequence").OpenKeyCursor(ctx, nil, gestalt.CursorNext, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close() }()
+
+	out := make([]workflowSignalRecord, 0, limit)
+	for cursor.Continue() {
+		primaryKey := cursor.PrimaryKey()
+		if primaryKey == "" {
+			continue
+		}
+		record, err := store.Get(ctx, primaryKey)
+		if err != nil {
+			if errors.Is(err, gestalt.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		signal, err := signalRecordFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		if signal.RunID != runID {
+			continue
+		}
+		if state != "" && signal.State != state {
+			continue
+		}
+		out = append(out, signal)
+		if len(out) >= limit {
+			break
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

@@ -546,6 +546,109 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 	}
 }
 
+func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	host.releaseCh = make(chan struct{})
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	oldRunIDs := map[string]bool{}
+	for runIndex := 0; runIndex < defaultWorkerCount; runIndex++ {
+		oldRun := workflowRunRecord{
+			ID:          fmt.Sprintf("old-hot-run-%d", runIndex),
+			PluginName:  "agent:managed",
+			Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+			Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+			TriggerKind: triggerKindManual,
+			CreatedAt:   now.Add(-time.Hour).Add(time.Duration(runIndex) * time.Second),
+			WorkflowKey: fmt.Sprintf("github:127579767:valon-technologies/gestalt:%d", runIndex),
+		}
+		oldRunIDs[oldRun.ID] = true
+		if err := provider.runStore.Add(ctx, oldRun.toRecord()); err != nil {
+			t.Fatalf("seed old run %d: %v", runIndex, err)
+		}
+		for sequence := 1; sequence <= defaultMaxSignalsPerBatch+1; sequence++ {
+			signal := protoWorkflowSignal(
+				t,
+				fmt.Sprintf("old-%d-signal-%02d", runIndex, sequence),
+				fmt.Sprintf("old-%d-event-%02d", runIndex, sequence),
+				fmt.Sprintf("old %d/%d", runIndex, sequence),
+			)
+			signal.Sequence = int64(sequence)
+			record := workflowSignalRecord{
+				ID:             signal.GetId(),
+				RunID:          oldRun.ID,
+				WorkflowKey:    oldRun.WorkflowKey,
+				State:          signalStatePending,
+				Signal:         signal,
+				IdempotencyKey: signal.GetIdempotencyKey(),
+				Sequence:       signal.GetSequence(),
+				CreatedAt:      oldRun.CreatedAt.Add(time.Duration(sequence) * time.Second),
+			}
+			if err := provider.signalStore.Add(ctx, record.toRecord()); err != nil {
+				t.Fatalf("seed old signal %d/%d: %v", runIndex, sequence, err)
+			}
+		}
+	}
+
+	startProviderWorker(t, provider)
+	for i := 0; i < defaultWorkerCount; i++ {
+		call, err := host.waitForCall(time.Second)
+		if err != nil {
+			t.Fatalf("waitForCall(initial %d): %v", i, err)
+		}
+		if !oldRunIDs[call.GetRunId()] {
+			t.Fatalf("initial call %d run_id = %q, want old hot run", i, call.GetRunId())
+		}
+		if got := len(call.GetSignals()); got != defaultMaxSignalsPerBatch {
+			t.Fatalf("initial call %d signal count = %d, want max batch %d", i, got, defaultMaxSignalsPerBatch)
+		}
+	}
+
+	preferred, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  "slack:T123:C123:1700000000.000001",
+		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread"),
+		ExecutionRef: "agent-ref",
+		Signal:       protoWorkflowSignal(t, "", "slack-event-1", "new"),
+	})
+	if err != nil {
+		t.Fatalf("SignalOrStartRun(preferred): %v", err)
+	}
+	if _, err := host.waitForCall(50 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("host call while workers are blocked error = %v, want deadline exceeded", err)
+	}
+
+	close(host.releaseCh)
+	sawPreferred := false
+	for i := 0; i < defaultWorkerCount; i++ {
+		call, err := host.waitForCall(time.Second)
+		if err != nil {
+			t.Fatalf("waitForCall(after release %d): %v", i, err)
+		}
+		if call.GetRunId() == preferred.GetRun().GetId() {
+			sawPreferred = true
+			if len(call.GetSignals()) != 1 || call.GetSignals()[0].GetIdempotencyKey() != "slack-event-1" {
+				t.Fatalf("preferred call signals = %#v, want Slack signal", call.GetSignals())
+			}
+			continue
+		}
+		if !oldRunIDs[call.GetRunId()] {
+			t.Fatalf("after release call %d run_id = %q, want preferred or old hot run", i, call.GetRunId())
+		}
+	}
+	if !sawPreferred {
+		t.Fatal("preferred Slack run was not invoked between saturated hot-lane batches")
+	}
+}
+
 func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
@@ -780,6 +883,13 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	if !gproto.Equal(got.GetTarget(), ref.GetTarget()) {
 		t.Fatalf("round-tripped target = %#v, want %#v", got.GetTarget(), ref.GetTarget())
 	}
+	raw, err := provider.executionRefStore.Get(ctx, "agent-ref")
+	if err != nil {
+		t.Fatalf("raw execution ref get: %v", err)
+	}
+	if rawFingerprint := stringField(raw, "target_fingerprint"); rawFingerprint != canonicalProviderAgentWorkflowTargetFingerprint {
+		t.Fatalf("stored target_fingerprint = %q, want canonical %q", rawFingerprint, canonicalProviderAgentWorkflowTargetFingerprint)
+	}
 }
 
 func TestProviderAgentTargetFingerprintMatchesGestaltCanonicalNestedEmptyFields(t *testing.T) {
@@ -1010,7 +1120,7 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 
 	clock.Set(time.Date(2026, time.April, 16, 12, 17, 0, 0, time.UTC))
 	provider.mu.Lock()
-	provider.signalWorkerLocked()
+	provider.signalWorkerLocked("")
 	provider.mu.Unlock()
 
 	scheduleCall, err := host.waitForCall(time.Second)
@@ -1158,6 +1268,13 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	if ref.GetCredentialSubjectId() != publishedBy.GetSubjectId() {
 		t.Fatalf("credential_subject_id = %q, want publisher subject", ref.GetCredentialSubjectId())
 	}
+	rawRef, err := provider.executionRefStore.Get(ctx, call.GetExecutionRef())
+	if err != nil {
+		t.Fatalf("raw execution ref get: %v", err)
+	}
+	if stringField(rawRef, "target_fingerprint") == "" {
+		t.Fatal("stored target_fingerprint is required for event execution refs")
+	}
 	gotOperations := map[string]bool{}
 	for _, permission := range ref.GetPermissions() {
 		if permission.GetPlugin() != "github" {
@@ -1256,7 +1373,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 
 	clock.Set(time.Date(2026, time.April, 16, 12, 1, 0, 0, time.UTC))
 	provider.mu.Lock()
-	provider.signalWorkerLocked()
+	provider.signalWorkerLocked("")
 	provider.mu.Unlock()
 
 	call, err := host.waitForCall(time.Second)
