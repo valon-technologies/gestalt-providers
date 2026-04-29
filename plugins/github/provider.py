@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from http import HTTPStatus
 from typing import Any, TypeAlias
 
@@ -34,6 +35,7 @@ from internals.webhook import (
 )
 
 plugin = gestalt.Plugin("github")
+logger = logging.getLogger(__name__)
 
 OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, str]]
 
@@ -260,6 +262,7 @@ def _signal_or_start_webhook_workflow(
         with workflow_manager_factory() as workflow_manager:
             response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
+        logger.exception("failed to dispatch GitHub webhook workflow")
         return _service_unavailable(f"failed to dispatch workflow run: {err}")
 
     run = getattr(response, "run", None)
