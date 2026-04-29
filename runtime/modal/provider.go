@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.11"
+	providerVersion     = "0.0.1-alpha.12"
 	pluginGRPCPort      = 50051
 	tunnelLookupTimeout = 30 * time.Second
 	dialTimeout         = 15 * time.Second
