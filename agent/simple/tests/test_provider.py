@@ -1941,6 +1941,101 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(repaired_tool_use["type"], "tool_use")
         self.assertEqual(repaired_tool_use["input"], {"text": "Here are your open Linear tickets."})
 
+    def test_create_turn_repairs_missing_slack_reply_text_from_tool_reply_ref(self) -> None:
+        assert _host_servicer is not None
+        _, provider_client = _configure_provider()
+        _create_session(
+            provider_client,
+            session_id="session-repair-slack-reply-tool-ref",
+            idempotency_key="session-idem-repair-slack-reply-tool-ref",
+            model="anthropic/claude-fake-model",
+        )
+
+        fake_anthropic = _FakeAnthropicMessagesServer(
+            responses=[
+                {
+                    "id": "msg-slack-reply-missing-text-tool-ref",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu-reply-tool-ref",
+                            "name": "slack_events_reply",
+                            "input": {"reply_ref": "reply-ref-from-tool-call"},
+                        }
+                    ],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+                {
+                    "id": "msg-slack-reply-text-repair-tool-ref",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [{"type": "text", "text": "Here are your open Linear tickets."}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 20, "output_tokens": 6},
+                },
+                {
+                    "id": "msg-slack-reply-posted-tool-ref",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [{"type": "text", "text": "Posted to Slack."}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 24, "output_tokens": 4},
+                },
+            ]
+        )
+        fake_anthropic.start()
+        self.addCleanup(fake_anthropic.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update(
+            {"base_url": fake_anthropic.base_url, "api_key": "test-key", "tool_choice": {"type": "auto"}}
+        )
+
+        provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-repair-slack-reply-tool-ref",
+                session_id="session-repair-slack-reply-tool-ref",
+                idempotency_key="idem-repair-slack-reply-tool-ref",
+                model="anthropic/claude-fake-model",
+                messages=[agent_pb2.AgentMessage(role="user", text="Send the Slack reply.")],
+                tools=[_fake_slack_reply_tool()],
+                provider_options=provider_options,
+            )
+        )
+
+        fetched = _wait_for_turn(
+            provider_client, "turn-repair-slack-reply-tool-ref", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+        )
+
+        self.assertEqual(fetched.output_text, "Posted to Slack.")
+        self.assertEqual(
+            _host_servicer.requests,
+            [
+                {
+                    "session_id": "session-repair-slack-reply-tool-ref",
+                    "turn_id": "turn-repair-slack-reply-tool-ref",
+                    "tool_call_id": "toolu-reply-tool-ref",
+                    "tool_id": "slack/events.reply?credentialMode=none",
+                    "arguments": {
+                        "reply_ref": "reply-ref-from-tool-call",
+                        "text": "Here are your open Linear tickets.",
+                    },
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-repair-slack-reply-tool-ref", tool_call_id="toolu-reply-tool-ref"
+                    ),
+                }
+            ],
+        )
+
     def test_create_turn_repairs_missing_slack_reply_text_for_openai_responses(self) -> None:
         assert _host_servicer is not None
         _, provider_client = _configure_provider(default_model="openai/gpt-5.5")
