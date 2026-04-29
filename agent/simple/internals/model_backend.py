@@ -9,6 +9,28 @@ from openai import OpenAI
 from .config import SimpleAgentConfig
 
 DEFAULT_ANTHROPIC_MAX_TOKENS = 1024
+OPENAI_RESPONSES_OPTION_KEYS = frozenset(
+    {
+        "include",
+        "max_output_tokens",
+        "max_tool_calls",
+        "metadata",
+        "parallel_tool_calls",
+        "prompt_cache_key",
+        "reasoning",
+        "safety_identifier",
+        "service_tier",
+        "store",
+        "stream_options",
+        "temperature",
+        "text",
+        "tool_choice",
+        "top_logprobs",
+        "top_p",
+        "truncation",
+        "user",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -51,6 +73,12 @@ class ModelBackend:
         )
         if disable_tools:
             request_options = self._request_options_without_tools(request_options)
+        if route.backend_name == "openai" and self._should_use_openai_responses(
+            model=route.request_model, tools=tools, request_options=request_options
+        ):
+            return self._complete_openai_responses(
+                model=route.request_model, messages=messages, tools=tools, request_options=request_options
+            )
         if route.backend_name == "anthropic":
             return self._complete_anthropic(
                 model=route.request_model, messages=messages, tools=tools, request_options=request_options
@@ -89,6 +117,31 @@ class ModelBackend:
             output_text=self._normalize_content(message.content),
             tool_calls=tool_calls,
         )
+
+    def _complete_openai_responses(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        request_options: dict[str, Any],
+    ) -> BackendStep:
+        timeout = request_options.pop("timeout", self._config.timeout_seconds)
+        client = OpenAI(**self._openai_client_options(request_options, timeout))
+
+        create_options: dict[str, Any] = {
+            "model": model,
+            "input": self._messages_for_openai_responses(messages),
+            "timeout": timeout,
+        }
+        response_tools = self._tools_for_openai_responses(tools)
+        if response_tools:
+            create_options["tools"] = response_tools
+        create_options.update(self._request_options_for_openai_responses(request_options))
+
+        response = client.responses.create(**create_options)
+        assistant_message, output_text, tool_calls = self._openai_response_to_step_parts(response)
+        return BackendStep(assistant_message=assistant_message, output_text=output_text, tool_calls=tool_calls)
 
     def _complete_anthropic(
         self,
@@ -233,6 +286,58 @@ class ModelBackend:
             translated.append(translated_message)
         return translated
 
+    def _messages_for_openai_responses(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        translated: list[dict[str, Any]] = []
+        for raw_message in messages:
+            role = str(raw_message.get("role", "") or "").strip()
+            if not role:
+                continue
+
+            if role == "tool":
+                tool_call_id = str(raw_message.get("tool_call_id", "") or "").strip()
+                if tool_call_id:
+                    translated.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": tool_call_id,
+                            "output": self._normalize_content(raw_message.get("content")),
+                        }
+                    )
+                continue
+
+            if role not in {"assistant", "developer", "system", "user"}:
+                continue
+
+            if role == "assistant":
+                response_output = self._message_openai_response_output(raw_message)
+                if response_output:
+                    translated.extend(response_output)
+                    continue
+
+            content = self._normalize_content(raw_message.get("content"))
+            if content:
+                translated.append({"type": "message", "role": role, "content": content})
+
+            if role != "assistant":
+                continue
+
+            for tool_call in self._message_tool_calls(raw_message):
+                function = tool_call.get("function") or {}
+                tool_name = str(function.get("name", "") or "").strip()
+                tool_call_id = str(tool_call.get("id", "") or "").strip()
+                if not tool_name or not tool_call_id:
+                    continue
+                translated.append(
+                    {
+                        "type": "function_call",
+                        "id": tool_call_id,
+                        "call_id": tool_call_id,
+                        "name": tool_name,
+                        "arguments": self._encoded_tool_arguments(function.get("arguments", "{}")),
+                    }
+                )
+        return translated
+
     def _messages_for_anthropic(self, messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
         system_parts: list[str] = []
         translated: list[dict[str, Any]] = []
@@ -318,11 +423,78 @@ class ModelBackend:
             )
         return anthropic_tools
 
+    def _tools_for_openai_responses(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        response_tools: list[dict[str, Any]] = []
+        for tool in tools:
+            function = tool.get("function") or {}
+            tool_name = str(function.get("name", "") or "").strip()
+            if not tool_name:
+                continue
+            response_tools.append(
+                {
+                    "type": "function",
+                    "name": tool_name,
+                    "description": str(function.get("description", "") or "").strip(),
+                    "parameters": function.get("parameters") or {"type": "object", "properties": {}},
+                    "strict": bool(function.get("strict", False)),
+                }
+            )
+        return response_tools
+
+    def _openai_response_to_step_parts(self, response: Any) -> tuple[dict[str, Any], str, list[BackendToolCall]]:
+        assistant_message: dict[str, Any] = {"role": "assistant"}
+        output_text = self._normalize_content(getattr(response, "output_text", ""))
+        tool_calls: list[BackendToolCall] = []
+        tool_call_messages: list[dict[str, Any]] = []
+        response_output: list[dict[str, Any]] = []
+
+        for item in getattr(response, "output", []) or []:
+            output_item = self._openai_response_output_item(item)
+            if output_item:
+                response_output.append(output_item)
+            if str(output_item.get("type", "") or "") != "function_call":
+                continue
+            call_id = str(output_item.get("call_id", "") or output_item.get("id", "") or "").strip()
+            tool_name = str(output_item.get("name", "") or "").strip()
+            if not call_id or not tool_name:
+                continue
+            arguments = self._coerce_tool_arguments(output_item.get("arguments", "") or "{}", block_id=call_id)
+            encoded_arguments = json.dumps(arguments, separators=(",", ":"))
+            tool_calls.append(BackendToolCall(call_id=call_id, tool_id=tool_name, arguments=arguments))
+            tool_call_messages.append(
+                {"id": call_id, "type": "function", "function": {"name": tool_name, "arguments": encoded_arguments}}
+            )
+
+        if response_output:
+            assistant_message["openai_response_output"] = response_output
+        if output_text:
+            assistant_message["content"] = output_text
+        elif tool_call_messages:
+            assistant_message["content"] = None
+        if tool_call_messages:
+            assistant_message["tool_calls"] = tool_call_messages
+        return assistant_message, output_text, tool_calls
+
+    def _openai_response_output_item(self, item: Any) -> dict[str, Any]:
+        if isinstance(item, dict):
+            return deepcopy(item)
+        if hasattr(item, "model_dump"):
+            dumped = item.model_dump(mode="json", exclude_none=True)
+            if isinstance(dumped, dict):
+                return dumped
+        return {}
+
     def _message_tool_calls(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         raw_tool_calls = message.get("tool_calls")
         if isinstance(raw_tool_calls, list):
             return [tool_call for tool_call in raw_tool_calls if isinstance(tool_call, dict)]
         return []
+
+    def _message_openai_response_output(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        raw_output = message.get("openai_response_output")
+        if not isinstance(raw_output, list):
+            return []
+        return [deepcopy(item) for item in raw_output if isinstance(item, dict)]
 
     def _message_anthropic_content(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         raw_content = message.get("anthropic_content")
@@ -371,6 +543,47 @@ class ModelBackend:
             filtered.pop(key, None)
         return filtered
 
+    def _request_options_for_openai_responses(self, request_options: dict[str, Any]) -> dict[str, Any]:
+        options = deepcopy(request_options)
+        reasoning_effort = options.pop("reasoning_effort", None)
+        if reasoning_effort is not None:
+            reasoning = options.get("reasoning")
+            if isinstance(reasoning, dict):
+                merged_reasoning = deepcopy(reasoning)
+                merged_reasoning.setdefault("effort", reasoning_effort)
+                options["reasoning"] = merged_reasoning
+            else:
+                options["reasoning"] = {"effort": reasoning_effort}
+        max_completion_tokens = options.pop("max_completion_tokens", None)
+        if max_completion_tokens is not None and "max_output_tokens" not in options:
+            options["max_output_tokens"] = max_completion_tokens
+        if "tool_choice" in options:
+            options["tool_choice"] = self._tool_choice_for_openai_responses(options["tool_choice"])
+        return {key: value for key, value in options.items() if key in OPENAI_RESPONSES_OPTION_KEYS}
+
+    def _tool_choice_for_openai_responses(self, raw_value: Any) -> Any:
+        if not isinstance(raw_value, dict):
+            return raw_value
+        if str(raw_value.get("type", "") or "") != "function":
+            return raw_value
+        function = raw_value.get("function")
+        if not isinstance(function, dict):
+            return raw_value
+        name = str(function.get("name", "") or "").strip()
+        if not name:
+            return raw_value
+        translated = deepcopy(raw_value)
+        translated.pop("function", None)
+        translated["name"] = name
+        return translated
+
+    def _should_use_openai_responses(
+        self, *, model: str, tools: list[dict[str, Any]], request_options: dict[str, Any]
+    ) -> bool:
+        if not model.lower().startswith("gpt-5"):
+            return False
+        return bool(tools) or "reasoning_effort" in request_options or "reasoning" in request_options
+
     def _merge_request_options(
         self, options: dict[str, Any], provider_options: dict[str, Any], *, option_provider_names: tuple[str, ...]
     ) -> None:
@@ -416,6 +629,13 @@ class ModelBackend:
         if not isinstance(parsed, dict):
             raise ValueError(f"tool call {block_id!r} arguments must decode to an object")
         return parsed
+
+    def _encoded_tool_arguments(self, raw_value: Any) -> str:
+        if isinstance(raw_value, str):
+            return raw_value
+        if isinstance(raw_value, dict):
+            return json.dumps(raw_value, separators=(",", ":"))
+        return str(raw_value or "{}")
 
     def _normalize_content(self, content: Any) -> str:
         if content is None:

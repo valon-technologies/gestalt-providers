@@ -335,6 +335,51 @@ class _FakeOpenAIChatServer:
         return Handler
 
 
+class _FakeOpenAIResponsesServer:
+    def __init__(self, responses: list[dict[str, Any]]) -> None:
+        self._responses = list(responses)
+        self.requests: list[dict[str, Any]] = []
+        self._server = HTTPServer(("127.0.0.1", 0), self._handler_type())
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    @property
+    def base_url(self) -> str:
+        address = self._server.server_address
+        return f"http://{address[0]}:{address[1]}"
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._thread.join(timeout=5)
+        self._server.server_close()
+
+    def _handler_type(self) -> type[BaseHTTPRequestHandler]:
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                if self.path != "/v1/responses":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                outer.requests.append(json.loads(body.decode("utf-8")))
+                payload = outer._responses.pop(0)
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                del format, args
+
+        return Handler
+
+
 class _FakeAnthropicMessagesServer:
     def __init__(self, responses: list[dict[str, Any]]) -> None:
         self._responses = list(responses)
@@ -1163,6 +1208,148 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(repaired_tool_use["type"], "tool_use")
         self.assertEqual(repaired_tool_use["input"], {"text": "Here are your open Linear tickets."})
 
+    def test_create_turn_repairs_missing_slack_reply_text_for_openai_responses(self) -> None:
+        assert _host_servicer is not None
+        _, provider_client = _configure_provider(default_model="openai/gpt-5.5")
+        _create_session(
+            provider_client,
+            session_id="session-repair-slack-reply-openai",
+            idempotency_key="session-idem-repair-slack-reply-openai",
+            model="openai/gpt-5.5",
+        )
+
+        signal_batch = json.dumps(
+            {"signals": [{"payload": {"reply_ref": "reply-ref-from-signal"}}]}, separators=(",", ":")
+        )
+
+        fake_llm = _FakeOpenAIResponsesServer(
+            responses=[
+                {
+                    "id": "resp-slack-reply-missing-text",
+                    "object": "response",
+                    "created_at": 1710000062,
+                    "model": "gpt-5.5",
+                    "status": "completed",
+                    "output": [
+                        {"id": "rs-reply", "type": "reasoning", "summary": [], "status": "completed"},
+                        {
+                            "id": "fc-reply",
+                            "type": "function_call",
+                            "call_id": "call-reply",
+                            "name": "slack_events_reply",
+                            "arguments": "{}",
+                            "status": "completed",
+                        },
+                    ],
+                    "parallel_tool_calls": True,
+                    "tool_choice": "auto",
+                    "tools": [],
+                },
+                {
+                    "id": "resp-slack-reply-text-repair",
+                    "object": "response",
+                    "created_at": 1710000063,
+                    "model": "gpt-5.5",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "id": "msg-repair",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [
+                                {"type": "output_text", "text": "Here are your open pull requests.", "annotations": []}
+                            ],
+                        }
+                    ],
+                    "parallel_tool_calls": True,
+                    "tool_choice": "auto",
+                    "tools": [],
+                },
+                {
+                    "id": "resp-slack-reply-posted",
+                    "object": "response",
+                    "created_at": 1710000064,
+                    "model": "gpt-5.5",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "id": "msg-posted",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [{"type": "output_text", "text": "Posted to Slack.", "annotations": []}],
+                        }
+                    ],
+                    "parallel_tool_calls": True,
+                    "tool_choice": "auto",
+                    "tools": [],
+                },
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update(
+            {
+                "openai": {
+                    "base_url": f"{fake_llm.base_url}/v1",
+                    "api_key": "test-key",
+                    "reasoning_effort": "xhigh",
+                    "tool_choice": {"type": "function", "function": {"name": "slack_events_reply"}},
+                }
+            }
+        )
+
+        provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-repair-slack-reply-openai",
+                session_id="session-repair-slack-reply-openai",
+                idempotency_key="idem-repair-slack-reply-openai",
+                model="openai/gpt-5.5",
+                messages=[agent_pb2.AgentMessage(role="user", text=f"Workflow signal batch:\n{signal_batch}")],
+                tools=[_fake_slack_reply_tool()],
+                provider_options=provider_options,
+            )
+        )
+
+        fetched = _wait_for_turn(
+            provider_client, "turn-repair-slack-reply-openai", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+        )
+
+        self.assertEqual(fetched.output_text, "Posted to Slack.")
+        self.assertEqual(
+            _host_servicer.requests,
+            [
+                {
+                    "session_id": "session-repair-slack-reply-openai",
+                    "turn_id": "turn-repair-slack-reply-openai",
+                    "tool_call_id": "call-reply",
+                    "tool_id": "slack/events.reply?credentialMode=none",
+                    "arguments": {"reply_ref": "reply-ref-from-signal", "text": "Here are your open pull requests."},
+                }
+            ],
+        )
+
+        self.assertEqual(len(fake_llm.requests), 3)
+        first_request = fake_llm.requests[0]
+        self.assertEqual(first_request["tool_choice"], {"type": "function", "name": "slack_events_reply"})
+        self.assertEqual(first_request["reasoning"], {"effort": "xhigh"})
+
+        repair_request = fake_llm.requests[1]
+        self.assertNotIn("tools", repair_request)
+        self.assertNotIn("tool_choice", repair_request)
+        self.assertEqual(repair_request["reasoning"], {"effort": "xhigh"})
+        self.assertIn("Return only the Slack message body", repair_request["input"][-1]["content"])
+
+        final_request = fake_llm.requests[2]
+        self.assertIn(
+            {"id": "rs-reply", "type": "reasoning", "summary": [], "status": "completed"}, final_request["input"]
+        )
+        replayed_call = next(item for item in final_request["input"] if item.get("type") == "function_call")
+        self.assertEqual(json.loads(replayed_call["arguments"]), {"text": "Here are your open pull requests."})
+
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
         assert _indexeddb_servicer is not None
 
@@ -1427,6 +1614,108 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(request["max_completion_tokens"], 64)
         self.assertNotIn("litellm", request)
         self.assertNotIn("presence_penalty", request)
+
+    def test_create_turn_uses_openai_responses_for_gpt5_tool_reasoning_options(self) -> None:
+        fake_llm = _FakeOpenAIResponsesServer(
+            responses=[
+                {
+                    "id": "resp-tool-search",
+                    "object": "response",
+                    "created_at": 1710000060,
+                    "model": "gpt-5.5",
+                    "status": "completed",
+                    "output": [
+                        {"id": "rs-tool-search", "type": "reasoning", "summary": [], "status": "completed"},
+                        {
+                            "id": "fc-search",
+                            "type": "function_call",
+                            "call_id": "call-search-responses",
+                            "name": "gestalt_search_tools",
+                            "arguments": '{"query":"person lookup"}',
+                            "status": "completed",
+                        },
+                    ],
+                    "parallel_tool_calls": True,
+                    "tool_choice": "auto",
+                    "tools": [],
+                },
+                {
+                    "id": "resp-final",
+                    "object": "response",
+                    "created_at": 1710000061,
+                    "model": "gpt-5.5",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "id": "msg-final",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [{"type": "output_text", "text": "Responses route works.", "annotations": []}],
+                        }
+                    ],
+                    "parallel_tool_calls": True,
+                    "tool_choice": "auto",
+                    "tools": [],
+                },
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        _, provider_client = _configure_provider(
+            default_model="openai/gpt-5.5",
+            provider_options={
+                "openai": {
+                    "base_url": f"{fake_llm.base_url}/v1",
+                    "api_key": "test-key",
+                    "reasoning_effort": "xhigh",
+                    "reasoning": {"summary": "auto"},
+                    "max_completion_tokens": 64,
+                    "tool_choice": {"type": "function", "function": {"name": "gestalt_search_tools"}},
+                }
+            },
+        )
+        _create_session(
+            provider_client,
+            session_id="session-openai-responses",
+            idempotency_key="session-idem-openai-responses",
+            model="openai/gpt-5.5",
+        )
+
+        started = provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-openai-responses",
+                session_id="session-openai-responses",
+                idempotency_key="idem-openai-responses",
+                messages=[agent_pb2.AgentMessage(role="user", text="Use a tool.")],
+            )
+        )
+        fetched = _wait_for_turn(provider_client, "turn-openai-responses", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "Responses route works.")
+
+        self.assertEqual(len(fake_llm.requests), 2)
+        first_request = fake_llm.requests[0]
+        self.assertEqual(first_request["model"], "gpt-5.5")
+        self.assertEqual(first_request["reasoning"], {"summary": "auto", "effort": "xhigh"})
+        self.assertEqual(first_request["max_output_tokens"], 64)
+        self.assertEqual(first_request["tool_choice"], {"type": "function", "name": "gestalt_search_tools"})
+        self.assertNotIn("reasoning_effort", first_request)
+        self.assertNotIn("max_completion_tokens", first_request)
+        self.assertEqual(first_request["tools"][0]["type"], "function")
+        self.assertEqual(first_request["tools"][0]["name"], "gestalt_search_tools")
+        self.assertNotIn("function", first_request["tools"][0])
+
+        second_input = fake_llm.requests[1]["input"]
+        self.assertIn({"id": "rs-tool-search", "type": "reasoning", "summary": [], "status": "completed"}, second_input)
+        self.assertTrue(
+            any(item.get("type") == "function_call" and item.get("id") == "fc-search" for item in second_input)
+        )
+        self.assertTrue(any(item.get("type") == "function_call_output" for item in second_input))
+        self.assertIn("person_lookup", [tool["name"] for tool in fake_llm.requests[1]["tools"]])
 
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
