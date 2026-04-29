@@ -422,12 +422,16 @@ test.describe("Integrations", () => {
   }) => {
     const page = authenticatedPage;
     let disconnected = false;
+    let disconnectURL: URL | undefined;
 
-    const connectedList = [{ ...OAUTH_INTEGRATION, connected: true, instances: [{ name: "default" }] }];
+    const connectedList = [{ ...OAUTH_INTEGRATION, connected: true, instances: [{ name: "prod", connection: "oauth" }] }];
     const disconnectedList = [{ ...OAUTH_INTEGRATION, connected: false }];
 
     await mockIntegrations(page, connectedList, {
-      onDisconnect: () => { disconnected = true; },
+      onDisconnect: (_name, url) => {
+        disconnected = true;
+        disconnectURL = url;
+      },
     });
 
     await page.goto("/integrations");
@@ -453,6 +457,10 @@ test.describe("Integrations", () => {
     await expect(page.getByRole("button", { name: "OAuth Service settings" })).toBeVisible();
     await page.getByRole("button", { name: "OAuth Service settings" }).click();
     await expect(page.getByRole("dialog").getByText("Not connected")).toBeVisible();
+    expect(disconnectURL?.searchParams.get("_instance")).toBe("prod");
+    expect(disconnectURL?.searchParams.get("_connection")).toBe("oauth");
+    expect(disconnectURL?.searchParams.has("instance")).toBe(false);
+    expect(disconnectURL?.searchParams.has("connection")).toBe(false);
   });
 
   test("manual auth submits credential and refreshes", async ({

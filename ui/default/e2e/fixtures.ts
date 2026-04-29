@@ -70,7 +70,7 @@ type MockWorkflowEventTriggersController = {
 export async function mockIntegrations(
   page: Page,
   integrations: Integration[],
-  opts?: { onDisconnect?: (name: string) => void },
+  opts?: { onDisconnect?: (name: string, url: URL) => void },
 ) {
   await page.route("**/api/v1/integrations", (route: Route, request) => {
     if (request.method() === "GET") {
@@ -84,7 +84,7 @@ export async function mockIntegrations(
     if (request.method() === "DELETE") {
       const url = new URL(request.url());
       const name = url.pathname.split("/").pop() || "";
-      opts?.onDisconnect?.(name);
+      opts?.onDisconnect?.(name, url);
       route.fulfill({ json: { status: "disconnected" } });
     } else {
       route.fallback();
