@@ -595,6 +595,17 @@ def _replace_tool_call_arguments(
             if isinstance(function, dict):
                 function["arguments"] = encoded_arguments
 
+    raw_openai_response_output = assistant_message.get("openai_response_output")
+    if isinstance(raw_openai_response_output, list):
+        for output_item in raw_openai_response_output:
+            if not isinstance(output_item, dict):
+                continue
+            if str(output_item.get("type", "") or "").strip() != "function_call":
+                continue
+            output_call_id = str(output_item.get("call_id", "") or output_item.get("id", "") or "").strip()
+            if output_call_id == tool_call_id:
+                output_item["arguments"] = encoded_arguments
+
     raw_anthropic_content = assistant_message.get("anthropic_content")
     if isinstance(raw_anthropic_content, list):
         for block in raw_anthropic_content:
@@ -754,7 +765,7 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
 def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool = False) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if value < 0:
         return default
@@ -766,7 +777,7 @@ def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool =
 def _tool_search_candidate_limit(raw_value: Any, *, default: int) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if value <= 0:
         return 0
