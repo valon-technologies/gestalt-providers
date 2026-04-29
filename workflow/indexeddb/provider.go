@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.20"
+	providerVersion           = "0.0.1-alpha.21"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -2298,15 +2298,11 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 }
 
 func markStaleRunningRunsFailed(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
-	runs, err := runStore.GetAll(ctx, nil)
+	runs, err := listRunRecords(ctx, runStore, "")
 	if err != nil {
 		return err
 	}
-	for _, record := range runs {
-		run, err := runRecordFromRecord(record)
-		if err != nil {
-			return err
-		}
+	for _, run := range runs {
 		if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
 			continue
 		}
@@ -3132,20 +3128,32 @@ func loadRunRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore,
 }
 
 func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey string) ([]workflowRunRecord, error) {
-	records, err := store.GetAll(ctx, nil)
+	cursor, err := store.OpenKeyCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]workflowRunRecord, 0, len(records))
-	for _, record := range records {
-		run, err := runRecordFromRecord(record)
+	defer cursor.Close()
+
+	var out []workflowRunRecord
+	for cursor.Continue() {
+		key := strings.TrimSpace(cursor.PrimaryKey())
+		if key == "" {
+			continue
+		}
+		run, found, err := loadRunRecord(ctx, store, "", key)
 		if err != nil {
 			return nil, err
+		}
+		if !found {
+			continue
 		}
 		if ownerKey != "" && run.ownerKey() != ownerKey {
 			continue
 		}
 		out = append(out, run)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, err
 	}
 	slices.SortFunc(out, func(a, b workflowRunRecord) int {
 		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {

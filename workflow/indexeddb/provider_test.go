@@ -2041,7 +2041,9 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 
 func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	ctx := context.Background()
-	startTestIndexedDBBackend(t)
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		return &indexedDBServerSpy{IndexedDBServer: inner, failUnscopedRunGetAll: true}
+	})
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
 
 	first := New()
@@ -2193,10 +2195,14 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(proto.IndexedD
 type indexedDBServerSpy struct {
 	proto.IndexedDBServer
 	failUnscopedSignalGetAll bool
+	failUnscopedRunGetAll    bool
 	missingSignalIndex       string
 }
 
 func (s *indexedDBServerSpy) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+	if s.failUnscopedRunGetAll && req.GetStore() == storeRuns && req.GetRange() == nil {
+		return nil, status.Error(codes.Internal, "unexpected unscoped workflow runs GetAll")
+	}
 	if s.failUnscopedSignalGetAll && req.GetStore() == storeSignals && req.GetRange() == nil {
 		return nil, status.Error(codes.Internal, "unexpected unscoped workflow_signals GetAll")
 	}
