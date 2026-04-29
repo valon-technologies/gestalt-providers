@@ -148,8 +148,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(webhook["credentialMode"], "none")
         self.assertEqual(webhook["security"], "github_app")
         self.assertEqual(webhook["target"], provider_module.GITHUB_EVENT_OPERATION)
-        self.assertEqual(webhook["ack"]["status"], HTTPStatus.ACCEPTED)
-        self.assertEqual(webhook["ack"]["body"], {"status": "accepted"})
+        self.assertNotIn("ack", webhook)
         self.assertEqual(security["type"], "hmac")
         self.assertEqual(security["secret"]["env"], "GITHUB_WEBHOOK_SECRET")
         self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")
@@ -634,7 +633,9 @@ class GitHubProviderTests(unittest.TestCase):
             create=True,
         ):
             with self.assertLogs(provider_module.logger, level="ERROR") as logs:
-                result = provider_module.github_events_handle(payload, gestalt.Request())
+                result = provider_module.github_events_handle(
+                    payload, gestalt.Request()
+                )
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)

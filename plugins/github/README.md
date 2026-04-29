@@ -99,21 +99,19 @@ By default, webhook-triggered agents are started for `check_run`, `check_suite`,
 enabled by default so commits created by the bot do not recursively start new
 agent turns. Set `webhookEvents` to override the allowlist.
 
-After signature validation, the hosted HTTP binding immediately responds to
-GitHub with `202 {"status":"accepted"}` and dispatches `events.handle`
-asynchronously. `events.handle` filters the event and calls
+After signature validation, the hosted HTTP binding invokes `events.handle`
+before acknowledging the GitHub delivery. `events.handle` filters the event and calls
 `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
 workflow_key="github:${installation_id}:${owner}/${repo}:${number}",
-signal.name="github.app.webhook")` and returns from the webhook request without
-starting the agent inline. Dispatch failures are logged by the GitHub provider
-process and GitHub does not wait for workflow enqueueing to finish. The signal
-payload has this interface:
+signal.name="github.app.webhook")` and returns from the webhook request after the
+workflow signal has been durably enqueued. The agent still starts from the
+workflow provider, not inline in the webhook handler. If enqueueing fails,
+`events.handle` returns a retryable error so GitHub can redeliver the webhook.
+The signal payload has this interface:
 
-This intentionally gives up GitHub's automatic retry for workflow enqueue
-failures after signature validation. GitHub's delivery timeout is 10 seconds,
-so synchronous enqueue failures can otherwise surface as delivery timeouts even
-when the host eventually accepts the event. Treat provider dispatch error logs
-as the retry/replay signal for this path.
+GitHub's delivery timeout is 10 seconds, so webhook handlers must keep the
+enqueue path small and avoid starting agents inline. Treat non-2xx delivery
+responses as retryable enqueue failures.
 
 ```json
 {

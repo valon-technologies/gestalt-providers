@@ -546,6 +546,363 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 	}
 }
 
+func TestProviderSignalOrStartRunConcurrentSignalsShareWorkflowKeyRun(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	secondProvider := New()
+	if err := secondProvider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(second): %v", err)
+	}
+	t.Cleanup(func() { _ = secondProvider.Close() })
+	providers := []*Provider{provider, secondProvider}
+
+	const signalCount = 12
+	type result struct {
+		resp *proto.SignalWorkflowRunResponse
+		err  error
+	}
+	start := make(chan struct{})
+	results := make(chan result, signalCount)
+	for i := 0; i < signalCount; i++ {
+		i := i
+		go func() {
+			<-start
+			p := providers[i%len(providers)]
+			resp, err := p.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+				WorkflowKey:  "github:127579767:valon-technologies/gestalt:issue_comment:42",
+				Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+				ExecutionRef: "agent-ref",
+				Signal:       protoWorkflowSignal(t, "", fmt.Sprintf("github-delivery-%02d", i), fmt.Sprintf("event %02d", i)),
+			})
+			results <- result{resp: resp, err: err}
+		}()
+	}
+	close(start)
+
+	runID := ""
+	started := 0
+	seenSequences := make(map[int64]bool, signalCount)
+	for i := 0; i < signalCount; i++ {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("SignalOrStartRun(%d): %v", i, result.err)
+		}
+		resp := result.resp
+		if resp.GetRun().GetId() == "" {
+			t.Fatalf("response %d run_id is empty", i)
+		}
+		if runID == "" {
+			runID = resp.GetRun().GetId()
+		}
+		if resp.GetRun().GetId() != runID {
+			t.Fatalf("response %d run_id = %q, want %q", i, resp.GetRun().GetId(), runID)
+		}
+		if resp.GetStartedRun() {
+			started++
+		}
+		sequence := resp.GetSignal().GetSequence()
+		if sequence < 1 || sequence > signalCount {
+			t.Fatalf("response %d sequence = %d, want 1..%d", i, sequence, signalCount)
+		}
+		if seenSequences[sequence] {
+			t.Fatalf("duplicate sequence %d", sequence)
+		}
+		seenSequences[sequence] = true
+	}
+	if started != 1 {
+		t.Fatalf("started_run count = %d, want 1", started)
+	}
+
+	signals, err := listSignalRecords(ctx, provider.signalStore, runID, signalStatePending)
+	if err != nil {
+		t.Fatalf("listSignalRecords: %v", err)
+	}
+	if len(signals) != signalCount {
+		t.Fatalf("pending signals len = %d, want %d", len(signals), signalCount)
+	}
+	for sequence := int64(1); sequence <= signalCount; sequence++ {
+		if !seenSequences[sequence] {
+			t.Fatalf("missing sequence %d", sequence)
+		}
+	}
+}
+
+func TestProviderSignalOrStartRunRejectsExplicitSignalIDFromOtherWorkflowKey(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	target := protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread")
+	first, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  "github:127579767:valon-technologies/gestalt:issue_comment:42",
+		Target:       target,
+		ExecutionRef: "agent-ref",
+		Signal:       protoWorkflowSignal(t, "shared-signal-id", "github-delivery-1", "first"),
+	})
+	if err != nil {
+		t.Fatalf("SignalOrStartRun(first): %v", err)
+	}
+	if first.GetRun().GetId() == "" {
+		t.Fatalf("first run id is empty")
+	}
+
+	_, err = provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  "github:127579767:valon-technologies/gestalt:issue_comment:43",
+		Target:       target,
+		ExecutionRef: "agent-ref",
+		Signal:       protoWorkflowSignal(t, "shared-signal-id", "github-delivery-2", "second"),
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("SignalOrStartRun(second) error = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestProviderTerminalKeyedRunWithPendingSignalIsRunnable(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "terminal-keyed-run",
+		PluginName:  "agent:managed",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now.Add(-time.Minute),
+		CompletedAt: timePtr(now),
+		WorkflowKey: "github:127579767:valon-technologies/gestalt:issue_comment:42",
+	}
+	if err := provider.runStore.Add(ctx, run.toRecord()); err != nil {
+		t.Fatalf("seed terminal run: %v", err)
+	}
+	signal := protoWorkflowSignal(t, "late-signal", "late-delivery", "late")
+	record := workflowSignalRecord{
+		ID:             signal.GetId(),
+		RunID:          run.ID,
+		WorkflowKey:    run.WorkflowKey,
+		State:          signalStatePending,
+		Signal:         signal,
+		IdempotencyKey: signal.GetIdempotencyKey(),
+		Sequence:       1,
+		CreatedAt:      now,
+	}
+	if err := provider.signalStore.Add(ctx, record.toRecord()); err != nil {
+		t.Fatalf("seed pending signal: %v", err)
+	}
+
+	processed, err := provider.processNextPendingRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("processNextPendingRun: %v", err)
+	}
+	if !processed {
+		t.Fatal("processNextPendingRun processed = false, want true")
+	}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != run.ID || len(call.GetSignals()) != 1 || call.GetSignals()[0].GetId() != signal.GetId() {
+		t.Fatalf("host call = %#v, want late signal on terminal run", call)
+	}
+}
+
+func TestProviderSignalOrStartRunReplacesStaleWorkflowKey(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	workflowKey := "github:127579767:valon-technologies/gestalt:issue_comment:42"
+	if err := addWorkflowKeyRecord(ctx, provider.workflowKeyStore, workflowKey, "missing-run", time.Now().UTC()); err != nil {
+		t.Fatalf("seed workflow key: %v", err)
+	}
+
+	resp, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  workflowKey,
+		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		ExecutionRef: "agent-ref",
+		Signal:       protoWorkflowSignal(t, "", "github-delivery-1", "first"),
+	})
+	if err != nil {
+		t.Fatalf("SignalOrStartRun: %v", err)
+	}
+	if !resp.GetStartedRun() || resp.GetRun().GetId() == "" || resp.GetRun().GetId() == "missing-run" {
+		t.Fatalf("response = %#v, want replacement run", resp)
+	}
+}
+
+func TestProviderFinalizingOldTerminalRunDoesNotDeleteNewerWorkflowKey(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	workflowKey := "github:127579767:valon-technologies/gestalt:issue_comment:42"
+	oldRun := workflowRunRecord{
+		ID:          "old-terminal-run",
+		PluginName:  "agent:managed",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now.Add(-time.Minute),
+		CompletedAt: timePtr(now),
+		WorkflowKey: workflowKey,
+	}
+	newRun := workflowRunRecord{
+		ID:          "new-active-run",
+		PluginName:  "agent:managed",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now,
+		WorkflowKey: workflowKey,
+	}
+	for _, run := range []workflowRunRecord{oldRun, newRun} {
+		if err := provider.runStore.Add(ctx, run.toRecord()); err != nil {
+			t.Fatalf("seed run %q: %v", run.ID, err)
+		}
+	}
+	if err := addWorkflowKeyRecord(ctx, provider.workflowKeyStore, workflowKey, newRun.ID, now); err != nil {
+		t.Fatalf("seed workflow key: %v", err)
+	}
+	signal := protoWorkflowSignal(t, "late-signal", "late-delivery", "late")
+	record := workflowSignalRecord{
+		ID:             signal.GetId(),
+		RunID:          oldRun.ID,
+		WorkflowKey:    workflowKey,
+		State:          signalStatePending,
+		Signal:         signal,
+		IdempotencyKey: signal.GetIdempotencyKey(),
+		Sequence:       1,
+		CreatedAt:      now,
+	}
+	if err := provider.signalStore.Add(ctx, record.toRecord()); err != nil {
+		t.Fatalf("seed pending signal: %v", err)
+	}
+
+	processed, err := provider.processNextPendingRun(ctx, oldRun.ID)
+	if err != nil {
+		t.Fatalf("processNextPendingRun: %v", err)
+	}
+	if !processed {
+		t.Fatal("processNextPendingRun processed = false, want true")
+	}
+	if _, err := host.waitForCall(time.Second); err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	key, found, err := loadWorkflowKeyRecord(ctx, provider.workflowKeyStore, workflowKey)
+	if err != nil {
+		t.Fatalf("loadWorkflowKeyRecord: %v", err)
+	}
+	if !found || key.RunID != newRun.ID {
+		t.Fatalf("workflow key = %#v, found=%v, want run %q", key, found, newRun.ID)
+	}
+}
+
+func TestProviderSignalRunConcurrentSignalsUseUniqueSequences(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	secondProvider := New()
+	if err := secondProvider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(second): %v", err)
+	}
+	t.Cleanup(func() { _ = secondProvider.Close() })
+	providers := []*Provider{provider, secondProvider}
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "signal-run-concurrent",
+		PluginName:  "agent:managed",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now,
+	}
+	if err := provider.runStore.Add(ctx, run.toRecord()); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	const signalCount = 10
+	type result struct {
+		resp *proto.SignalWorkflowRunResponse
+		err  error
+	}
+	start := make(chan struct{})
+	results := make(chan result, signalCount)
+	for i := 0; i < signalCount; i++ {
+		i := i
+		go func() {
+			<-start
+			p := providers[i%len(providers)]
+			resp, err := p.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+				RunId:  run.ID,
+				Signal: protoWorkflowSignal(t, "", fmt.Sprintf("signal-run-delivery-%02d", i), fmt.Sprintf("event %02d", i)),
+			})
+			results <- result{resp: resp, err: err}
+		}()
+	}
+	close(start)
+
+	seenSequences := make(map[int64]bool, signalCount)
+	for i := 0; i < signalCount; i++ {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("SignalRun(%d): %v", i, result.err)
+		}
+		if result.resp.GetRun().GetId() != run.ID {
+			t.Fatalf("response %d run_id = %q, want %q", i, result.resp.GetRun().GetId(), run.ID)
+		}
+		sequence := result.resp.GetSignal().GetSequence()
+		if sequence < 1 || sequence > signalCount {
+			t.Fatalf("response %d sequence = %d, want 1..%d", i, sequence, signalCount)
+		}
+		if seenSequences[sequence] {
+			t.Fatalf("duplicate sequence %d", sequence)
+		}
+		seenSequences[sequence] = true
+	}
+}
+
 func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
