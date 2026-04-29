@@ -81,10 +81,12 @@ start_mongodb() {
   docker run -d --rm \
     --name "$container_name" \
     -p "127.0.0.1:${port}:27017" \
-    mongo:8 >/dev/null
+    mongo:8 --replSet rs0 --bind_ip_all >/dev/null
   register_container "$container_name"
   wait_for_command 60 docker exec "$container_name" mongosh --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null
-  export GESTALT_TEST_MONGODB_URI="mongodb://127.0.0.1:${port}"
+  docker exec "$container_name" mongosh --quiet --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: '127.0.0.1:27017'}]})" >/dev/null
+  wait_for_command 60 bash -c "docker exec '$container_name' mongosh --quiet --eval 'db.hello().isWritablePrimary' | grep -q true"
+  export GESTALT_TEST_MONGODB_URI="mongodb://127.0.0.1:${port}/?replicaSet=rs0"
 }
 
 start_dynamodb_local() {

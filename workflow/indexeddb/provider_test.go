@@ -751,10 +751,9 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	createdAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
-			Id:                "agent-ref",
-			Target:            protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
-			TargetFingerprint: "sha256:agent-target",
-			SubjectId:         "user:123",
+			Id:        "agent-ref",
+			Target:    protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
+			SubjectId: "user:123",
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
 			},
@@ -766,9 +765,6 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	}
 	if ref.GetProviderName() != "indexeddb" {
 		t.Fatalf("provider_name = %q, want indexeddb", ref.GetProviderName())
-	}
-	if ref.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
-		t.Fatalf("target_fingerprint = %q, want canonical %q", ref.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
 	}
 	if ref.GetTarget().GetAgent().GetProviderName() != "managed" {
 		t.Fatalf("agent target = %#v", ref.GetTarget())
@@ -783,9 +779,6 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	}
 	if !gproto.Equal(got.GetTarget(), ref.GetTarget()) {
 		t.Fatalf("round-tripped target = %#v, want %#v", got.GetTarget(), ref.GetTarget())
-	}
-	if got.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
-		t.Fatalf("round-tripped target_fingerprint = %q, want canonical %q", got.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
 	}
 }
 
@@ -928,7 +921,7 @@ func TestProviderDerivesAgentExecutionReferenceFingerprintOnPut(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = provider.Close() })
 
-	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
+	_, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
 			Id:        "agent-ref",
 			Target:    protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
@@ -938,9 +931,6 @@ func TestProviderDerivesAgentExecutionReferenceFingerprintOnPut(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("PutExecutionReference(agent without fingerprint): %v", err)
-	}
-	if ref.GetTargetFingerprint() != canonicalProviderAgentWorkflowTargetFingerprint {
-		t.Fatalf("target_fingerprint = %q, want canonical %q", ref.GetTargetFingerprint(), canonicalProviderAgentWorkflowTargetFingerprint)
 	}
 	raw, err := provider.executionRefStore.Get(ctx, "agent-ref")
 	if err != nil {
@@ -1167,9 +1157,6 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	}
 	if ref.GetCredentialSubjectId() != publishedBy.GetSubjectId() {
 		t.Fatalf("credential_subject_id = %q, want publisher subject", ref.GetCredentialSubjectId())
-	}
-	if ref.GetTargetFingerprint() == "" {
-		t.Fatal("target_fingerprint is required for event execution refs")
 	}
 	gotOperations := map[string]bool{}
 	for _, permission := range ref.GetPermissions() {

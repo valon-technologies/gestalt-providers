@@ -441,6 +441,9 @@ func (s *Store) insertGenericIndexRows(ctx context.Context, tx *sql.Tx, table, s
 }
 
 func (s *Store) insertGenericRecord(ctx context.Context, tx *sql.Tx, store string, primary encodedKey, payload []byte) error {
+	if s.dialect == dialectPostgres {
+		return s.insertPostgresGenericRecord(ctx, tx, store, primary, payload)
+	}
 	stmt := "INSERT INTO " + quoteTableName(s.dialect, s.genericRecordsTable()) +
 		" (" + quoteIdent(s.dialect, "store_name") + ", " +
 		quoteIdent(s.dialect, "pk_hash") + ", " +
@@ -452,6 +455,31 @@ func (s *Store) insertGenericRecord(ctx context.Context, tx *sql.Tx, store strin
 	}
 	if !isDuplicateErr(err) {
 		return status.Errorf(codes.Internal, "insert record: %v", err)
+	}
+	existing, loadErr := s.loadGenericRecordByHash(ctx, tx, store, primary.hash)
+	if loadErr != nil {
+		return loadErr
+	}
+	if existing != nil && bytes.Equal(existing.pkBytes, primary.raw) {
+		return status.Error(codes.AlreadyExists, "already exists")
+	}
+	return status.Error(codes.Internal, "primary key hash collision")
+}
+
+func (s *Store) insertPostgresGenericRecord(ctx context.Context, tx *sql.Tx, store string, primary encodedKey, payload []byte) error {
+	stmt := "INSERT INTO " + quoteTableName(s.dialect, s.genericRecordsTable()) +
+		" (" + quoteIdent(s.dialect, "store_name") + ", " +
+		quoteIdent(s.dialect, "pk_hash") + ", " +
+		quoteIdent(s.dialect, "pk_bytes") + ", " +
+		quoteIdent(s.dialect, "record_blob") + ") VALUES (?, ?, ?, ?)" +
+		" ON CONFLICT (" + quoteIdent(s.dialect, "store_name") + ", " + quoteIdent(s.dialect, "pk_hash") + ") DO NOTHING"
+	result, err := tx.ExecContext(ctx, s.q(stmt), store, primary.hash, primary.raw, payload)
+	if err != nil {
+		return status.Errorf(codes.Internal, "insert record: %v", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows > 0 {
+		return nil
 	}
 	existing, loadErr := s.loadGenericRecordByHash(ctx, tx, store, primary.hash)
 	if loadErr != nil {

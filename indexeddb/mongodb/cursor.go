@@ -116,7 +116,7 @@ func (p *Provider) cursorDocuments(ctx context.Context, cursor *mongoCursor, req
 
 	var filter bson.M
 	if cursor.IndexCursor {
-		filter, err = s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+		filter, err = s.indexFilter(ctx, req.GetStore(), req.GetIndex(), req.GetValues())
 		if err != nil {
 			return nil, err
 		}
