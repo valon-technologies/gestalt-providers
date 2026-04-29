@@ -3685,7 +3685,7 @@ func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflow
 		return nil, fmt.Errorf("%s %q invalid target_json: %w", recordKind, id, err)
 	}
 	target = cloneTarget(target)
-	if target.GetAgent() == nil && !workflowPluginTargetSet(target) {
+	if target.GetAgent() == nil && target.GetPlugin() == nil {
 		return nil, fmt.Errorf("%s %q target_json must contain plugin or agent target", recordKind, id)
 	}
 	return target, nil
@@ -3776,8 +3776,8 @@ func normalizedWorkflowTargetFingerprintPayload(target *proto.BoundWorkflowTarge
 		out.Agent = workflowAgentFingerprintPayload(agent)
 		return out
 	}
-	plugin := workflowPluginFingerprintPayload(target)
-	if !workflowFingerprintPluginTargetEmpty(plugin) {
+	if target.GetPlugin() != nil {
+		plugin := workflowPluginFingerprintPayload(target)
 		out.Plugin = &plugin
 	}
 	return out
@@ -3792,19 +3792,6 @@ func workflowPluginFingerprintPayload(target *proto.BoundWorkflowTarget) workflo
 		Instance:   plugin.Instance,
 		Input:      nilIfEmptyMap(cloneStructMap(plugin.Input)),
 	}
-}
-
-func workflowPluginTargetSet(target *proto.BoundWorkflowTarget) bool {
-	plugin := workflowPluginFingerprintPayload(target)
-	return !workflowFingerprintPluginTargetEmpty(plugin)
-}
-
-func workflowFingerprintPluginTargetEmpty(target workflowFingerprintPluginTarget) bool {
-	return strings.TrimSpace(target.PluginName) == "" &&
-		strings.TrimSpace(target.Operation) == "" &&
-		strings.TrimSpace(target.Connection) == "" &&
-		strings.TrimSpace(target.Instance) == "" &&
-		len(target.Input) == 0
 }
 
 func workflowAgentFingerprintPayload(agent *proto.BoundWorkflowAgentTarget) *workflowFingerprintAgentTarget {
