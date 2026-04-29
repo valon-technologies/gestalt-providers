@@ -372,23 +372,23 @@ def _expected_tool_idempotency_key(*, provider_name: str = "simple", turn_id: st
     return f"agent/simple:{provider_name}:{turn_id}:{tool_call_id}"
 
 
-def _fake_slack_reply_tool() -> Any:
+def _fake_message_reply_tool() -> Any:
     tool_parameters = struct_pb2.Struct()
     tool_parameters.update(
         {
             "type": "object",
-            "properties": {"reply_ref": {"type": "string"}, "text": {"type": "string"}},
-            "required": ["reply_ref", "text"],
+            "properties": {"request_ref": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["request_ref", "text"],
         }
     )
     kwargs = {
-        "id": "slack/events.reply?credentialMode=none",
-        "name": "slack_events_reply",
-        "description": "Reply to a Slack event",
+        "id": "messaging/reply",
+        "name": "messaging_reply",
+        "description": "Reply to a message event",
         "parameters_schema": tool_parameters,
     }
     if hasattr(agent_pb2, "BoundAgentToolTarget"):
-        kwargs["target"] = agent_pb2.BoundAgentToolTarget(plugin="slack", operation="events.reply")
+        kwargs["target"] = agent_pb2.BoundAgentToolTarget(plugin="messaging", operation="reply")
     return agent_pb2.ResolvedAgentTool(**kwargs)
 
 
@@ -680,10 +680,8 @@ def _resume_seed(
         ],
         "function_name_to_tool_id": {"gestalt_search_tools": "__gestalt_search_tools__"},
         "loaded_tool_ids": [],
-        "slack_reply_ref": "",
         "step_index": 0,
         "pending_tool_call": None,
-        "repaired_arguments": None,
     }
 
 
@@ -944,7 +942,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 tool_specs=[],
                 function_name_to_tool_id={},
                 loaded_tool_ids=[],
-                slack_reply_ref="",
                 step_index=1,
                 pending_tool_call={
                     "tool_call_id": "call-inflight",
@@ -952,7 +949,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "resolved_tool_id": "lookup",
                     "arguments": {"query": "Ada"},
                 },
-                repaired_arguments=None,
                 attempt=0,
                 lease_owner="",
                 lease_expires_at=None,
@@ -973,12 +969,145 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(checkpoint.phase, "terminal")
         self.assertEqual(checkpoint.lease_owner, "")
 
-    def test_configure_resumes_repaired_slack_arguments_without_repair_model_call(self) -> None:
+    def test_configure_fails_unknown_checkpoint_phase(self) -> None:
+        assert _host_servicer is not None
+        messages = [{"role": "user", "text": "Use the tool"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-unknown-phase",
+            idempotency_key="session-idem-unknown-phase",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        run, _ = store.begin_turn(
+            turn_id="turn-unknown-phase",
+            session_id="session-unknown-phase",
+            idempotency_key="idem-unknown-phase",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={"api_key": "test-key"}),
+        )
+        store.put_turn_checkpoint(
+            StoredTurnCheckpoint(
+                turn_id=run.run_id,
+                schema_version=1,
+                provider_name=run.provider_name,
+                session_id=run.session_ref,
+                model=run.model,
+                phase="unsupported_phase",
+                messages=messages,
+                conversation=[{"role": "user", "content": "Use the tool"}],
+                response_schema={},
+                provider_options={"api_key": "test-key"},
+                tool_grant="",
+                tool_specs=[],
+                function_name_to_tool_id={},
+                loaded_tool_ids=[],
+                step_index=1,
+                pending_tool_call=None,
+                attempt=0,
+                lease_owner="",
+                lease_expires_at=None,
+                updated_at=datetime.now(tz=UTC),
+            )
+        )
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-unknown-phase", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
+
+        self.assertEqual(_host_servicer.requests, [])
+        self.assertIn("checkpoint phase 'unsupported_phase' cannot be resumed safely", fetched.status_message)
+
+    def test_configure_fails_unsupported_checkpoint_record_shape_before_tool_execution(self) -> None:
+        assert _host_servicer is not None
+        messages = [{"role": "user", "text": "Use the tool"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-unsupported-record",
+            idempotency_key="session-idem-unsupported-record",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        run, _ = store.begin_turn(
+            turn_id="turn-unsupported-record",
+            session_id="session-unsupported-record",
+            idempotency_key="idem-unsupported-record",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={"api_key": "test-key"}),
+        )
+        store.put_turn_checkpoint(
+            StoredTurnCheckpoint(
+                turn_id=run.run_id,
+                schema_version=1,
+                provider_name=run.provider_name,
+                session_id=run.session_ref,
+                model=run.model,
+                phase="tool_ready",
+                messages=messages,
+                conversation=[{"role": "user", "content": "Use the tool"}],
+                response_schema={},
+                provider_options={"api_key": "test-key"},
+                tool_grant="",
+                tool_specs=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "person_lookup",
+                            "description": "Look up a historical figure",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"query": {"type": "string"}},
+                                "required": ["query"],
+                            },
+                        },
+                    }
+                ],
+                function_name_to_tool_id={"person_lookup": "lookup"},
+                loaded_tool_ids=["lookup"],
+                step_index=1,
+                pending_tool_call={
+                    "tool_call_id": "call-unsupported-record",
+                    "tool_name": "person_lookup",
+                    "resolved_tool_id": "lookup",
+                    "arguments": {"query": "Ada"},
+                },
+                attempt=0,
+                lease_owner="",
+                lease_expires_at=None,
+                updated_at=datetime.now(tz=UTC),
+            )
+        )
+        raw_checkpoint = store._checkpoints.get("turn-unsupported-record")
+        raw_checkpoint["obsolete_checkpoint_field"] = "value"
+        store._checkpoints.put(raw_checkpoint)
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-unsupported-record", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
+
+        self.assertEqual(_host_servicer.requests, [])
+        self.assertIn("checkpoint phase 'unsupported_record_shape' cannot be resumed safely", fetched.status_message)
+
+    def test_configure_resumes_tool_ready_checkpoint_without_replaying_model_call(self) -> None:
         assert _host_servicer is not None
         fake_llm = _FakeOpenAIChatServer(
             responses=[
                 {
-                    "id": "chatcmpl-after-repaired-tool",
+                    "id": "chatcmpl-after-ready-tool",
                     "object": "chat.completion",
                     "created": 1710000101,
                     "model": "fake-model",
@@ -996,12 +1125,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
         provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
-        messages = [{"role": "user", "text": "reply_ref: slack-reply-ref\nSend the reply"}]
+        messages = [{"role": "user", "text": "Look up Ada"}]
         store = _direct_store()
         self.addCleanup(store.close)
         store.create_session(
-            session_id="session-repaired-slack",
-            idempotency_key="session-idem-repaired-slack",
+            session_id="session-ready-tool",
+            idempotency_key="session-idem-ready-tool",
             provider_name="simple",
             model="openai/fake-model",
             client_ref="",
@@ -1009,9 +1138,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
             created_by={},
         )
         run, _ = store.begin_turn(
-            turn_id="turn-repaired-slack",
-            session_id="session-repaired-slack",
-            idempotency_key="idem-repaired-slack",
+            turn_id="turn-ready-tool",
+            session_id="session-ready-tool",
+            idempotency_key="idem-ready-tool",
             provider_name="simple",
             model="openai/fake-model",
             messages=messages,
@@ -1019,7 +1148,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             execution_ref="",
             resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
         )
-        repaired_arguments = {"reply_ref": "slack-reply-ref", "text": "Persisted repaired reply"}
+        tool_arguments = {"query": "Ada"}
         store.put_turn_checkpoint(
             StoredTurnCheckpoint(
                 turn_id=run.run_id,
@@ -1030,17 +1159,17 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 phase="tool_ready",
                 messages=messages,
                 conversation=[
-                    {"role": "user", "content": "reply_ref: slack-reply-ref\nSend the reply"},
+                    {"role": "user", "content": "Look up Ada"},
                     {
                         "role": "assistant",
                         "content": None,
                         "tool_calls": [
                             {
-                                "id": "call-repaired-slack",
+                                "id": "call-ready-tool",
                                 "type": "function",
                                 "function": {
-                                    "name": "slack_events_reply",
-                                    "arguments": json.dumps(repaired_arguments, separators=(",", ":")),
+                                    "name": "person_lookup",
+                                    "arguments": json.dumps(tool_arguments, separators=(",", ":")),
                                 },
                             }
                         ],
@@ -1057,27 +1186,25 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     {
                         "type": "function",
                         "function": {
-                            "name": "slack_events_reply",
-                            "description": "Reply to a Slack event",
+                            "name": "person_lookup",
+                            "description": "Look up a historical figure",
                             "parameters": {
                                 "type": "object",
-                                "properties": {"reply_ref": {"type": "string"}, "text": {"type": "string"}},
-                                "required": ["reply_ref", "text"],
+                                "properties": {"query": {"type": "string"}},
+                                "required": ["query"],
                             },
                         },
                     }
                 ],
-                function_name_to_tool_id={"slack_events_reply": "slack/events.reply?credentialMode=none"},
-                loaded_tool_ids=["slack/events.reply?credentialMode=none"],
-                slack_reply_ref="slack-reply-ref",
+                function_name_to_tool_id={"person_lookup": "lookup"},
+                loaded_tool_ids=["lookup"],
                 step_index=1,
                 pending_tool_call={
-                    "tool_call_id": "call-repaired-slack",
-                    "tool_name": "slack_events_reply",
-                    "resolved_tool_id": "slack/events.reply?credentialMode=none",
-                    "arguments": {"reply_ref": "slack-reply-ref"},
+                    "tool_call_id": "call-ready-tool",
+                    "tool_name": "person_lookup",
+                    "resolved_tool_id": "lookup",
+                    "arguments": tool_arguments,
                 },
-                repaired_arguments=repaired_arguments,
                 attempt=0,
                 lease_owner="",
                 lease_expires_at=None,
@@ -1086,7 +1213,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         )
 
         _, provider_client = _configure_provider()
-        fetched = _wait_for_turn(provider_client, "turn-repaired-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        fetched = _wait_for_turn(provider_client, "turn-ready-tool", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(fetched.output_text, '{"posted":true}')
         self.assertEqual(len(fake_llm.requests), 1)
@@ -1094,13 +1221,13 @@ class SimpleAgentProviderTests(unittest.TestCase):
             _host_servicer.requests,
             [
                 {
-                    "session_id": "session-repaired-slack",
-                    "turn_id": "turn-repaired-slack",
-                    "tool_call_id": "call-repaired-slack",
-                    "tool_id": "slack/events.reply?credentialMode=none",
-                    "arguments": repaired_arguments,
+                    "session_id": "session-ready-tool",
+                    "turn_id": "turn-ready-tool",
+                    "tool_call_id": "call-ready-tool",
+                    "tool_id": "lookup",
+                    "arguments": tool_arguments,
                     "idempotency_key": _expected_tool_idempotency_key(
-                        turn_id="turn-repaired-slack", tool_call_id="call-repaired-slack"
+                        turn_id="turn-ready-tool", tool_call_id="call-ready-tool"
                     ),
                 }
             ],
@@ -1283,7 +1410,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}
         )
         message_metadata = struct_pb2.Struct()
-        message_metadata.update({"source": "slack", "thread": "thread-123"})
+        message_metadata.update({"source": "webhook", "thread": "thread-123"})
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -1419,7 +1546,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(len(started.messages[0].parts), 1)
         self.assertEqual(started.messages[0].parts[0].type, agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT)
         self.assertEqual(started.messages[0].parts[0].text, "Who is Ada Lovelace?")
-        self.assertEqual(started.messages[0].metadata.fields["source"].string_value, "slack")
+        self.assertEqual(started.messages[0].metadata.fields["source"].string_value, "webhook")
         self.assertEqual(started.messages[0].metadata.fields["thread"].string_value, "thread-123")
 
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -1434,7 +1561,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(len(fetched.messages[0].parts), 1)
         self.assertEqual(fetched.messages[0].parts[0].type, agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT)
         self.assertEqual(fetched.messages[0].parts[0].text, "Who is Ada Lovelace?")
-        self.assertEqual(fetched.messages[0].metadata.fields["source"].string_value, "slack")
+        self.assertEqual(fetched.messages[0].metadata.fields["source"].string_value, "webhook")
         self.assertEqual(fetched.messages[0].metadata.fields["thread"].string_value, "thread-123")
         self.assertEqual(fetched.messages[1].role, "assistant")
         self.assertEqual(fetched.messages[1].text, '{"summary":"Ada Lovelace is still relevant."}')
@@ -1674,115 +1801,29 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertIn("person_lookup", second_tool_result)
         self.assertIn("person_lookup", [tool["function"]["name"] for tool in fake_llm.requests[2]["tools"]])
 
-    def test_create_turn_backfills_missing_text_tool_argument_from_assistant_text(self) -> None:
-        assert _host_servicer is not None
-        _, provider_client = _configure_provider()
-        _create_session(
-            provider_client, session_id="session-backfill-text", idempotency_key="session-idem-backfill-text"
-        )
-
-        slack_reply_tool = _fake_slack_reply_tool()
-
-        fake_llm = _FakeOpenAIChatServer(
-            responses=[
-                {
-                    "id": "chatcmpl-backfill-1",
-                    "object": "chat.completion",
-                    "created": 1710000100,
-                    "model": "fake-model",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "Here are your open pull requests.",
-                                "tool_calls": [
-                                    {
-                                        "id": "call-reply-1",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "slack_events_reply",
-                                            "arguments": '{"reply_ref":"reply-ref-1"}',
-                                        },
-                                    }
-                                ],
-                            },
-                            "finish_reason": "tool_calls",
-                        }
-                    ],
-                    "usage": {"prompt_tokens": 10, "completion_tokens": 6, "total_tokens": 16},
-                },
-                {
-                    "id": "chatcmpl-backfill-2",
-                    "object": "chat.completion",
-                    "created": 1710000101,
-                    "model": "fake-model",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {"role": "assistant", "content": "Posted to Slack."},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {"prompt_tokens": 14, "completion_tokens": 4, "total_tokens": 18},
-                },
-            ]
-        )
-        fake_llm.start()
-        self.addCleanup(fake_llm.close)
-
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
-
-        provider_client.CreateTurn(
-            agent_pb2.CreateAgentProviderTurnRequest(
-                turn_id="turn-backfill-text",
-                session_id="session-backfill-text",
-                idempotency_key="idem-backfill-text",
-                model="fast",
-                messages=[agent_pb2.AgentMessage(role="user", text="List my PRs in Slack")],
-                provider_options=provider_options,
-                tools=[slack_reply_tool],
-            )
-        )
-
-        fetched = _wait_for_turn(provider_client, "turn-backfill-text", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-
-        self.assertEqual(fetched.output_text, "Posted to Slack.")
-        self.assertEqual(len(_host_servicer.requests), 1)
-        self.assertEqual(
-            _host_servicer.requests[0]["arguments"],
-            {"reply_ref": "reply-ref-1", "text": "Here are your open pull requests."},
-        )
-
-    def test_create_turn_injects_slack_reply_ref_from_workflow_signal_batch(self) -> None:
+    def test_create_turn_passes_tool_schema_and_arguments_without_provider_specific_rewrite(self) -> None:
         assert _host_servicer is not None
         _, provider_client = _configure_provider()
         _create_session(
             provider_client,
-            session_id="session-slack-reply-ref",
-            idempotency_key="session-idem-slack-reply-ref",
+            session_id="session-tool-schema-pass-through",
+            idempotency_key="session-idem-tool-schema-pass-through",
             model="anthropic/claude-fake-model",
-        )
-
-        slack_reply_tool = _fake_slack_reply_tool()
-        signal_batch = json.dumps(
-            {"signals": [{"payload": {"reply_ref": "reply-ref-from-signal"}}]}, separators=(",", ":")
         )
 
         fake_anthropic = _FakeAnthropicMessagesServer(
             responses=[
                 {
-                    "id": "msg-slack-reply",
+                    "id": "msg-message-reply",
                     "type": "message",
                     "role": "assistant",
                     "model": "claude-fake-model",
                     "content": [
                         {
                             "type": "tool_use",
-                            "id": "toolu-slack-reply",
-                            "name": "slack_events_reply",
-                            "input": {"text": "Here are your open pull requests."},
+                            "id": "toolu-message-reply",
+                            "name": "messaging_reply",
+                            "input": {"request_ref": "request-ref-1", "text": "Here are your open pull requests."},
                         }
                     ],
                     "stop_reason": "tool_use",
@@ -1790,11 +1831,11 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "usage": {"input_tokens": 10, "output_tokens": 5},
                 },
                 {
-                    "id": "msg-slack-done",
+                    "id": "msg-message-done",
                     "type": "message",
                     "role": "assistant",
                     "model": "claude-fake-model",
-                    "content": [{"type": "text", "text": "Posted to Slack."}],
+                    "content": [{"type": "text", "text": "Message posted."}],
                     "stop_reason": "end_turn",
                     "stop_sequence": None,
                     "usage": {"input_tokens": 20, "output_tokens": 5},
@@ -1809,377 +1850,43 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
-                turn_id="turn-slack-reply-ref",
-                session_id="session-slack-reply-ref",
-                idempotency_key="idem-slack-reply-ref",
+                turn_id="turn-tool-schema-pass-through",
+                session_id="session-tool-schema-pass-through",
+                idempotency_key="idem-tool-schema-pass-through",
                 model="anthropic/claude-fake-model",
-                messages=[agent_pb2.AgentMessage(role="user", text=f"Workflow signal batch:\n{signal_batch}")],
+                messages=[agent_pb2.AgentMessage(role="user", text="Post the message reply.")],
                 provider_options=provider_options,
-                tools=[slack_reply_tool],
+                tools=[_fake_message_reply_tool()],
             )
         )
 
-        fetched = _wait_for_turn(provider_client, "turn-slack-reply-ref", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        fetched = _wait_for_turn(
+            provider_client, "turn-tool-schema-pass-through", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+        )
 
-        self.assertEqual(fetched.output_text, "Posted to Slack.")
+        self.assertEqual(fetched.output_text, "Message posted.")
         self.assertEqual(len(_host_servicer.requests), 1)
         self.assertEqual(
-            _host_servicer.requests[0]["arguments"],
-            {"reply_ref": "reply-ref-from-signal", "text": "Here are your open pull requests."},
+            _host_servicer.requests,
+            [
+                {
+                    "session_id": "session-tool-schema-pass-through",
+                    "turn_id": "turn-tool-schema-pass-through",
+                    "tool_call_id": "toolu-message-reply",
+                    "tool_id": "messaging/reply",
+                    "arguments": {"request_ref": "request-ref-1", "text": "Here are your open pull requests."},
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-tool-schema-pass-through", tool_call_id="toolu-message-reply"
+                    ),
+                }
+            ],
         )
         self.assertEqual(len(fake_anthropic.requests), 2)
         reply_tool_schema = next(
-            tool["input_schema"] for tool in fake_anthropic.requests[0]["tools"] if tool["name"] == "slack_events_reply"
+            tool["input_schema"] for tool in fake_anthropic.requests[0]["tools"] if tool["name"] == "messaging_reply"
         )
-        self.assertEqual(reply_tool_schema["required"], ["text"])
-        self.assertEqual(set(reply_tool_schema["properties"]), {"text"})
-
-    def test_create_turn_repairs_missing_slack_reply_text_before_validation(self) -> None:
-        assert _host_servicer is not None
-        _, provider_client = _configure_provider()
-        _create_session(
-            provider_client,
-            session_id="session-repair-slack-reply",
-            idempotency_key="session-idem-repair-slack-reply",
-            model="anthropic/claude-fake-model",
-        )
-
-        signal_batch = json.dumps(
-            {"signals": [{"payload": {"reply_ref": "reply-ref-from-signal"}}]}, separators=(",", ":")
-        )
-
-        fake_anthropic = _FakeAnthropicMessagesServer(
-            responses=[
-                {
-                    "id": "msg-slack-reply-missing-text",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-fake-model",
-                    "content": [{"type": "tool_use", "id": "toolu-reply", "name": "slack_events_reply", "input": {}}],
-                    "stop_reason": "tool_use",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                },
-                {
-                    "id": "msg-slack-reply-text-repair",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-fake-model",
-                    "content": [{"type": "text", "text": "Here are your open Linear tickets."}],
-                    "stop_reason": "end_turn",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 20, "output_tokens": 6},
-                },
-                {
-                    "id": "msg-slack-reply-posted",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-fake-model",
-                    "content": [{"type": "text", "text": '{"posted":true}'}],
-                    "stop_reason": "end_turn",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 24, "output_tokens": 4},
-                },
-            ]
-        )
-        fake_anthropic.start()
-        self.addCleanup(fake_anthropic.close)
-
-        response_schema = struct_pb2.Struct()
-        response_schema.update(
-            {"type": "object", "properties": {"posted": {"type": "boolean"}}, "required": ["posted"]}
-        )
-
-        provider_options = struct_pb2.Struct()
-        provider_options.update(
-            {"base_url": fake_anthropic.base_url, "api_key": "test-key", "tool_choice": {"type": "auto"}}
-        )
-
-        provider_client.CreateTurn(
-            agent_pb2.CreateAgentProviderTurnRequest(
-                turn_id="turn-repair-slack-reply",
-                session_id="session-repair-slack-reply",
-                idempotency_key="idem-repair-slack-reply",
-                model="anthropic/claude-fake-model",
-                messages=[agent_pb2.AgentMessage(role="user", text=f"Workflow signal batch:\n{signal_batch}")],
-                tools=[_fake_slack_reply_tool()],
-                provider_options=provider_options,
-                response_schema=response_schema,
-            )
-        )
-
-        fetched = _wait_for_turn(provider_client, "turn-repair-slack-reply", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-
-        self.assertEqual(fetched.output_text, '{"posted":true}')
-        self.assertTrue(fetched.structured_output.fields["posted"].bool_value)
-        self.assertEqual(
-            _host_servicer.requests,
-            [
-                {
-                    "session_id": "session-repair-slack-reply",
-                    "turn_id": "turn-repair-slack-reply",
-                    "tool_call_id": "toolu-reply",
-                    "tool_id": "slack/events.reply?credentialMode=none",
-                    "arguments": {"reply_ref": "reply-ref-from-signal", "text": "Here are your open Linear tickets."},
-                    "idempotency_key": _expected_tool_idempotency_key(
-                        turn_id="turn-repair-slack-reply", tool_call_id="toolu-reply"
-                    ),
-                }
-            ],
-        )
-
-        self.assertEqual(len(fake_anthropic.requests), 3)
-        self.assertIn("Return only valid JSON", fake_anthropic.requests[0]["system"])
-        repair_request = fake_anthropic.requests[1]
-        self.assertNotIn("tools", repair_request)
-        self.assertNotIn("tool_choice", repair_request)
-        self.assertNotIn("Return only valid JSON", repair_request["system"])
-        self.assertIn("Return only the Slack message body", repair_request["messages"][-1]["content"])
-
-        final_request = fake_anthropic.requests[2]
-        repaired_tool_use = final_request["messages"][1]["content"][0]
-        self.assertEqual(repaired_tool_use["type"], "tool_use")
-        self.assertEqual(repaired_tool_use["input"], {"text": "Here are your open Linear tickets."})
-
-    def test_create_turn_repairs_missing_slack_reply_text_from_tool_reply_ref(self) -> None:
-        assert _host_servicer is not None
-        _, provider_client = _configure_provider()
-        _create_session(
-            provider_client,
-            session_id="session-repair-slack-reply-tool-ref",
-            idempotency_key="session-idem-repair-slack-reply-tool-ref",
-            model="anthropic/claude-fake-model",
-        )
-
-        fake_anthropic = _FakeAnthropicMessagesServer(
-            responses=[
-                {
-                    "id": "msg-slack-reply-missing-text-tool-ref",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-fake-model",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "toolu-reply-tool-ref",
-                            "name": "slack_events_reply",
-                            "input": {"reply_ref": "reply-ref-from-tool-call"},
-                        }
-                    ],
-                    "stop_reason": "tool_use",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 10, "output_tokens": 5},
-                },
-                {
-                    "id": "msg-slack-reply-text-repair-tool-ref",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-fake-model",
-                    "content": [{"type": "text", "text": "Here are your open Linear tickets."}],
-                    "stop_reason": "end_turn",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 20, "output_tokens": 6},
-                },
-                {
-                    "id": "msg-slack-reply-posted-tool-ref",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": "claude-fake-model",
-                    "content": [{"type": "text", "text": "Posted to Slack."}],
-                    "stop_reason": "end_turn",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 24, "output_tokens": 4},
-                },
-            ]
-        )
-        fake_anthropic.start()
-        self.addCleanup(fake_anthropic.close)
-
-        provider_options = struct_pb2.Struct()
-        provider_options.update(
-            {"base_url": fake_anthropic.base_url, "api_key": "test-key", "tool_choice": {"type": "auto"}}
-        )
-
-        provider_client.CreateTurn(
-            agent_pb2.CreateAgentProviderTurnRequest(
-                turn_id="turn-repair-slack-reply-tool-ref",
-                session_id="session-repair-slack-reply-tool-ref",
-                idempotency_key="idem-repair-slack-reply-tool-ref",
-                model="anthropic/claude-fake-model",
-                messages=[agent_pb2.AgentMessage(role="user", text="Send the Slack reply.")],
-                tools=[_fake_slack_reply_tool()],
-                provider_options=provider_options,
-            )
-        )
-
-        fetched = _wait_for_turn(
-            provider_client, "turn-repair-slack-reply-tool-ref", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
-        )
-
-        self.assertEqual(fetched.output_text, "Posted to Slack.")
-        self.assertEqual(
-            _host_servicer.requests,
-            [
-                {
-                    "session_id": "session-repair-slack-reply-tool-ref",
-                    "turn_id": "turn-repair-slack-reply-tool-ref",
-                    "tool_call_id": "toolu-reply-tool-ref",
-                    "tool_id": "slack/events.reply?credentialMode=none",
-                    "arguments": {
-                        "reply_ref": "reply-ref-from-tool-call",
-                        "text": "Here are your open Linear tickets.",
-                    },
-                    "idempotency_key": _expected_tool_idempotency_key(
-                        turn_id="turn-repair-slack-reply-tool-ref", tool_call_id="toolu-reply-tool-ref"
-                    ),
-                }
-            ],
-        )
-
-    def test_create_turn_repairs_missing_slack_reply_text_for_openai_responses(self) -> None:
-        assert _host_servicer is not None
-        _, provider_client = _configure_provider(default_model="openai/gpt-5.5")
-        _create_session(
-            provider_client,
-            session_id="session-repair-slack-reply-openai",
-            idempotency_key="session-idem-repair-slack-reply-openai",
-            model="openai/gpt-5.5",
-        )
-
-        signal_batch = json.dumps(
-            {"signals": [{"payload": {"reply_ref": "reply-ref-from-signal"}}]}, separators=(",", ":")
-        )
-
-        fake_llm = _FakeOpenAIResponsesServer(
-            responses=[
-                {
-                    "id": "resp-slack-reply-missing-text",
-                    "object": "response",
-                    "created_at": 1710000062,
-                    "model": "gpt-5.5",
-                    "status": "completed",
-                    "output": [
-                        {"id": "rs-reply", "type": "reasoning", "summary": [], "status": "completed"},
-                        {
-                            "id": "fc-reply",
-                            "type": "function_call",
-                            "call_id": "call-reply",
-                            "name": "slack_events_reply",
-                            "arguments": "{}",
-                            "status": "completed",
-                        },
-                    ],
-                    "parallel_tool_calls": True,
-                    "tool_choice": "auto",
-                    "tools": [],
-                },
-                {
-                    "id": "resp-slack-reply-text-repair",
-                    "object": "response",
-                    "created_at": 1710000063,
-                    "model": "gpt-5.5",
-                    "status": "completed",
-                    "output": [
-                        {
-                            "id": "msg-repair",
-                            "type": "message",
-                            "role": "assistant",
-                            "status": "completed",
-                            "content": [
-                                {"type": "output_text", "text": "Here are your open pull requests.", "annotations": []}
-                            ],
-                        }
-                    ],
-                    "parallel_tool_calls": True,
-                    "tool_choice": "auto",
-                    "tools": [],
-                },
-                {
-                    "id": "resp-slack-reply-posted",
-                    "object": "response",
-                    "created_at": 1710000064,
-                    "model": "gpt-5.5",
-                    "status": "completed",
-                    "output": [
-                        {
-                            "id": "msg-posted",
-                            "type": "message",
-                            "role": "assistant",
-                            "status": "completed",
-                            "content": [{"type": "output_text", "text": "Posted to Slack.", "annotations": []}],
-                        }
-                    ],
-                    "parallel_tool_calls": True,
-                    "tool_choice": "auto",
-                    "tools": [],
-                },
-            ]
-        )
-        fake_llm.start()
-        self.addCleanup(fake_llm.close)
-
-        provider_options = struct_pb2.Struct()
-        provider_options.update(
-            {
-                "openai": {
-                    "base_url": f"{fake_llm.base_url}/v1",
-                    "api_key": "test-key",
-                    "reasoning_effort": "xhigh",
-                    "tool_choice": {"type": "function", "function": {"name": "slack_events_reply"}},
-                }
-            }
-        )
-
-        provider_client.CreateTurn(
-            agent_pb2.CreateAgentProviderTurnRequest(
-                turn_id="turn-repair-slack-reply-openai",
-                session_id="session-repair-slack-reply-openai",
-                idempotency_key="idem-repair-slack-reply-openai",
-                model="openai/gpt-5.5",
-                messages=[agent_pb2.AgentMessage(role="user", text=f"Workflow signal batch:\n{signal_batch}")],
-                tools=[_fake_slack_reply_tool()],
-                provider_options=provider_options,
-            )
-        )
-
-        fetched = _wait_for_turn(
-            provider_client, "turn-repair-slack-reply-openai", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
-        )
-
-        self.assertEqual(fetched.output_text, "Posted to Slack.")
-        self.assertEqual(
-            _host_servicer.requests,
-            [
-                {
-                    "session_id": "session-repair-slack-reply-openai",
-                    "turn_id": "turn-repair-slack-reply-openai",
-                    "tool_call_id": "call-reply",
-                    "tool_id": "slack/events.reply?credentialMode=none",
-                    "arguments": {"reply_ref": "reply-ref-from-signal", "text": "Here are your open pull requests."},
-                    "idempotency_key": _expected_tool_idempotency_key(
-                        turn_id="turn-repair-slack-reply-openai", tool_call_id="call-reply"
-                    ),
-                }
-            ],
-        )
-
-        self.assertEqual(len(fake_llm.requests), 3)
-        first_request = fake_llm.requests[0]
-        self.assertEqual(first_request["tool_choice"], {"type": "function", "name": "slack_events_reply"})
-        self.assertEqual(first_request["reasoning"], {"effort": "xhigh"})
-
-        repair_request = fake_llm.requests[1]
-        self.assertNotIn("tools", repair_request)
-        self.assertNotIn("tool_choice", repair_request)
-        self.assertEqual(repair_request["reasoning"], {"effort": "xhigh"})
-        self.assertIn("Return only the Slack message body", repair_request["input"][-1]["content"])
-
-        final_request = fake_llm.requests[2]
-        self.assertIn(
-            {"id": "rs-reply", "type": "reasoning", "summary": [], "status": "completed"}, final_request["input"]
-        )
-        replayed_call = next(item for item in final_request["input"] if item.get("type") == "function_call")
-        self.assertEqual(json.loads(replayed_call["arguments"]), {"text": "Here are your open pull requests."})
+        self.assertEqual(reply_tool_schema["required"], ["request_ref", "text"])
+        self.assertEqual(set(reply_tool_schema["properties"]), {"request_ref", "text"})
 
     def test_create_turn_retries_sustained_indexeddb_busy_on_completion(self) -> None:
         assert _indexeddb_servicer is not None

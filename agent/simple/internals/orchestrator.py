@@ -31,13 +31,8 @@ TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS = 3
 TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT = 10
 TOOL_SEARCH_MAX_RESULTS = 20
 TOOL_SEARCH_MAX_CANDIDATES = 20
-SLACK_EVENTS_REPLY_TOOL_ID = "slack/events.reply"
-SLACK_REPLY_REF_ARGUMENT_FIELD = "reply_ref"
-SLACK_REPLY_TEXT_ARGUMENT_FIELDS = ("text", "markdown_text")
-WORKFLOW_SIGNAL_BATCH_PREFIX = "Workflow signal batch:"
 CHECKPOINT_SCHEMA_VERSION = 1
 PHASE_MODEL_NEXT = "model_next"
-PHASE_REPAIR_ARGUMENTS = "repair_arguments"
 PHASE_TOOL_READY = "tool_ready"
 PHASE_TOOL_INFLIGHT = "tool_inflight"
 PHASE_TOOL_RESULT_RECORDED = "tool_result_recorded"
@@ -275,7 +270,7 @@ class SimpleAgentOrchestrator:
                     source=checkpoint.provider_name,
                     data={"session_id": checkpoint.session_id, "model": checkpoint.model},
                 )
-                if checkpoint.phase in {PHASE_REPAIR_ARGUMENTS, PHASE_TOOL_READY, PHASE_TOOL_RESULT_RECORDED}:
+                if checkpoint.phase in {PHASE_TOOL_READY, PHASE_TOOL_RESULT_RECORDED}:
                     if not self._continue_pending_tool(run=run, checkpoint=checkpoint):
                         return
                     continue
@@ -297,6 +292,14 @@ class SimpleAgentOrchestrator:
                     )
                     return
                 if checkpoint.phase == PHASE_TERMINAL:
+                    return
+                if checkpoint.phase != PHASE_MODEL_NEXT:
+                    self._fail_run(
+                        run=run,
+                        messages=checkpoint.messages,
+                        status_message=f"checkpoint phase {checkpoint.phase!r} cannot be resumed safely",
+                        lease_owner=self._worker_id,
+                    )
                     return
                 if checkpoint.step_index >= self._config.max_steps:
                     self._fail_run(
@@ -358,35 +361,24 @@ class SimpleAgentOrchestrator:
                         lease_owner=self._worker_id,
                     )
                     return False
-                arguments = _augment_tool_arguments_from_assistant_text(
-                    resolved_tool_id=resolved_tool_id,
-                    tool_name=tool_call.tool_id,
-                    arguments=tool_call.arguments,
-                    tool_specs=tool_specs,
-                    assistant_text=step.output_text,
-                )
                 pending = _pending_tool_call(
                     tool_call_id=tool_call.call_id,
                     tool_name=tool_call.tool_id,
                     resolved_tool_id=resolved_tool_id,
-                    arguments=arguments,
+                    arguments=tool_call.arguments,
                     assistant_message_index=assistant_message_index,
                 )
                 pending_tool_calls.append(pending)
             pending = pending_tool_calls[0]
             pending["remaining_tool_calls"] = pending_tool_calls[1:]
-            phase = _phase_for_pending_tool(
-                pending_tool_call=pending, tool_specs=tool_specs, default_reply_ref=checkpoint.slack_reply_ref
-            )
             next_checkpoint = replace(
                 checkpoint,
-                phase=phase,
+                phase=PHASE_TOOL_READY,
                 conversation=copy.deepcopy(conversation),
                 tool_specs=copy.deepcopy(tool_specs),
                 function_name_to_tool_id=dict(function_name_to_tool_id),
                 loaded_tool_ids=sorted(loaded_tool_ids),
                 pending_tool_call=pending,
-                repaired_arguments=None,
                 step_index=checkpoint.step_index + 1,
                 updated_at=datetime.now(tz=UTC),
             )
@@ -436,37 +428,7 @@ class SimpleAgentOrchestrator:
             )
             return False
         tool_specs, function_name_to_tool_id, loaded_tool_ids = _tool_registry_from_checkpoint(checkpoint)
-        arguments = copy.deepcopy(checkpoint.repaired_arguments or pending.get("arguments") or {})
-        conversation = copy.deepcopy(checkpoint.conversation)
-        if checkpoint.phase == PHASE_REPAIR_ARGUMENTS:
-            assistant_message_index = _assistant_message_index_from_pending(
-                pending_tool_call=pending, conversation=conversation
-            )
-            assistant_message = conversation[assistant_message_index] if assistant_message_index is not None else {}
-            if not isinstance(assistant_message, dict):
-                assistant_message = {}
-            arguments = self._repair_missing_slack_reply_text(
-                prepared=prepared,
-                conversation=conversation[: assistant_message_index or 0],
-                assistant_message=assistant_message,
-                tool_call_id=tool_call_id,
-                resolved_tool_id=resolved_tool_id,
-                tool_name=tool_name,
-                arguments=arguments,
-                tool_specs=tool_specs,
-                default_reply_ref=checkpoint.slack_reply_ref,
-            )
-            if assistant_message_index is not None:
-                conversation[assistant_message_index] = assistant_message
-            checkpoint = replace(
-                checkpoint,
-                phase=PHASE_TOOL_READY,
-                conversation=conversation,
-                repaired_arguments=copy.deepcopy(arguments),
-                updated_at=datetime.now(tz=UTC),
-            )
-            self._store.put_turn_checkpoint(checkpoint, lease_owner=self._worker_id)
-
+        arguments = copy.deepcopy(pending.get("arguments") or {})
         if checkpoint.phase == PHASE_TOOL_RESULT_RECORDED:
             result = self._store.get_tool_result(turn_id=checkpoint.turn_id, tool_call_id=tool_call_id)
             if result is None:
@@ -479,14 +441,10 @@ class SimpleAgentOrchestrator:
                 return False
             return self._record_tool_result_in_conversation(checkpoint=checkpoint, result=result)
 
-        execution_arguments, slack_reply_ref_error = _inject_slack_reply_ref(
-            resolved_tool_id=resolved_tool_id, arguments=arguments, default_reply_ref=checkpoint.slack_reply_ref
-        )
+        execution_arguments = copy.deepcopy(arguments)
         validation_error = _tool_arguments_validation_error(
             tool_name=tool_name, arguments=execution_arguments, tool_specs=tool_specs
         )
-        if slack_reply_ref_error:
-            validation_error = slack_reply_ref_error
         self._store.append_turn_event_once(
             event_key=f"{checkpoint.turn_id}:tool:{tool_call_id}:started",
             turn_id=checkpoint.turn_id,
@@ -502,7 +460,6 @@ class SimpleAgentOrchestrator:
                 "arguments": copy.deepcopy(arguments),
                 "execution_arguments": copy.deepcopy(execution_arguments),
             },
-            repaired_arguments=copy.deepcopy(arguments),
             updated_at=datetime.now(tz=UTC),
         )
         self._store.put_turn_checkpoint(inflight, lease_owner=self._worker_id)
@@ -622,14 +579,9 @@ class SimpleAgentOrchestrator:
             self._store.put_turn_checkpoint(
                 replace(
                     checkpoint,
-                    phase=_phase_for_pending_tool(
-                        pending_tool_call=next_pending,
-                        tool_specs=tool_specs,
-                        default_reply_ref=checkpoint.slack_reply_ref,
-                    ),
+                    phase=PHASE_TOOL_READY,
                     conversation=conversation,
                     pending_tool_call=next_pending,
-                    repaired_arguments=None,
                     updated_at=datetime.now(tz=UTC),
                 ),
                 lease_owner=self._worker_id,
@@ -641,7 +593,6 @@ class SimpleAgentOrchestrator:
                 phase=PHASE_MODEL_NEXT,
                 conversation=conversation,
                 pending_tool_call=None,
-                repaired_arguments=None,
                 updated_at=datetime.now(tz=UTC),
             ),
             lease_owner=self._worker_id,
@@ -662,46 +613,6 @@ class SimpleAgentOrchestrator:
             raise
         if failed.status != agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
             return
-
-    def _repair_missing_slack_reply_text(
-        self,
-        *,
-        prepared: "PreparedTurn",
-        conversation: list[dict[str, Any]],
-        assistant_message: dict[str, Any],
-        tool_call_id: str,
-        resolved_tool_id: str,
-        tool_name: str,
-        arguments: dict[str, Any],
-        tool_specs: list[dict[str, Any]],
-        default_reply_ref: str,
-    ) -> dict[str, Any]:
-        field_name = _missing_slack_reply_text_argument_name(
-            resolved_tool_id=resolved_tool_id, tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
-        )
-        if field_name is None:
-            return arguments
-        reply_ref = str(arguments.get(SLACK_REPLY_REF_ARGUMENT_FIELD, "") or "").strip() or default_reply_ref
-        if not reply_ref:
-            return arguments
-
-        repair_step = self._backend.complete(
-            model=prepared.resolved_model,
-            messages=_slack_reply_text_repair_conversation(
-                conversation=conversation, tool_name=tool_name, field_name=field_name, reply_ref=reply_ref
-            ),
-            tools=[],
-            provider_options=prepared.provider_options,
-            disable_tools=True,
-        )
-        text = repair_step.output_text.strip()
-        if not text:
-            return arguments
-
-        repaired = copy.deepcopy(arguments)
-        repaired[field_name] = text
-        _replace_tool_call_arguments(assistant_message, tool_call_id=tool_call_id, arguments=repaired)
-        return repaired
 
     def turn_to_proto(self, run: StoredRun, *, summary_only: bool = False) -> Any:
         proto = agent_pb2.AgentTurn(
@@ -770,10 +681,8 @@ def _resume_seed_from_request(
         "tool_specs": copy.deepcopy(tool_specs),
         "function_name_to_tool_id": dict(function_name_to_tool_id),
         "loaded_tool_ids": sorted(loaded_tool_ids),
-        "slack_reply_ref": _slack_reply_ref_from_messages(messages),
         "step_index": 0,
         "pending_tool_call": None,
-        "repaired_arguments": None,
     }
 
 
@@ -820,56 +729,11 @@ def _pending_tool_call(
     return pending
 
 
-def _phase_for_pending_tool(
-    *, pending_tool_call: dict[str, Any], tool_specs: list[dict[str, Any]], default_reply_ref: str
-) -> str:
-    return (
-        PHASE_REPAIR_ARGUMENTS
-        if _needs_slack_reply_repair(
-            resolved_tool_id=str(pending_tool_call.get("resolved_tool_id") or ""),
-            tool_name=str(pending_tool_call.get("tool_name") or ""),
-            arguments=copy.deepcopy(pending_tool_call.get("arguments") or {}),
-            tool_specs=tool_specs,
-            default_reply_ref=default_reply_ref,
-        )
-        else PHASE_TOOL_READY
-    )
-
-
 def _remaining_tool_calls_from_pending(pending_tool_call: dict[str, Any]) -> list[dict[str, Any]]:
     raw_remaining = pending_tool_call.get("remaining_tool_calls")
     if not isinstance(raw_remaining, list):
         return []
     return [copy.deepcopy(call) for call in raw_remaining if isinstance(call, dict)]
-
-
-def _assistant_message_index_from_pending(
-    *, pending_tool_call: dict[str, Any], conversation: list[dict[str, Any]]
-) -> int | None:
-    raw_index = pending_tool_call.get("assistant_message_index")
-    if isinstance(raw_index, int) and 0 <= raw_index < len(conversation):
-        return raw_index
-    if conversation:
-        return len(conversation) - 1
-    return None
-
-
-def _needs_slack_reply_repair(
-    *,
-    resolved_tool_id: str,
-    tool_name: str,
-    arguments: dict[str, Any],
-    tool_specs: list[dict[str, Any]],
-    default_reply_ref: str,
-) -> bool:
-    reply_ref = str(arguments.get(SLACK_REPLY_REF_ARGUMENT_FIELD, "") or "").strip() or default_reply_ref
-    return (
-        bool(reply_ref)
-        and _missing_slack_reply_text_argument_name(
-            resolved_tool_id=resolved_tool_id, tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
-        )
-        is not None
-    )
 
 
 def _uncertain_tool_status_message(pending_tool_call: dict[str, Any] | None) -> str:
@@ -906,12 +770,6 @@ def _checkpoint_messages(
     if checkpoint is not None and checkpoint.messages:
         return copy.deepcopy(checkpoint.messages)
     return copy.deepcopy(fallback)
-
-
-@dataclass(frozen=True, slots=True)
-class ToolArgumentSchema:
-    required: frozenset[str]
-    properties: dict[str, Any]
 
 
 def _search_tools_for_model(
@@ -987,232 +845,6 @@ def _tool_arguments_validation_error(
         validate(instance=arguments, schema=schema)
     except ValidationError as exc:
         return f"Tool arguments failed schema validation for {tool_name}: {exc.message}"
-    return ""
-
-
-def _augment_tool_arguments_from_assistant_text(
-    *,
-    resolved_tool_id: str,
-    tool_name: str,
-    arguments: dict[str, Any],
-    tool_specs: list[dict[str, Any]],
-    assistant_text: str,
-) -> dict[str, Any]:
-    if not _is_slack_event_reply_tool(resolved_tool_id):
-        return arguments
-    text = assistant_text.strip()
-    if not text:
-        return arguments
-    schema = _tool_argument_schema(tool_name=tool_name, tool_specs=tool_specs)
-    if not schema:
-        return arguments
-
-    field_name = _missing_slack_reply_text_field(schema=schema, arguments=arguments)
-    if field_name is None:
-        return arguments
-
-    augmented = copy.deepcopy(arguments)
-    augmented[field_name] = text
-    return augmented
-
-
-def _missing_slack_reply_text_argument_name(
-    *, resolved_tool_id: str, tool_name: str, arguments: dict[str, Any], tool_specs: list[dict[str, Any]]
-) -> str | None:
-    if not _is_slack_event_reply_tool(resolved_tool_id):
-        return None
-    schema = _tool_argument_schema(tool_name=tool_name, tool_specs=tool_specs)
-    if not schema:
-        return None
-    return _missing_slack_reply_text_field(schema=schema, arguments=arguments)
-
-
-def _slack_reply_text_repair_prompt(*, tool_name: str, field_name: str, reply_ref: str) -> str:
-    return "\n".join(
-        [
-            "Compose the complete Slack message body that should be posted now.",
-            "Return only the Slack message body. Do not return JSON, code fences, or a tool call.",
-            f"The agent runtime will call `{tool_name}` separately with your message in `{field_name}`.",
-            f"Use the existing reply_ref for that tool call: {reply_ref}",
-        ]
-    )
-
-
-def _slack_reply_text_repair_conversation(
-    *, conversation: list[dict[str, Any]], tool_name: str, field_name: str, reply_ref: str
-) -> list[dict[str, Any]]:
-    repair_conversation = [message for message in conversation if not _is_response_schema_system_message(message)]
-    repair_conversation.append(
-        {
-            "role": "user",
-            "content": _slack_reply_text_repair_prompt(tool_name=tool_name, field_name=field_name, reply_ref=reply_ref),
-        }
-    )
-    return repair_conversation
-
-
-def _is_response_schema_system_message(message: dict[str, Any]) -> bool:
-    if str(message.get("role", "") or "").strip() != "system":
-        return False
-    content = str(message.get("content", "") or "").strip()
-    return content.startswith("Return only valid JSON that matches this schema.")
-
-
-def _replace_tool_call_arguments(
-    assistant_message: dict[str, Any], *, tool_call_id: str, arguments: dict[str, Any]
-) -> None:
-    encoded_arguments = json.dumps(arguments, separators=(",", ":"))
-    raw_tool_calls = assistant_message.get("tool_calls")
-    if isinstance(raw_tool_calls, list):
-        for raw_tool_call in raw_tool_calls:
-            if not isinstance(raw_tool_call, dict):
-                continue
-            if str(raw_tool_call.get("id", "") or "").strip() != tool_call_id:
-                continue
-            function = raw_tool_call.get("function")
-            if isinstance(function, dict):
-                function["arguments"] = encoded_arguments
-
-    raw_openai_response_output = assistant_message.get("openai_response_output")
-    if isinstance(raw_openai_response_output, list):
-        for output_item in raw_openai_response_output:
-            if not isinstance(output_item, dict):
-                continue
-            if str(output_item.get("type", "") or "").strip() != "function_call":
-                continue
-            output_call_id = str(output_item.get("call_id", "") or output_item.get("id", "") or "").strip()
-            if output_call_id == tool_call_id:
-                output_item["arguments"] = encoded_arguments
-
-    raw_anthropic_content = assistant_message.get("anthropic_content")
-    if isinstance(raw_anthropic_content, list):
-        for block in raw_anthropic_content:
-            if not isinstance(block, dict):
-                continue
-            if str(block.get("id", "") or "").strip() == tool_call_id and block.get("type") == "tool_use":
-                block["input"] = copy.deepcopy(arguments)
-
-
-def _is_slack_event_reply_tool(resolved_tool_id: str) -> bool:
-    return resolved_tool_id.split("?", 1)[0] == SLACK_EVENTS_REPLY_TOOL_ID
-
-
-def _inject_slack_reply_ref(
-    *, resolved_tool_id: str, arguments: dict[str, Any], default_reply_ref: str
-) -> tuple[dict[str, Any], str]:
-    if not _is_slack_event_reply_tool(resolved_tool_id):
-        return arguments, ""
-    if _argument_value_is_present(arguments.get(SLACK_REPLY_REF_ARGUMENT_FIELD)):
-        return arguments, ""
-    if not default_reply_ref:
-        return arguments, "Tool arguments failed schema validation for slack_events_reply: 'reply_ref' is required"
-
-    augmented = copy.deepcopy(arguments)
-    augmented[SLACK_REPLY_REF_ARGUMENT_FIELD] = default_reply_ref
-    return augmented, ""
-
-
-def _tool_argument_schema(*, tool_name: str, tool_specs: list[dict[str, Any]]) -> ToolArgumentSchema | None:
-    schema = _tool_parameters_schema(tool_name=tool_name, tool_specs=tool_specs)
-    if schema is None:
-        return None
-
-    raw_required = schema.get("required", [])
-    if not isinstance(raw_required, list):
-        return None
-
-    required_fields: list[str] = []
-    for field in raw_required:
-        if not isinstance(field, str):
-            return None
-        required_fields.append(field)
-
-    raw_properties = schema.get("properties", {})
-    if not isinstance(raw_properties, dict):
-        return None
-
-    return ToolArgumentSchema(required=frozenset(required_fields), properties=raw_properties)
-
-
-def _missing_slack_reply_text_field(*, schema: ToolArgumentSchema, arguments: dict[str, Any]) -> str | None:
-    for field_name in SLACK_REPLY_TEXT_ARGUMENT_FIELDS:
-        if field_name not in schema.required:
-            continue
-        if _argument_value_is_present(arguments.get(field_name)):
-            continue
-        if _schema_property_accepts_string(schema.properties.get(field_name)):
-            return field_name
-    return None
-
-
-def _argument_value_is_present(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    return True
-
-
-def _schema_property_accepts_string(property_schema: Any) -> bool:
-    if not isinstance(property_schema, dict):
-        return False
-    raw_type = property_schema.get("type")
-    if raw_type == "string":
-        return True
-    if isinstance(raw_type, list) and "string" in raw_type:
-        return True
-    return raw_type is None
-
-
-def _slack_reply_ref_from_messages(messages: list[dict[str, Any]]) -> str:
-    for message in reversed(messages):
-        content = _message_content_text(message)
-        reply_ref = _slack_reply_ref_from_signal_batch_text(content)
-        if reply_ref:
-            return reply_ref
-
-    for message in reversed(messages):
-        content = _message_content_text(message)
-        reply_ref = _slack_reply_ref_from_prompt_lines(content)
-        if reply_ref:
-            return reply_ref
-    return ""
-
-
-def _slack_reply_ref_from_signal_batch_text(content: str) -> str:
-    _, separator, raw_batch = content.partition(WORKFLOW_SIGNAL_BATCH_PREFIX)
-    if not separator:
-        return ""
-    try:
-        batch = json.loads(raw_batch.strip())
-    except json.JSONDecodeError:
-        return ""
-    if not isinstance(batch, dict):
-        return ""
-
-    raw_signals = batch.get("signals")
-    if not isinstance(raw_signals, list):
-        return ""
-    for raw_signal_value in reversed(raw_signals):
-        if not isinstance(raw_signal_value, dict):
-            continue
-        raw_signal = cast(dict[str, Any], raw_signal_value)
-        payload = raw_signal.get("payload")
-        if not isinstance(payload, dict):
-            continue
-        reply_ref = str(payload.get(SLACK_REPLY_REF_ARGUMENT_FIELD, "") or "").strip()
-        if reply_ref:
-            return reply_ref
-    return ""
-
-
-def _slack_reply_ref_from_prompt_lines(content: str) -> str:
-    for line in reversed(content.splitlines()):
-        name, separator, value = line.partition(":")
-        if separator and name.strip() == SLACK_REPLY_REF_ARGUMENT_FIELD:
-            reply_ref = value.strip()
-            if reply_ref and not reply_ref.startswith("<"):
-                return reply_ref
     return ""
 
 
@@ -1588,7 +1220,7 @@ def _register_resolved_tools(
         function_name_to_tool_id[function_name] = tool_id
         loaded_tool_ids.add(tool_id)
         description = _tool_description(tool)
-        parameters = _model_tool_parameters(tool_id=tool_id, raw_parameters=_struct_to_dict(tool.parameters_schema))
+        parameters = copy.deepcopy(_struct_to_dict(tool.parameters_schema))
         if not isinstance(parameters, dict):
             parameters = {"type": "object", "properties": {}}
         if "type" not in parameters:
@@ -1603,37 +1235,6 @@ def _register_resolved_tools(
             _tool_search_result_entry(function_name=function_name, tool=tool, description=description)
         )
     return available_tools
-
-
-def _model_tool_parameters(*, tool_id: str, raw_parameters: Any) -> dict[str, Any]:
-    parameters = copy.deepcopy(raw_parameters) if isinstance(raw_parameters, dict) else {}
-    if not parameters:
-        parameters = {"type": "object", "properties": {}}
-    if not _is_slack_event_reply_tool(tool_id):
-        return parameters
-
-    raw_properties = parameters.get("properties")
-    if not isinstance(raw_properties, dict):
-        return parameters
-
-    text_properties = {
-        name: copy.deepcopy(raw_properties[name])
-        for name in SLACK_REPLY_TEXT_ARGUMENT_FIELDS
-        if isinstance(raw_properties.get(name), dict)
-    }
-    if not text_properties:
-        return parameters
-
-    text_required = [
-        name
-        for name in SLACK_REPLY_TEXT_ARGUMENT_FIELDS
-        if name in text_properties and name in _string_list(parameters.get("required"))
-    ]
-    if not text_required:
-        text_required = [next(iter(text_properties))]
-
-    return {"type": "object", "properties": text_properties, "required": text_required}
-
 
 def _function_name_for_tool_id(tool_id: str, function_name_to_tool_id: dict[str, str]) -> str:
     for function_name, mapped_tool_id in function_name_to_tool_id.items():
@@ -1664,12 +1265,6 @@ def _unique_function_name(raw_value: str, function_name_to_tool_id: dict[str, st
 
 def _tool_search_result_entry(*, function_name: str, tool: Any, description: str) -> dict[str, Any]:
     return {"name": function_name, "description": description}
-
-
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str)]
 
 
 def _sanitize_function_name(raw_value: str) -> str:

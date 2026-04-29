@@ -86,10 +86,9 @@ streaming Slack reply is better than a single final message.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
 When you answer the Slack user, call {reply_tool} with text set to the complete
-Slack message body to post. Include reply_ref exactly as provided if the tool
-schema asks for it; otherwise the runtime supplies it. Do not call the final
-reply tool without text, and do not use raw Slack message-posting tools for the
-final reply.
+Slack message body to post and reply_ref set exactly to the provided value. Do
+not call the final reply tool without text or reply_ref, and do not use raw
+Slack message-posting tools for the final reply.
 After posting to Slack, return a concise final summary of what you did.
 """.strip()
 
@@ -1720,8 +1719,7 @@ def _workflow_agent_prompt() -> str:
             "Use the payload's user_prompt as the current Slack request.",
             (
                 f"Final Slack replies must use {_agent_config.plugin_name}.{SLACK_REPLY_OPERATION} "
-                "with text set to the complete Slack message body. Include reply_ref exactly as provided "
-                "if the tool schema asks for it; otherwise the runtime supplies it."
+                "with text set to the complete Slack message body and reply_ref set exactly as provided."
             ),
             "If the batch contains multiple Slack events, handle them in sequence.",
         ]
@@ -2241,7 +2239,7 @@ def _reply_tool_contract_lines(reply_ref: str) -> list[str]:
         f"operation: {_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
         "required text argument:",
         "text: <complete Slack message body to post>",
-        "reply_ref value, if the tool schema asks for it:",
+        "required reply_ref argument:",
         f"reply_ref: {reply_ref}",
     ]
 
