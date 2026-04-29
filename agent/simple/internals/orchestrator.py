@@ -25,8 +25,11 @@ timestamp_pb2: Any = _timestamp_pb2
 
 TOOL_SEARCH_FUNCTION_NAME = "gestalt_search_tools"
 TOOL_SEARCH_TOOL_ID = "__gestalt_search_tools__"
-TOOL_SEARCH_DEFAULT_MAX_RESULTS = 8
+TOOL_SEARCH_LEGACY_DEFAULT_MAX_RESULTS = 8
+TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS = 3
+TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT = 10
 TOOL_SEARCH_MAX_RESULTS = 20
+TOOL_SEARCH_MAX_CANDIDATES = 20
 SLACK_EVENTS_REPLY_TOOL_ID = "slack/events.reply"
 SLACK_REPLY_REF_ARGUMENT_FIELD = "reply_ref"
 SLACK_REPLY_TEXT_ARGUMENT_FIELDS = ("text", "markdown_text")
@@ -35,7 +38,11 @@ TOOL_SEARCH_SYSTEM_PROMPT = (
     "When a user asks you to use an external integration or read external data and the needed tool is not already "
     f"available, call `{TOOL_SEARCH_FUNCTION_NAME}` before saying you do not have access."
 )
-TOOL_SEARCH_TOOL_SPEC = {
+TOOL_SEARCH_ADAPTIVE_SYSTEM_PROMPT = (
+    " If the tool search result includes compact candidates, call the same tool with `load_refs` from the candidate "
+    "refs to load the exact tool schemas you need."
+)
+TOOL_SEARCH_TOOL_SPEC: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": TOOL_SEARCH_FUNCTION_NAME,
@@ -48,16 +55,43 @@ TOOL_SEARCH_TOOL_SPEC = {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Short natural-language description of the tool or integration needed.",
+                    "description": (
+                        "Short natural-language description of the tool or integration needed. Use this to discover "
+                        "candidate tools."
+                    ),
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of matching tools to return.",
-                    "minimum": 1,
+                    "description": (
+                        "Maximum number of full tool schemas to load. Use 0 with load_refs to let the server load "
+                        "requested refs up to its cap."
+                    ),
+                    "minimum": 0,
                     "maximum": TOOL_SEARCH_MAX_RESULTS,
                 },
+                "candidate_limit": {
+                    "type": "integer",
+                    "description": "Maximum number of compact candidate refs to return for later loading.",
+                    "minimum": 0,
+                    "maximum": TOOL_SEARCH_MAX_CANDIDATES,
+                },
+                "load_refs": {
+                    "type": "array",
+                    "description": "Candidate refs from a previous search result to load as full tool schemas.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "plugin": {"type": "string"},
+                            "operation": {"type": "string"},
+                            "connection": {"type": "string"},
+                            "instance": {"type": "string"},
+                            "credential_mode": {"type": "string", "enum": ["", "none", "user"]},
+                        },
+                        "required": ["plugin", "operation"],
+                        "additionalProperties": False,
+                    },
+                },
             },
-            "required": ["query"],
         },
     },
 }
@@ -417,23 +451,52 @@ def _search_tools_for_model(
     loaded_tool_ids: set[str],
 ) -> str:
     query = str(tool_call_arguments.get("query", "") or "").strip()
-    if not query:
+    load_refs = _tool_search_load_refs(tool_call_arguments.get("load_refs"))
+    if not query and not load_refs:
         query = _tool_search_query(prepared.messages)
-    response = host.search_tools(
-        agent_pb2.SearchAgentToolsRequest(
-            session_id=prepared.session_id,
-            turn_id=prepared.turn_id,
-            query=query,
-            max_results=_tool_search_max_results(tool_call_arguments.get("max_results")),
-        )
+    request = agent_pb2.SearchAgentToolsRequest(session_id=prepared.session_id, turn_id=prepared.turn_id, query=query)
+    adaptive_supported = _proto_message_has_field(request, "candidate_limit")
+    load_refs_supported = _proto_message_has_field(request, "load_refs")
+    candidate_limit = _tool_search_candidate_limit(
+        tool_call_arguments.get("candidate_limit"), default=0 if load_refs else TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT
     )
+    request.max_results = _tool_search_max_results(
+        tool_call_arguments.get("max_results"),
+        default=(
+            0
+            if load_refs
+            else TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS
+            if adaptive_supported and candidate_limit > 0
+            else TOOL_SEARCH_LEGACY_DEFAULT_MAX_RESULTS
+        ),
+        allow_zero=bool(load_refs),
+    )
+    if adaptive_supported:
+        request.candidate_limit = candidate_limit
+    if load_refs:
+        if not load_refs_supported:
+            return json.dumps(
+                {
+                    "tools": [],
+                    "error": "This provider SDK does not support loading tool refs yet; search by query instead.",
+                },
+                separators=(",", ":"),
+            )
+        request.load_refs.extend(load_refs)
+    response = host.search_tools(request)
     available_tools = _register_resolved_tools(
         response.tools,
         tool_specs=tool_specs,
         function_name_to_tool_id=function_name_to_tool_id,
         loaded_tool_ids=loaded_tool_ids,
     )
-    return json.dumps({"tools": available_tools}, separators=(",", ":"))
+    body: dict[str, Any] = {"tools": available_tools}
+    candidates = _tool_search_candidate_entries(getattr(response, "candidates", []))
+    if candidates:
+        body["candidates"] = candidates
+    if bool(getattr(response, "has_more", False)):
+        body["has_more"] = True
+    return json.dumps(body, separators=(",", ":"))
 
 
 def _tool_arguments_validation_error(
@@ -688,14 +751,126 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
     return message
 
 
-def _tool_search_max_results(raw_value: Any) -> int:
+def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool = False) -> int:
     try:
         value = int(raw_value)
-    except TypeError, ValueError:
-        return TOOL_SEARCH_DEFAULT_MAX_RESULTS
-    if value <= 0:
-        return TOOL_SEARCH_DEFAULT_MAX_RESULTS
+    except (TypeError, ValueError):
+        return default
+    if value < 0:
+        return default
+    if value == 0:
+        return 0 if allow_zero else default
     return min(value, TOOL_SEARCH_MAX_RESULTS)
+
+
+def _tool_search_candidate_limit(raw_value: Any, *, default: int) -> int:
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return 0
+    return min(value, TOOL_SEARCH_MAX_CANDIDATES)
+
+
+def _tool_search_load_refs(raw_value: Any) -> list[Any]:
+    if not isinstance(raw_value, list):
+        return []
+    refs: list[Any] = []
+    for item in raw_value:
+        if not isinstance(item, dict):
+            continue
+        plugin = str(item.get("plugin", "") or "").strip()
+        operation = str(item.get("operation", "") or "").strip()
+        if not plugin or not operation:
+            continue
+        ref = agent_pb2.AgentToolRef(plugin=plugin, operation=operation)
+        _set_proto_string_field(ref, "connection", item.get("connection"))
+        _set_proto_string_field(ref, "instance", item.get("instance"))
+        _set_proto_string_field(ref, "credential_mode", item.get("credential_mode"))
+        refs.append(ref)
+    return refs
+
+
+def _tool_search_candidate_entries(candidates: Any) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for candidate in candidates:
+        ref = _tool_ref_to_dict(getattr(candidate, "ref", None))
+        if not ref:
+            continue
+        entry: dict[str, Any] = {"ref": ref}
+        candidate_id = str(getattr(candidate, "id", "") or "").strip()
+        if candidate_id:
+            entry["id"] = candidate_id
+        name = str(getattr(candidate, "name", "") or "").strip()
+        if name:
+            entry["name"] = name
+        description = str(getattr(candidate, "description", "") or "").strip()
+        if description:
+            entry["description"] = description
+        parameters = [str(param).strip() for param in getattr(candidate, "parameters", []) if str(param).strip()]
+        if parameters:
+            entry["parameters"] = parameters
+        entries.append(entry)
+    return entries
+
+
+def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
+    if ref is None:
+        return {}
+    out: dict[str, str] = {}
+    for field in ("plugin", "operation", "connection", "instance", "credential_mode"):
+        value = str(getattr(ref, field, "") or "").strip()
+        if value:
+            out[field] = value
+    if not out.get("plugin") or not out.get("operation"):
+        return {}
+    return out
+
+
+def _proto_message_has_field(message: Any, field_name: str) -> bool:
+    descriptor = getattr(message, "DESCRIPTOR", None)
+    fields_by_name = getattr(descriptor, "fields_by_name", {})
+    return field_name in fields_by_name
+
+
+def _tool_search_adaptive_supported() -> bool:
+    return (
+        _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "candidate_limit")
+        and _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "load_refs")
+        and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "candidates")
+        and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "has_more")
+    )
+
+
+def _tool_search_system_prompt() -> str:
+    if _tool_search_adaptive_supported():
+        return TOOL_SEARCH_SYSTEM_PROMPT + TOOL_SEARCH_ADAPTIVE_SYSTEM_PROMPT
+    return TOOL_SEARCH_SYSTEM_PROMPT
+
+
+def _tool_search_tool_spec() -> dict[str, Any]:
+    tool_spec = copy.deepcopy(TOOL_SEARCH_TOOL_SPEC)
+    function_spec = cast(dict[str, Any], tool_spec["function"])
+    parameters = cast(dict[str, Any], function_spec["parameters"])
+    if _tool_search_adaptive_supported():
+        return tool_spec
+
+    properties = cast(dict[str, Any], parameters["properties"])
+    properties.pop("candidate_limit", None)
+    properties.pop("load_refs", None)
+    max_results = cast(dict[str, Any], properties["max_results"])
+    max_results["minimum"] = 1
+    parameters["required"] = ["query"]
+    return tool_spec
+
+
+def _set_proto_string_field(message: Any, field_name: str, raw_value: Any) -> None:
+    if not _proto_message_has_field(message, field_name):
+        return
+    value = str(raw_value or "").strip()
+    if value:
+        setattr(message, field_name, value)
 
 
 def _tool_search_query(messages: list[dict[str, Any]]) -> str:
@@ -709,7 +884,7 @@ def _build_initial_conversation(
     conversation: list[dict[str, Any]] = []
     if system_prompt:
         conversation.append({"role": "system", "content": system_prompt})
-    conversation.append({"role": "system", "content": TOOL_SEARCH_SYSTEM_PROMPT})
+    conversation.append({"role": "system", "content": _tool_search_system_prompt()})
     if response_schema:
         conversation.append(
             {
@@ -887,7 +1062,7 @@ def _part_type(part: dict[str, Any]) -> str:
 
 
 def _tool_registry_from_resolved_tools(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
-    tool_specs = [copy.deepcopy(TOOL_SEARCH_TOOL_SPEC)]
+    tool_specs = [_tool_search_tool_spec()]
     function_name_to_tool_id = {TOOL_SEARCH_FUNCTION_NAME: TOOL_SEARCH_TOOL_ID}
     loaded_tool_ids: set[str] = set()
     _register_resolved_tools(
