@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.14"
+	providerVersion     = "0.0.1-alpha.15"
 	defaultPollInterval = time.Second
 	maxSignalAddRetries = 8
 
