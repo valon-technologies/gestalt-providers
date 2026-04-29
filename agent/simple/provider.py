@@ -1,4 +1,6 @@
+import logging
 import os
+import threading
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -15,6 +17,7 @@ from internals.store import StoredSession
 agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
+logger = logging.getLogger(__name__)
 
 
 class SimpleAgentRuntimeProvider(
@@ -26,6 +29,7 @@ class SimpleAgentRuntimeProvider(
         self._config: SimpleAgentConfig | None = None
         self._store: SimpleRunStore | None = None
         self._orchestrator: SimpleAgentOrchestrator | None = None
+        self._runtime_generation = 0
 
     def configure(self, name: str, config: dict[str, Any]) -> None:
         self._name = name.strip() or "simple"
@@ -37,13 +41,14 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.27",
+            version="0.0.1-alpha.28",
         )
 
     def warnings(self) -> list[str]:
         return list(self._warnings)
 
     def close(self) -> None:
+        self._runtime_generation += 1
         if self._store is not None:
             self._store.close()
 
@@ -228,17 +233,36 @@ class SimpleAgentRuntimeProvider(
         return self._orchestrator, self._store, self._config
 
     def _set_runtime(self, config: SimpleAgentConfig) -> None:
+        self._runtime_generation += 1
+        resume_generation = self._runtime_generation
         if self._store is not None:
             self._store.close()
         self._config = config
         self._apply_backend_env(config)
-        self._store = SimpleRunStore(run_store=config.run_store, idempotency_store=config.idempotency_store)
-        self._orchestrator = SimpleAgentOrchestrator(config=config, store=self._store)
+        store = SimpleRunStore(run_store=config.run_store, idempotency_store=config.idempotency_store)
+        orchestrator = SimpleAgentOrchestrator(config=config, store=store)
+        self._store = store
+        self._orchestrator = orchestrator
         self._warnings = self._build_warnings(config)
+        if config.resume.enabled:
+            threading.Thread(
+                target=self._resume_incomplete_turns,
+                args=(orchestrator, resume_generation),
+                daemon=True,
+            ).start()
+
+    def _resume_incomplete_turns(self, orchestrator: SimpleAgentOrchestrator, generation: int) -> None:
+        def is_current_runtime() -> bool:
+            return generation == self._runtime_generation
+
+        if not is_current_runtime():
+            return
         try:
-            self._orchestrator.resume_incomplete_turns()
+            orchestrator.resume_incomplete_turns(should_continue=is_current_runtime)
         except grpc.RpcError:
             pass
+        except Exception as exc:
+            logger.warning("failed to resume incomplete turns during startup: %s", exc)
 
     def _build_warnings(self, config: SimpleAgentConfig) -> list[str]:
         warnings: list[str] = []

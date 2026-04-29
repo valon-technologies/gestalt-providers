@@ -5,7 +5,7 @@ import threading
 import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import gestalt
 import grpc
@@ -172,10 +172,14 @@ class SimpleAgentOrchestrator:
         self.schedule_turn(turn_id)
         return self.turn_to_proto(started)
 
-    def resume_incomplete_turns(self) -> None:
+    def resume_incomplete_turns(self, *, should_continue: Callable[[], bool] | None = None) -> None:
         if not self._config.resume.enabled:
             return
+        if should_continue is not None and not should_continue():
+            return
         for turn_id in self._store.list_recoverable_turn_ids(limit=self._config.resume.startup_scan_limit):
+            if should_continue is not None and not should_continue():
+                return
             self.schedule_turn(turn_id)
 
     def schedule_turn(self, turn_id: str) -> None:
