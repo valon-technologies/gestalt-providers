@@ -190,6 +190,31 @@ func (s *Store) loadGenericRecordByHashDirect(ctx context.Context, store string,
 	return &out, nil
 }
 
+func (s *Store) loadGenericRecordByPrimaryDirect(ctx context.Context, store string, hash, primary []byte) (*genericRecordRow, error) {
+	query := "SELECT " +
+		quoteIdent(s.dialect, "pk_hash") + ", " +
+		quoteIdent(s.dialect, "pk_bytes") + ", " +
+		quoteIdent(s.dialect, "record_blob") +
+		" FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) +
+		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " + quoteIdent(s.dialect, "pk_hash") + " = ? AND " + quoteIdent(s.dialect, "pk_bytes") + " = ?"
+	rows, err := s.query(ctx, query, store, hash, primary)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load record: %v", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, status.Errorf(codes.Internal, "iterate record lookup: %v", err)
+		}
+		return nil, nil
+	}
+	var out genericRecordRow
+	if err := rows.Scan(&out.pkHash, &out.pkBytes, &out.recordBlob); err != nil {
+		return nil, status.Errorf(codes.Internal, "scan record lookup: %v", err)
+	}
+	return &out, nil
+}
+
 func (s *Store) loadAllGenericRecords(ctx context.Context, store string) ([]genericRecordRow, error) {
 	rows, err := s.query(ctx,
 		"SELECT "+quoteIdent(s.dialect, "pk_hash")+", "+quoteIdent(s.dialect, "pk_bytes")+", "+quoteIdent(s.dialect, "record_blob")+
@@ -244,17 +269,19 @@ func (s *Store) loadGenericIndexRows(ctx context.Context, table, store, index st
 	return out, nil
 }
 
-func (s *Store) loadGenericIndexRowsByHash(ctx context.Context, table, store, index string, hash []byte) ([]genericIndexRow, error) {
+func (s *Store) loadGenericIndexRowsByKey(ctx context.Context, table, store, index string, hash, raw []byte) ([]genericIndexRow, error) {
 	rows, err := s.query(ctx,
 		"SELECT "+quoteIdent(s.dialect, "index_name")+", "+quoteIdent(s.dialect, "index_key_hash")+", "+quoteIdent(s.dialect, "index_key_bytes")+", "+
 			quoteIdent(s.dialect, "pk_hash")+", "+quoteIdent(s.dialect, "pk_bytes")+
 			" FROM "+quoteTableName(s.dialect, table)+
 			" WHERE "+quoteIdent(s.dialect, "store_name")+" = ? AND "+
 			quoteIdent(s.dialect, "index_name")+" = ? AND "+
-			quoteIdent(s.dialect, "index_key_hash")+" = ?",
+			quoteIdent(s.dialect, "index_key_hash")+" = ? AND "+
+			quoteIdent(s.dialect, "index_key_bytes")+" = ?",
 		store,
 		index,
 		hash,
+		raw,
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "load index rows: %v", err)
@@ -718,14 +745,14 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 		if err != nil {
 			return nil, err
 		}
-		nonUniqueRows, err = s.loadGenericIndexRowsByHash(ctx, s.genericIndexTable(), store, idx.GetName(), encoded.hash)
-		if err != nil {
-			return nil, err
-		}
-		uniqueRows, err = s.loadGenericIndexRowsByHash(ctx, s.genericUniqueIndexTable(), store, idx.GetName(), encoded.hash)
-		if err != nil {
-			return nil, err
-		}
+			nonUniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
+			if err != nil {
+				return nil, err
+			}
+			uniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
+			if err != nil {
+				return nil, err
+			}
 	} else {
 		nonUniqueRows, err = s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.GetName())
 		if err != nil {
@@ -740,16 +767,37 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 
 	recordByPrimary := map[string]*proto.Record{}
 	if !keysOnly {
-		records, err := s.loadAllGenericRecords(ctx, store)
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range records {
-			record, err := unmarshalRecordBlob(row.recordBlob)
+		if len(values) == len(idx.GetKeyPath()) && len(values) > 0 {
+			for _, row := range allRows {
+				key := genericRecordLookupKey(row.pkHash, row.pkBytes)
+				if _, ok := recordByPrimary[key]; ok {
+					continue
+				}
+				recordRow, err := s.loadGenericRecordByPrimaryDirect(ctx, store, row.pkHash, row.pkBytes)
+				if err != nil {
+					return nil, err
+				}
+				if recordRow == nil {
+					continue
+				}
+				record, err := unmarshalRecordBlob(recordRow.recordBlob)
+				if err != nil {
+					return nil, err
+				}
+				recordByPrimary[key] = record
+			}
+		} else {
+			records, err := s.loadAllGenericRecords(ctx, store)
 			if err != nil {
 				return nil, err
 			}
-			recordByPrimary[string(row.pkHash)+":"+string(row.pkBytes)] = record
+			for _, row := range records {
+				record, err := unmarshalRecordBlob(row.recordBlob)
+				if err != nil {
+					return nil, err
+				}
+				recordByPrimary[genericRecordLookupKey(row.pkHash, row.pkBytes)] = record
+			}
 		}
 	}
 
@@ -769,7 +817,7 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 			PrimaryKeyValue: primaryKeyValue,
 		}
 		if !keysOnly {
-			record, ok := recordByPrimary[string(row.pkHash)+":"+string(row.pkBytes)]
+			record, ok := recordByPrimary[genericRecordLookupKey(row.pkHash, row.pkBytes)]
 			if !ok {
 				return nil, status.Error(codes.Internal, "index row points to missing record")
 			}
@@ -788,4 +836,8 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 	}
 	sortCursorEntries(entries)
 	return entries, nil
+}
+
+func genericRecordLookupKey(pkHash, pkBytes []byte) string {
+	return string(pkHash) + ":" + string(pkBytes)
 }
