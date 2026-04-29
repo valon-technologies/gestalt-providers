@@ -645,6 +645,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             target_metadata["slack"]["root_message_ts"], "1712161829.000300"
         )
+        self.assertNotIn(
+            provider_module._agent.WORKFLOW_AGENT_PROGRESS_METADATA_KEY,
+            target_metadata,
+        )
         self.assertNotIn("event_id", target_metadata["slack"])
         provider_options = json_format.MessageToDict(agent_target.provider_options)
         self.assertEqual(provider_options["temperature"], 0)
@@ -802,6 +806,40 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             BASE_EVENT_TOOL_REFS + ASSISTANT_EVENT_TOOL_REFS + WORKFLOW_EVENT_TOOL_REFS,
+        )
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        target_metadata = json_format.MessageToDict(agent_target.metadata)
+        progress = target_metadata[
+            provider_module._agent.WORKFLOW_AGENT_PROGRESS_METADATA_KEY
+        ]
+        self.assertEqual(
+            progress["update"],
+            {"plugin": "slack", "operation": "events.setAssistantStatus"},
+        )
+        self.assertEqual(
+            progress["clear"],
+            {"plugin": "slack", "operation": "events.clearAssistantStatus"},
+        )
+        self.assertEqual(progress["params"], {"reply_ref": signal_payload["reply_ref"]})
+        self.assertEqual(progress["statusParam"], "status")
+        self.assertEqual(progress["minInterval"], "2s")
+        self.assertIn(
+            {
+                "event": "tool.started",
+                "operation": "events.reply",
+                "status": "is sending a Slack reply...",
+            },
+            progress["rules"],
+        )
+        self.assertIn(
+            {
+                "event": "tool.started",
+                "operation": "events.setAssistantStatus",
+                "ignore": True,
+            },
+            progress["rules"],
         )
         self.assertEqual(
             calls,

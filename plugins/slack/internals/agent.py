@@ -75,6 +75,7 @@ EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
 EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
 EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
+WORKFLOW_AGENT_PROGRESS_METADATA_KEY = "gestalt.workflow.agent_progress"
 DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
@@ -1684,7 +1685,7 @@ def _build_workflow_signal_or_start_request(
         provider_name=_agent_config.workflow.provider_name,
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
-        target=_build_workflow_agent_target(event, route),
+        target=_build_workflow_agent_target(event, route, reply_ref),
         signal=workflow_pb2.WorkflowSignal(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
@@ -1698,6 +1699,7 @@ def _build_workflow_signal_or_start_request(
 def _build_workflow_agent_target(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
+    reply_ref: str = "",
 ) -> Any:
     agent = workflow_pb2.BoundWorkflowAgentTarget(
         provider_name=_agent_provider(route),
@@ -1709,7 +1711,7 @@ def _build_workflow_agent_target(
         tool_source=_agent_tool_source_native_search(),
         tool_refs=_agent_event_tool_refs(route),
     )
-    agent.metadata.CopyFrom(_agent_session_metadata(event))
+    agent.metadata.CopyFrom(_agent_session_metadata(event, reply_ref))
     provider_options = _agent_provider_options(route)
     if provider_options:
         agent.provider_options.CopyFrom(_dict_to_struct(provider_options))
@@ -1775,7 +1777,7 @@ def _build_workflow_interaction_signal_or_start_request(
         provider_name=_agent_config.workflow.provider_name,
         workflow_key=interaction_ref.workflow_key,
         idempotency_key=signal.idempotency_key,
-        target=_build_workflow_agent_target(event, route),
+        target=_build_workflow_agent_target(event, route, interaction_ref.reply_ref),
         signal=signal,
     )
 
@@ -1914,19 +1916,90 @@ def _agent_tool_source_native_search() -> int:
     return int(agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT)
 
 
-def _agent_session_metadata(event: SlackAgentEvent) -> Any:
+def _agent_session_metadata(event: SlackAgentEvent, reply_ref: str = "") -> Any:
     root_ts = event.thread_ts or event.message_ts
-    return _dict_to_struct(
-        {
-            "slack": {
-                "team_id": event.team_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "root_message_ts": root_ts,
-                "session_ref": _agent_session_ref(event),
-            }
+    metadata: dict[str, Any] = {
+        "slack": {
+            "team_id": event.team_id,
+            "channel_id": event.channel_id,
+            "channel_type": event.channel_type,
+            "root_message_ts": root_ts,
+            "session_ref": _agent_session_ref(event),
         }
-    )
+    }
+    if _agent_config.assistant.enabled and reply_ref:
+        metadata[WORKFLOW_AGENT_PROGRESS_METADATA_KEY] = _agent_progress_metadata(
+            reply_ref
+        )
+    return _dict_to_struct(metadata)
+
+
+def _agent_progress_metadata(reply_ref: str) -> dict[str, Any]:
+    return {
+        "update": {
+            "plugin": _agent_config.plugin_name,
+            "operation": SLACK_ASSISTANT_STATUS_OPERATION,
+        },
+        "clear": {
+            "plugin": _agent_config.plugin_name,
+            "operation": SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
+        },
+        "params": {"reply_ref": reply_ref},
+        "statusParam": "status",
+        "minInterval": "2s",
+        "defaultToolStatus": "is using a tool...",
+        "rules": [
+            {"event": "turn.started", "status": "is getting started..."},
+            {"event": "assistant.delta", "status": "is drafting a reply..."},
+            {"event": "assistant.completed", "status": "is drafting a reply..."},
+            {"event": "interaction.requested", "status": "is waiting for input..."},
+            {
+                "event": "tool.started",
+                "identifier": "gestalt_search_tools",
+                "status": "is checking available tools...",
+            },
+            {
+                "event": "tool.started",
+                "operation": SLACK_ASSISTANT_STATUS_OPERATION,
+                "ignore": True,
+            },
+            {
+                "event": "tool.started",
+                "operation": SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
+                "ignore": True,
+            },
+            {
+                "event": "tool.started",
+                "operation": SLACK_REPLY_OPERATION,
+                "status": "is sending a Slack reply...",
+            },
+            {
+                "event": "tool.started",
+                "operation": SLACK_STATUS_OPERATION,
+                "status": "is updating Slack...",
+            },
+            {
+                "event": "tool.started",
+                "operation": SLACK_INTERACTION_REQUEST_OPERATION,
+                "status": "is preparing a Slack prompt...",
+            },
+            {
+                "event": "tool.started",
+                "pluginPrefix": "github",
+                "status": "is checking GitHub...",
+            },
+            {
+                "event": "tool.started",
+                "pluginPrefix": "linear",
+                "status": "is searching Linear...",
+            },
+            {
+                "event": "tool.started",
+                "pluginPrefix": "google",
+                "status": "is checking Google Workspace...",
+            },
+        ],
+    }
 
 
 def _agent_metadata(
