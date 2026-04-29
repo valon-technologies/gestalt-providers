@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from concurrent import futures
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, cast
 from unittest import mock
@@ -24,6 +25,7 @@ from gestalt.gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
 from gestalt.gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt.gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.config import SimpleAgentConfig
+from internals.store import SimpleRunStore, StoredTurnCheckpoint
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -34,7 +36,10 @@ runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
 
-_SIMPLE_RUN_STORE = SimpleAgentConfig.from_dict(name="simple", raw_config={}).run_store
+_SIMPLE_CONFIG = SimpleAgentConfig.from_dict(name="simple", raw_config={})
+_SIMPLE_RUN_STORE = _SIMPLE_CONFIG.run_store
+_SIMPLE_IDEMPOTENCY_STORE = _SIMPLE_CONFIG.idempotency_store
+_TOOL_REQUEST_HAS_IDEMPOTENCY_KEY = "idempotency_key" in agent_pb2.ExecuteAgentToolRequest.DESCRIPTOR.fields_by_name
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
@@ -195,6 +200,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "tool_call_id": request.tool_call_id,
                 "tool_id": request.tool_id,
                 "arguments": arguments,
+                "idempotency_key": getattr(request, "idempotency_key", ""),
             }
         )
         if self.pause_on_lookup:
@@ -214,6 +220,12 @@ def _fake_resolved_tool(*, name: str) -> Any:
         target=agent_pb2.BoundAgentToolTarget(plugin="people", operation="lookup"),
         parameters_schema=tool_parameters,
     )
+
+
+def _expected_tool_idempotency_key(*, provider_name: str = "simple", turn_id: str, tool_call_id: str) -> str:
+    if not _TOOL_REQUEST_HAS_IDEMPOTENCY_KEY:
+        return ""
+    return f"agent/simple:{provider_name}:{turn_id}:{tool_call_id}"
 
 
 def _fake_slack_reply_tool() -> Any:
@@ -368,6 +380,42 @@ def _create_session(
     )
 
 
+def _direct_store() -> SimpleRunStore:
+    return SimpleRunStore(run_store=_SIMPLE_RUN_STORE, idempotency_store=_SIMPLE_IDEMPOTENCY_STORE)
+
+
+def _resume_seed(
+    *,
+    messages: list[dict[str, Any]],
+    provider_options: dict[str, Any],
+    conversation: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "phase": "model_next",
+        "messages": messages,
+        "conversation": conversation or [{"role": "user", "content": messages[0]["text"]}],
+        "response_schema": {},
+        "provider_options": provider_options,
+        "tool_specs": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "gestalt_search_tools",
+                    "description": "Search the authorized Gestalt integration tool catalog for tools relevant to the task.",
+                    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+                },
+            }
+        ],
+        "function_name_to_tool_id": {"gestalt_search_tools": "__gestalt_search_tools__"},
+        "loaded_tool_ids": [],
+        "slack_reply_ref": "",
+        "step_index": 0,
+        "pending_tool_call": None,
+        "repaired_arguments": None,
+    }
+
+
 def setUpModule() -> None:
     global _runtime_server, _host_server, _indexeddb_server, _runtime_socket, _host_socket, _indexeddb_socket
     global _previous_agent_host_socket, _previous_indexeddb_socket, _host_servicer
@@ -462,6 +510,307 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
 
+    def test_configure_resumes_running_turn_from_resume_seed_without_checkpoint(self) -> None:
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-resume-seed",
+                    "object": "chat.completion",
+                    "created": 1710000100,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "seed resume complete"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
+        messages = [{"role": "user", "text": "Resume the seeded turn"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-seed-resume",
+            idempotency_key="session-idem-seed-resume",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        store.begin_turn(
+            turn_id="turn-seed-resume",
+            session_id="session-seed-resume",
+            idempotency_key="idem-seed-resume",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
+        )
+        self.assertIsNone(store.get_turn_checkpoint("turn-seed-resume"))
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-seed-resume", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-seed-resume"))
+
+        self.assertEqual(fetched.output_text, "seed resume complete")
+        self.assertEqual(len(fake_llm.requests), 1)
+        self.assertEqual([event.type for event in events.events], ["turn.started", "assistant.completed", "turn.completed"])
+
+    def test_configure_fails_uncertain_inflight_tool_without_replay(self) -> None:
+        assert _host_servicer is not None
+        messages = [{"role": "user", "text": "Use the tool"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-inflight",
+            idempotency_key="session-idem-inflight",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        run, _ = store.begin_turn(
+            turn_id="turn-inflight",
+            session_id="session-inflight",
+            idempotency_key="idem-inflight",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={}),
+        )
+        store.put_turn_checkpoint(
+            StoredTurnCheckpoint(
+                turn_id=run.run_id,
+                schema_version=1,
+                provider_name=run.provider_name,
+                session_id=run.session_ref,
+                model=run.model,
+                phase="tool_inflight",
+                messages=messages,
+                conversation=[{"role": "user", "content": "Use the tool"}],
+                response_schema={},
+                provider_options={},
+                tool_specs=[],
+                function_name_to_tool_id={},
+                loaded_tool_ids=[],
+                slack_reply_ref="",
+                step_index=1,
+                pending_tool_call={
+                    "tool_call_id": "call-inflight",
+                    "tool_name": "person_lookup",
+                    "resolved_tool_id": "lookup",
+                    "arguments": {"query": "Ada"},
+                },
+                repaired_arguments=None,
+                attempt=0,
+                lease_owner="",
+                lease_expires_at=None,
+                updated_at=datetime.now(tz=UTC),
+            )
+        )
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-inflight", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-inflight"))
+
+        self.assertEqual(_host_servicer.requests, [])
+        self.assertIn("refusing to replay without host idempotency", fetched.status_message)
+        self.assertEqual([event.type for event in events.events], ["turn.started", "turn.failed"])
+
+    def test_configure_resumes_repaired_slack_arguments_without_repair_model_call(self) -> None:
+        assert _host_servicer is not None
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-after-repaired-tool",
+                    "object": "chat.completion",
+                    "created": 1710000101,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": '{"posted":true}'},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+        provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
+        messages = [{"role": "user", "text": "reply_ref: slack-reply-ref\nSend the reply"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-repaired-slack",
+            idempotency_key="session-idem-repaired-slack",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        run, _ = store.begin_turn(
+            turn_id="turn-repaired-slack",
+            session_id="session-repaired-slack",
+            idempotency_key="idem-repaired-slack",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
+        )
+        repaired_arguments = {"reply_ref": "slack-reply-ref", "text": "Persisted repaired reply"}
+        store.put_turn_checkpoint(
+            StoredTurnCheckpoint(
+                turn_id=run.run_id,
+                schema_version=1,
+                provider_name=run.provider_name,
+                session_id=run.session_ref,
+                model=run.model,
+                phase="tool_ready",
+                messages=messages,
+                conversation=[
+                    {"role": "user", "content": "reply_ref: slack-reply-ref\nSend the reply"},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-repaired-slack",
+                                "type": "function",
+                                "function": {
+                                    "name": "slack_events_reply",
+                                    "arguments": json.dumps(repaired_arguments, separators=(",", ":")),
+                                },
+                            }
+                        ],
+                    },
+                ],
+                response_schema={"type": "object", "properties": {"posted": {"type": "boolean"}}, "required": ["posted"]},
+                provider_options=provider_options,
+                tool_specs=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "slack_events_reply",
+                            "description": "Reply to a Slack event",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"reply_ref": {"type": "string"}, "text": {"type": "string"}},
+                                "required": ["reply_ref", "text"],
+                            },
+                        },
+                    }
+                ],
+                function_name_to_tool_id={"slack_events_reply": "slack/events.reply?credentialMode=none"},
+                loaded_tool_ids=["slack/events.reply?credentialMode=none"],
+                slack_reply_ref="slack-reply-ref",
+                step_index=1,
+                pending_tool_call={
+                    "tool_call_id": "call-repaired-slack",
+                    "tool_name": "slack_events_reply",
+                    "resolved_tool_id": "slack/events.reply?credentialMode=none",
+                    "arguments": {"reply_ref": "slack-reply-ref"},
+                },
+                repaired_arguments=repaired_arguments,
+                attempt=0,
+                lease_owner="",
+                lease_expires_at=None,
+                updated_at=datetime.now(tz=UTC),
+            )
+        )
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-repaired-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        self.assertEqual(fetched.output_text, '{"posted":true}')
+        self.assertEqual(len(fake_llm.requests), 1)
+        self.assertEqual(
+            _host_servicer.requests,
+            [
+                {
+                    "session_id": "session-repaired-slack",
+                    "turn_id": "turn-repaired-slack",
+                    "tool_call_id": "call-repaired-slack",
+                    "tool_id": "slack/events.reply?credentialMode=none",
+                    "arguments": repaired_arguments,
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-repaired-slack", tool_call_id="call-repaired-slack"
+                    ),
+                }
+            ],
+        )
+
+    def test_list_turn_events_synthesizes_missing_terminal_event_types(self) -> None:
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-partial-terminal-events",
+            idempotency_key="session-idem-partial-terminal-events",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        messages = [{"role": "user", "text": "finish"}]
+        run, _ = store.begin_turn(
+            turn_id="turn-partial-terminal-events",
+            session_id="session-partial-terminal-events",
+            idempotency_key="idem-partial-terminal-events",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={}),
+        )
+        store.append_turn_event_once(
+            event_key="turn-partial-terminal-events:turn.started",
+            turn_id="turn-partial-terminal-events",
+            event_type="turn.started",
+            source="simple",
+            data={"session_id": "session-partial-terminal-events", "model": "openai/fake-model"},
+        )
+        store.mark_turn_succeeded(
+            turn_id=run.run_id,
+            messages=[*messages, {"role": "assistant", "text": "done"}],
+            output_text="done",
+            structured_output=None,
+        )
+        store.append_turn_event_once(
+            event_key="turn-partial-terminal-events:assistant.completed",
+            turn_id="turn-partial-terminal-events",
+            event_type="assistant.completed",
+            source="simple",
+            data={"text": "done"},
+        )
+
+        _, provider_client = _configure_provider()
+        events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-partial-terminal-events")
+        )
+
+        self.assertEqual([event.type for event in events.events], ["turn.started", "assistant.completed", "turn.completed"])
+        self.assertEqual([event.seq for event in events.events], [1, 2, 3])
+
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider()
         identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
@@ -517,7 +866,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                         "id": "call-1",
                                         "type": "function",
                                         "function": {"name": "person_lookup", "arguments": '{"query":"Ada Lovelace"}'},
-                                    }
+                                    },
+                                    {
+                                        "id": "call-2",
+                                        "type": "function",
+                                        "function": {"name": "person_lookup", "arguments": '{"query":"Analytical Engine"}'},
+                                    },
                                 ],
                             },
                             "finish_reason": "tool_calls",
@@ -658,7 +1012,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(len(_host_servicer.requests), 1)
+        self.assertEqual(len(_host_servicer.requests), 2)
         self.assertEqual(
             _host_servicer.requests[0],
             {
@@ -667,6 +1021,18 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool_call_id": "call-1",
                 "tool_id": "lookup",
                 "arguments": {"query": "Ada Lovelace"},
+                "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-1"),
+            },
+        )
+        self.assertEqual(
+            _host_servicer.requests[1],
+            {
+                "session_id": "session-success",
+                "turn_id": "turn-success",
+                "tool_call_id": "call-2",
+                "tool_id": "lookup",
+                "arguments": {"query": "Analytical Engine"},
+                "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-2"),
             },
         )
 
@@ -683,8 +1049,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertNotIn('"id"', second_request["messages"][-1]["content"])
         self.assertNotIn('"target"', second_request["messages"][-1]["content"])
         self.assertIn("person_lookup", [tool["function"]["name"] for tool in second_request["tools"]])
-        self.assertEqual(third_request["messages"][-1]["role"], "tool")
-        self.assertIn("Ada Lovelace", third_request["messages"][-1]["content"])
+        self.assertEqual([message["role"] for message in third_request["messages"][-2:]], ["tool", "tool"])
+        self.assertIn("Ada Lovelace", third_request["messages"][-2]["content"])
+        self.assertIn("Analytical Engine", third_request["messages"][-1]["content"])
         self.assertNotIn("name", third_request["messages"][-1])
         self.assertEqual(
             [event.type for event in listed_events.events],
@@ -694,15 +1061,19 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool.completed",
                 "tool.started",
                 "tool.completed",
+                "tool.started",
+                "tool.completed",
                 "assistant.completed",
                 "turn.completed",
             ],
         )
-        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5, 6, 7, 8, 9])
         self.assertEqual(listed_events.events[0].data.fields["session_id"].string_value, "session-success")
         self.assertEqual(listed_events.events[1].data.fields["tool_id"].string_value, "__gestalt_search_tools__")
         self.assertEqual(listed_events.events[3].data.fields["tool_id"].string_value, "lookup")
         self.assertEqual(listed_events.events[4].data.fields["status"].number_value, 200)
+        self.assertEqual(listed_events.events[5].data.fields["tool_id"].string_value, "lookup")
+        self.assertEqual(listed_events.events[6].data.fields["status"].number_value, 200)
         self.assertEqual([event.type for event in paged_events.events], ["tool.completed", "tool.started"])
 
     def test_create_turn_backfills_missing_text_tool_argument_from_assistant_text(self) -> None:
@@ -952,6 +1323,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_call_id": "toolu-reply",
                     "tool_id": "slack/events.reply?credentialMode=none",
                     "arguments": {"reply_ref": "reply-ref-from-signal", "text": "Here are your open Linear tickets."},
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-repair-slack-reply", tool_call_id="toolu-reply"
+                    ),
                 }
             ],
         )
@@ -1570,6 +1944,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_call_id": "toolu-1",
                     "tool_id": "lookup",
                     "arguments": {"query": "Ada Lovelace"},
+                    "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-anthropic", tool_call_id="toolu-1"),
                 }
             ],
         )

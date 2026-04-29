@@ -6,7 +6,15 @@ from typing import Any
 
 DEFAULT_MAX_STEPS = 8
 DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_RESUME_STARTUP_SCAN_LIMIT = 100
 UNSUPPORTED_CONFIG_FIELDS = frozenset({"runStore", "idempotencyStore"})
+
+
+@dataclass(slots=True)
+class ResumeConfig:
+    enabled: bool = True
+    startup_scan_limit: int = DEFAULT_RESUME_STARTUP_SCAN_LIMIT
+    legacy_running_policy: str = "fail"
 
 
 @dataclass(slots=True)
@@ -22,6 +30,7 @@ class SimpleAgentConfig:
     system_prompt: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    resume: ResumeConfig = field(default_factory=ResumeConfig)
 
     @classmethod
     def from_dict(cls, *, name: str, raw_config: dict[str, Any]) -> "SimpleAgentConfig":
@@ -50,6 +59,7 @@ class SimpleAgentConfig:
             system_prompt=_trimmed_text(raw_config.get("systemPrompt")),
             anthropic_api_key=_trimmed_text(raw_config.get("anthropicApiKey")),
             openai_api_key=_trimmed_text(raw_config.get("openaiApiKey")),
+            resume=_coerce_resume_config(raw_config.get("resume")),
         )
 
     def resolve_model(self, requested_model: str) -> str:
@@ -97,6 +107,25 @@ def _coerce_provider_options(raw_value: Any) -> dict[str, Any]:
     return options
 
 
+def _coerce_resume_config(raw_value: Any) -> ResumeConfig:
+    if raw_value is None:
+        return ResumeConfig()
+    if not isinstance(raw_value, dict):
+        raise ValueError("resume must be an object")
+    legacy_running_policy = _trimmed_text(raw_value.get("legacyRunningPolicy")) or "fail"
+    if legacy_running_policy not in {"fail", "ignore"}:
+        raise ValueError("resume.legacyRunningPolicy must be one of fail or ignore")
+    return ResumeConfig(
+        enabled=_coerce_bool(raw_value.get("enabled"), default=True, field_name="resume.enabled"),
+        startup_scan_limit=_coerce_positive_int(
+            raw_value.get("startupScanLimit"),
+            default=DEFAULT_RESUME_STARTUP_SCAN_LIMIT,
+            field_name="resume.startupScanLimit",
+        ),
+        legacy_running_policy=legacy_running_policy,
+    )
+
+
 def _coerce_positive_int(raw_value: Any, *, default: int, field_name: str) -> int:
     if raw_value is None or str(raw_value).strip() == "":
         return default
@@ -113,6 +142,20 @@ def _coerce_positive_float(raw_value: Any, *, default: float, field_name: str) -
     if value <= 0:
         raise ValueError(f"{field_name} must be positive")
     return value
+
+
+def _coerce_bool(raw_value: Any, *, default: bool, field_name: str) -> bool:
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    if isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, str):
+        normalized = raw_value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean")
 
 
 def _trimmed_text(raw_value: Any) -> str:

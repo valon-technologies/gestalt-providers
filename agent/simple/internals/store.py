@@ -40,6 +40,32 @@ class StoredRun:
     completed_at: datetime | None
     execution_ref: str
     cancel_reason: str
+    resume_seed: dict[str, Any] | None
+
+
+@dataclass(slots=True)
+class StoredTurnCheckpoint:
+    turn_id: str
+    schema_version: int
+    provider_name: str
+    session_id: str
+    model: str
+    phase: str
+    messages: list[dict[str, Any]]
+    conversation: list[dict[str, Any]]
+    response_schema: dict[str, Any]
+    provider_options: dict[str, Any]
+    tool_specs: list[dict[str, Any]]
+    function_name_to_tool_id: dict[str, str]
+    loaded_tool_ids: list[str]
+    slack_reply_ref: str
+    step_index: int
+    pending_tool_call: dict[str, Any] | None
+    repaired_arguments: dict[str, Any] | None
+    attempt: int
+    lease_owner: str
+    lease_expires_at: datetime | None
+    updated_at: datetime
 
 
 @dataclass(slots=True)
@@ -75,6 +101,8 @@ class SimpleRunStore:
         self._runs = _LazyObjectStore(self, run_store)
         self._idempotency = _LazyObjectStore(self, idempotency_store)
         self._events = _LazyObjectStore(self, f"{run_store}_events")
+        self._checkpoints = _LazyObjectStore(self, f"{run_store}_checkpoints")
+        self._tool_results = _LazyObjectStore(self, f"{run_store}_tool_results")
         self._sessions = _LazyObjectStore(self, f"{run_store}_sessions")
         self._session_idempotency = _LazyObjectStore(
             self, f"{idempotency_store}_sessions"
@@ -82,6 +110,8 @@ class SimpleRunStore:
         self._run_store_name = run_store
         self._idempotency_store_name = idempotency_store
         self._event_store_name = f"{run_store}_events"
+        self._checkpoint_store_name = f"{run_store}_checkpoints"
+        self._tool_result_store_name = f"{run_store}_tool_results"
         self._session_store_name = f"{run_store}_sessions"
         self._session_idempotency_store_name = f"{idempotency_store}_sessions"
         self._initialize_lock = threading.RLock()
@@ -101,6 +131,8 @@ class SimpleRunStore:
                     self._run_store_name,
                     self._idempotency_store_name,
                     self._event_store_name,
+                    self._checkpoint_store_name,
+                    self._tool_result_store_name,
                     self._session_store_name,
                     self._session_idempotency_store_name,
                 ):
@@ -269,6 +301,7 @@ class SimpleRunStore:
         messages: list[dict[str, Any]],
         created_by: dict[str, str],
         execution_ref: str,
+        resume_seed: dict[str, Any] | None = None,
     ) -> tuple[StoredRun, bool]:
         return self.begin_run(
             run_id=turn_id,
@@ -279,6 +312,7 @@ class SimpleRunStore:
             session_ref=session_id,
             created_by=created_by,
             execution_ref=execution_ref,
+            resume_seed=resume_seed,
         )
 
     def get_turn(self, turn_id: str) -> StoredRun | None:
@@ -325,14 +359,7 @@ class SimpleRunStore:
     def list_turn_events(
         self, *, turn_id: str, after_seq: int = 0, limit: int = 0
     ) -> list[StoredTurnEvent]:
-        events = [
-            _record_to_turn_event(record) for record in self._events.get_all()
-        ]
-        all_events = [
-            event
-            for event in events
-            if event is not None and event.turn_id == turn_id
-        ]
+        all_events = self._persisted_turn_events(turn_id)
         all_events.sort(key=lambda event: (event.seq, event.event_id))
         filtered = [event for event in all_events if event.seq > after_seq]
         filtered.extend(
@@ -340,11 +367,113 @@ class SimpleRunStore:
                 turn_id=turn_id,
                 after_seq=after_seq,
                 start_seq=max((event.seq for event in all_events), default=0),
+                skip_event_types={event.event_type for event in all_events},
             )
         )
+        filtered.sort(key=lambda event: (event.seq, event.event_id))
         if limit > 0:
             return filtered[:limit]
         return filtered
+
+    def append_turn_event_once(
+        self,
+        *,
+        event_key: str,
+        turn_id: str,
+        event_type: str,
+        source: str,
+        visibility: str = "private",
+        data: dict[str, Any] | None = None,
+    ) -> StoredTurnEvent:
+        event_key = event_key.strip()
+        if not event_key:
+            return self.append_turn_event(
+                turn_id=turn_id, event_type=event_type, source=source, visibility=visibility, data=data
+            )
+        with self._mutation_lock:
+            try:
+                existing = _record_to_turn_event(self._events.get(event_key))
+            except gestalt.NotFoundError:
+                existing = None
+            if existing is not None:
+                return existing
+            return self._append_turn_event_locked(
+                turn_id=turn_id,
+                event_type=event_type,
+                source=source,
+                visibility=visibility,
+                data=data,
+                event_id=event_key,
+            )
+
+    def put_turn_checkpoint(self, checkpoint: StoredTurnCheckpoint) -> None:
+        self._checkpoints.put(_turn_checkpoint_to_record(checkpoint))
+
+    def get_turn_checkpoint(self, turn_id: str) -> StoredTurnCheckpoint | None:
+        try:
+            return _record_to_turn_checkpoint(self._checkpoints.get(turn_id))
+        except gestalt.NotFoundError:
+            return None
+
+    def ensure_turn_checkpoint_from_seed(self, run: StoredRun) -> StoredTurnCheckpoint | None:
+        checkpoint = self.get_turn_checkpoint(run.run_id)
+        if checkpoint is not None:
+            return checkpoint
+        seed = run.resume_seed
+        if not isinstance(seed, dict):
+            return None
+        now = _utcnow()
+        checkpoint = StoredTurnCheckpoint(
+            turn_id=run.run_id,
+            schema_version=int(seed.get("schema_version") or 1),
+            provider_name=run.provider_name,
+            session_id=run.session_ref,
+            model=run.model,
+            phase=str(seed.get("phase") or "model_next"),
+            messages=_coerce_messages(seed.get("messages")) or list(run.messages),
+            conversation=_coerce_messages(seed.get("conversation")),
+            response_schema=_coerce_optional_dict(seed.get("response_schema")) or {},
+            provider_options=_coerce_optional_dict(seed.get("provider_options")) or {},
+            tool_specs=_coerce_messages(seed.get("tool_specs")),
+            function_name_to_tool_id=_coerce_string_dict(seed.get("function_name_to_tool_id")),
+            loaded_tool_ids=_coerce_string_list(seed.get("loaded_tool_ids")),
+            slack_reply_ref=str(seed.get("slack_reply_ref") or ""),
+            step_index=int(seed.get("step_index") or 0),
+            pending_tool_call=_coerce_optional_dict(seed.get("pending_tool_call")),
+            repaired_arguments=_coerce_optional_dict(seed.get("repaired_arguments")),
+            attempt=0,
+            lease_owner="",
+            lease_expires_at=None,
+            updated_at=now,
+        )
+        self.put_turn_checkpoint(checkpoint)
+        return checkpoint
+
+    def list_recoverable_turn_ids(self, *, limit: int = 0) -> list[str]:
+        runs = [
+            run
+            for run in self.list_runs()
+            if run.status not in TERMINAL_STATUSES
+        ]
+        runs.sort(key=lambda run: (run.started_at or run.created_at, run.run_id))
+        turn_ids = [run.run_id for run in runs]
+        if limit > 0:
+            return turn_ids[:limit]
+        return turn_ids
+
+    def put_tool_result(self, *, turn_id: str, tool_call_id: str, result: dict[str, Any]) -> None:
+        record = copy.deepcopy(result)
+        record["id"] = _tool_result_record_id(turn_id=turn_id, tool_call_id=tool_call_id)
+        record["turn_id"] = turn_id
+        record["tool_call_id"] = tool_call_id
+        record["updated_at"] = _utcnow()
+        self._tool_results.put(record)
+
+    def get_tool_result(self, *, turn_id: str, tool_call_id: str) -> dict[str, Any] | None:
+        try:
+            return self._tool_results.get(_tool_result_record_id(turn_id=turn_id, tool_call_id=tool_call_id))
+        except gestalt.NotFoundError:
+            return None
 
     def mark_turn_succeeded(
         self,
@@ -396,6 +525,7 @@ class SimpleRunStore:
         session_ref: str,
         created_by: dict[str, str],
         execution_ref: str,
+        resume_seed: dict[str, Any] | None = None,
     ) -> tuple[StoredRun, bool]:
         existing = self.get_run(run_id)
         if existing is not None:
@@ -432,6 +562,7 @@ class SimpleRunStore:
             completed_at=None,
             execution_ref=execution_ref,
             cancel_reason="",
+            resume_seed=copy.deepcopy(resume_seed) if isinstance(resume_seed, dict) else None,
         )
 
         claimed_idempotency = False
@@ -496,13 +627,23 @@ class SimpleRunStore:
         return self.get_run(run_id)
 
     def _next_turn_event_seq(self, turn_id: str) -> int:
-        existing = self.list_turn_events(turn_id=turn_id)
+        existing = self._persisted_turn_events(turn_id)
         if not existing:
             return 1
         return max(event.seq for event in existing) + 1
 
+    def _persisted_turn_events(self, turn_id: str) -> list[StoredTurnEvent]:
+        events = [
+            _record_to_turn_event(record) for record in self._events.get_all()
+        ]
+        return [
+            event
+            for event in events
+            if event is not None and event.turn_id == turn_id
+        ]
+
     def _synthetic_terminal_events(
-        self, *, turn_id: str, after_seq: int, start_seq: int
+        self, *, turn_id: str, after_seq: int, start_seq: int, skip_event_types: set[str] | None = None
     ) -> list[StoredTurnEvent]:
         turn = self.get_turn(turn_id)
         if turn is None or turn.status not in TERMINAL_STATUSES:
@@ -512,59 +653,33 @@ class SimpleRunStore:
         source = turn.provider_name
         events: list[StoredTurnEvent] = []
         next_seq = start_seq + 1
+        skipped = skip_event_types or set()
 
-        if turn.status == agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
+        def append_synthetic(event_type: str, data: dict[str, Any]) -> None:
+            nonlocal next_seq
+            if event_type in skipped:
+                return
             events.append(
                 StoredTurnEvent(
-                    event_id=f"{turn_id}:synthetic:assistant.completed",
+                    event_id=f"{turn_id}:synthetic:{event_type}",
                     turn_id=turn_id,
                     seq=next_seq,
-                    event_type="assistant.completed",
+                    event_type=event_type,
                     source=source,
                     visibility="private",
-                    data={"text": turn.output_text},
+                    data=data,
                     created_at=created_at,
                 )
             )
             next_seq += 1
-            events.append(
-                StoredTurnEvent(
-                    event_id=f"{turn_id}:synthetic:turn.completed",
-                    turn_id=turn_id,
-                    seq=next_seq,
-                    event_type="turn.completed",
-                    source=source,
-                    visibility="private",
-                    data={"status": "succeeded"},
-                    created_at=created_at,
-                )
-            )
+
+        if turn.status == agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
+            append_synthetic("assistant.completed", {"text": turn.output_text})
+            append_synthetic("turn.completed", {"status": "succeeded"})
         elif turn.status == agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
-            events.append(
-                StoredTurnEvent(
-                    event_id=f"{turn_id}:synthetic:turn.failed",
-                    turn_id=turn_id,
-                    seq=next_seq,
-                    event_type="turn.failed",
-                    source=source,
-                    visibility="private",
-                    data={"status_message": turn.status_message},
-                    created_at=created_at,
-                )
-            )
+            append_synthetic("turn.failed", {"status_message": turn.status_message})
         elif turn.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-            events.append(
-                StoredTurnEvent(
-                    event_id=f"{turn_id}:synthetic:turn.canceled",
-                    turn_id=turn_id,
-                    seq=next_seq,
-                    event_type="turn.canceled",
-                    source=source,
-                    visibility="private",
-                    data={"reason": turn.cancel_reason or turn.status_message or "canceled"},
-                    created_at=created_at,
-                )
-            )
+            append_synthetic("turn.canceled", {"reason": turn.cancel_reason or turn.status_message or "canceled"})
 
         return [event for event in events if event.seq > after_seq]
 
@@ -576,11 +691,12 @@ class SimpleRunStore:
         source: str,
         visibility: str = "private",
         data: dict[str, Any] | None = None,
+        event_id: str = "",
     ) -> StoredTurnEvent:
         while True:
             seq = self._next_turn_event_seq(turn_id)
             event = StoredTurnEvent(
-                event_id=f"{turn_id}:{seq}",
+                event_id=event_id.strip() or f"{turn_id}:{seq}",
                 turn_id=turn_id,
                 seq=seq,
                 event_type=event_type.strip(),
@@ -592,6 +708,10 @@ class SimpleRunStore:
             try:
                 self._events.add(_turn_event_to_record(event))
             except gestalt.AlreadyExistsError:
+                if event_id:
+                    existing = _record_to_turn_event(self._events.get(event_id))
+                    if existing is not None:
+                        return existing
                 continue
             return event
 
@@ -634,6 +754,60 @@ class SimpleRunStore:
         self._sessions.put(_session_to_record(session))
 
 
+def _turn_checkpoint_to_record(checkpoint: StoredTurnCheckpoint) -> dict[str, Any]:
+    return {
+        "id": checkpoint.turn_id,
+        "schema_version": checkpoint.schema_version,
+        "provider_name": checkpoint.provider_name,
+        "session_id": checkpoint.session_id,
+        "model": checkpoint.model,
+        "phase": checkpoint.phase,
+        "messages": copy.deepcopy(checkpoint.messages),
+        "conversation": copy.deepcopy(checkpoint.conversation),
+        "response_schema": copy.deepcopy(checkpoint.response_schema),
+        "provider_options": copy.deepcopy(checkpoint.provider_options),
+        "tool_specs": copy.deepcopy(checkpoint.tool_specs),
+        "function_name_to_tool_id": dict(checkpoint.function_name_to_tool_id),
+        "loaded_tool_ids": list(checkpoint.loaded_tool_ids),
+        "slack_reply_ref": checkpoint.slack_reply_ref,
+        "step_index": checkpoint.step_index,
+        "pending_tool_call": copy.deepcopy(checkpoint.pending_tool_call),
+        "repaired_arguments": copy.deepcopy(checkpoint.repaired_arguments),
+        "attempt": checkpoint.attempt,
+        "lease_owner": checkpoint.lease_owner,
+        "lease_expires_at": checkpoint.lease_expires_at,
+        "updated_at": checkpoint.updated_at,
+    }
+
+
+def _record_to_turn_checkpoint(record: dict[str, Any] | None) -> StoredTurnCheckpoint | None:
+    if record is None:
+        return None
+    return StoredTurnCheckpoint(
+        turn_id=str(record.get("id") or ""),
+        schema_version=int(record.get("schema_version") or 1),
+        provider_name=str(record.get("provider_name") or ""),
+        session_id=str(record.get("session_id") or ""),
+        model=str(record.get("model") or ""),
+        phase=str(record.get("phase") or "model_next"),
+        messages=_coerce_messages(record.get("messages")),
+        conversation=_coerce_messages(record.get("conversation")),
+        response_schema=_coerce_optional_dict(record.get("response_schema")) or {},
+        provider_options=_coerce_optional_dict(record.get("provider_options")) or {},
+        tool_specs=_coerce_messages(record.get("tool_specs")),
+        function_name_to_tool_id=_coerce_string_dict(record.get("function_name_to_tool_id")),
+        loaded_tool_ids=_coerce_string_list(record.get("loaded_tool_ids")),
+        slack_reply_ref=str(record.get("slack_reply_ref") or ""),
+        step_index=int(record.get("step_index") or 0),
+        pending_tool_call=_coerce_optional_dict(record.get("pending_tool_call")),
+        repaired_arguments=_coerce_optional_dict(record.get("repaired_arguments")),
+        attempt=int(record.get("attempt") or 0),
+        lease_owner=str(record.get("lease_owner") or ""),
+        lease_expires_at=_coerce_datetime(record.get("lease_expires_at")),
+        updated_at=_coerce_required_datetime(record.get("updated_at")),
+    )
+
+
 def _run_to_record(run: StoredRun) -> dict[str, Any]:
     return {
         "id": run.run_id,
@@ -652,6 +826,7 @@ def _run_to_record(run: StoredRun) -> dict[str, Any]:
         "completed_at": run.completed_at,
         "execution_ref": run.execution_ref,
         "cancel_reason": run.cancel_reason,
+        "resume_seed": copy.deepcopy(run.resume_seed) if isinstance(run.resume_seed, dict) else None,
     }
 
 
@@ -688,6 +863,7 @@ def _record_to_run(record: dict[str, Any] | None) -> StoredRun | None:
         completed_at=_coerce_datetime(record.get("completed_at")),
         execution_ref=str(record.get("execution_ref") or ""),
         cancel_reason=str(record.get("cancel_reason") or ""),
+        resume_seed=_coerce_optional_dict(record.get("resume_seed")),
     )
 
 
@@ -758,12 +934,22 @@ def _coerce_string_dict(raw_value: Any) -> dict[str, str]:
     return {str(key): str(value or "") for key, value in raw_value.items()}
 
 
+def _coerce_string_list(raw_value: Any) -> list[str]:
+    if not isinstance(raw_value, list):
+        return []
+    return [str(item) for item in raw_value if str(item or "").strip()]
+
+
 def _coerce_optional_dict(raw_value: Any) -> dict[str, Any] | None:
     if raw_value is None:
         return None
     if not isinstance(raw_value, dict):
         raise ValueError("stored structured_output must be an object")
     return raw_value
+
+
+def _tool_result_record_id(*, turn_id: str, tool_call_id: str) -> str:
+    return f"{turn_id}:{tool_call_id}"
 
 
 def _coerce_datetime(raw_value: Any) -> datetime | None:

@@ -214,6 +214,10 @@ class SimpleAgentRuntimeProvider(
         self._store = SimpleRunStore(run_store=config.run_store, idempotency_store=config.idempotency_store)
         self._orchestrator = SimpleAgentOrchestrator(config=config, store=self._store)
         self._warnings = self._build_warnings(config)
+        try:
+            self._orchestrator.resume_incomplete_turns()
+        except grpc.RpcError:
+            pass
 
     def _build_warnings(self, config: SimpleAgentConfig) -> list[str]:
         warnings: list[str] = []
