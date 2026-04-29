@@ -115,10 +115,20 @@ payload has this interface:
   "repository": {"full_name": "acme/widgets"},
   "sender": {"login": "octocat"},
   "summary": {"repository": "acme/widgets", "number": 7},
-  "payload": {"action": "opened"},
+  "agent_request": {
+    "user_prompt": "GitHub App webhook:\n...",
+    "subject": {"repository": "acme/widgets", "number": 7},
+    "pull_request": {
+      "number": 7,
+      "title": "Update widgets",
+      "state": "open",
+      "html_url": "https://github.com/acme/widgets/pull/7",
+      "head_ref": "feature",
+      "base_ref": "main"
+    }
+  },
   "payload_sha256": "<payload digest>",
-  "payload_truncated": false,
-  "user_prompt": "GitHub App webhook:\n..."
+  "payload_omitted": true
 }
 ```
 

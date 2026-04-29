@@ -7,7 +7,6 @@ BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CREATE_PULL_REQUEST_OPERATION = "bot.createPullRequest"
 
-GITHUB_WORKFLOW_EVENT_TYPE = "github.app.webhook"
 GITHUB_WORKFLOW_SIGNAL_NAME = "github.app.webhook"
 
 GITHUB_INSTALLATION_SUBJECT_PREFIX = "workload:github_app_installation:"
@@ -32,4 +31,6 @@ When you create commits or pull requests, use the installation_id and repository
 details from the event unless the user instruction says otherwise.
 Return a concise final summary of what you did.
 """.strip()
-MAX_AGENT_PAYLOAD_CHARS = 20000
+MAX_AGENT_USER_PROMPT_CHARS = 12000
+MAX_GITHUB_BODY_CHARS = 4096
+MAX_GITHUB_TITLE_CHARS = 512

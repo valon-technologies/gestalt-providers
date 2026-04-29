@@ -4,7 +4,6 @@ import hashlib
 import json
 from typing import Any
 
-from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
@@ -16,9 +15,10 @@ from .constants import (
     BOT_OPEN_PULL_REQUEST_OPERATION,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     GITHUB_WORKFLOW_SIGNAL_NAME,
-    MAX_AGENT_PAYLOAD_CHARS,
+    MAX_AGENT_USER_PROMPT_CHARS,
 )
-from .workflow_dispatch import build_workflow_event
+from .webhook import bounded_text
+from .workflow_dispatch import workflow_signal_data
 
 agent_pb2: Any = _agent_pb2
 struct_pb2: Any = _struct_pb2
@@ -64,12 +64,12 @@ def workflow_agent_target(summary: dict[str, Any]) -> Any:
 
 
 def workflow_signal_payload(payload: dict[str, Any], summary: dict[str, Any]) -> Any:
-    event = build_workflow_event(payload)
-    data = json_format.MessageToDict(event.data, preserving_proto_field_name=True)
-    safe_payload = data.get("payload")
-    if not isinstance(safe_payload, dict):
-        safe_payload = {}
-    data["user_prompt"] = agent_user_prompt(safe_payload, summary)
+    data = workflow_signal_data(payload, summary)
+    agent_request = data.get("agent_request")
+    if not isinstance(agent_request, dict):
+        agent_request = {}
+        data["agent_request"] = agent_request
+    agent_request["user_prompt"] = agent_user_prompt(agent_request, summary)
     return dict_to_struct(data)
 
 
@@ -77,8 +77,8 @@ def workflow_agent_prompt() -> str:
     return "\n".join(
         [
             "Handle GitHub App webhooks delivered in the final workflow signal batch.",
-            "Each signal payload includes user_prompt, summary, and redacted GitHub webhook fields.",
-            "Use the payload's user_prompt as the current GitHub request.",
+            "Each signal payload includes summary and compact agent_request fields.",
+            "Use agent_request.user_prompt as the current GitHub request.",
         ]
     )
 
@@ -131,10 +131,7 @@ def agent_system_prompt() -> str:
     return DEFAULT_AGENT_SYSTEM_PROMPT + "\n\n" + config.agent_system_prompt.strip()
 
 
-def agent_user_prompt(payload: dict[str, Any], summary: dict[str, Any]) -> str:
-    payload_json = json.dumps(payload, sort_keys=True, indent=2)
-    if len(payload_json) > MAX_AGENT_PAYLOAD_CHARS:
-        payload_json = payload_json[:MAX_AGENT_PAYLOAD_CHARS] + "\n...<truncated>"
+def agent_user_prompt(agent_request: dict[str, Any], summary: dict[str, Any]) -> str:
     lines = [
         "GitHub App webhook:",
         f"installation_id: {summary.get('installation_id', '')}",
@@ -145,8 +142,60 @@ def agent_user_prompt(payload: dict[str, Any], summary: dict[str, Any]) -> str:
     ]
     if "number" in summary:
         lines.append(f"number: {summary['number']}")
-    lines.extend(["", "Payload:", payload_json])
-    return "\n".join(lines)
+    subject = agent_request.get("subject")
+    if isinstance(subject, dict) and subject.get("html_url"):
+        lines.append(f"url: {subject['html_url']}")
+    for key in ("pull_request", "issue", "comment", "review"):
+        value = agent_request.get(key)
+        if isinstance(value, dict):
+            lines.extend(_prompt_section(key, value))
+    ref_lines = _ref_prompt_lines(agent_request)
+    if ref_lines:
+        lines.extend(["", "ref:"] + ref_lines)
+    return bounded_text("\n".join(lines), MAX_AGENT_USER_PROMPT_CHARS)
+
+
+def _prompt_section(name: str, value: dict[str, Any]) -> list[str]:
+    lines = ["", f"{name}:"]
+    for key in (
+        "number",
+        "title",
+        "state",
+        "html_url",
+        "head_ref",
+        "base_ref",
+        "id",
+        "user",
+        "body",
+    ):
+        nested = value.get(key)
+        if nested not in ("", 0, None):
+            lines.append(f"{key}: {nested}")
+    return lines
+
+
+def _ref_prompt_lines(agent_request: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for key in (
+        "ref",
+        "base_ref",
+        "before",
+        "after",
+        "compare",
+        "ref_type",
+        "created",
+        "deleted",
+        "forced",
+    ):
+        if key in agent_request:
+            lines.append(f"{key}: {agent_request[key]}")
+    head_commit = agent_request.get("head_commit")
+    if isinstance(head_commit, dict):
+        for key in ("id", "message", "url"):
+            value = head_commit.get(key)
+            if value:
+                lines.append(f"head_commit.{key}: {value}")
+    return lines
 
 
 def agent_session_ref(summary: dict[str, Any]) -> str:

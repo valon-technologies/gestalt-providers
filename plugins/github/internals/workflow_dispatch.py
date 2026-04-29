@@ -4,90 +4,32 @@ import hashlib
 import json
 from typing import Any
 
-from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
-
-from .config import get_github_config
-from .constants import GITHUB_WORKFLOW_EVENT_TYPE
-from .helpers import int_field, map_field, nested_str, str_field
-from .webhook import event_summary, installation_id_from_payload
-
-workflow_pb2: Any = _workflow_pb2
-
-MAX_WORKFLOW_EVENT_PAYLOAD_CHARS = 60000
-SENSITIVE_FIELD_FRAGMENTS = (
-    "authorization",
-    "client_secret",
-    "private_key",
-    "secret",
-    "signature",
-    "token",
+from .constants import (
+    MAX_GITHUB_BODY_CHARS,
+    MAX_GITHUB_TITLE_CHARS,
 )
+from .helpers import int_field, map_field, nested_str, str_field
+from .webhook import bounded_text
 
 
-def build_workflow_event(payload: dict[str, Any]) -> Any:
-    installation_id = installation_id_from_payload(payload)
-    summary = event_summary(payload, installation_id)
-    payload_digest = _payload_digest(payload)
-    delivery_id = _github_delivery_id(payload)
-    event_id = f"github:{delivery_id}" if delivery_id else f"github:{payload_digest}"
-    safe_payload, truncated = _workflow_payload(payload, summary, payload_digest)
-
-    event = workflow_pb2.WorkflowEvent(
-        id=event_id,
-        source="github",
-        spec_version="1.0",
-        type=GITHUB_WORKFLOW_EVENT_TYPE,
-        subject=_workflow_subject(summary, installation_id),
-        datacontenttype="application/json",
-    )
-    event.time.GetCurrentTime()
-    event.data.update(
-        {
-            "delivery_id": delivery_id or event_id,
-            "github_event": summary.get("event_type", ""),
-            "github_action": summary.get("action", ""),
-            "installation": _installation_data(payload),
-            "repository": _repository_data(payload),
-            "sender": _sender_data(payload),
-            "summary": summary,
-            "payload": safe_payload,
-            "payload_sha256": payload_digest,
-            "payload_truncated": truncated,
-        }
-    )
-    return event
-
-
-def _workflow_subject(summary: dict[str, Any], installation_id: int) -> str:
-    repository = str(summary.get("repository", "")).strip()
-    if repository:
-        return repository
-    if installation_id > 0:
-        return f"installation:{installation_id}"
-    app_id = get_github_config().app_id
-    if app_id:
-        return f"app:{app_id}"
-    return "github"
-
-
-def _workflow_payload(
+def workflow_signal_data(
     payload: dict[str, Any],
     summary: dict[str, Any],
-    payload_digest: str,
-) -> tuple[dict[str, Any], bool]:
-    redacted = _redact_value(payload)
-    encoded = _canonical_json(redacted)
-    if len(encoded) <= MAX_WORKFLOW_EVENT_PAYLOAD_CHARS:
-        return redacted, False
-
-    compact = _compact_payload(payload)
-    compact["_gestalt_payload_truncated"] = True
-    compact["_gestalt_payload_sha256"] = payload_digest
-    compact["_gestalt_payload_preview_json"] = (
-        encoded[:MAX_WORKFLOW_EVENT_PAYLOAD_CHARS] + "\n...<truncated>"
-    )
-    compact["_gestalt_summary"] = summary
-    return compact, True
+) -> dict[str, Any]:
+    payload_digest = _payload_digest(payload)
+    delivery_id = _github_delivery_id(payload)
+    return {
+        "delivery_id": delivery_id or f"github:{payload_digest}",
+        "github_event": summary.get("event_type", ""),
+        "github_action": summary.get("action", ""),
+        "installation": _installation_data(payload),
+        "repository": _repository_data(payload),
+        "sender": _sender_data(payload),
+        "summary": summary,
+        "agent_request": _agent_request(payload, summary),
+        "payload_sha256": payload_digest,
+        "payload_omitted": True,
+    }
 
 
 def _payload_digest(payload: dict[str, Any]) -> str:
@@ -106,69 +48,146 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _redact_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, nested in value.items():
-            key_text = str(key)
-            normalized = key_text.lower()
-            if any(fragment in normalized for fragment in SENSITIVE_FIELD_FRAGMENTS):
-                out[key_text] = "[redacted]"
-            else:
-                out[key_text] = _redact_value(nested)
-        return out
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    return value
+def _agent_request(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    request: dict[str, Any] = {}
+    subject = _subject_data(payload, summary)
+    if subject:
+        request["subject"] = subject
+    for key, value in {
+        "pull_request": _pull_request_data(payload),
+        "issue": _issue_data(payload),
+        "comment": _comment_data(payload),
+        "review": _review_data(payload),
+    }.items():
+        if value:
+            request[key] = value
+    request.update(_ref_data(payload))
+    return request
 
 
-def _compact_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-    for key in (
-        "action",
-        "ref",
-        "before",
-        "after",
-        "installation",
-        "repository",
-        "sender",
-    ):
-        if key in payload:
-            compact[key] = _redact_value(payload[key])
-    for key in (
-        "pull_request",
-        "issue",
-        "comment",
-        "review",
-        "check_run",
-        "check_suite",
-        "workflow_run",
-    ):
-        nested = map_field(payload, key)
-        if nested:
-            compact[key] = _compact_nested_object(nested)
-    return compact
+def _subject_data(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    repository = str(summary.get("repository", "")).strip()
+    subject: dict[str, Any] = {}
+    if repository:
+        subject["repository"] = repository
+    number = summary.get("number")
+    if isinstance(number, (int, float)) and int(number) > 0:
+        subject["number"] = int(number)
+    url = (
+        str_field(map_field(payload, "pull_request"), "html_url")
+        or str_field(map_field(payload, "issue"), "html_url")
+        or str_field(map_field(payload, "comment"), "html_url")
+        or str_field(map_field(payload, "review"), "html_url")
+        or str_field(map_field(payload, "repository"), "html_url")
+    )
+    if url:
+        subject["html_url"] = url
+    return subject
 
 
-def _compact_nested_object(value: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-    for key in (
-        "id",
-        "node_id",
-        "number",
-        "name",
-        "title",
-        "state",
-        "status",
-        "conclusion",
-        "html_url",
-        "url",
-        "head",
-        "base",
-    ):
-        if key in value:
-            compact[key] = _redact_value(value[key])
-    return compact
+def _pull_request_data(payload: dict[str, Any]) -> dict[str, Any]:
+    pull_request = map_field(payload, "pull_request")
+    if not pull_request:
+        return {}
+    data = {
+        "number": _positive_int(pull_request, "number"),
+        "title": _bounded_field(pull_request, "title", MAX_GITHUB_TITLE_CHARS),
+        "state": str_field(pull_request, "state"),
+        "html_url": str_field(pull_request, "html_url"),
+        "head_ref": nested_str(pull_request, "head", "ref"),
+        "head_sha": nested_str(pull_request, "head", "sha"),
+        "base_ref": nested_str(pull_request, "base", "ref"),
+        "base_sha": nested_str(pull_request, "base", "sha"),
+    }
+    return _compact_dict(data)
+
+
+def _issue_data(payload: dict[str, Any]) -> dict[str, Any]:
+    issue = map_field(payload, "issue")
+    if not issue:
+        return {}
+    data = {
+        "number": _positive_int(issue, "number"),
+        "title": _bounded_field(issue, "title", MAX_GITHUB_TITLE_CHARS),
+        "state": str_field(issue, "state"),
+        "html_url": str_field(issue, "html_url"),
+    }
+    return _compact_dict(data)
+
+
+def _comment_data(payload: dict[str, Any]) -> dict[str, Any]:
+    comment = map_field(payload, "comment")
+    if not comment:
+        return {}
+    data = {
+        "id": _positive_int(comment, "id"),
+        "html_url": str_field(comment, "html_url"),
+        "body": _bounded_field(comment, "body", MAX_GITHUB_BODY_CHARS),
+        "user": nested_str(comment, "user", "login"),
+    }
+    return _compact_dict(data)
+
+
+def _review_data(payload: dict[str, Any]) -> dict[str, Any]:
+    review = map_field(payload, "review")
+    if not review:
+        return {}
+    data = {
+        "id": _positive_int(review, "id"),
+        "state": str_field(review, "state"),
+        "html_url": str_field(review, "html_url"),
+        "body": _bounded_field(review, "body", MAX_GITHUB_BODY_CHARS),
+        "user": nested_str(review, "user", "login"),
+    }
+    return _compact_dict(data)
+
+
+def _ref_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    for key in ("ref", "base_ref", "before", "after", "compare", "ref_type"):
+        value = str_field(payload, key)
+        if value:
+            data[key] = value
+    for key in ("created", "deleted", "forced"):
+        value = payload.get(key)
+        if isinstance(value, bool):
+            data[key] = value
+    head_commit = map_field(payload, "head_commit")
+    if head_commit:
+        commit = _compact_dict(
+            {
+                "id": str_field(head_commit, "id"),
+                "message": _bounded_field(
+                    head_commit, "message", MAX_GITHUB_TITLE_CHARS
+                ),
+                "url": str_field(head_commit, "url"),
+            }
+        )
+        if commit:
+            data["head_commit"] = commit
+    return data
+
+
+def _bounded_field(value: dict[str, Any], key: str, max_chars: int) -> str:
+    text = str_field(value, key)
+    if not text:
+        return ""
+    return bounded_text(text, max_chars)
+
+
+def _positive_int(value: dict[str, Any], key: str) -> int:
+    number = int_field(value, key)
+    if number <= 0:
+        return 0
+    return number
+
+
+def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: nested
+        for key, nested in value.items()
+        if nested not in ("", 0, None, {}, [])
+    }
 
 
 def _installation_data(payload: dict[str, Any]) -> dict[str, Any]:

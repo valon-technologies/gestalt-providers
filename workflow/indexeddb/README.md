@@ -30,10 +30,16 @@ providers:
           - workflow_signals
       config:
         pollInterval: 1s
+        deferStart: true
 ```
 
 `pollInterval` controls how often the single worker scans for due cron schedules
 and pending runs.
+
+`deferStart` defaults to `false` for compatibility with older hosts that only
+call `Configure`. Set it to `true` when the host supports
+`ProviderLifecycle.StartProvider`; this lets the host delay durable work until
+agents, authorization, and plugin providers are ready.
 
 ## Runtime Requirements
 
