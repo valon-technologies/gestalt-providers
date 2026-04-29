@@ -862,8 +862,9 @@ def _needs_slack_reply_repair(
     tool_specs: list[dict[str, Any]],
     default_reply_ref: str,
 ) -> bool:
+    reply_ref = str(arguments.get(SLACK_REPLY_REF_ARGUMENT_FIELD, "") or "").strip() or default_reply_ref
     return (
-        bool(default_reply_ref)
+        bool(reply_ref)
         and _missing_slack_reply_text_argument_name(
             resolved_tool_id=resolved_tool_id, tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
         )
