@@ -22,10 +22,6 @@ spec:
       credentialMode: none
       security: github_app
       target: events.handle
-      ack:
-        status: 202
-        body:
-          status: accepted
       requestBody:
         required: true
         content:
