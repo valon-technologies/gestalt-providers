@@ -19,6 +19,7 @@ class SimpleAgentConfig:
     provider_options: dict[str, Any] = field(default_factory=dict)
     max_steps: int = DEFAULT_MAX_STEPS
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    adaptive_tool_search: bool = False
     system_prompt: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
@@ -47,6 +48,9 @@ class SimpleAgentConfig:
             provider_options=_coerce_provider_options(raw_config.get("providerOptions")),
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
+            adaptive_tool_search=_coerce_bool(
+                raw_config.get("adaptiveToolSearch"), default=False, field_name="adaptiveToolSearch"
+            ),
             system_prompt=_trimmed_text(raw_config.get("systemPrompt")),
             anthropic_api_key=_trimmed_text(raw_config.get("anthropicApiKey")),
             openai_api_key=_trimmed_text(raw_config.get("openaiApiKey")),
@@ -113,6 +117,20 @@ def _coerce_positive_float(raw_value: Any, *, default: float, field_name: str) -
     if value <= 0:
         raise ValueError(f"{field_name} must be positive")
     return value
+
+
+def _coerce_bool(raw_value: Any, *, default: bool, field_name: str) -> bool:
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    if isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, str):
+        normalized = raw_value.strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean")
 
 
 def _trimmed_text(raw_value: Any) -> str:

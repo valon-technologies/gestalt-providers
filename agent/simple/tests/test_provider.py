@@ -265,9 +265,12 @@ def _proto_message_has_field(message: Any, field_name: str) -> bool:
 
 
 def _supports_adaptive_tool_search() -> bool:
-    return _proto_message_has_field(
-        agent_pb2.SearchAgentToolsRequest(), "candidate_limit"
-    ) and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "candidates")
+    return (
+        _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "candidate_limit")
+        and _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "load_refs")
+        and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "candidates")
+        and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "has_more")
+    )
 
 
 def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
@@ -388,17 +391,29 @@ def _fresh_socket(name: str) -> str:
 
 
 def _configure_provider(
-    *, default_model: str = "fast", provider_options: dict[str, Any] | None = None
+    *,
+    default_model: str = "fast",
+    provider_options: dict[str, Any] | None = None,
+    adaptive_tool_search: bool = False,
 ) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
-    _configure_runtime(lifecycle, default_model=default_model, provider_options=provider_options)
+    _configure_runtime(
+        lifecycle,
+        default_model=default_model,
+        provider_options=provider_options,
+        adaptive_tool_search=adaptive_tool_search,
+    )
     return lifecycle, provider_client
 
 
 def _configure_runtime(
-    lifecycle: Any, *, default_model: str = "fast", provider_options: dict[str, Any] | None = None
+    lifecycle: Any,
+    *,
+    default_model: str = "fast",
+    provider_options: dict[str, Any] | None = None,
+    adaptive_tool_search: bool = False,
 ) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     config: dict[str, Any] = {
@@ -408,6 +423,8 @@ def _configure_runtime(
         "timeoutSeconds": 5,
         "systemPrompt": "Be concise.",
     }
+    if adaptive_tool_search:
+        config["adaptiveToolSearch"] = True
     if provider_options is not None:
         config["providerOptions"] = provider_options
     json_format.ParseDict(config, request.config)
@@ -714,7 +731,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     turn_id="turn-success",
                     query="historical figure lookup",
                     max_results=5,
-                    candidate_limit=10,
+                    candidate_limit=0,
                 )
             ],
         )
@@ -738,10 +755,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(first_request["messages"][0]["role"], "system")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
         self.assertEqual([tool["function"]["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
-        if not _supports_adaptive_tool_search():
-            properties = first_request["tools"][0]["function"]["parameters"]["properties"]
-            self.assertNotIn("candidate_limit", properties)
-            self.assertNotIn("load_refs", properties)
+        properties = first_request["tools"][0]["function"]["parameters"]["properties"]
+        self.assertNotIn("candidate_limit", properties)
+        self.assertNotIn("load_refs", properties)
         self.assertEqual(second_request["messages"][-1]["role"], "tool")
         self.assertIn("person_lookup", second_request["messages"][-1]["content"])
         self.assertNotIn('"id"', second_request["messages"][-1]["content"])
@@ -772,7 +788,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
     @unittest.skipUnless(_supports_adaptive_tool_search(), "adaptive tool search proto fields are not available")
     def test_create_turn_searches_candidates_and_loads_refs(self) -> None:
         assert _host_servicer is not None
-        _, provider_client = _configure_provider()
+        _, provider_client = _configure_provider(adaptive_tool_search=True)
         _create_session(
             provider_client, session_id="session-adaptive-search", idempotency_key="session-idem-adaptive-search"
         )
@@ -1752,7 +1768,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     turn_id="turn-anthropic",
                     query="historical figure lookup",
                     max_results=5,
-                    candidate_limit=10,
+                    candidate_limit=0,
                 )
             ],
         )
@@ -1776,6 +1792,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(first_request["model"], "claude-fake-model")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
         self.assertEqual([tool["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
+        self.assertNotIn("candidate_limit", first_request["tools"][0]["input_schema"]["properties"])
+        self.assertNotIn("load_refs", first_request["tools"][0]["input_schema"]["properties"])
         self.assertEqual(first_request["thinking"], {"type": "adaptive"})
         self.assertEqual(first_request["output_config"], {"effort": "medium"})
         self.assertIn("Return only valid JSON", first_request["system"])

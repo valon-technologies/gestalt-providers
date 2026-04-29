@@ -76,6 +76,7 @@ providers:
               effort: medium
         maxSteps: 8
         timeoutSeconds: 120
+        adaptiveToolSearch: true
 ```
 
 Bring the server up from the `gestalt` repo:
@@ -99,6 +100,7 @@ Notes:
 - Store names are internal and derived from the configured provider name. The simplest local setup is to omit `providers.agent.simple.indexeddb.objectStores` entirely so Gestalt can create the provider-owned IndexedDB stores on demand.
 - `CreateTurn` returns after the turn is persisted in `RUNNING`; the provider continues the model/tool loop in the background and callers should use `GetTurn`, `ListTurns`, or `ListTurnEvents` to observe terminal state.
 - The provider advertises native tool search. Each turn initially exposes a small `gestalt_search_tools` function; matching authorized integration tools are loaded lazily through `AgentHost.SearchTools` before the model invokes them.
+- Set `adaptiveToolSearch: true` to enable compact tool-search candidates and load-by-ref on SDK/server versions that support adaptive search. Leave it unset or false for the legacy query/max-results search behavior.
 
 ## Hosted runtime image
 
@@ -141,6 +143,7 @@ providers:
               effort: medium
         maxSteps: 8
         timeoutSeconds: 120
+        adaptiveToolSearch: true
         systemPrompt: You are a concise operations assistant.
         openaiApiKey:
           secret:

@@ -144,7 +144,10 @@ class SimpleAgentOrchestrator:
             messages=list(started.messages),
             response_schema=_struct_to_dict(request.response_schema),
             provider_options=_struct_to_dict(request.provider_options),
-            tool_specs_and_names=_tool_registry_from_resolved_tools(request.tools),
+            tool_specs_and_names=_tool_registry_from_resolved_tools(
+                request.tools, adaptive_tool_search=self._config.adaptive_tool_search
+            ),
+            adaptive_tool_search=self._config.adaptive_tool_search,
         )
         self._store.append_turn_event(
             turn_id=turn_id,
@@ -162,6 +165,7 @@ class SimpleAgentOrchestrator:
             system_prompt=self._config.system_prompt,
             projected_messages=prepared.messages,
             response_schema=prepared.response_schema,
+            adaptive_tool_search=prepared.adaptive_tool_search,
         )
 
         try:
@@ -433,6 +437,7 @@ class PreparedTurn:
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]]
+    adaptive_tool_search: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,15 +455,15 @@ def _search_tools_for_model(
     function_name_to_tool_id: dict[str, str],
     loaded_tool_ids: set[str],
 ) -> str:
+    adaptive_enabled = _tool_search_adaptive_enabled(prepared.adaptive_tool_search)
     query = str(tool_call_arguments.get("query", "") or "").strip()
-    load_refs = _tool_search_load_refs(tool_call_arguments.get("load_refs"))
+    load_refs = _tool_search_load_refs(tool_call_arguments.get("load_refs")) if adaptive_enabled else []
     if not query and not load_refs:
         query = _tool_search_query(prepared.messages)
     request = agent_pb2.SearchAgentToolsRequest(session_id=prepared.session_id, turn_id=prepared.turn_id, query=query)
-    adaptive_supported = _proto_message_has_field(request, "candidate_limit")
-    load_refs_supported = _proto_message_has_field(request, "load_refs")
     candidate_limit = _tool_search_candidate_limit(
-        tool_call_arguments.get("candidate_limit"), default=0 if load_refs else TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT
+        tool_call_arguments.get("candidate_limit"),
+        default=0 if load_refs else TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT if adaptive_enabled else 0,
     )
     request.max_results = _tool_search_max_results(
         tool_call_arguments.get("max_results"),
@@ -466,22 +471,14 @@ def _search_tools_for_model(
             0
             if load_refs
             else TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS
-            if adaptive_supported and candidate_limit > 0
+            if adaptive_enabled and candidate_limit > 0
             else TOOL_SEARCH_LEGACY_DEFAULT_MAX_RESULTS
         ),
         allow_zero=bool(load_refs),
     )
-    if adaptive_supported:
+    if adaptive_enabled:
         request.candidate_limit = candidate_limit
     if load_refs:
-        if not load_refs_supported:
-            return json.dumps(
-                {
-                    "tools": [],
-                    "error": "This provider SDK does not support loading tool refs yet; search by query instead.",
-                },
-                separators=(",", ":"),
-            )
         request.load_refs.extend(load_refs)
     response = host.search_tools(request)
     available_tools = _register_resolved_tools(
@@ -843,17 +840,21 @@ def _tool_search_adaptive_supported() -> bool:
     )
 
 
-def _tool_search_system_prompt() -> str:
-    if _tool_search_adaptive_supported():
+def _tool_search_adaptive_enabled(config_enabled: bool) -> bool:
+    return config_enabled and _tool_search_adaptive_supported()
+
+
+def _tool_search_system_prompt(*, adaptive_tool_search: bool) -> str:
+    if _tool_search_adaptive_enabled(adaptive_tool_search):
         return TOOL_SEARCH_SYSTEM_PROMPT + TOOL_SEARCH_ADAPTIVE_SYSTEM_PROMPT
     return TOOL_SEARCH_SYSTEM_PROMPT
 
 
-def _tool_search_tool_spec() -> dict[str, Any]:
+def _tool_search_tool_spec(*, adaptive_tool_search: bool) -> dict[str, Any]:
     tool_spec = copy.deepcopy(TOOL_SEARCH_TOOL_SPEC)
     function_spec = cast(dict[str, Any], tool_spec["function"])
     parameters = cast(dict[str, Any], function_spec["parameters"])
-    if _tool_search_adaptive_supported():
+    if _tool_search_adaptive_enabled(adaptive_tool_search):
         return tool_spec
 
     properties = cast(dict[str, Any], parameters["properties"])
@@ -879,12 +880,16 @@ def _tool_search_query(messages: list[dict[str, Any]]) -> str:
 
 
 def _build_initial_conversation(
-    *, system_prompt: str, projected_messages: list[dict[str, Any]], response_schema: dict[str, Any] | None
+    *,
+    system_prompt: str,
+    projected_messages: list[dict[str, Any]],
+    response_schema: dict[str, Any] | None,
+    adaptive_tool_search: bool,
 ) -> list[dict[str, Any]]:
     conversation: list[dict[str, Any]] = []
     if system_prompt:
         conversation.append({"role": "system", "content": system_prompt})
-    conversation.append({"role": "system", "content": _tool_search_system_prompt()})
+    conversation.append({"role": "system", "content": _tool_search_system_prompt(adaptive_tool_search=adaptive_tool_search)})
     if response_schema:
         conversation.append(
             {
@@ -1061,8 +1066,10 @@ def _part_type(part: dict[str, Any]) -> str:
     return ""
 
 
-def _tool_registry_from_resolved_tools(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
-    tool_specs = [_tool_search_tool_spec()]
+def _tool_registry_from_resolved_tools(
+    tools: Any, *, adaptive_tool_search: bool
+) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
+    tool_specs = [_tool_search_tool_spec(adaptive_tool_search=adaptive_tool_search)]
     function_name_to_tool_id = {TOOL_SEARCH_FUNCTION_NAME: TOOL_SEARCH_TOOL_ID}
     loaded_tool_ids: set[str] = set()
     _register_resolved_tools(

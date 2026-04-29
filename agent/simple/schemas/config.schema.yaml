@@ -20,6 +20,9 @@ properties:
     type: number
     exclusiveMinimum: 0
     description: Per-model-call timeout in seconds.
+  adaptiveToolSearch:
+    type: boolean
+    description: Enable compact tool-search candidates and load-by-ref when the installed Gestalt SDK/server support adaptive search.
   systemPrompt:
     type: string
     description: Optional system prompt prepended to every run.
