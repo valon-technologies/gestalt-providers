@@ -432,22 +432,47 @@ class SimpleRunStore:
 
     def cancel_turn(self, turn_id: str, reason: str) -> StoredRun | None:
         with self._mutation_lock:
+
             def cancel(stores: dict[str, Any]) -> StoredRun | None:
                 runs = stores[self._run_store_name]
+                checkpoints = stores[self._checkpoint_store_name]
+                events = stores[self._event_store_name]
                 run = _get_run_from_store(runs, turn_id)
                 if run is None:
                     return None
+                existing_checkpoint = _record_to_turn_checkpoint(_get_optional_record(checkpoints, turn_id))
                 if run.status in TERMINAL_STATUSES:
                     return run
                 cancel_reason = reason.strip() or "canceled"
+                completed_at = _utcnow()
                 run.status = agent_pb2.AGENT_EXECUTION_STATUS_CANCELED
                 run.status_message = cancel_reason
                 run.cancel_reason = cancel_reason
-                run.completed_at = _utcnow()
+                run.completed_at = completed_at
                 runs.put(_run_to_record(run))
+                checkpoints.put(
+                    _turn_checkpoint_to_record(
+                        _terminal_checkpoint_for_run(
+                            run,
+                            existing_checkpoint,
+                            messages=existing_checkpoint.messages if existing_checkpoint is not None else run.messages,
+                            now=completed_at,
+                        )
+                    )
+                )
+                self._append_turn_event_locked(
+                    event_id=f"{run.run_id}:turn.canceled",
+                    turn_id=run.run_id,
+                    event_type="turn.canceled",
+                    source=run.provider_name,
+                    data={"reason": run.cancel_reason or run.status_message or "canceled"},
+                    events_store=events,
+                )
                 return run
 
-            return self._with_transaction([self._run_store_name], cancel)
+            return self._with_transaction(
+                [self._run_store_name, self._checkpoint_store_name, self._event_store_name], cancel
+            )
 
     def append_turn_event(
         self,
@@ -467,15 +492,6 @@ class SimpleRunStore:
         all_events = self._persisted_turn_events(turn_id)
         all_events.sort(key=lambda event: (event.seq, event.event_id))
         filtered = [event for event in all_events if event.seq > after_seq]
-        filtered.extend(
-            self._synthetic_terminal_events(
-                turn_id=turn_id,
-                after_seq=after_seq,
-                start_seq=max((event.seq for event in all_events), default=0),
-                skip_event_types={event.event_type for event in all_events},
-            )
-        )
-        filtered.sort(key=lambda event: (event.seq, event.event_id))
         if limit > 0:
             return filtered[:limit]
         return filtered
@@ -666,31 +682,54 @@ class SimpleRunStore:
         messages: list[dict[str, Any]],
         output_text: str,
         structured_output: dict[str, Any] | None,
+        checkpoint: StoredTurnCheckpoint,
         lease_owner: str = "",
     ) -> StoredRun:
         with self._mutation_lock:
 
             def mark_succeeded(stores: dict[str, Any]) -> StoredRun:
                 runs = stores[self._run_store_name]
+                checkpoints = stores[self._checkpoint_store_name]
+                events = stores[self._event_store_name]
                 current = _get_run_from_store(runs, turn_id)
                 if current is None:
                     raise RuntimeError(f"agent run {turn_id!r} was not found")
+                existing_checkpoint = _record_to_turn_checkpoint(_get_optional_record(checkpoints, turn_id))
                 if lease_owner:
-                    _require_checkpoint_lease_from_store(
-                        stores[self._checkpoint_store_name], turn_id=turn_id, owner=lease_owner
-                    )
+                    _require_checkpoint_lease(existing_checkpoint, owner=lease_owner)
                 if current.status in TERMINAL_STATUSES:
                     return current
+                completed_at = _utcnow()
                 current.status = agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
                 current.messages = messages
                 current.output_text = output_text
                 current.structured_output = structured_output
                 current.status_message = ""
-                current.completed_at = _utcnow()
+                current.completed_at = completed_at
                 runs.put(_run_to_record(current))
+                replacement = _as_terminal_checkpoint(checkpoint, messages=messages, now=completed_at)
+                checkpoints.put(_turn_checkpoint_to_record(replacement))
+                self._append_turn_event_locked(
+                    event_id=f"{turn_id}:assistant.completed",
+                    turn_id=turn_id,
+                    event_type="assistant.completed",
+                    source=current.provider_name,
+                    data={"text": current.output_text},
+                    events_store=events,
+                )
+                self._append_turn_event_locked(
+                    event_id=f"{turn_id}:turn.completed",
+                    turn_id=turn_id,
+                    event_type="turn.completed",
+                    source=current.provider_name,
+                    data={"status": "succeeded"},
+                    events_store=events,
+                )
                 return current
 
-            return self._with_transaction([self._run_store_name, self._checkpoint_store_name], mark_succeeded)
+            return self._with_transaction(
+                [self._run_store_name, self._checkpoint_store_name, self._event_store_name], mark_succeeded
+            )
 
     def mark_turn_failed(
         self, *, turn_id: str, messages: list[dict[str, Any]], status_message: str, lease_owner: str = ""
@@ -699,23 +738,42 @@ class SimpleRunStore:
 
             def mark_failed(stores: dict[str, Any]) -> StoredRun:
                 runs = stores[self._run_store_name]
+                checkpoints = stores[self._checkpoint_store_name]
+                events = stores[self._event_store_name]
                 current = _get_run_from_store(runs, turn_id)
                 if current is None:
                     raise RuntimeError(f"agent run {turn_id!r} was not found")
+                existing_checkpoint = _record_to_turn_checkpoint(_get_optional_record(checkpoints, turn_id))
                 if lease_owner:
-                    _require_checkpoint_lease_from_store(
-                        stores[self._checkpoint_store_name], turn_id=turn_id, owner=lease_owner
-                    )
+                    _require_checkpoint_lease(existing_checkpoint, owner=lease_owner)
                 if current.status in TERMINAL_STATUSES:
                     return current
+                completed_at = _utcnow()
                 current.status = agent_pb2.AGENT_EXECUTION_STATUS_FAILED
                 current.messages = messages
                 current.status_message = status_message.strip()
-                current.completed_at = _utcnow()
+                current.completed_at = completed_at
                 runs.put(_run_to_record(current))
+                checkpoints.put(
+                    _turn_checkpoint_to_record(
+                        _terminal_checkpoint_for_run(
+                            current, existing_checkpoint, messages=messages, now=completed_at
+                        )
+                    )
+                )
+                self._append_turn_event_locked(
+                    event_id=f"{turn_id}:turn.failed",
+                    turn_id=turn_id,
+                    event_type="turn.failed",
+                    source=current.provider_name,
+                    data={"status_message": current.status_message},
+                    events_store=events,
+                )
                 return current
 
-            return self._with_transaction([self._run_store_name, self._checkpoint_store_name], mark_failed)
+            return self._with_transaction(
+                [self._run_store_name, self._checkpoint_store_name, self._event_store_name], mark_failed
+            )
 
     def get_run(self, run_id: str) -> StoredRun | None:
         try:
@@ -737,47 +795,6 @@ class SimpleRunStore:
     def _persisted_turn_events(self, turn_id: str) -> list[StoredTurnEvent]:
         events = [_record_to_turn_event(record) for record in self._events.get_all()]
         return [event for event in events if event is not None and event.turn_id == turn_id]
-
-    def _synthetic_terminal_events(
-        self, *, turn_id: str, after_seq: int, start_seq: int, skip_event_types: set[str] | None = None
-    ) -> list[StoredTurnEvent]:
-        turn = self.get_turn(turn_id)
-        if turn is None or turn.status not in TERMINAL_STATUSES:
-            return []
-
-        created_at = turn.completed_at or turn.started_at or turn.created_at
-        source = turn.provider_name
-        events: list[StoredTurnEvent] = []
-        next_seq = start_seq + 1
-        skipped = skip_event_types or set()
-
-        def append_synthetic(event_type: str, data: dict[str, Any]) -> None:
-            nonlocal next_seq
-            if event_type in skipped:
-                return
-            events.append(
-                StoredTurnEvent(
-                    event_id=f"{turn_id}:synthetic:{event_type}",
-                    turn_id=turn_id,
-                    seq=next_seq,
-                    event_type=event_type,
-                    source=source,
-                    visibility="private",
-                    data=data,
-                    created_at=created_at,
-                )
-            )
-            next_seq += 1
-
-        if turn.status == agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
-            append_synthetic("assistant.completed", {"text": turn.output_text})
-            append_synthetic("turn.completed", {"status": "succeeded"})
-        elif turn.status == agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
-            append_synthetic("turn.failed", {"status_message": turn.status_message})
-        elif turn.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-            append_synthetic("turn.canceled", {"reason": turn.cancel_reason or turn.status_message or "canceled"})
-
-        return [event for event in events if event.seq > after_seq]
 
     def _append_turn_event_locked(
         self,
@@ -885,6 +902,57 @@ def _checkpoint_from_seed(run: StoredRun, seed: dict[str, Any], *, now: datetime
         pending_tool_call=_coerce_optional_dict(seed.get("pending_tool_call")),
         repaired_arguments=_coerce_optional_dict(seed.get("repaired_arguments")),
         attempt=0,
+        lease_owner="",
+        lease_expires_at=None,
+        updated_at=now,
+    )
+
+
+def _terminal_checkpoint_for_run(
+    run: StoredRun,
+    existing: StoredTurnCheckpoint | None,
+    *,
+    messages: list[dict[str, Any]],
+    now: datetime,
+) -> StoredTurnCheckpoint:
+    checkpoint = existing
+    if checkpoint is None and isinstance(run.resume_seed, dict):
+        checkpoint = _checkpoint_from_seed(run, run.resume_seed, now=now)
+    if checkpoint is None:
+        checkpoint = StoredTurnCheckpoint(
+            turn_id=run.run_id,
+            schema_version=1,
+            provider_name=run.provider_name,
+            session_id=run.session_ref,
+            model=run.model,
+            phase="terminal",
+            messages=copy.deepcopy(messages or run.messages),
+            conversation=[],
+            response_schema={},
+            provider_options={},
+            tool_grant="",
+            tool_specs=[],
+            function_name_to_tool_id={},
+            loaded_tool_ids=[],
+            slack_reply_ref="",
+            step_index=0,
+            pending_tool_call=None,
+            repaired_arguments=None,
+            attempt=0,
+            lease_owner="",
+            lease_expires_at=None,
+            updated_at=now,
+        )
+    return _as_terminal_checkpoint(checkpoint, messages=messages, now=now)
+
+
+def _as_terminal_checkpoint(
+    checkpoint: StoredTurnCheckpoint, *, messages: list[dict[str, Any]], now: datetime
+) -> StoredTurnCheckpoint:
+    return replace(
+        checkpoint,
+        phase="terminal",
+        messages=copy.deepcopy(messages),
         lease_owner="",
         lease_expires_at=None,
         updated_at=now,

@@ -39,7 +39,6 @@ struct_pb2: Any = _struct_pb2
 _SIMPLE_CONFIG = SimpleAgentConfig.from_dict(name="simple", raw_config={})
 _SIMPLE_RUN_STORE = _SIMPLE_CONFIG.run_store
 _SIMPLE_IDEMPOTENCY_STORE = _SIMPLE_CONFIG.idempotency_store
-_TOOL_REQUEST_HAS_IDEMPOTENCY_KEY = "idempotency_key" in agent_pb2.ExecuteAgentToolRequest.DESCRIPTOR.fields_by_name
 _BUSY_DETAILS = "rpc error: code = Internal desc = database is locked (5) (SQLITE_BUSY)"
 
 _runtime_server: grpc.Server | None = None
@@ -370,8 +369,6 @@ def _fake_resolved_tool(*, name: str) -> Any:
 
 
 def _expected_tool_idempotency_key(*, provider_name: str = "simple", turn_id: str, tool_call_id: str) -> str:
-    if not _TOOL_REQUEST_HAS_IDEMPOTENCY_KEY:
-        return ""
     return f"agent/simple:{provider_name}:{turn_id}:{tool_call_id}"
 
 
@@ -966,10 +963,15 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         fetched = _wait_for_turn(provider_client, "turn-inflight", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
         events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-inflight"))
+        checkpoint = store.get_turn_checkpoint("turn-inflight")
 
         self.assertEqual(_host_servicer.requests, [])
         self.assertIn("refusing to replay without a durable completed result", fetched.status_message)
         self.assertEqual([event.type for event in events.events], ["turn.started", "turn.failed"])
+        self.assertIsNotNone(checkpoint)
+        assert checkpoint is not None
+        self.assertEqual(checkpoint.phase, "terminal")
+        self.assertEqual(checkpoint.lease_owner, "")
 
     def test_configure_resumes_repaired_slack_arguments_without_repair_model_call(self) -> None:
         assert _host_servicer is not None
@@ -1104,61 +1106,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
             ],
         )
 
-    def test_list_turn_events_synthesizes_missing_terminal_event_types(self) -> None:
-        store = _direct_store()
-        self.addCleanup(store.close)
-        store.create_session(
-            session_id="session-partial-terminal-events",
-            idempotency_key="session-idem-partial-terminal-events",
-            provider_name="simple",
-            model="openai/fake-model",
-            client_ref="",
-            metadata={},
-            created_by={},
-        )
-        messages = [{"role": "user", "text": "finish"}]
-        run, _ = store.begin_turn(
-            turn_id="turn-partial-terminal-events",
-            session_id="session-partial-terminal-events",
-            idempotency_key="idem-partial-terminal-events",
-            provider_name="simple",
-            model="openai/fake-model",
-            messages=messages,
-            created_by={},
-            execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options={}),
-        )
-        store.append_turn_event_once(
-            event_key="turn-partial-terminal-events:turn.started",
-            turn_id="turn-partial-terminal-events",
-            event_type="turn.started",
-            source="simple",
-            data={"session_id": "session-partial-terminal-events", "model": "openai/fake-model"},
-        )
-        store.mark_turn_succeeded(
-            turn_id=run.run_id,
-            messages=[*messages, {"role": "assistant", "text": "done"}],
-            output_text="done",
-            structured_output=None,
-        )
-        store.append_turn_event_once(
-            event_key="turn-partial-terminal-events:assistant.completed",
-            turn_id="turn-partial-terminal-events",
-            event_type="assistant.completed",
-            source="simple",
-            data={"text": "done"},
-        )
-
-        _, provider_client = _configure_provider()
-        events = provider_client.ListTurnEvents(
-            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-partial-terminal-events")
-        )
-
-        self.assertEqual(
-            [event.type for event in events.events], ["turn.started", "assistant.completed", "turn.completed"]
-        )
-        self.assertEqual([event.seq for event in events.events], [1, 2, 3])
-
     def test_turn_checkpoint_lease_claim_is_exclusive(self) -> None:
         messages = [{"role": "user", "text": "lease"}]
         store = _direct_store()
@@ -1223,6 +1170,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider(resume={"enabled": False})
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
         self.assertFalse(capabilities.resumable_turns)
+
+    def test_capabilities_report_resume_enabled(self) -> None:
+        _, provider_client = _configure_provider()
+        capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
+
+        self.assertTrue(capabilities.resumable_turns)
 
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider()
@@ -2601,6 +2554,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         started = started_holder["run"]
         fetched = provider_client.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel"))
         events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-cancel"))
+        store = _direct_store()
+        self.addCleanup(store.close)
+        checkpoint = store.get_turn_checkpoint("turn-cancel")
 
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(canceled.status_message, "user canceled")
@@ -2613,6 +2569,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
             ["turn.started", "tool.started", "tool.completed", "tool.started", "turn.canceled"],
         )
         self.assertEqual(events.events[-1].data.fields["reason"].string_value, "user canceled")
+        self.assertIsNotNone(checkpoint)
+        assert checkpoint is not None
+        self.assertEqual(checkpoint.phase, "terminal")
+        self.assertEqual(checkpoint.lease_owner, "")
 
     def test_create_session_rejects_empty_session_id(self) -> None:
         _, provider_client = _configure_provider()

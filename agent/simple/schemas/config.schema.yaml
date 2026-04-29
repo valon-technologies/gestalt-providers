@@ -44,11 +44,5 @@ properties:
         type: number
         exclusiveMinimum: 0
         default: 60
-      legacyRunningPolicy:
-        type: string
-        enum:
-          - fail
-          - ignore
-        default: fail
     additionalProperties: false
 additionalProperties: false

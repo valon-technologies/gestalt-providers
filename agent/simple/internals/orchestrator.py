@@ -204,12 +204,11 @@ class SimpleAgentOrchestrator:
             if checkpoint is None:
                 checkpoint = self._store.ensure_turn_checkpoint_from_seed(run)
             if checkpoint is None:
-                if self._config.resume.legacy_running_policy == "fail":
-                    self._fail_run(
-                        run=run,
-                        messages=list(run.messages),
-                        status_message="turn was running before durable checkpoints were introduced; it cannot be resumed safely",
-                    )
+                self._fail_run(
+                    run=run,
+                    messages=list(run.messages),
+                    status_message="turn has no durable checkpoint and cannot be resumed safely",
+                )
                 return
             claimed = self._store.claim_turn_lease(
                 turn_id, owner=self._worker_id, lease_seconds=self._config.resume.worker_lease_seconds
@@ -260,12 +259,11 @@ class SimpleAgentOrchestrator:
                 if checkpoint is None:
                     checkpoint = self._store.ensure_turn_checkpoint_from_seed(run)
                 if checkpoint is None:
-                    if self._config.resume.legacy_running_policy == "fail":
-                        self._fail_run(
-                            run=run,
-                            messages=list(run.messages),
-                            status_message="turn was running before durable checkpoints were introduced; it cannot be resumed safely",
-                        )
+                    self._fail_run(
+                        run=run,
+                        messages=list(run.messages),
+                        status_message="turn has no durable checkpoint and cannot be resumed safely",
+                    )
                     return
                 if checkpoint.lease_owner != self._worker_id:
                     return
@@ -405,28 +403,22 @@ class SimpleAgentOrchestrator:
             )
             return False
         structured_output = _parse_structured_output(output_text=final_text, response_schema=checkpoint.response_schema)
+        terminal_checkpoint = replace(
+            checkpoint,
+            phase=PHASE_TERMINAL,
+            conversation=list(checkpoint.conversation),
+            updated_at=datetime.now(tz=UTC),
+        )
         completed = self._store.mark_turn_succeeded(
             turn_id=checkpoint.turn_id,
             messages=_append_assistant_message(checkpoint.messages, final_text),
             output_text=final_text,
             structured_output=structured_output,
+            checkpoint=terminal_checkpoint,
             lease_owner=self._worker_id,
         )
         if completed.status != agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
             return False
-        try:
-            self._persist_terminal_events(checkpoint=checkpoint, final_text=final_text)
-            self._store.put_turn_checkpoint(
-                replace(
-                    checkpoint,
-                    phase=PHASE_TERMINAL,
-                    conversation=list(checkpoint.conversation),
-                    updated_at=datetime.now(tz=UTC),
-                ),
-                lease_owner=self._worker_id,
-            )
-        except (grpc.RpcError, RuntimeError):
-            pass
         return False
 
     def _continue_pending_tool(self, *, run: StoredRun, checkpoint: StoredTurnCheckpoint) -> bool:
@@ -487,11 +479,11 @@ class SimpleAgentOrchestrator:
                 return False
             return self._record_tool_result_in_conversation(checkpoint=checkpoint, result=result)
 
-        validation_error = _tool_arguments_validation_error(
-            tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
-        )
         execution_arguments, slack_reply_ref_error = _inject_slack_reply_ref(
             resolved_tool_id=resolved_tool_id, arguments=arguments, default_reply_ref=checkpoint.slack_reply_ref
+        )
+        validation_error = _tool_arguments_validation_error(
+            tool_name=tool_name, arguments=execution_arguments, tool_specs=tool_specs
         )
         if slack_reply_ref_error:
             validation_error = slack_reply_ref_error
@@ -656,22 +648,6 @@ class SimpleAgentOrchestrator:
         )
         return True
 
-    def _persist_terminal_events(self, *, checkpoint: StoredTurnCheckpoint, final_text: str) -> None:
-        self._store.append_turn_event_once(
-            event_key=f"{checkpoint.turn_id}:assistant.completed",
-            turn_id=checkpoint.turn_id,
-            event_type="assistant.completed",
-            source=checkpoint.provider_name,
-            data={"text": final_text},
-        )
-        self._store.append_turn_event_once(
-            event_key=f"{checkpoint.turn_id}:turn.completed",
-            turn_id=checkpoint.turn_id,
-            event_type="turn.completed",
-            source=checkpoint.provider_name,
-            data={"status": "succeeded"},
-        )
-
     def _fail_run(
         self, *, run: StoredRun, messages: list[dict[str, Any]], status_message: str, lease_owner: str = ""
     ) -> None:
@@ -686,16 +662,6 @@ class SimpleAgentOrchestrator:
             raise
         if failed.status != agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
             return
-        try:
-            self._store.append_turn_event_once(
-                event_key=f"{run.run_id}:turn.failed",
-                turn_id=run.run_id,
-                event_type="turn.failed",
-                source=run.provider_name,
-                data={"status_message": cleaned_status_message},
-            )
-        except (grpc.RpcError, RuntimeError):
-            pass
 
     def _repair_missing_slack_reply_text(
         self,
@@ -925,8 +891,7 @@ def _execute_tool_request(
         arguments=_dict_to_struct(execution_arguments),
         tool_grant=checkpoint.tool_grant,
     )
-    if "idempotency_key" in request.DESCRIPTOR.fields_by_name:
-        request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
+    request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
     return request
 
 

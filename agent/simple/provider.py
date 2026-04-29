@@ -276,7 +276,6 @@ class SimpleAgentRuntimeProvider(
         if config.openai_api_key:
             os.environ["OPENAI_API_KEY"] = config.openai_api_key
 
-
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
     proto = agent_pb2.AgentSession(
         id=session.session_id,
