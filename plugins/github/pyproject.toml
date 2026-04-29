@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-github"
-version = "0.0.1a10"
+version = "0.0.1a11"
 requires-python = "==3.14.*"
 dependencies = [
   "cryptography==46.0.7",

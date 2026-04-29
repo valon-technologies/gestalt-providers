@@ -148,6 +148,8 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(webhook["credentialMode"], "none")
         self.assertEqual(webhook["security"], "github_app")
         self.assertEqual(webhook["target"], provider_module.GITHUB_EVENT_OPERATION)
+        self.assertEqual(webhook["ack"]["status"], HTTPStatus.ACCEPTED)
+        self.assertEqual(webhook["ack"]["body"], {"status": "accepted"})
         self.assertEqual(security["type"], "hmac")
         self.assertEqual(security["secret"]["env"], "GITHUB_WEBHOOK_SECRET")
         self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")
@@ -607,12 +609,14 @@ class GitHubProviderTests(unittest.TestCase):
             "sender": {"login": "octocat"},
         }
 
-        result = provider_module.github_events_handle(payload, gestalt.Request())
+        with self.assertLogs(provider_module.logger, level="ERROR") as logs:
+            result = provider_module.github_events_handle(payload, gestalt.Request())
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertIn("failed to dispatch workflow run", response.body["error"])
+        self.assertIn("failed to dispatch GitHub webhook workflow", logs.output[0])
 
     def test_webhook_handler_workflow_dispatch_failure_is_retryable(self) -> None:
         payload = {
@@ -629,12 +633,14 @@ class GitHubProviderTests(unittest.TestCase):
             return_value=FakeWorkflowManager(fail=True),
             create=True,
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            with self.assertLogs(provider_module.logger, level="ERROR") as logs:
+                result = provider_module.github_events_handle(payload, gestalt.Request())
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertIn("workflow manager unavailable", response.body["error"])
+        self.assertIn("failed to dispatch GitHub webhook workflow", logs.output[0])
 
     def test_commit_files_creates_branch_commit_and_bot_coauthor(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []
