@@ -29,4 +29,26 @@ properties:
   openaiApiKey:
     type: string
     description: Optional OpenAI API key to expose to the OpenAI SDK as OPENAI_API_KEY.
+  resume:
+    type: object
+    description: Durable turn resume settings backed by IndexedDB transactions.
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      startupScanLimit:
+        type: integer
+        minimum: 1
+        default: 100
+      workerLeaseSeconds:
+        type: number
+        exclusiveMinimum: 0
+        default: 60
+      legacyRunningPolicy:
+        type: string
+        enum:
+          - fail
+          - ignore
+        default: fail
+    additionalProperties: false
 additionalProperties: false

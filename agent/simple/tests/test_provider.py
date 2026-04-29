@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from concurrent import futures
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, cast
 from unittest import mock
@@ -24,6 +25,7 @@ from gestalt.gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
 from gestalt.gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt.gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.config import SimpleAgentConfig
+from internals.store import SimpleRunStore, StoredTurnCheckpoint
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -34,7 +36,11 @@ runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
 
-_SIMPLE_RUN_STORE = SimpleAgentConfig.from_dict(name="simple", raw_config={}).run_store
+_SIMPLE_CONFIG = SimpleAgentConfig.from_dict(name="simple", raw_config={})
+_SIMPLE_RUN_STORE = _SIMPLE_CONFIG.run_store
+_SIMPLE_IDEMPOTENCY_STORE = _SIMPLE_CONFIG.idempotency_store
+_TOOL_REQUEST_HAS_IDEMPOTENCY_KEY = "idempotency_key" in agent_pb2.ExecuteAgentToolRequest.DESCRIPTOR.fields_by_name
+_BUSY_DETAILS = "rpc error: code = Internal desc = database is locked (5) (SQLITE_BUSY)"
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
@@ -64,17 +70,20 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             self._busy_failures.clear()
 
     def _maybe_fail_busy(self, *, store: str, operation: str, context: grpc.ServicerContext) -> None:
+        if not self._take_busy_failure(store=store, operation=operation):
+            return
+        context.abort(grpc.StatusCode.INTERNAL, _BUSY_DETAILS)
+
+    def _take_busy_failure(self, *, store: str, operation: str) -> bool:
         key = (store, operation)
         remaining = self._busy_failures.get(key, 0)
         if remaining <= 0:
-            return
+            return False
         if remaining == 1:
             self._busy_failures.pop(key, None)
         else:
             self._busy_failures[key] = remaining - 1
-        context.abort(
-            grpc.StatusCode.INTERNAL, "rpc error: code = Internal desc = database is locked (5) (SQLITE_BUSY)"
-        )
+        return True
 
     def CreateObjectStore(self, request: Any, context: grpc.ServicerContext) -> Any:
         with self._lock:
@@ -150,6 +159,111 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         with self._lock:
             return datastore_pb2.CountResponse(count=len(self._stores.get(request.store, {})))
 
+    def Transaction(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
+        try:
+            first = next(request_iterator)
+        except StopIteration:
+            return
+        if first.WhichOneof("msg") != "begin":
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "first transaction message must be begin")
+        mode = int(first.begin.mode)
+        scoped_stores = set(first.begin.stores)
+        with self._lock:
+            working = _copy_stores(self._stores)
+            yield datastore_pb2.TransactionServerMessage(begin=datastore_pb2.TransactionBeginResponse())
+            for message in request_iterator:
+                kind = message.WhichOneof("msg")
+                if kind == "operation":
+                    response = self._apply_transaction_operation(
+                        stores=working,
+                        operation=message.operation,
+                        scoped_stores=scoped_stores,
+                        readwrite=mode == datastore_pb2.TRANSACTION_READWRITE,
+                    )
+                    yield datastore_pb2.TransactionServerMessage(operation=response)
+                    if response.HasField("error") and response.error.code:
+                        return
+                    continue
+                if kind == "commit":
+                    self._stores = working
+                    yield datastore_pb2.TransactionServerMessage(commit=datastore_pb2.TransactionCommitResponse())
+                    return
+                if kind == "abort":
+                    yield datastore_pb2.TransactionServerMessage(abort=datastore_pb2.TransactionAbortResponse())
+                    return
+                response = datastore_pb2.TransactionAbortResponse()
+                _set_status(response.error, grpc.StatusCode.INVALID_ARGUMENT, "unknown transaction message")
+                yield datastore_pb2.TransactionServerMessage(abort=response)
+                return
+
+    def _apply_transaction_operation(
+        self, *, stores: dict[str, dict[str, Any]], operation: Any, scoped_stores: set[str], readwrite: bool
+    ) -> Any:
+        request_id = int(operation.request_id)
+        kind = operation.WhichOneof("operation")
+        if not kind:
+            return _transaction_error(request_id, grpc.StatusCode.INVALID_ARGUMENT, "transaction operation is required")
+        request = getattr(operation, kind)
+        store_name = str(getattr(request, "store", "") or "")
+        if not store_name and hasattr(request, "name"):
+            store_name = str(request.name or "")
+        if scoped_stores and store_name not in scoped_stores:
+            return _transaction_error(
+                request_id, grpc.StatusCode.FAILED_PRECONDITION, "object store is outside transaction scope"
+            )
+        if kind in {"add", "put", "delete", "clear", "delete_range", "index_delete"} and not readwrite:
+            return _transaction_error(request_id, grpc.StatusCode.FAILED_PRECONDITION, "transaction is readonly")
+        if self._take_busy_failure(store=store_name, operation=kind):
+            return _transaction_error(request_id, grpc.StatusCode.INTERNAL, _BUSY_DETAILS)
+
+        store = stores.setdefault(store_name, {})
+        if kind == "get":
+            record = store.get(request.id)
+            if record is None:
+                return _transaction_error(request_id, grpc.StatusCode.NOT_FOUND, "record not found")
+            return datastore_pb2.TransactionOperationResponse(
+                request_id=request_id, record=datastore_pb2.RecordResponse(record=_copy_record(record))
+            )
+        if kind == "get_key":
+            if request.id not in store:
+                return _transaction_error(request_id, grpc.StatusCode.NOT_FOUND, "record not found")
+            return datastore_pb2.TransactionOperationResponse(
+                request_id=request_id, key=datastore_pb2.KeyResponse(key=request.id)
+            )
+        if kind == "add":
+            record_id = _record_id(request.record)
+            if record_id in store:
+                return _transaction_error(request_id, grpc.StatusCode.ALREADY_EXISTS, "record already exists")
+            store[record_id] = _copy_record(request.record)
+            return _transaction_empty(request_id)
+        if kind == "put":
+            store[_record_id(request.record)] = _copy_record(request.record)
+            return _transaction_empty(request_id)
+        if kind == "delete":
+            if request.id not in store:
+                return _transaction_error(request_id, grpc.StatusCode.NOT_FOUND, "record not found")
+            del store[request.id]
+            return _transaction_empty(request_id)
+        if kind == "clear":
+            store.clear()
+            return _transaction_empty(request_id)
+        if kind == "get_all":
+            return datastore_pb2.TransactionOperationResponse(
+                request_id=request_id,
+                records=datastore_pb2.RecordsResponse(records=[_copy_record(record) for record in store.values()]),
+            )
+        if kind == "get_all_keys":
+            return datastore_pb2.TransactionOperationResponse(
+                request_id=request_id, keys=datastore_pb2.KeysResponse(keys=list(store.keys()))
+            )
+        if kind == "count":
+            return datastore_pb2.TransactionOperationResponse(
+                request_id=request_id, count=datastore_pb2.CountResponse(count=len(store))
+            )
+        return _transaction_error(
+            request_id, grpc.StatusCode.INVALID_ARGUMENT, f"unsupported transaction operation {kind}"
+        )
+
 
 def _copy_record(record: Any) -> Any:
     copied = datastore_pb2.Record()
@@ -157,11 +271,32 @@ def _copy_record(record: Any) -> Any:
     return copied
 
 
+def _copy_stores(stores: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        name: {record_id: _copy_record(record) for record_id, record in store.items()} for name, store in stores.items()
+    }
+
+
 def _record_id(record: Any) -> str:
     record_id = str(record.fields["id"].string_value or "").strip()
     if not record_id:
         raise ValueError("record id is required")
     return record_id
+
+
+def _transaction_error(request_id: int, code: Any, message: str) -> Any:
+    response = datastore_pb2.TransactionOperationResponse(request_id=request_id)
+    _set_status(response.error, code, message)
+    return response
+
+
+def _transaction_empty(request_id: int) -> Any:
+    return datastore_pb2.TransactionOperationResponse(request_id=request_id, empty=empty_pb2.Empty())
+
+
+def _set_status(status: Any, code: Any, message: str) -> None:
+    status.code = int(code.value[0])
+    status.message = message
 
 
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
@@ -207,6 +342,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "tool_call_id": request.tool_call_id,
                 "tool_id": request.tool_id,
                 "arguments": arguments,
+                "idempotency_key": getattr(request, "idempotency_key", ""),
             }
         )
         if self.pause_on_lookup:
@@ -220,12 +356,14 @@ def _fake_resolved_tool(*, name: str) -> Any:
     tool_parameters = struct_pb2.Struct()
     tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
     return agent_pb2.ResolvedAgentTool(
-        id="lookup",
-        name=name,
-        description="Look up a historical figure",
-        target=agent_pb2.BoundAgentToolTarget(plugin="people", operation="lookup"),
-        parameters_schema=tool_parameters,
+        id="lookup", name=name, description="Look up a historical figure", parameters_schema=tool_parameters
     )
+
+
+def _expected_tool_idempotency_key(*, provider_name: str = "simple", turn_id: str, tool_call_id: str) -> str:
+    if not _TOOL_REQUEST_HAS_IDEMPOTENCY_KEY:
+        return ""
+    return f"agent/simple:{provider_name}:{turn_id}:{tool_call_id}"
 
 
 def _fake_slack_reply_tool() -> Any:
@@ -241,16 +379,15 @@ def _fake_slack_reply_tool() -> Any:
         id="slack/events.reply?credentialMode=none",
         name="slack_events_reply",
         description="Reply to a Slack event",
-        target=agent_pb2.BoundAgentToolTarget(plugin="slack", operation="events.reply"),
         parameters_schema=tool_parameters,
     )
 
 
-def _fake_tool_candidate(*, plugin: str = "people", operation: str = "search_more") -> Any:
+def _fake_tool_candidate(*, system: str = "people", plugin: str = "people", operation: str = "search_more") -> Any:
     if not hasattr(agent_pb2, "AgentToolCandidate"):
         raise unittest.SkipTest("adaptive tool search proto fields are not available")
     return agent_pb2.AgentToolCandidate(
-        ref=agent_pb2.AgentToolRef(plugin=plugin, operation=operation, credential_mode="user"),
+        ref=agent_pb2.AgentToolRef(system=system, plugin=plugin, operation=operation),
         id=f"{plugin}/{operation}",
         name="Search more people",
         description="Search more historical records",
@@ -272,7 +409,7 @@ def _supports_adaptive_tool_search() -> bool:
 
 def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
     out: dict[str, str] = {}
-    for field in ("plugin", "operation", "connection", "instance", "credential_mode"):
+    for field in ("system", "plugin", "operation", "connection", "instance"):
         value = str(getattr(ref, field, "") or "").strip()
         if value:
             out[field] = value
@@ -433,17 +570,24 @@ def _fresh_socket(name: str) -> str:
 
 
 def _configure_provider(
-    *, default_model: str = "fast", provider_options: dict[str, Any] | None = None
+    *,
+    default_model: str = "fast",
+    provider_options: dict[str, Any] | None = None,
+    resume: dict[str, Any] | None = None,
 ) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
-    _configure_runtime(lifecycle, default_model=default_model, provider_options=provider_options)
+    _configure_runtime(lifecycle, default_model=default_model, provider_options=provider_options, resume=resume)
     return lifecycle, provider_client
 
 
 def _configure_runtime(
-    lifecycle: Any, *, default_model: str = "fast", provider_options: dict[str, Any] | None = None
+    lifecycle: Any,
+    *,
+    default_model: str = "fast",
+    provider_options: dict[str, Any] | None = None,
+    resume: dict[str, Any] | None = None,
 ) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     config: dict[str, Any] = {
@@ -455,6 +599,8 @@ def _configure_runtime(
     }
     if provider_options is not None:
         config["providerOptions"] = provider_options
+    if resume is not None:
+        config["resume"] = resume
     json_format.ParseDict(config, request.config)
     lifecycle.ConfigureProvider(request)
 
@@ -467,6 +613,46 @@ def _create_session(
             session_id=session_id, idempotency_key=idempotency_key, model=model, client_ref=client_ref
         )
     )
+
+
+def _direct_store() -> SimpleRunStore:
+    return SimpleRunStore(run_store=_SIMPLE_RUN_STORE, idempotency_store=_SIMPLE_IDEMPOTENCY_STORE)
+
+
+def _resume_seed(
+    *,
+    messages: list[dict[str, Any]],
+    provider_options: dict[str, Any],
+    conversation: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "phase": "model_next",
+        "messages": messages,
+        "conversation": conversation or [{"role": "user", "content": messages[0]["text"]}],
+        "response_schema": {},
+        "provider_options": provider_options,
+        "tool_specs": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "gestalt_search_tools",
+                    "description": "Search the authorized Gestalt integration tool catalog for tools relevant to the task.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                },
+            }
+        ],
+        "function_name_to_tool_id": {"gestalt_search_tools": "__gestalt_search_tools__"},
+        "loaded_tool_ids": [],
+        "slack_reply_ref": "",
+        "step_index": 0,
+        "pending_tool_call": None,
+        "repaired_arguments": None,
+    }
 
 
 def setUpModule() -> None:
@@ -566,6 +752,382 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
 
+    def test_configure_resumes_running_turn_from_atomic_checkpoint(self) -> None:
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-resume-seed",
+                    "object": "chat.completion",
+                    "created": 1710000100,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "seed resume complete"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
+        messages = [{"role": "user", "text": "Resume the seeded turn"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-seed-resume",
+            idempotency_key="session-idem-seed-resume",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        store.begin_turn(
+            turn_id="turn-seed-resume",
+            session_id="session-seed-resume",
+            idempotency_key="idem-seed-resume",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
+        )
+        self.assertIsNotNone(store.get_turn_checkpoint("turn-seed-resume"))
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-seed-resume", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-seed-resume")
+        )
+
+        self.assertEqual(fetched.output_text, "seed resume complete")
+        self.assertEqual(len(fake_llm.requests), 1)
+        self.assertEqual(
+            [event.type for event in events.events], ["turn.started", "assistant.completed", "turn.completed"]
+        )
+
+    def test_configure_fails_uncertain_inflight_tool_without_replay(self) -> None:
+        assert _host_servicer is not None
+        messages = [{"role": "user", "text": "Use the tool"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-inflight",
+            idempotency_key="session-idem-inflight",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        run, _ = store.begin_turn(
+            turn_id="turn-inflight",
+            session_id="session-inflight",
+            idempotency_key="idem-inflight",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={}),
+        )
+        store.put_turn_checkpoint(
+            StoredTurnCheckpoint(
+                turn_id=run.run_id,
+                schema_version=1,
+                provider_name=run.provider_name,
+                session_id=run.session_ref,
+                model=run.model,
+                phase="tool_inflight",
+                messages=messages,
+                conversation=[{"role": "user", "content": "Use the tool"}],
+                response_schema={},
+                provider_options={},
+                tool_specs=[],
+                function_name_to_tool_id={},
+                loaded_tool_ids=[],
+                slack_reply_ref="",
+                step_index=1,
+                pending_tool_call={
+                    "tool_call_id": "call-inflight",
+                    "tool_name": "person_lookup",
+                    "resolved_tool_id": "lookup",
+                    "arguments": {"query": "Ada"},
+                },
+                repaired_arguments=None,
+                attempt=0,
+                lease_owner="",
+                lease_expires_at=None,
+                updated_at=datetime.now(tz=UTC),
+            )
+        )
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-inflight", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-inflight"))
+
+        self.assertEqual(_host_servicer.requests, [])
+        self.assertIn("refusing to replay without a durable completed result", fetched.status_message)
+        self.assertEqual([event.type for event in events.events], ["turn.started", "turn.failed"])
+
+    def test_configure_resumes_repaired_slack_arguments_without_repair_model_call(self) -> None:
+        assert _host_servicer is not None
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-after-repaired-tool",
+                    "object": "chat.completion",
+                    "created": 1710000101,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": '{"posted":true}'},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+        provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
+        messages = [{"role": "user", "text": "reply_ref: slack-reply-ref\nSend the reply"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-repaired-slack",
+            idempotency_key="session-idem-repaired-slack",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        run, _ = store.begin_turn(
+            turn_id="turn-repaired-slack",
+            session_id="session-repaired-slack",
+            idempotency_key="idem-repaired-slack",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
+        )
+        repaired_arguments = {"reply_ref": "slack-reply-ref", "text": "Persisted repaired reply"}
+        store.put_turn_checkpoint(
+            StoredTurnCheckpoint(
+                turn_id=run.run_id,
+                schema_version=1,
+                provider_name=run.provider_name,
+                session_id=run.session_ref,
+                model=run.model,
+                phase="tool_ready",
+                messages=messages,
+                conversation=[
+                    {"role": "user", "content": "reply_ref: slack-reply-ref\nSend the reply"},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-repaired-slack",
+                                "type": "function",
+                                "function": {
+                                    "name": "slack_events_reply",
+                                    "arguments": json.dumps(repaired_arguments, separators=(",", ":")),
+                                },
+                            }
+                        ],
+                    },
+                ],
+                response_schema={
+                    "type": "object",
+                    "properties": {"posted": {"type": "boolean"}},
+                    "required": ["posted"],
+                },
+                provider_options=provider_options,
+                tool_specs=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "slack_events_reply",
+                            "description": "Reply to a Slack event",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"reply_ref": {"type": "string"}, "text": {"type": "string"}},
+                                "required": ["reply_ref", "text"],
+                            },
+                        },
+                    }
+                ],
+                function_name_to_tool_id={"slack_events_reply": "slack/events.reply?credentialMode=none"},
+                loaded_tool_ids=["slack/events.reply?credentialMode=none"],
+                slack_reply_ref="slack-reply-ref",
+                step_index=1,
+                pending_tool_call={
+                    "tool_call_id": "call-repaired-slack",
+                    "tool_name": "slack_events_reply",
+                    "resolved_tool_id": "slack/events.reply?credentialMode=none",
+                    "arguments": {"reply_ref": "slack-reply-ref"},
+                },
+                repaired_arguments=repaired_arguments,
+                attempt=0,
+                lease_owner="",
+                lease_expires_at=None,
+                updated_at=datetime.now(tz=UTC),
+            )
+        )
+
+        _, provider_client = _configure_provider()
+        fetched = _wait_for_turn(provider_client, "turn-repaired-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        self.assertEqual(fetched.output_text, '{"posted":true}')
+        self.assertEqual(len(fake_llm.requests), 1)
+        self.assertEqual(
+            _host_servicer.requests,
+            [
+                {
+                    "session_id": "session-repaired-slack",
+                    "turn_id": "turn-repaired-slack",
+                    "tool_call_id": "call-repaired-slack",
+                    "tool_id": "slack/events.reply?credentialMode=none",
+                    "arguments": repaired_arguments,
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-repaired-slack", tool_call_id="call-repaired-slack"
+                    ),
+                }
+            ],
+        )
+
+    def test_list_turn_events_synthesizes_missing_terminal_event_types(self) -> None:
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-partial-terminal-events",
+            idempotency_key="session-idem-partial-terminal-events",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        messages = [{"role": "user", "text": "finish"}]
+        run, _ = store.begin_turn(
+            turn_id="turn-partial-terminal-events",
+            session_id="session-partial-terminal-events",
+            idempotency_key="idem-partial-terminal-events",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={}),
+        )
+        store.append_turn_event_once(
+            event_key="turn-partial-terminal-events:turn.started",
+            turn_id="turn-partial-terminal-events",
+            event_type="turn.started",
+            source="simple",
+            data={"session_id": "session-partial-terminal-events", "model": "openai/fake-model"},
+        )
+        store.mark_turn_succeeded(
+            turn_id=run.run_id,
+            messages=[*messages, {"role": "assistant", "text": "done"}],
+            output_text="done",
+            structured_output=None,
+        )
+        store.append_turn_event_once(
+            event_key="turn-partial-terminal-events:assistant.completed",
+            turn_id="turn-partial-terminal-events",
+            event_type="assistant.completed",
+            source="simple",
+            data={"text": "done"},
+        )
+
+        _, provider_client = _configure_provider()
+        events = provider_client.ListTurnEvents(
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-partial-terminal-events")
+        )
+
+        self.assertEqual(
+            [event.type for event in events.events], ["turn.started", "assistant.completed", "turn.completed"]
+        )
+        self.assertEqual([event.seq for event in events.events], [1, 2, 3])
+
+    def test_turn_checkpoint_lease_claim_is_exclusive(self) -> None:
+        messages = [{"role": "user", "text": "lease"}]
+        store = _direct_store()
+        self.addCleanup(store.close)
+        store.create_session(
+            session_id="session-lease",
+            idempotency_key="session-idem-lease",
+            provider_name="simple",
+            model="openai/fake-model",
+            client_ref="",
+            metadata={},
+            created_by={},
+        )
+        store.begin_turn(
+            turn_id="turn-lease",
+            session_id="session-lease",
+            idempotency_key="idem-lease",
+            provider_name="simple",
+            model="openai/fake-model",
+            messages=messages,
+            created_by={},
+            execution_ref="",
+            resume_seed=_resume_seed(messages=messages, provider_options={}),
+        )
+
+        self.assertTrue(store.claim_turn_lease("turn-lease", owner="worker-a", lease_seconds=30))
+        self.assertFalse(store.claim_turn_lease("turn-lease", owner="worker-b", lease_seconds=30))
+        checkpoint = store.get_turn_checkpoint("turn-lease")
+        self.assertIsNotNone(checkpoint)
+        assert checkpoint is not None
+        self.assertEqual(checkpoint.lease_owner, "worker-a")
+        with self.assertRaisesRegex(RuntimeError, "lease owner mismatch"):
+            store.put_turn_checkpoint(checkpoint, lease_owner="worker-b")
+        store.put_tool_result(
+            turn_id="turn-lease",
+            tool_call_id="call-active",
+            result={"status": 200, "body": "active"},
+            lease_owner="worker-a",
+        )
+        active_result = store.get_tool_result(turn_id="turn-lease", tool_call_id="call-active")
+        self.assertIsNotNone(active_result)
+        assert active_result is not None
+        self.assertEqual(active_result["body"], "active")
+
+        store.release_turn_lease("turn-lease", owner="worker-a")
+        self.assertTrue(store.claim_turn_lease("turn-lease", owner="worker-b", lease_seconds=30))
+        checkpoint = store.get_turn_checkpoint("turn-lease")
+        self.assertIsNotNone(checkpoint)
+        assert checkpoint is not None
+        checkpoint.lease_expires_at = datetime.now(tz=UTC) - timedelta(seconds=1)
+        store.put_turn_checkpoint(checkpoint)
+        with self.assertRaisesRegex(RuntimeError, "lease expired"):
+            store.put_tool_result(
+                turn_id="turn-lease",
+                tool_call_id="call-expired",
+                result={"status": 200, "body": "expired"},
+                lease_owner="worker-b",
+            )
+        self.assertIsNone(store.get_tool_result(turn_id="turn-lease", tool_call_id="call-expired"))
+
+    def test_capabilities_report_resume_disabled(self) -> None:
+        _, provider_client = _configure_provider(resume={"enabled": False})
+        capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
+        self.assertFalse(capabilities.resumable_turns)
+
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider()
         identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
@@ -621,7 +1183,15 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                         "id": "call-1",
                                         "type": "function",
                                         "function": {"name": "person_lookup", "arguments": '{"query":"Ada Lovelace"}'},
-                                    }
+                                    },
+                                    {
+                                        "id": "call-2",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "person_lookup",
+                                            "arguments": '{"query":"Analytical Engine"}',
+                                        },
+                                    },
                                 ],
                             },
                             "finish_reason": "tool_calls",
@@ -705,6 +1275,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
         self.assertTrue(capabilities.native_tool_search)
+        self.assertTrue(capabilities.resumable_turns)
 
         self.assertEqual(created_session.id, "session-success")
         self.assertEqual(created_session.model, "openai/fake-model")
@@ -763,7 +1334,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertEqual(len(_host_servicer.requests), 1)
+        self.assertEqual(len(_host_servicer.requests), 2)
         self.assertEqual(
             _host_servicer.requests[0],
             {
@@ -772,6 +1343,18 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool_call_id": "call-1",
                 "tool_id": "lookup",
                 "arguments": {"query": "Ada Lovelace"},
+                "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-1"),
+            },
+        )
+        self.assertEqual(
+            _host_servicer.requests[1],
+            {
+                "session_id": "session-success",
+                "turn_id": "turn-success",
+                "tool_call_id": "call-2",
+                "tool_id": "lookup",
+                "arguments": {"query": "Analytical Engine"},
+                "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-2"),
             },
         )
 
@@ -792,8 +1375,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertNotIn('"id"', second_request["messages"][-1]["content"])
         self.assertNotIn('"target"', second_request["messages"][-1]["content"])
         self.assertIn("person_lookup", [tool["function"]["name"] for tool in second_request["tools"]])
-        self.assertEqual(third_request["messages"][-1]["role"], "tool")
-        self.assertIn("Ada Lovelace", third_request["messages"][-1]["content"])
+        self.assertEqual([message["role"] for message in third_request["messages"][-2:]], ["tool", "tool"])
+        self.assertIn("Ada Lovelace", third_request["messages"][-2]["content"])
+        self.assertIn("Analytical Engine", third_request["messages"][-1]["content"])
         self.assertNotIn("name", third_request["messages"][-1])
         self.assertEqual(
             [event.type for event in listed_events.events],
@@ -803,15 +1387,19 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool.completed",
                 "tool.started",
                 "tool.completed",
+                "tool.started",
+                "tool.completed",
                 "assistant.completed",
                 "turn.completed",
             ],
         )
-        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual([event.seq for event in listed_events.events], [1, 2, 3, 4, 5, 6, 7, 8, 9])
         self.assertEqual(listed_events.events[0].data.fields["session_id"].string_value, "session-success")
         self.assertEqual(listed_events.events[1].data.fields["tool_id"].string_value, "__gestalt_search_tools__")
         self.assertEqual(listed_events.events[3].data.fields["tool_id"].string_value, "lookup")
         self.assertEqual(listed_events.events[4].data.fields["status"].number_value, 200)
+        self.assertEqual(listed_events.events[5].data.fields["tool_id"].string_value, "lookup")
+        self.assertEqual(listed_events.events[6].data.fields["status"].number_value, 200)
         self.assertEqual([event.type for event in paged_events.events], ["tool.completed", "tool.started"])
 
     @unittest.skipUnless(_supports_adaptive_tool_search(), "adaptive tool search proto fields are not available")
@@ -872,8 +1460,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                         "function": {
                                             "name": "gestalt_search_tools",
                                             "arguments": (
-                                                '{"load_refs":[{"plugin":"people","operation":"search_more",'
-                                                '"credential_mode":"user"}]}'
+                                                '{"load_refs":[{"system":"people","plugin":"people",'
+                                                '"operation":"search_more"}]}'
                                             ),
                                         },
                                     }
@@ -930,7 +1518,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "query": "",
                     "max_results": 0,
                     "candidate_limit": 0,
-                    "load_refs": [{"plugin": "people", "operation": "search_more", "credential_mode": "user"}],
+                    "load_refs": [{"system": "people", "plugin": "people", "operation": "search_more"}],
                 },
             ],
         )
@@ -1191,6 +1779,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_call_id": "toolu-reply",
                     "tool_id": "slack/events.reply?credentialMode=none",
                     "arguments": {"reply_ref": "reply-ref-from-signal", "text": "Here are your open Linear tickets."},
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-repair-slack-reply", tool_call_id="toolu-reply"
+                    ),
                 }
             ],
         )
@@ -1328,6 +1919,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_call_id": "call-reply",
                     "tool_id": "slack/events.reply?credentialMode=none",
                     "arguments": {"reply_ref": "reply-ref-from-signal", "text": "Here are your open pull requests."},
+                    "idempotency_key": _expected_tool_idempotency_key(
+                        turn_id="turn-repair-slack-reply-openai", tool_call_id="call-reply"
+                    ),
                 }
             ],
         )
@@ -2054,6 +2648,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_call_id": "toolu-1",
                     "tool_id": "lookup",
                     "arguments": {"query": "Ada Lovelace"},
+                    "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-anthropic", tool_call_id="toolu-1"),
                 }
             ],
         )
