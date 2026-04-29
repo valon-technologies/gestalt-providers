@@ -355,9 +355,15 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
 def _fake_resolved_tool(*, name: str) -> Any:
     tool_parameters = struct_pb2.Struct()
     tool_parameters.update({"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]})
-    return agent_pb2.ResolvedAgentTool(
-        id="lookup", name=name, description="Look up a historical figure", parameters_schema=tool_parameters
-    )
+    kwargs = {
+        "id": "lookup",
+        "name": name,
+        "description": "Look up a historical figure",
+        "parameters_schema": tool_parameters,
+    }
+    if hasattr(agent_pb2, "BoundAgentToolTarget"):
+        kwargs["target"] = agent_pb2.BoundAgentToolTarget(plugin="people", operation="lookup")
+    return agent_pb2.ResolvedAgentTool(**kwargs)
 
 
 def _expected_tool_idempotency_key(*, provider_name: str = "simple", turn_id: str, tool_call_id: str) -> str:
@@ -375,19 +381,27 @@ def _fake_slack_reply_tool() -> Any:
             "required": ["reply_ref", "text"],
         }
     )
-    return agent_pb2.ResolvedAgentTool(
-        id="slack/events.reply?credentialMode=none",
-        name="slack_events_reply",
-        description="Reply to a Slack event",
-        parameters_schema=tool_parameters,
-    )
+    kwargs = {
+        "id": "slack/events.reply?credentialMode=none",
+        "name": "slack_events_reply",
+        "description": "Reply to a Slack event",
+        "parameters_schema": tool_parameters,
+    }
+    if hasattr(agent_pb2, "BoundAgentToolTarget"):
+        kwargs["target"] = agent_pb2.BoundAgentToolTarget(plugin="slack", operation="events.reply")
+    return agent_pb2.ResolvedAgentTool(**kwargs)
 
 
 def _fake_tool_candidate(*, system: str = "people", plugin: str = "people", operation: str = "search_more") -> Any:
     if not hasattr(agent_pb2, "AgentToolCandidate"):
         raise unittest.SkipTest("adaptive tool search proto fields are not available")
+    ref = agent_pb2.AgentToolRef(plugin=plugin, operation=operation)
+    if _proto_message_has_field(ref, "system"):
+        setattr(ref, "system", system)
+    if _proto_message_has_field(ref, "credential_mode"):
+        setattr(ref, "credential_mode", "user")
     return agent_pb2.AgentToolCandidate(
-        ref=agent_pb2.AgentToolRef(system=system, plugin=plugin, operation=operation),
+        ref=ref,
         id=f"{plugin}/{operation}",
         name="Search more people",
         description="Search more historical records",
@@ -606,13 +620,23 @@ def _configure_runtime(
 
 
 def _create_session(
-    provider_client: Any, *, session_id: str, idempotency_key: str, model: str = "fast", client_ref: str = ""
+    provider_client: Any,
+    *,
+    session_id: str,
+    idempotency_key: str,
+    model: str = "fast",
+    client_ref: str = "",
+    metadata: dict[str, Any] | None = None,
+    created_by: Any | None = None,
 ) -> Any:
-    return provider_client.CreateSession(
-        agent_pb2.CreateAgentProviderSessionRequest(
-            session_id=session_id, idempotency_key=idempotency_key, model=model, client_ref=client_ref
-        )
+    request = agent_pb2.CreateAgentProviderSessionRequest(
+        session_id=session_id, idempotency_key=idempotency_key, model=model, client_ref=client_ref
     )
+    if metadata:
+        request.metadata.update(metadata)
+    if created_by is not None:
+        request.created_by.CopyFrom(created_by)
+    return provider_client.CreateSession(request)
 
 
 def _direct_store() -> SimpleRunStore:
@@ -1131,11 +1155,16 @@ class SimpleAgentProviderTests(unittest.TestCase):
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider()
         identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
+        actor = agent_pb2.AgentActor(
+            subject_id="user-123", subject_kind="human", display_name="Ada", auth_source="session"
+        )
         created_session = _create_session(
             provider_client,
             session_id="session-success",
             idempotency_key="session-idem-success",
             client_ref="cli-session-success",
+            metadata={"heavy": "metadata"},
+            created_by=actor,
         )
 
         fake_llm = _FakeOpenAIChatServer(
@@ -1251,15 +1280,78 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 response_schema=response_schema,
                 provider_options=provider_options,
                 execution_ref="exec-1",
-                created_by=agent_pb2.AgentActor(
-                    subject_id="user-123", subject_kind="human", display_name="Ada", auth_source="session"
-                ),
+                created_by=actor,
             )
         )
 
         fetched = _wait_for_turn(provider_client, "turn-success", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         listed_sessions = provider_client.ListSessions(agent_pb2.ListAgentProviderSessionsRequest())
         listed_turns = provider_client.ListTurns(agent_pb2.ListAgentProviderTurnsRequest(session_id="session-success"))
+        summary_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                session_ids=["missing-session", "session-success"],
+                state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                limit=1,
+                summary_only=True,
+            )
+        )
+        summary_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-success",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                turn_ids=["missing-turn", "turn-success"],
+                status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+                limit=1,
+                summary_only=True,
+            )
+        )
+        filtered_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-success",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                status=agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
+                summary_only=True,
+            )
+        )
+        subject_mismatch_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-success",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-456"),
+                summary_only=True,
+            )
+        )
+        empty_session_turns = provider_client.ListTurns(agent_pb2.ListAgentProviderTurnsRequest(summary_only=True))
+        exact_turn_without_session = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                turn_ids=["turn-success"],
+                summary_only=True,
+            )
+        )
+        _create_session(
+            provider_client,
+            session_id="session-other-user",
+            idempotency_key="session-idem-other-user",
+            created_by=agent_pb2.AgentActor(
+                subject_id="user-456", subject_kind="human", display_name="Grace", auth_source="session"
+            ),
+            metadata={"heavy": "other"},
+        )
+        subject_filtered_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                session_ids=["session-other-user", "session-success"],
+                limit=10,
+                summary_only=True,
+            )
+        )
+        with self.assertRaises(grpc.RpcError) as negative_session_limit:
+            provider_client.ListSessions(agent_pb2.ListAgentProviderSessionsRequest(limit=-1, summary_only=True))
+        with self.assertRaises(grpc.RpcError) as negative_turn_limit:
+            provider_client.ListTurns(
+                agent_pb2.ListAgentProviderTurnsRequest(session_id="session-success", limit=-1, summary_only=True)
+            )
         fetched_session = provider_client.GetSession(
             agent_pb2.GetAgentProviderSessionRequest(session_id="session-success")
         )
@@ -1276,12 +1368,17 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(list(identity.warnings), [])
         self.assertTrue(capabilities.native_tool_search)
         self.assertTrue(capabilities.resumable_turns)
+        self.assertTrue(capabilities.bounded_list_hydration)
 
         self.assertEqual(created_session.id, "session-success")
         self.assertEqual(created_session.model, "openai/fake-model")
         self.assertEqual(created_session.client_ref, "cli-session-success")
         self.assertEqual(created_session.state, agent_pb2.AGENT_SESSION_STATE_ACTIVE)
+        self.assertEqual(created_session.metadata.fields["heavy"].string_value, "metadata")
         self.assertEqual([session.id for session in listed_sessions.sessions], ["session-success"])
+        self.assertEqual(listed_sessions.sessions[0].metadata.fields["heavy"].string_value, "metadata")
+        self.assertEqual([session.id for session in summary_sessions.sessions], ["session-success"])
+        self.assertFalse(summary_sessions.sessions[0].HasField("metadata"))
         self.assertEqual(fetched_session.id, "session-success")
         self.assertEqual(fetched_session.last_turn_at.seconds > 0 or fetched_session.last_turn_at.nanos > 0, True)
 
@@ -1320,6 +1417,19 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.messages[1].parts[0].text, '{"summary":"Ada Lovelace is still relevant."}')
         self.assertEqual(fetched.id, "turn-success")
         self.assertEqual(len(listed_turns.turns), 1)
+        self.assertEqual([turn.id for turn in summary_turns.turns], ["turn-success"])
+        self.assertEqual(len(summary_turns.turns[0].messages), 0)
+        self.assertEqual(summary_turns.turns[0].output_text, "")
+        self.assertFalse(summary_turns.turns[0].HasField("structured_output"))
+        self.assertEqual(len(filtered_turns.turns), 0)
+        self.assertEqual(len(subject_mismatch_turns.turns), 0)
+        self.assertEqual(len(empty_session_turns.turns), 0)
+        self.assertEqual([turn.id for turn in exact_turn_without_session.turns], ["turn-success"])
+        self.assertEqual([session.id for session in subject_filtered_sessions.sessions], ["session-success"])
+        self.assertEqual(_rpc_error_code(negative_session_limit.exception), grpc.StatusCode.INVALID_ARGUMENT)
+        self.assertEqual(_rpc_error_details(negative_session_limit.exception), "limit must be non-negative")
+        self.assertEqual(_rpc_error_code(negative_turn_limit.exception), grpc.StatusCode.INVALID_ARGUMENT)
+        self.assertEqual(_rpc_error_details(negative_turn_limit.exception), "limit must be non-negative")
 
         assert _host_servicer is not None
         self.assertEqual(
@@ -1501,6 +1611,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fetched = _wait_for_turn(provider_client, "turn-adaptive-search", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(fetched.output_text, "done")
+        expected_load_ref = {"system": "people", "plugin": "people", "operation": "search_more"}
+        if _proto_message_has_field(agent_pb2.AgentToolRef(), "credential_mode"):
+            expected_load_ref["credential_mode"] = "user"
         self.assertEqual(
             _host_servicer.search_requests,
             [
@@ -1518,7 +1631,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "query": "",
                     "max_results": 0,
                     "candidate_limit": 0,
-                    "load_refs": [{"system": "people", "plugin": "people", "operation": "search_more"}],
+                    "load_refs": [expected_load_ref],
                 },
             ],
         )
