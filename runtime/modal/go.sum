@@ -34,8 +34,8 @@ github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0
 github.com/pelletier/go-toml/v2 v2.2.4/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429012006-f6b5bebf32dc h1:0Dr4yN316CC21vsGD80BGOqrZMkDt83geac5U5a5wz0=
-github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429012006-f6b5bebf32dc/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429015832-ea48dc5ee67c h1:UN2q/dgUIgE/C8QAbuk1H0xkmBHhKybfLjoYcHFTuvs=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429015832-ea48dc5ee67c/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

@@ -53,15 +53,11 @@ providers:
         mode: hosted
         runtime:
           image: ghcr.io/acme/private-agent-runtime:latest
-          imagePullCredentials:
-            username:
+          imagePullAuth:
+            dockerConfigJson:
               secret:
                 provider: secrets
-                name: ghcr-username
-            password:
-              secret:
-                provider: secrets
-                name: ghcr-token
+                name: ghcr-agent-runtime-dockerconfigjson
           pool:
             minReadyInstances: 1
             maxReadyInstances: 2
@@ -82,11 +78,25 @@ sandbox from a concrete runtime image. For plugins, set
 `plugins.<name>.execution.runtime.image`; for hosted agent providers, set
 `providers.agent.<name>.execution.runtime.image`.
 
-For private registry images, set
-`execution.runtime.imagePullCredentials`. The Modal runtime provider turns those
-credentials into an ephemeral Modal secret and passes it to Modal image
-resolution, so the registry token is not written into provider config or
-sandbox environment variables.
+For private registry images, set `execution.runtime.imagePullAuth` with
+`dockerConfigJson`. The value is Docker config JSON, typically supplied through
+a secret:
+
+```json
+{
+  "auths": {
+    "ghcr.io": {
+      "username": "ghcr-user",
+      "password": "PAT_WITH_READ_PACKAGES"
+    }
+  }
+}
+```
+
+The Modal runtime provider selects the auth entry for the image registry, turns
+it into an ephemeral Modal secret, and passes it to Modal image resolution, so
+the registry token is not written into provider config or sandbox environment
+variables.
 
 ## Current Limitations
 

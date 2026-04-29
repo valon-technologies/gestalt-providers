@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -28,7 +30,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.12"
+	providerVersion     = "0.0.1-alpha.13"
 	pluginGRPCPort      = 50051
 	tunnelLookupTimeout = 30 * time.Second
 	dialTimeout         = 15 * time.Second
@@ -84,22 +86,22 @@ type Provider struct {
 }
 
 type session struct {
-	id                   string
-	state                string
-	metadata             map[string]string
-	bindings             map[string]string
-	image                string
-	imagePullCredentials *imagePullCredentials
-	startedAt            time.Time
-	recommendedDrainAt   *time.Time
-	expiresAt            *time.Time
-	stateReason          string
-	stateMessage         string
-	sandbox              *modalclient.Sandbox
-	tunnel               *modalclient.Tunnel
-	plugin               *plugin
-	logSeq               uint64
-	restored             bool
+	id                       string
+	state                    string
+	metadata                 map[string]string
+	bindings                 map[string]string
+	image                    string
+	imageRegistryCredentials *imageRegistryCredentials
+	startedAt                time.Time
+	recommendedDrainAt       *time.Time
+	expiresAt                *time.Time
+	stateReason              string
+	stateMessage             string
+	sandbox                  *modalclient.Sandbox
+	tunnel                   *modalclient.Tunnel
+	plugin                   *plugin
+	logSeq                   uint64
+	restored                 bool
 }
 
 type plugin struct {
@@ -108,7 +110,7 @@ type plugin struct {
 	process *modalclient.ContainerProcess
 }
 
-type imagePullCredentials struct {
+type imageRegistryCredentials struct {
 	username string
 	password string
 }
@@ -196,18 +198,18 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 	if strings.TrimSpace(req.GetImage()) == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the modal runtime", req.GetPluginName())
 	}
-	imagePullCredentials, err := pluginRuntimeImagePullCredentials(req.GetImagePullCredentials())
+	imageRegistryCredentials, err := pluginRuntimeImagePullAuth(req.GetImage(), req.GetImagePullAuth())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	sessionID := p.newID("session")
 
 	session := &session{
-		id:                   sessionID,
-		state:                sessionStateReady,
-		metadata:             cloneStringMap(req.GetMetadata()),
-		image:                strings.TrimSpace(req.GetImage()),
-		imagePullCredentials: imagePullCredentials,
+		id:                       sessionID,
+		state:                    sessionStateReady,
+		metadata:                 cloneStringMap(req.GetMetadata()),
+		image:                    strings.TrimSpace(req.GetImage()),
+		imageRegistryCredentials: imageRegistryCredentials,
 	}
 	if session.metadata == nil {
 		session.metadata = map[string]string{}
@@ -222,19 +224,110 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 	return cloneSession(session), nil
 }
 
-func pluginRuntimeImagePullCredentials(creds *proto.PluginRuntimeImagePullCredentials) (*imagePullCredentials, error) {
-	if creds == nil {
+func pluginRuntimeImagePullAuth(image string, auth *proto.PluginRuntimeImagePullAuth) (*imageRegistryCredentials, error) {
+	if auth == nil {
 		return nil, nil
 	}
-	username := strings.TrimSpace(creds.GetUsername())
-	password := creds.GetPassword()
-	if username == "" || strings.TrimSpace(password) == "" {
-		return nil, fmt.Errorf("image_pull_credentials.username and image_pull_credentials.password are required when image_pull_credentials is set")
+	dockerConfigJSON := strings.TrimSpace(auth.GetDockerConfigJson())
+	if dockerConfigJSON == "" {
+		return nil, fmt.Errorf("image_pull_auth.docker_config_json is required when image_pull_auth is set")
 	}
-	return &imagePullCredentials{
-		username: username,
-		password: password,
-	}, nil
+	return registryCredentialsFromDockerConfig(image, dockerConfigJSON)
+}
+
+type dockerConfigFile struct {
+	Auths map[string]dockerAuthConfig `json:"auths"`
+}
+
+type dockerAuthConfig struct {
+	Username      string `json:"username"`
+	Password      string `json:"password"`
+	Auth          string `json:"auth"`
+	IdentityToken string `json:"identitytoken"`
+}
+
+func registryCredentialsFromDockerConfig(image, dockerConfigJSON string) (*imageRegistryCredentials, error) {
+	var cfg dockerConfigFile
+	if err := json.Unmarshal([]byte(dockerConfigJSON), &cfg); err != nil {
+		return nil, fmt.Errorf("image_pull_auth.docker_config_json must be valid Docker config JSON: %w", err)
+	}
+	if len(cfg.Auths) == 0 {
+		return nil, fmt.Errorf(`image_pull_auth.docker_config_json must contain a non-empty "auths" object`)
+	}
+	registryHost := imageRegistryHost(image)
+	auth, ok := dockerConfigAuthForRegistry(cfg.Auths, registryHost)
+	if !ok {
+		return nil, fmt.Errorf("image_pull_auth.docker_config_json does not contain credentials for registry %q", registryHost)
+	}
+	username, password, err := staticRegistryCredentials(auth)
+	if err != nil {
+		return nil, fmt.Errorf("image_pull_auth.docker_config_json credentials for registry %q: %w", registryHost, err)
+	}
+	return &imageRegistryCredentials{username: username, password: password}, nil
+}
+
+func dockerConfigAuthForRegistry(auths map[string]dockerAuthConfig, registryHost string) (dockerAuthConfig, bool) {
+	normalizedRegistry := normalizeDockerConfigRegistry(registryHost)
+	for key, auth := range auths {
+		if normalizeDockerConfigRegistry(key) == normalizedRegistry {
+			return auth, true
+		}
+	}
+	return dockerAuthConfig{}, false
+}
+
+func imageRegistryHost(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+	first, _, hasSlash := strings.Cut(image, "/")
+	if hasSlash && (strings.ContainsAny(first, ".:") || first == "localhost") {
+		return strings.ToLower(first)
+	}
+	return "docker.io"
+}
+
+func normalizeDockerConfigRegistry(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(value); err == nil && parsed.Host != "" {
+		value = parsed.Host + parsed.Path
+	}
+	value = strings.Trim(value, "/")
+	value = strings.ToLower(value)
+	switch value {
+	case "https://index.docker.io/v1", "http://index.docker.io/v1", "index.docker.io/v1", "index.docker.io", "registry-1.docker.io":
+		return "docker.io"
+	}
+	host, _, _ := strings.Cut(value, "/")
+	return host
+}
+
+func staticRegistryCredentials(auth dockerAuthConfig) (string, string, error) {
+	username := strings.TrimSpace(auth.Username)
+	password := auth.Password
+	if username == "" && strings.TrimSpace(auth.Auth) != "" {
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(auth.Auth))
+		if err != nil {
+			return "", "", fmt.Errorf("auth must be base64-encoded username:password: %w", err)
+		}
+		decodedUsername, decodedPassword, ok := strings.Cut(string(decoded), ":")
+		if !ok {
+			return "", "", fmt.Errorf("auth must decode to username:password")
+		}
+		username = strings.TrimSpace(decodedUsername)
+		password = decodedPassword
+	}
+	if username == "" || strings.TrimSpace(password) == "" {
+		if strings.TrimSpace(auth.IdentityToken) != "" {
+			return "", "", fmt.Errorf("identitytoken-only Docker auth is not supported by the Modal static registry credential path")
+		}
+		return "", "", fmt.Errorf("username/password or auth is required")
+	}
+	return username, password, nil
 }
 
 func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
@@ -686,7 +779,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	sessionID := session.id
 	bindings := cloneStringMap(session.bindings)
 	metadata := cloneStringMap(session.metadata)
-	imagePullCredentials := cloneImagePullCredentials(session.imagePullCredentials)
+	imageRegistryCredentials := cloneImageRegistryCredentials(session.imageRegistryCredentials)
 	p.mu.Unlock()
 
 	if imageRef == "" {
@@ -716,7 +809,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	startedAt = time.Now()
 	logRuntimePhase(logs, "modal sandbox create: starting image=%q timeout=%s idle_timeout=%s", imageRef, configuredDuration(cfg.Timeout), configuredDuration(cfg.IdleTimeout))
 	sandboxStartedAt := startedAt.UTC()
-	imageParams, err := imageFromRegistryParams(ctx, client, cfg, imagePullCredentials, logs)
+	imageParams, err := imageFromRegistryParams(ctx, client, cfg, imageRegistryCredentials, logs)
 	if err != nil {
 		logRuntimePhase(logs, "modal sandbox create: failed after %s: %v", elapsed(startedAt), err)
 		return nil, nil, err
@@ -779,7 +872,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	return sandbox, tunnel, nil
 }
 
-func imageFromRegistryParams(ctx context.Context, client *modalclient.Client, cfg Config, creds *imagePullCredentials, logs *sessionLogSink) (*modalclient.ImageFromRegistryParams, error) {
+func imageFromRegistryParams(ctx context.Context, client *modalclient.Client, cfg Config, creds *imageRegistryCredentials, logs *sessionLogSink) (*modalclient.ImageFromRegistryParams, error) {
 	if creds == nil {
 		return nil, nil
 	}
@@ -1358,11 +1451,11 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func cloneImagePullCredentials(src *imagePullCredentials) *imagePullCredentials {
+func cloneImageRegistryCredentials(src *imageRegistryCredentials) *imageRegistryCredentials {
 	if src == nil {
 		return nil
 	}
-	return &imagePullCredentials{
+	return &imageRegistryCredentials{
 		username: src.username,
 		password: src.password,
 	}
