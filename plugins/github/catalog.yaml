@@ -76,6 +76,7 @@ operations:
 - id: bot.openPullRequest
   method: POST
   description: Open a pull request using a GitHub App installation token
+  tags: [pr, prs]
   parameters:
   - name: owner
     type: string
@@ -122,6 +123,7 @@ operations:
   method: POST
   description: Commit file changes to a branch and open a pull request using a GitHub
     App installation token
+  tags: [pr, prs]
   parameters:
   - name: owner
     type: string

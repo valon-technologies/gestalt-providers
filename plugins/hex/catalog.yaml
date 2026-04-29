@@ -3,6 +3,7 @@ operations:
 - id: projects.export
   method: POST
   description: Export a Hex project as YAML via Hex's CLI-only API endpoint
+  tags: [notebook]
   parameters:
   - name: project_id
     type: string
@@ -16,6 +17,7 @@ operations:
   method: POST
   description: Import or update a Hex project from raw YAML via Hex's CLI-only API
     endpoint
+  tags: [notebook]
   parameters:
   - name: content
     type: string
@@ -25,6 +27,7 @@ operations:
   method: POST
   description: Run the draft notebook version of a Hex project via Hex's CLI-only
     API endpoint
+  tags: [notebook]
   parameters:
   - name: project_id
     type: string
@@ -37,6 +40,7 @@ operations:
 - id: cells.run
   method: POST
   description: Run a Hex cell and its dependencies via Hex's CLI-only API endpoint
+  tags: [notebook]
   parameters:
   - name: cell_id
     type: string

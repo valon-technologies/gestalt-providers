@@ -309,6 +309,7 @@ def bot_commit_files(input: CommitFilesInput, req: gestalt.Request) -> Operation
     id=BOT_OPEN_PULL_REQUEST_OPERATION,
     method="POST",
     description="Open a pull request using a GitHub App installation token",
+    tags=["pr", "prs"],
 )
 def bot_open_pull_request(
     input: OpenPullRequestInput, req: gestalt.Request
@@ -344,6 +345,7 @@ def bot_open_pull_request(
     id=BOT_CREATE_PULL_REQUEST_OPERATION,
     method="POST",
     description="Commit file changes to a branch and open a pull request using a GitHub App installation token",
+    tags=["pr", "prs"],
 )
 def bot_create_pull_request(
     input: CreatePullRequestInput, req: gestalt.Request

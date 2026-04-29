@@ -3,6 +3,7 @@ operations:
 - id: messages.send
   method: POST
   description: Send an email message
+  tags: [email, mail]
   parameters:
   - name: to
     type: string
@@ -31,6 +32,7 @@ operations:
 - id: drafts.create
   method: POST
   description: Create an email draft
+  tags: [email, mail]
   parameters:
   - name: to
     type: string
@@ -59,6 +61,7 @@ operations:
 - id: drafts.update
   method: PUT
   description: Update an email draft
+  tags: [email, mail]
   parameters:
   - name: id
     type: string
@@ -91,6 +94,7 @@ operations:
 - id: drafts.send
   method: POST
   description: Send an existing email draft
+  tags: [email, mail]
   parameters:
   - name: id
     type: string
@@ -99,6 +103,7 @@ operations:
 - id: messages.reply
   method: POST
   description: Reply to an existing message
+  tags: [email, mail]
   parameters:
   - name: message_id
     type: string
@@ -123,6 +128,7 @@ operations:
 - id: messages.forward
   method: POST
   description: Forward a message to new recipients
+  tags: [email, mail]
   parameters:
   - name: message_id
     type: string
