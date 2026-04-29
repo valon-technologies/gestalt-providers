@@ -27,8 +27,8 @@ import (
 
 const (
 	canonicalProviderPluginWorkflowTargetFingerprint      = "5b5ff5c40cb9346421944269fdd71f1d60bb47ce27dc26006202a139009ee87d"
-	canonicalProviderAgentWorkflowTargetFingerprint       = "19e2d6db6300265977b862322d9fbf138e610a1f3d7c8e005c65fc975cfcaac4"
-	canonicalProviderNestedAgentWorkflowTargetFingerprint = "6abceb7bdb089247d525147eaa0375ba6b8c8c1da530e793f62021d64050fbd7"
+	canonicalProviderAgentWorkflowTargetFingerprint       = "1003da47bdf572f9f79750c681662f40bfa759d9db9eb4dfebdee6aafb2d8f01"
+	canonicalProviderNestedAgentWorkflowTargetFingerprint = "46872c4caeb7404c6fe83409ee186c070c78dd77244ee9576fa4b912dd8001cb"
 )
 
 func TestBoundWorkflowTargetWireShapeIsNestedOnly(t *testing.T) {
@@ -894,44 +894,45 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 
 func TestProviderAgentTargetFingerprintMatchesGestaltCanonicalNestedEmptyFields(t *testing.T) {
 	target := &proto.BoundWorkflowTarget{
-		Agent: &proto.BoundWorkflowAgentTarget{
-			ProviderName: "managed",
-			Model:        "gpt-5.4",
-			Prompt:       "send a Slack reminder",
-			Messages: []*proto.AgentMessage{
-				{
-					Role: "user",
-					Parts: []*proto.AgentMessagePart{
-						{
-							Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_JSON,
-							Json: mustEmptyStruct(t),
-						},
-						{
-							Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_CALL,
-							ToolCall: &proto.AgentMessagePartToolCall{
-								Id:        "call-1",
-								ToolId:    "tool-1",
-								Arguments: mustEmptyStruct(t),
+		Kind: &proto.BoundWorkflowTarget_Agent{
+			Agent: &proto.BoundWorkflowAgentTarget{
+				ProviderName: "managed",
+				Model:        "gpt-5.4",
+				Prompt:       "send a Slack reminder",
+				Messages: []*proto.AgentMessage{
+					{
+						Role: "user",
+						Parts: []*proto.AgentMessagePart{
+							{
+								Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_JSON,
+								Json: mustEmptyStruct(t),
+							},
+							{
+								Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_CALL,
+								ToolCall: &proto.AgentMessagePartToolCall{
+									Id:        "call-1",
+									ToolId:    "tool-1",
+									Arguments: mustEmptyStruct(t),
+								},
+							},
+							{
+								Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_RESULT,
+								ToolResult: &proto.AgentMessagePartToolResult{
+									ToolCallId: "call-1",
+									Output:     mustEmptyStruct(t),
+								},
 							},
 						},
-						{
-							Type: proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_RESULT,
-							ToolResult: &proto.AgentMessagePartToolResult{
-								ToolCallId: "call-1",
-								Output:     mustEmptyStruct(t),
-							},
-						},
+						Metadata: mustEmptyStruct(t),
 					},
-					Metadata: mustEmptyStruct(t),
 				},
+				ToolRefs: []*proto.AgentToolRef{
+					{Plugin: "slack", Operation: "chat.postMessage"},
+				},
+				ResponseSchema:  mustEmptyStruct(t),
+				ProviderOptions: mustEmptyStruct(t),
+				Metadata:        mustEmptyStruct(t),
 			},
-			ToolRefs: []*proto.AgentToolRef{
-				{Plugin: "slack", Operation: "chat.postMessage"},
-			},
-			ToolSource:      proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
-			ResponseSchema:  mustEmptyStruct(t),
-			ProviderOptions: mustEmptyStruct(t),
-			Metadata:        mustEmptyStruct(t),
 		},
 	}
 
@@ -1386,9 +1387,6 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if call.GetTarget().GetAgent().GetPrompt() != "send a Slack reminder" {
 		t.Fatalf("call target = %#v", call.GetTarget())
 	}
-	if call.GetTarget().GetAgent().GetToolSource() != proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH {
-		t.Fatalf("tool_source = %v, want native search", call.GetTarget().GetAgent().GetToolSource())
-	}
 	toolRefs := call.GetTarget().GetAgent().GetToolRefs()
 	if len(toolRefs) != 2 ||
 		toolRefs[0].GetPlugin() != "slack" ||
@@ -1430,37 +1428,23 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 	}{
 		{
 			name:   "empty prompt",
-			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{ProviderName: "managed"}},
-		},
-		{
-			name: "agent and plugin",
-			target: &proto.BoundWorkflowTarget{
-				Agent: &proto.BoundWorkflowAgentTarget{
-					ProviderName: "managed",
-					Prompt:       "send a Slack reminder",
-				},
-				Plugin: &proto.BoundWorkflowPluginTarget{
-					PluginName: "slack",
-					Operation:  "chat.postMessage",
-				},
-			},
+			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{ProviderName: "managed"}),
 		},
 		{
 			name: "negative timeout",
-			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
+			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
 				ProviderName:   "managed",
 				Prompt:         "send a Slack reminder",
 				TimeoutSeconds: -1,
-				ToolSource:     proto.AgentToolSourceMode_AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
-			}},
+			}),
 		},
 		{
 			name: "empty tool plugin",
-			target: &proto.BoundWorkflowTarget{Agent: &proto.BoundWorkflowAgentTarget{
+			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
 				ProviderName: "managed",
 				Prompt:       "send a Slack reminder",
 				ToolRefs:     []*proto.AgentToolRef{{Operation: "chat.postMessage"}},
-			}},
+			}),
 		},
 	}
 	for _, tc := range cases {
@@ -2009,10 +1993,12 @@ func startTestWorkflowHost(t *testing.T, host proto.WorkflowHostServer) {
 func protoBoundTarget(t *testing.T, pluginName, operation string, input map[string]any) *proto.BoundWorkflowTarget {
 	t.Helper()
 	return &proto.BoundWorkflowTarget{
-		Plugin: &proto.BoundWorkflowPluginTarget{
-			PluginName: pluginName,
-			Operation:  operation,
-			Input:      mustStruct(t, input),
+		Kind: &proto.BoundWorkflowTarget_Plugin{
+			Plugin: &proto.BoundWorkflowPluginTarget{
+				PluginName: pluginName,
+				Operation:  operation,
+				Input:      mustStruct(t, input),
+			},
 		},
 	}
 }
@@ -2026,15 +2012,21 @@ func appendReservedUnknownStringField(target *proto.BoundWorkflowTarget, number 
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {
+	return protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
+		ProviderName: providerName,
+		Model:        model,
+		Prompt:       prompt,
+		ToolRefs: []*proto.AgentToolRef{
+			{Plugin: "slack", Operation: "chat.postMessage"},
+			{Plugin: "linear"},
+		},
+	})
+}
+
+func protoAgentTargetFromMessage(agent *proto.BoundWorkflowAgentTarget) *proto.BoundWorkflowTarget {
 	return &proto.BoundWorkflowTarget{
-		Agent: &proto.BoundWorkflowAgentTarget{
-			ProviderName: providerName,
-			Model:        model,
-			Prompt:       prompt,
-			ToolRefs: []*proto.AgentToolRef{
-				{Plugin: "slack", Operation: "chat.postMessage"},
-				{Plugin: "linear"},
-			},
+		Kind: &proto.BoundWorkflowTarget_Agent{
+			Agent: agent,
 		},
 	}
 }
