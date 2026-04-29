@@ -13,6 +13,7 @@ RUN archive="/tmp/runtime-image-dist/gestalt-plugin-simple_linux_${TARGETARCH}.t
     && test -f "$archive" \
     && tar -xzf "$archive" -C /app \
     && chmod +x /app/gestalt-plugin-simple \
+    && ln -sf /app/gestalt-plugin-simple /gestalt-plugin-simple \
     && rm -rf /tmp/runtime-image-dist
 
 CMD ["tail", "-f", "/dev/null"]
