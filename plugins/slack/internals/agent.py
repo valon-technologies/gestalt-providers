@@ -78,15 +78,11 @@ EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
 DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
-Use {assistant_status_tool} with the reply_ref for Slack's native assistant
-loading/status indicator during longer work; use {assistant_clear_status_tool}
-to clear it without posting a message.
 Use {status_tool} only when you intentionally want a visible progress message
 in the Slack thread; reuse the returned status_ts to update or delete the same
 status message.
 Use {stream_start_tool}, {stream_append_tool}, and {stream_stop_tool} when a
 streaming Slack reply is better than a single final message.
-Use {title_tool} and {prompts_tool} to update native assistant thread metadata.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
 When you answer the Slack user, call {reply_tool} with text set to the complete
@@ -167,7 +163,7 @@ class SlackBotConfig:
 @dataclass(frozen=True, slots=True)
 class SlackAssistantConfig:
     enabled: bool = False
-    status: str = "is thinking..."
+    status: str = "thinking..."
     loading_messages: tuple[str, ...] = ()
     icon_emoji: str = ""
     icon_url: str = ""
@@ -1978,16 +1974,6 @@ def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
         DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
             reply_tool=f"{_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
             status_tool=f"{_agent_config.plugin_name}.{SLACK_STATUS_OPERATION}",
-            assistant_status_tool=(
-                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_STATUS_OPERATION}"
-            ),
-            assistant_clear_status_tool=(
-                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_CLEAR_STATUS_OPERATION}"
-            ),
-            title_tool=f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_TITLE_OPERATION}",
-            prompts_tool=(
-                f"{_agent_config.plugin_name}.{SLACK_ASSISTANT_PROMPTS_OPERATION}"
-            ),
             stream_start_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_START_OPERATION}",
             stream_append_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_APPEND_OPERATION}",
             stream_stop_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_STOP_OPERATION}",
@@ -2068,7 +2054,7 @@ def _assistant_config_from_provider_config(
 
     return SlackAssistantConfig(
         enabled=_config_bool(assistant, "enabled", default=False),
-        status=status or "is thinking...",
+        status=status or "thinking...",
         loading_messages=_config_string_tuple(
             assistant, "loadingMessages", "loading_messages"
         ),

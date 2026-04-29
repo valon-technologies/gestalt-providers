@@ -737,8 +737,6 @@ class SlackProviderTests(unittest.TestCase):
                 "agent": {"provider": "simple", "model": "deep"},
                 "assistant": {
                     "enabled": True,
-                    "status": "is checking deployment status",
-                    "loadingMessages": ["Reading the thread", "Checking deploys"],
                     "iconEmoji": ":hourglass_flowing_sand:",
                     "username": "Valon Assistant",
                 },
@@ -798,10 +796,16 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(response["ok"], True)
         self.assertNotIn("assistant_status_error", response)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
-        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        agent_target = workflow_request.target.agent
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             BASE_EVENT_TOOL_REFS + ASSISTANT_EVENT_TOOL_REFS + WORKFLOW_EVENT_TOOL_REFS,
+        )
+        signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
+        self.assertNotIn("Native assistant status tool:", signal_payload["user_prompt"])
+        self.assertNotIn(
+            "slack.events.setAssistantStatus", agent_target.messages[0].text
         )
         self.assertEqual(
             calls,
@@ -811,11 +815,7 @@ class SlackProviderTests(unittest.TestCase):
                     {
                         "channel_id": "C789",
                         "thread_ts": "1712161829.000300",
-                        "status": "is checking deployment status",
-                        "loading_messages": [
-                            "Reading the thread",
-                            "Checking deploys",
-                        ],
+                        "status": "thinking...",
                         "icon_emoji": ":hourglass_flowing_sand:",
                         "username": "Valon Assistant",
                     },
@@ -1283,6 +1283,50 @@ class SlackProviderTests(unittest.TestCase):
             "text: <complete Slack message body to post>",
             signal_payload["user_prompt"],
         )
+        self.assertNotIn("Native assistant status tool:", signal_payload["user_prompt"])
+
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "assistant": {"enabled": True},
+            },
+        )
+        workflow_manager = FakeWorkflowManager()
+        with (
+            mock.patch.object(
+                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+            ),
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        agent_target = workflow_request.target.agent
+        self.assertIn(
+            ("slack", "events.setAssistantStatus"),
+            tool_ref_pairs(agent_target.tool_refs),
+        )
+        self.assertIn(
+            ("slack", "events.clearAssistantStatus"),
+            tool_ref_pairs(agent_target.tool_refs),
+        )
+        signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
+        self.assertNotIn("Native assistant status tool:", signal_payload["user_prompt"])
 
     def test_slack_event_status_and_reactions_use_reply_ref_contract(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -1743,6 +1787,9 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertNotIn(
             "supportSlackbot.chat.postMessage", agent_target.messages[0].text
+        )
+        self.assertNotIn(
+            "supportSlackbot.events.setAssistantStatus", agent_target.messages[0].text
         )
         self.assertIn(
             "Follow the global Slack policy.", agent_target.messages[0].text
