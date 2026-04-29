@@ -787,6 +787,65 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
 
+    def test_configure_provider_does_not_wait_for_startup_resume(self) -> None:
+        resume_started = threading.Event()
+        release_resume = threading.Event()
+
+        def blocking_resume(self: Any, *, should_continue: Any = None) -> None:
+            del self, should_continue
+            resume_started.set()
+            release_resume.wait(timeout=5)
+
+        channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
+        self.addCleanup(channel.close)
+        lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
+
+        try:
+            with mock.patch.object(provider_module.SimpleAgentOrchestrator, "resume_incomplete_turns", blocking_resume):
+                started_at = time.monotonic()
+                _configure_runtime(lifecycle)
+                elapsed = time.monotonic() - started_at
+
+                self.assertLess(elapsed, 2.0)
+                self.assertTrue(resume_started.wait(timeout=1))
+        finally:
+            release_resume.set()
+
+    def test_reconfigure_invalidates_stale_startup_resume(self) -> None:
+        first_resume_started = threading.Event()
+        first_resume_release = threading.Event()
+        second_resume_started = threading.Event()
+        callbacks: list[Any] = []
+        callbacks_lock = threading.Lock()
+
+        def capture_resume(self: Any, *, should_continue: Any = None) -> None:
+            del self
+            with callbacks_lock:
+                callbacks.append(should_continue)
+                call_index = len(callbacks)
+            if call_index == 1:
+                first_resume_started.set()
+                first_resume_release.wait(timeout=5)
+                return
+            second_resume_started.set()
+
+        channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
+        self.addCleanup(channel.close)
+        lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
+
+        try:
+            with mock.patch.object(provider_module.SimpleAgentOrchestrator, "resume_incomplete_turns", capture_resume):
+                _configure_runtime(lifecycle)
+                self.assertTrue(first_resume_started.wait(timeout=1))
+                self.assertTrue(callbacks[0]())
+
+                _configure_runtime(lifecycle)
+                self.assertTrue(second_resume_started.wait(timeout=1))
+                self.assertFalse(callbacks[0]())
+                self.assertTrue(callbacks[1]())
+        finally:
+            first_resume_release.set()
+
     def test_configure_resumes_running_turn_from_atomic_checkpoint(self) -> None:
         fake_llm = _FakeOpenAIChatServer(
             responses=[
