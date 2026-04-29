@@ -404,7 +404,8 @@ jobs:
       - name: Start gestaltd
         run: |
           mkdir -p "${RUNNER_TEMP}/prepared-artifacts"
-          "${GITHUB_WORKSPACE}/../bin/gestaltd" init --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" lock --config "${GESTALTD_CONFIG}"
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" sync --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
           "${GITHUB_WORKSPACE}/../bin/gestaltd" serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
           for _ in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi

@@ -1,35 +1,44 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ConnectionParamDef, CredentialFieldDef, Integration } from "@/lib/api";
+import type { FormEvent, MouseEvent, ReactNode, SyntheticEvent } from "react";
+import {
+  AuthType,
+  ConnectionParamDef,
+  CredentialFieldDef,
+  Integration,
+} from "@/lib/api";
+import { INPUT_CLASSES } from "@/lib/constants";
+import {
+  normalizeIntegrationStatus,
+  statusTone,
+  type ConnectionContext,
+  type NormalizedConnection,
+  type StatusTone,
+} from "@/lib/integrationStatus";
 import Button from "./Button";
 import { CheckCircleIcon, CloseIcon } from "./icons";
 
 type ModalView = "default" | "disconnect" | "instance" | "token";
-type AuthType = "oauth" | "manual";
+type ActionKind = "connect" | "add_instance" | "reconnect" | "select_instance";
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
 };
 
-type AuthTarget = {
-  key: string;
-  connection?: string;
-  label: string;
-  authTypes: AuthType[];
-  credentialFields?: CredentialFieldDef[];
-};
-
 type AuthAction = {
   key: string;
+  kind: ActionKind;
   authType: AuthType;
+  connectionKey: string;
   connection?: string;
   label: string;
   variant?: "primary" | "secondary";
+  requiresInstanceName: boolean;
 };
 
-type PendingAuthAction = ConnectionTarget & {
-  authType: AuthType;
+type PendingAuthAction = AuthAction & {
+  instance?: string;
 };
 
 interface IntegrationSettingsModalProps {
@@ -43,97 +52,138 @@ interface IntegrationSettingsModalProps {
   submitting: boolean;
   error: string | null;
   readOnly?: boolean;
+  connectionContext?: ConnectionContext;
 }
 
-function normalizeAuthTypes(authTypes?: AuthType[], fallbackToOAuth = true): AuthType[] {
-  const normalized: AuthType[] = [];
-  if (authTypes?.includes("oauth")) {
-    normalized.push("oauth");
+function statusBadgeClasses(tone: StatusTone): string {
+  switch (tone) {
+    case "success":
+      return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
+    case "warning":
+      return "border-gold-200 bg-gold-50 text-gold-700 dark:border-gold-600 dark:bg-gold-700/20 dark:text-gold-200";
+    case "danger":
+      return "border-ember-200 bg-ember-50 text-ember-700 dark:border-ember-600 dark:bg-ember-700/20 dark:text-ember-200";
+    case "neutral":
+      return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
   }
-  if (authTypes?.includes("manual")) {
-    normalized.push("manual");
-  }
-  if (normalized.length === 0 && fallbackToOAuth) {
-    normalized.push("oauth");
-  }
-  return normalized;
 }
 
-function resolveAuthTargets(integration: Integration): AuthTarget[] {
-  const defaultCredentialFields = integration.credentialFields;
-  if (integration.connections?.length) {
-    return integration.connections
-      .map((connection) => ({
-        key: connection.name,
-        connection: connection.name,
-        label: connection.displayName || connection.name,
-        authTypes: normalizeAuthTypes(connection.authTypes, false),
-        credentialFields: connection.credentialFields?.length
-          ? connection.credentialFields
-          : defaultCredentialFields,
-      }));
-  }
-
-  return [{
-    key: integration.name,
-    label: integration.displayName || integration.name,
-    authTypes: normalizeAuthTypes(integration.authTypes),
-    credentialFields: defaultCredentialFields,
-  }];
+function normalizeActionKinds(connection: NormalizedConnection): ActionKind[] {
+  const kinds: ActionKind[] = [];
+  if (connection.canConnect) kinds.push("connect");
+  if (connection.canAddInstance) kinds.push("add_instance");
+  if (connection.canReconnect) kinds.push("reconnect");
+  return kinds;
 }
 
 function buildAuthActionLabel(
-  target: AuthTarget,
+  connection: NormalizedConnection,
+  kind: ActionKind,
   authType: AuthType,
-  connected: boolean,
-  showTargetNames: boolean,
+  showConnectionNames: boolean,
 ): string {
-  const dualAuth = target.authTypes.includes("oauth") && target.authTypes.includes("manual");
-  if (connected) {
-    if (authType === "manual" && dualAuth) {
-      return showTargetNames ? `Add ${target.label} with API Token` : "Add with API Token";
+  const dualAuth =
+    connection.authTypes.includes("oauth") &&
+    connection.authTypes.includes("manual");
+  const name = connection.label;
+
+  if (kind === "add_instance") {
+    if (connection.actionSource === "legacy") {
+      return showConnectionNames ? `Add ${name}` : "Add Connection";
     }
-    return showTargetNames ? `Add ${target.label}` : "Add Connection";
+    return showConnectionNames ? `Add ${name} Instance` : "Add Instance";
+  }
+
+  if (kind === "reconnect") {
+    if (authType === "manual" && dualAuth) {
+      return showConnectionNames
+        ? `Reconnect ${name} with API Token`
+        : "Reconnect with API Token";
+    }
+    return showConnectionNames ? `Reconnect ${name}` : "Reconnect";
+  }
+
+  if (kind === "select_instance") {
+    return showConnectionNames ? `Select ${name} Instance` : "Select Instance";
   }
 
   if (authType === "manual") {
     if (dualAuth) {
-      return showTargetNames ? `Use API Token for ${target.label}` : "Use API Token";
+      return showConnectionNames ? `Use API Token for ${name}` : "Use API Token";
     }
-    return showTargetNames ? `Connect with ${target.label}` : "Connect";
+    return showConnectionNames ? `Connect with ${name}` : "Connect";
   }
 
-  return showTargetNames ? `Connect with ${target.label}` : dualAuth ? "Connect with OAuth" : "Connect";
+  return showConnectionNames
+    ? `Connect with ${name}`
+    : dualAuth
+      ? "Connect with OAuth"
+      : "Connect";
 }
 
-function buildAuthActions(targets: AuthTarget[], connected: boolean): AuthAction[] {
-  const showTargetNames = targets.length > 1;
+function buildAuthActions(connections: NormalizedConnection[]): AuthAction[] {
+  const actionableConnections = connections.filter(
+    (connection) =>
+      connection.isSubjectOwned && normalizeActionKinds(connection).length > 0,
+  );
+  const showConnectionNames = actionableConnections.length > 1;
   const actions: AuthAction[] = [];
 
-  for (const target of targets) {
-    if (target.authTypes.includes("oauth")) {
-      actions.push({
-        key: `${target.key}:oauth`,
-        authType: "oauth",
-        connection: target.connection,
-        label: buildAuthActionLabel(target, "oauth", connected, showTargetNames),
-      });
-    }
-    if (target.authTypes.includes("manual")) {
-      actions.push({
-        key: `${target.key}:manual`,
-        authType: "manual",
-        connection: target.connection,
-        label: buildAuthActionLabel(target, "manual", connected, showTargetNames),
-        variant: target.authTypes.includes("oauth") ? "secondary" : "primary",
-      });
+  for (const connection of actionableConnections) {
+    for (const kind of normalizeActionKinds(connection)) {
+      for (const authType of connection.authTypes) {
+        actions.push({
+          key: `${connection.key}:${kind}:${authType}`,
+          kind,
+          authType,
+          connectionKey: connection.key,
+          connection: connection.connection,
+          label: buildAuthActionLabel(
+            connection,
+            kind,
+            authType,
+            showConnectionNames,
+          ),
+          variant:
+            authType === "manual" && connection.authTypes.includes("oauth")
+              ? "secondary"
+              : "primary",
+          requiresInstanceName: kind === "add_instance",
+        });
+      }
     }
   }
 
   return actions;
 }
 
-import { INPUT_CLASSES } from "@/lib/constants";
+function connectionActionCopy(
+  connection: NormalizedConnection,
+  context: ConnectionContext,
+): string | null {
+  if (!connection.canAdminConfigure) {
+    return null;
+  }
+  if (context === "managed_identity") {
+    return "Ask an admin to configure credentials for this identity.";
+  }
+  return "Ask an admin to configure deployment-managed credentials.";
+}
+
+function disconnectCopy(displayName: string, context: ConnectionContext): string {
+  if (context === "managed_identity") {
+    return `This will remove this identity's connection to ${displayName}. It can be reconnected later.`;
+  }
+  return `This will remove your connection to ${displayName}. You can reconnect at any time.`;
+}
+
+function isPendingAction(action: AuthAction, pendingAction?: PendingAuthAction) {
+  return (
+    pendingAction?.kind === action.kind &&
+    pendingAction?.authType === action.authType &&
+    pendingAction?.connectionKey === action.connectionKey
+  );
+}
 
 const inputClasses = `mt-1.5 w-full ${INPUT_CLASSES}`;
 
@@ -148,6 +198,7 @@ export default function IntegrationSettingsModal({
   submitting,
   error,
   readOnly = false,
+  connectionContext = "current_user",
 }: IntegrationSettingsModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [view, setView] = useState<ModalView>("default");
@@ -160,20 +211,27 @@ export default function IntegrationSettingsModal({
 
   const displayName = integration.displayName || integration.name;
   const headingId = `settings-modal-heading-${integration.name}`;
-  const authTargets = resolveAuthTargets(integration);
-  const defaultTarget = authTargets.length === 1 ? authTargets[0] : undefined;
-  const defaultConnection = defaultTarget?.connection;
-  const connectionActions = buildAuthActions(authTargets, !!integration.connected);
-  const passiveConnections = authTargets.filter((target) => target.authTypes.length === 0);
-  const needsParams = integration.connectionParams && Object.keys(integration.connectionParams).length > 0;
+  const normalizedStatus = normalizeIntegrationStatus(
+    integration,
+    connectionContext,
+  );
+  const authActions = buildAuthActions(normalizedStatus.connections);
+  const needsParams =
+    integration.connectionParams &&
+    Object.keys(integration.connectionParams).length > 0;
+  const pendingConnection = pendingAction
+    ? normalizedStatus.connections.find(
+        (connection) => connection.key === pendingAction.connectionKey,
+      )
+    : undefined;
 
-  function handleCancel(e: React.SyntheticEvent<HTMLDialogElement>) {
+  function handleCancel(e: SyntheticEvent<HTMLDialogElement>) {
     if (disconnecting || submitting) {
       e.preventDefault();
     }
   }
 
-  function handleBackdropClick(e: React.MouseEvent<HTMLDialogElement>) {
+  function handleBackdropClick(e: MouseEvent<HTMLDialogElement>) {
     if (e.target === e.currentTarget && !disconnecting && !submitting) {
       e.currentTarget.close();
     }
@@ -183,50 +241,40 @@ export default function IntegrationSettingsModal({
     dialogRef.current?.close();
   }
 
-  function startAddConnection(authType: "oauth" | "manual", connection = defaultConnection) {
-    const action = { authType, connection };
+  function startAuthAction(action: AuthAction) {
     setPendingAction(action);
-    if (integration.connected) {
+    if (action.requiresInstanceName) {
       setView("instance");
-    } else if (authType === "manual") {
+    } else if (action.authType === "manual") {
       setView("token");
     } else {
       onStartOAuth(undefined, action.connection);
     }
   }
 
-  function handleInstanceSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleInstanceSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const name = (new FormData(e.currentTarget).get("instance_name") as string)?.trim();
-    if (!name) return;
-    const action = pendingAction ? { ...pendingAction, instance: name } : undefined;
+    if (!name || !pendingAction) return;
+    const action = { ...pendingAction, instance: name };
     setPendingAction(action);
-    if (action?.authType === "manual") {
+    if (action.authType === "manual") {
       setView("token");
     } else {
-      onStartOAuth(action?.instance, action?.connection);
+      onStartOAuth(action.instance, action.connection);
     }
   }
 
   function resolveCredentialFields(): CredentialFieldDef[] | undefined {
-    const target = pendingAction?.connection
-      ? authTargets.find((authTarget) => authTarget.connection === pendingAction.connection)
-      : defaultTarget;
-    return target?.credentialFields ?? integration.credentialFields;
+    return pendingConnection?.credentialFields ?? integration.credentialFields;
   }
 
-  function isPendingAction(action: AuthAction): boolean {
-    return reconnecting
-      && pendingAction?.authType === action.authType
-      && pendingAction?.connection === action.connection;
-  }
-
-  function handleTokenSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleTokenSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const fields = resolveCredentialFields();
 
-    if (!fields?.length) return;
+    if (!fields?.length || !pendingAction) return;
 
     let credential: string | Record<string, string>;
     if (fields.length === 1) {
@@ -252,45 +300,143 @@ export default function IntegrationSettingsModal({
       }
       if (Object.keys(collected).length > 0) params = collected;
     }
-    onSubmitToken(credential, params, pendingAction?.instance, pendingAction?.connection);
+    onSubmitToken(
+      credential,
+      params,
+      pendingAction.instance,
+      pendingAction.connection,
+    );
   }
 
-  function renderConnectionButtons() {
+  function renderStatusBadge(connection: NormalizedConnection) {
+    const tone = statusTone(
+      connection.status,
+      connection.credentialState,
+      connection.healthState,
+    );
+    return (
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(tone)}`}
+      >
+        {connection.summaryLabel}
+      </span>
+    );
+  }
+
+  function renderConnectionActions(connection: NormalizedConnection) {
     if (readOnly) {
       return null;
     }
+    const actions = authActions.filter(
+      (action) => action.connectionKey === connection.key,
+    );
+    if (actions.length === 0 && !connection.canDisconnect) {
+      return null;
+    }
+
     return (
-      <div className="mt-6 flex flex-col gap-2">
-        {connectionActions.map((action) => (
+      <div className="mt-4 flex flex-col gap-2 sm:mt-0 sm:items-end">
+        {actions.map((action) => (
           <Button
             key={action.key}
             variant={action.variant}
-            className="w-full"
-            onClick={() => startAddConnection(action.authType, action.connection)}
+            className="w-full sm:w-auto"
+            onClick={() => startAuthAction(action)}
             disabled={reconnecting || submitting}
           >
-            {isPendingAction(action) ? "Connecting..." : action.label}
+            {reconnecting && isPendingAction(action, pendingAction)
+              ? "Connecting..."
+              : action.label}
           </Button>
         ))}
+        {connection.canDisconnect && connection.instances.length === 0 ? (
+          <button
+            onClick={() => {
+              setDisconnectTarget({ connection: connection.connection });
+              setView("disconnect");
+            }}
+            disabled={disconnecting}
+            className="text-sm text-ember-500 transition-colors duration-150 hover:text-ember-600"
+          >
+            Disconnect
+          </button>
+        ) : null}
       </div>
     );
   }
 
-  function renderPassiveConnections() {
-    if (passiveConnections.length === 0) {
-      return null;
-    }
+  function renderConnectionRow(connection: NormalizedConnection) {
+    const actionCopy = connectionActionCopy(connection, connectionContext);
     return (
-      <div className="mt-6 space-y-2">
-        {passiveConnections.map((target) => (
-          <div
-            key={`${target.key}:passive`}
-            className="flex items-center justify-between rounded-md border border-alpha px-4 py-3"
-          >
-            <div className="text-sm text-primary">{target.label}</div>
-            <div className="text-xs text-faint">MCP passthrough</div>
+      <div
+        key={connection.key}
+        className="rounded-md border border-alpha px-4 py-3"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              {connection.connected ? (
+                <CheckCircleIcon className="h-4 w-4 shrink-0 text-grove-500" />
+              ) : (
+                <span className="h-2 w-2 shrink-0 rounded-full bg-faint" />
+              )}
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-primary">
+                  {connection.label}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
+                  {connection.detailLines.map((line) => (
+                    <span key={line}>{line}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {actionCopy ? (
+              <p className="mt-3 text-xs text-muted">{actionCopy}</p>
+            ) : null}
+
+            {connection.instances.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {connection.instances.map((instance) => (
+                  <div
+                    key={`${connection.key}:${instance.name}`}
+                    className="flex items-center justify-between gap-3 rounded-md bg-base-100 px-3 py-2 dark:bg-surface-raised"
+                  >
+                    <div>
+                      <div className="text-sm text-primary">{instance.name}</div>
+                      {instance.connection ? (
+                        <div className="text-xs text-faint">
+                          {instance.connection}
+                        </div>
+                      ) : null}
+                    </div>
+                    {!readOnly && connection.canDisconnect ? (
+                      <button
+                        onClick={() => {
+                          setDisconnectTarget({
+                            instance: instance.name,
+                            connection:
+                              instance.connection || connection.connection,
+                          });
+                          setView("disconnect");
+                        }}
+                        disabled={disconnecting}
+                        className="text-xs text-ember-500 transition-colors duration-150 hover:text-ember-600"
+                      >
+                        Disconnect
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
-        ))}
+          <div className="shrink-0 sm:text-right">
+            {renderStatusBadge(connection)}
+            {renderConnectionActions(connection)}
+          </div>
+        </div>
       </div>
     );
   }
@@ -302,7 +448,7 @@ export default function IntegrationSettingsModal({
       onCancel={handleCancel}
       onClose={onClose}
       onClick={handleBackdropClick}
-      className="m-auto w-full max-w-sm rounded-lg border border-alpha bg-base-white p-0 shadow-dropdown dark:bg-surface"
+      className="m-auto w-full max-w-lg rounded-lg border border-alpha bg-base-white p-0 shadow-dropdown dark:bg-surface"
     >
       <div className="p-7">
         {view === "disconnect" ? (
@@ -314,8 +460,7 @@ export default function IntegrationSettingsModal({
               Disconnect {displayName}?
             </h2>
             <p className="mt-3 text-sm text-muted">
-              This will remove your connection to {displayName}. You can
-              reconnect at any time.
+              {disconnectCopy(displayName, connectionContext)}
             </p>
             {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
             <div className="mt-6 flex gap-3">
@@ -387,70 +532,38 @@ export default function IntegrationSettingsModal({
             error={error}
             submitting={submitting}
             onSubmit={handleTokenSubmit}
-            onCancel={() => setView(integration.connected ? "instance" : "default")}
+            onCancel={() =>
+              setView(pendingAction?.requiresInstanceName ? "instance" : "default")
+            }
           />
         ) : (
           <>
             <div className="flex items-start justify-between">
-              <h2
-                id={headingId}
-                className="text-lg font-heading font-semibold text-primary"
-              >
-                {displayName}
-              </h2>
+              <div>
+                <h2
+                  id={headingId}
+                  className="text-lg font-heading font-semibold text-primary"
+                >
+                  {displayName}
+                </h2>
+                <p className="mt-2 text-sm text-muted">
+                  {normalizedStatus.summaryLabel}
+                </p>
+              </div>
               <button
                 onClick={closeDialog}
-                className="rounded-md p-1.5 text-faint hover:text-muted transition-colors duration-150 hover:bg-alpha-5"
+                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
                 aria-label="Close"
               >
                 <CloseIcon className="h-4 w-4" />
               </button>
             </div>
 
-            {integration.connected ? (
-              <>
-                {integration.instances && integration.instances.length > 0 && (
-                  <div className="mt-5 space-y-2">
-                    {integration.instances.map((inst) => (
-                      <div key={inst.name} className="flex items-center justify-between rounded-md border border-alpha px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <CheckCircleIcon className="h-4 w-4 text-grove-500" />
-                          <div>
-                            <div className="text-sm text-primary">{inst.name}</div>
-                            {inst.connection && (
-                              <div className="text-xs text-faint">{inst.connection}</div>
-                            )}
-                          </div>
-                        </div>
-                        {!readOnly ? (
-                          <button
-                            onClick={() => {
-                              setDisconnectTarget({ instance: inst.name, connection: inst.connection });
-                              setView("disconnect");
-                            }}
-                            disabled={disconnecting}
-                            className="text-xs text-ember-500 hover:text-ember-600 transition-colors duration-150"
-                          >
-                            Disconnect
-                          </button>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
 
-                {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
-                {renderPassiveConnections()}
-                {renderConnectionButtons()}
-              </>
-            ) : (
-              <>
-                <p className="mt-4 text-sm text-faint">Not connected</p>
-                {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
-                {renderPassiveConnections()}
-                {renderConnectionButtons()}
-              </>
-            )}
+            <div className="mt-5 space-y-3">
+              {normalizedStatus.connections.map(renderConnectionRow)}
+            </div>
           </>
         )}
       </div>
@@ -461,7 +574,7 @@ export default function IntegrationSettingsModal({
 const LINK_RE = /(\[[^\]]+\]\(https?:\/\/[^)]+\))/;
 const LINK_MATCH_RE = /^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/;
 
-function renderLinkedText(text: string): React.ReactNode[] {
+function renderLinkedText(text: string): ReactNode[] {
   return text.split(LINK_RE).map((seg, i) => {
     const m = seg.match(LINK_MATCH_RE);
     if (!m) return seg;
@@ -485,7 +598,7 @@ function TokenForm({
   connectionParams: Record<string, ConnectionParamDef> | undefined;
   error: string | null;
   submitting: boolean;
-  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }) {
   const fields = credentialFields ?? [];

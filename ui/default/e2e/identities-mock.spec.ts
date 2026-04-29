@@ -451,6 +451,57 @@ test.describe("Managed identities", () => {
     await expect(page).toHaveURL(/\/oauth-handler$/);
   });
 
+  test("renders managed identity connection status with identity wording", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("editor");
+    let oauthBody: Record<string, unknown> | null = null;
+    state.integrationsByIdentityID["agent-1"] = [
+      {
+        name: "slack",
+        displayName: "Slack",
+        description: "Workspace chat integration",
+        status: "needs_user_connection",
+        credentialState: "missing",
+        mountedPath: "/integrations/slack",
+        connections: [
+          {
+            name: "workspace",
+            displayName: "Workspace",
+            credentialMode: "subject",
+            ownerKind: "managed_identity",
+            credentialState: "missing",
+            healthState: "unknown",
+            status: "needs_user_connection",
+            actions: ["connect"],
+            authTypes: ["oauth"],
+          },
+        ],
+      },
+    ];
+
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, {
+      onStartOAuth: (body) => {
+        oauthBody = body;
+      },
+    });
+
+    await page.goto("/identities?id=agent-1");
+    await expect(page.getByText("Identity connection required")).toBeVisible();
+    await page.getByRole("button", { name: "Slack settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await expect(dialog.getByText("Identity credentials missing")).toBeVisible();
+    await expect(dialog.getByText("Managed identity owned")).toBeVisible();
+    await expect(dialog.getByText("your connection")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Connect" }).click();
+
+    await expect.poll(() => oauthBody?.returnPath).toBe("/identities?id=agent-1");
+    expect(oauthBody).toMatchObject({
+      integration: "slack",
+      connection: "workspace",
+    });
+  });
+
   test("does not navigate identity connections into user-scoped plugin pages", async ({ authenticatedPage: page }) => {
     const state = createBaseState("editor");
 

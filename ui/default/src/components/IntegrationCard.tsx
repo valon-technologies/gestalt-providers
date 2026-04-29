@@ -11,8 +11,14 @@ import {
   disconnectIntegration,
 } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
+import {
+  normalizeIntegrationStatus,
+  shouldShowIntegrationSettings,
+  type ConnectionContext,
+  type StatusTone,
+} from "@/lib/integrationStatus";
 import Button from "./Button";
-import { CheckCircleIcon, GearIcon, DefaultIcon } from "./icons";
+import { GearIcon, DefaultIcon } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
 
 const SAFE_SVG_ELEMENTS = new Set([
@@ -204,14 +210,6 @@ function hasConnectionParams(integration: Integration): boolean {
   );
 }
 
-function hasSettingsControls(integration: Integration): boolean {
-  return (
-    !!integration.connected ||
-    (integration.authTypes?.length ?? 0) > 0 ||
-    (integration.connections?.length ?? 0) > 0
-  );
-}
-
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
@@ -246,6 +244,32 @@ type DisconnectFn = (
   connection?: string,
 ) => Promise<void>;
 
+function statusBadgeClasses(tone: StatusTone): string {
+  switch (tone) {
+    case "success":
+      return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
+    case "warning":
+      return "border-gold-200 bg-gold-50 text-gold-700 dark:border-gold-600 dark:bg-gold-700/20 dark:text-gold-200";
+    case "danger":
+      return "border-ember-200 bg-ember-50 text-ember-700 dark:border-ember-600 dark:bg-ember-700/20 dark:text-ember-200";
+    case "neutral":
+      return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
+  }
+}
+
+function statusDotClasses(tone: StatusTone): string {
+  switch (tone) {
+    case "success":
+      return "bg-grove-500";
+    case "warning":
+      return "bg-gold-500";
+    case "danger":
+      return "bg-ember-500";
+    case "neutral":
+      return "bg-faint";
+  }
+}
+
 export default function IntegrationCard({
   integration,
   onConnected,
@@ -256,6 +280,7 @@ export default function IntegrationCard({
   returnPath,
   readOnly = false,
   disableNavigation = false,
+  connectionContext = "current_user",
 }: {
   integration: Integration;
   onConnected?: () => void;
@@ -266,6 +291,7 @@ export default function IntegrationCard({
   returnPath?: string;
   readOnly?: boolean;
   disableNavigation?: boolean;
+  connectionContext?: ConnectionContext;
 }) {
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -281,11 +307,16 @@ export default function IntegrationCard({
   const iconNode = integration.iconSvg
     ? renderSafeIcon(integration.iconSvg, iconIDPrefix)
     : null;
+  const normalizedStatus = normalizeIntegrationStatus(
+    integration,
+    connectionContext,
+  );
   const needsParams = hasConnectionParams(integration);
   const mountedPath = integration.mountedPath?.trim();
-  const settingsAvailable = readOnly
-    ? !!integration.connected || (integration.instances?.length ?? 0) > 0
-    : hasSettingsControls(integration);
+  const settingsAvailable = shouldShowIntegrationSettings(
+    normalizedStatus,
+    readOnly,
+  );
   const cardNavigationEnabled =
     !disableNavigation &&
     !!mountedPath &&
@@ -496,9 +527,15 @@ export default function IntegrationCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {integration.connected && (
-            <CheckCircleIcon className="h-5 w-5 text-grove-500" />
-          )}
+          <div
+            className={`flex max-w-[11rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(normalizedStatus.tone)}`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClasses(normalizedStatus.tone)}`}
+            />
+            <span className="truncate">{normalizedStatus.summaryLabel}</span>
+          </div>
           {settingsAvailable && (
             <button
               onClick={(event) => {
@@ -546,6 +583,7 @@ export default function IntegrationCard({
           submitting={submitting}
           error={error}
           readOnly={readOnly}
+          connectionContext={connectionContext}
         />
       )}
     </div>

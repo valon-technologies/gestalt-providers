@@ -78,6 +78,130 @@ const MCP_PASSTHROUGH_INTEGRATION: Integration = {
       name: "MCP",
       displayName: "MCP",
       authTypes: [],
+      credentialMode: "none",
+      credentialState: "not_required",
+      status: "ready",
+      healthState: "not_applicable",
+      mcpPassthrough: true,
+    },
+  ],
+};
+
+const PLATFORM_CONFIGURED_INTEGRATION: Integration = {
+  name: "platform-configured-svc",
+  displayName: "Platform Configured Service",
+  status: "ready",
+  credentialState: "configured",
+  healthState: "not_checked",
+  connections: [
+    {
+      name: "deployment",
+      displayName: "Deployment",
+      credentialMode: "platform",
+      ownerKind: "platform",
+      credentialState: "configured",
+      healthState: "not_checked",
+      status: "ready",
+      actions: [],
+    },
+  ],
+};
+
+const PLATFORM_MISSING_INTEGRATION: Integration = {
+  name: "platform-missing-svc",
+  displayName: "Platform Missing Service",
+  status: "needs_admin_configuration",
+  credentialState: "missing",
+  healthState: "not_checked",
+  actions: ["admin_configure"],
+  connections: [
+    {
+      name: "deployment",
+      displayName: "Deployment",
+      credentialMode: "platform",
+      ownerKind: "platform",
+      credentialState: "missing",
+      healthState: "not_checked",
+      status: "needs_admin_configuration",
+      actions: ["admin_configure"],
+    },
+  ],
+};
+
+const NO_AUTH_WITH_USER_INTEGRATION: Integration = {
+  name: "no-auth-svc",
+  displayName: "No Auth Service",
+  connections: [
+    {
+      name: "webhook",
+      displayName: "Webhook",
+      credentialMode: "none",
+      ownerKind: "none",
+      credentialState: "not_required",
+      healthState: "not_applicable",
+      status: "ready",
+      actions: [],
+    },
+    {
+      name: "workspace",
+      displayName: "Workspace",
+      credentialMode: "subject",
+      ownerKind: "current_user",
+      credentialState: "missing",
+      healthState: "unknown",
+      status: "needs_user_connection",
+      actions: ["connect"],
+      authTypes: ["oauth"],
+    },
+  ],
+};
+
+const USER_CONNECTION_ACTIONS_INTEGRATION: Integration = {
+  name: "user-actions-svc",
+  displayName: "User Actions Service",
+  status: "ready",
+  credentialState: "connected",
+  connections: [
+    {
+      name: "workspace",
+      displayName: "Workspace",
+      credentialMode: "subject",
+      ownerKind: "current_user",
+      credentialState: "connected",
+      healthState: "healthy",
+      status: "ready",
+      actions: ["add_instance", "reconnect", "disconnect"],
+      authTypes: ["manual"],
+      credentialFields: [{ name: "token", label: "Workspace Token" }],
+      disconnectable: true,
+      instances: [
+        { name: "prod", connection: "workspace" },
+        { name: "staging", connection: "workspace" },
+      ],
+    },
+  ],
+};
+
+const SELECT_INSTANCE_INTEGRATION: Integration = {
+  name: "select-instance-svc",
+  displayName: "Select Instance Service",
+  status: "needs_instance_selection",
+  credentialState: "connected",
+  connections: [
+    {
+      name: "workspace",
+      displayName: "Workspace",
+      credentialMode: "subject",
+      ownerKind: "current_user",
+      credentialState: "connected",
+      healthState: "healthy",
+      status: "needs_instance_selection",
+      actions: ["select_instance"],
+      authTypes: ["oauth"],
+      instances: [
+        { name: "alpha", connection: "workspace" },
+        { name: "beta", connection: "workspace" },
+      ],
     },
   ],
 };
@@ -363,7 +487,7 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("Another Service", { exact: true })).toBeVisible();
   });
 
-  test("connected integration shows check icon and settings gear", async ({
+  test("connected integration shows status summary and settings gear", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -390,6 +514,40 @@ test.describe("Integrations", () => {
     // Non-connected integration's settings shows Connect
     await page.getByRole("button", { name: "Manual Service settings" }).click();
     await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+
+  test("renders platform configured status without user actions", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [PLATFORM_CONFIGURED_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await expect(page.getByText("Deployment configured")).toBeVisible();
+    await page.getByRole("button", { name: "Platform Configured Service settings" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Deployment", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Deployment-managed credentials configured")).toBeVisible();
+    await expect(dialog.getByText("Deployment managed")).toBeVisible();
+    await expect(dialog.getByText("Health not checked")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /connect|reconnect|disconnect|add/i })).toHaveCount(0);
+  });
+
+  test("renders platform missing status as admin configuration", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [PLATFORM_MISSING_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await expect(page.getByText("Admin configuration required")).toBeVisible();
+    await page.getByRole("button", { name: "Platform Missing Service settings" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Deployment-managed credentials unconfigured")).toBeVisible();
+    await expect(dialog.getByText("Ask an admin to configure deployment-managed credentials.")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /connect|reconnect|disconnect|add/i })).toHaveCount(0);
   });
 
   test("disconnect confirmation shows warning and allows cancel", async ({
@@ -456,7 +614,7 @@ test.describe("Integrations", () => {
     // Settings gear is still visible (always shown), but integration is now disconnected
     await expect(page.getByRole("button", { name: "OAuth Service settings" })).toBeVisible();
     await page.getByRole("button", { name: "OAuth Service settings" }).click();
-    await expect(page.getByRole("dialog").getByText("Not connected")).toBeVisible();
+    await expect(page.getByRole("dialog").getByText("Not connected").first()).toBeVisible();
     expect(disconnectURL?.searchParams.get("_instance")).toBe("prod");
     expect(disconnectURL?.searchParams.get("_connection")).toBe("oauth");
     expect(disconnectURL?.searchParams.has("instance")).toBe(false);
@@ -512,7 +670,7 @@ test.describe("Integrations", () => {
     await dialog.getByRole("button", { name: "Connect" }).click();
     await expect(dialog.getByLabel(/API token/i)).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog.getByText("Not connected")).toBeVisible();
+    await expect(dialog.getByText("Not connected").first()).toBeVisible();
   });
 
   test("multi-connection dual auth renders actions per connection", async ({
@@ -569,7 +727,23 @@ test.describe("Integrations", () => {
     });
   });
 
-  test("no-auth MCP connections are shown as passive passthroughs", async ({
+  test("no-auth connections are not labeled MCP passthrough by default", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [NO_AUTH_WITH_USER_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "No Auth Service settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await expect(dialog.getByText("Webhook", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("No credentials required", { exact: true })).toHaveCount(2);
+    await expect(dialog.getByText("MCP passthrough", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+
+  test("explicit MCP passthrough connections keep the passthrough label", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -582,6 +756,43 @@ test.describe("Integrations", () => {
     await expect(dialog.getByText("MCP", { exact: true })).toBeVisible();
     await expect(dialog.getByText("MCP passthrough", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("button", { name: /connect/i })).toHaveCount(0);
+  });
+
+  test("subject-owned connection rows expose server actions and grouped instances", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [USER_CONNECTION_ACTIONS_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await expect(page.getByText("Connected")).toBeVisible();
+    await page.getByRole("button", { name: "User Actions Service settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await expect(dialog.getByText("Workspace", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("User credentials connected")).toBeVisible();
+    await expect(dialog.getByText("prod", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("staging", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Add Instance" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Reconnect" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Disconnect" })).toHaveCount(2);
+  });
+
+  test("select-instance status is rendered without starting auth", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [SELECT_INSTANCE_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await expect(page.getByText("Instance selection required")).toBeVisible();
+    await page.getByRole("button", { name: "Select Instance Service settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await expect(dialog.getByText("alpha", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("beta", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Select Instance" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /connect|reconnect|add instance/i })).toHaveCount(0);
   });
 
   test("multi-connection loading state stays on the clicked oauth action", async ({
