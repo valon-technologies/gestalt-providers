@@ -283,6 +283,11 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	if !found || record.RunID != runID {
 		t.Fatalf("idempotency record = %#v, found=%v, want run %q", record, found, runID)
 	}
+	rawIDRecord, err := provider.idempotencyStore.Get(ctx, idempotencyID("roadmap", "manual-sync"))
+	if err != nil {
+		t.Fatalf("raw idempotency get: %v", err)
+	}
+	assertRecordOmitsFields(t, rawIDRecord, "plugin_name")
 
 	call, err := host.waitForCall(time.Second)
 	if err != nil {
@@ -1332,7 +1337,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw schedule get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, scheduleRecord)
-	assertRecordOmitsFields(t, scheduleRecord, "operation", "connection", "instance", "input")
+	assertRecordOmitsFields(t, scheduleRecord, "plugin_name", "operation", "connection", "instance", "input")
 
 	trigger, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerId: "stored-trigger",
@@ -1347,7 +1352,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw event trigger get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, triggerRecord)
-	assertRecordOmitsFields(t, triggerRecord, "operation", "connection", "instance", "input")
+	assertRecordOmitsFields(t, triggerRecord, "plugin_name", "operation", "connection", "instance", "input")
 
 	run, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: target})
 	if err != nil {
@@ -1358,7 +1363,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw run get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, runRecord)
-	assertRecordOmitsFields(t, runRecord, "operation", "connection", "instance", "input")
+	assertRecordOmitsFields(t, runRecord, "plugin_name", "operation", "connection", "instance", "input")
 
 	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
@@ -1576,7 +1581,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 			SubjectId: "system:config",
 		},
 	}); err != nil {
-		t.Fatalf("UpsertEventTrigger(legacy): %v", err)
+		t.Fatalf("UpsertEventTrigger(existing actor shape): %v", err)
 	}
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerId: "github-webhook",
@@ -1881,17 +1886,15 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			name: "schedule missing target json",
 			put: func() error {
 				return provider.scheduleStore.Put(ctx, gestalt.Record{
-					"id":          "legacy-schedule",
-					"plugin_name": "roadmap",
-					"cron":        "* * * * *",
-					"timezone":    "UTC",
-					"operation":   "sync",
-					"created_at":  now,
-					"updated_at":  now,
+					"id":         "missing-target-schedule",
+					"cron":       "* * * * *",
+					"timezone":   "UTC",
+					"created_at": now,
+					"updated_at": now,
 				})
 			},
 			read: func() error {
-				_, err := provider.GetSchedule(ctx, &proto.GetWorkflowProviderScheduleRequest{ScheduleId: "legacy-schedule"})
+				_, err := provider.GetSchedule(ctx, &proto.GetWorkflowProviderScheduleRequest{ScheduleId: "missing-target-schedule"})
 				return err
 			},
 			want: "missing target_json",
@@ -1900,18 +1903,16 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			name: "event trigger missing target json",
 			put: func() error {
 				return provider.eventTriggerStore.Put(ctx, gestalt.Record{
-					"id":            "legacy-trigger",
-					"plugin_name":   "roadmap",
+					"id":            "missing-target-trigger",
 					"match_type":    "task.updated",
 					"match_source":  "tests",
 					"match_subject": "task-1",
-					"operation":     "sync",
 					"created_at":    now,
 					"updated_at":    now,
 				})
 			},
 			read: func() error {
-				_, err := provider.GetEventTrigger(ctx, &proto.GetWorkflowProviderEventTriggerRequest{TriggerId: "legacy-trigger"})
+				_, err := provider.GetEventTrigger(ctx, &proto.GetWorkflowProviderEventTriggerRequest{TriggerId: "missing-target-trigger"})
 				return err
 			},
 			want: "missing target_json",
@@ -1920,16 +1921,14 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			name: "run missing target json",
 			put: func() error {
 				return provider.runStore.Put(ctx, gestalt.Record{
-					"id":           "legacy-run",
-					"plugin_name":  "roadmap",
+					"id":           "missing-target-run",
 					"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
-					"operation":    "sync",
 					"trigger_kind": triggerKindManual,
 					"created_at":   now,
 				})
 			},
 			read: func() error {
-				_, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "legacy-run"})
+				_, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "missing-target-run"})
 				return err
 			},
 			want: "missing target_json",
@@ -1938,16 +1937,14 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			name: "execution reference missing target json",
 			put: func() error {
 				return provider.executionRefStore.Put(ctx, gestalt.Record{
-					"id":               "legacy-ref",
-					"provider_name":    "workflow",
-					"target_plugin":    "roadmap",
-					"target_operation": "sync",
-					"subject_id":       "user-1",
-					"created_at":       now,
+					"id":            "missing-target-ref",
+					"provider_name": "workflow",
+					"subject_id":    "user-1",
+					"created_at":    now,
 				})
 			},
 			read: func() error {
-				_, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "legacy-ref"})
+				_, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "missing-target-ref"})
 				return err
 			},
 			want: "missing target_json",
@@ -1957,9 +1954,7 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			put: func() error {
 				return provider.runStore.Put(ctx, gestalt.Record{
 					"id":           "flat-json-run",
-					"plugin_name":  "roadmap",
 					"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
-					"operation":    "sync",
 					"target_json":  `{"pluginName":"roadmap","operation":"sync"}`,
 					"trigger_kind": triggerKindManual,
 					"created_at":   now,

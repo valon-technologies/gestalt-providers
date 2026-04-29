@@ -195,7 +195,6 @@ type workflowRunRecord struct {
 
 type workflowIdempotencyRecord struct {
 	ID             string
-	PluginName     string
 	IdempotencyKey string
 	RunID          string
 	SignalID       string
@@ -1487,7 +1486,7 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
 		}
 		if found && existing.SignalID != "" {
-			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, existing)
+			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, run.PluginName, existing)
 			return resp, existing.SignalID, err
 		}
 	}
@@ -1501,7 +1500,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
 		}
 		if found && existing.SignalID != "" {
-			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, existing)
+			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, target.PluginName, existing)
 			return resp, existing.SignalID, err
 		}
 	}
@@ -1605,8 +1604,8 @@ func enqueueSignalInTransaction(ctx context.Context, idempotencyStore recordPutt
 	}, record.ID, nil
 }
 
-func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore *gestalt.TransactionObjectStore, record workflowIdempotencyRecord) (*proto.SignalWorkflowRunResponse, error) {
-	run, found, err := loadRunRecordTx(ctx, runStore, record.PluginName, record.RunID)
+func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore *gestalt.TransactionObjectStore, pluginName string, record workflowIdempotencyRecord) (*proto.SignalWorkflowRunResponse, error) {
+	run, found, err := loadRunRecordTx(ctx, runStore, pluginName, record.RunID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "load idempotent signal run: %v", err)
 	}
@@ -2394,6 +2393,22 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 	}, nil
 }
 
+func targetOwnerKey(target *proto.BoundWorkflowTarget) string {
+	if target == nil {
+		return ""
+	}
+	if agentTarget := target.GetAgent(); agentTarget != nil {
+		if providerName := strings.TrimSpace(agentTarget.GetProviderName()); providerName != "" {
+			return "agent:" + providerName
+		}
+		return ""
+	}
+	if pluginTarget := target.GetPlugin(); pluginTarget != nil {
+		return strings.TrimSpace(pluginTarget.GetPluginName())
+	}
+	return ""
+}
+
 func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName string) error {
 	if target == nil {
 		return errors.New("target.agent is required")
@@ -3164,9 +3179,6 @@ func loadIdempotencyRecord(ctx context.Context, store recordGetter, pluginName, 
 	if err != nil {
 		return workflowIdempotencyRecord{}, false, err
 	}
-	if value.PluginName != pluginName {
-		return workflowIdempotencyRecord{}, false, nil
-	}
 	return value, true, nil
 }
 
@@ -3179,16 +3191,12 @@ func loadIdempotencyRecordTx(ctx context.Context, store *gestalt.TransactionObje
 	if err != nil {
 		return workflowIdempotencyRecord{}, false, err
 	}
-	if value.PluginName != strings.TrimSpace(pluginName) {
-		return workflowIdempotencyRecord{}, false, nil
-	}
 	return value, true, nil
 }
 
 func storeIdempotencyRecord(ctx context.Context, store recordPutter, pluginName, key, runID string, createdAt time.Time) error {
 	record := workflowIdempotencyRecord{
 		ID:             idempotencyID(pluginName, key),
-		PluginName:     pluginName,
 		IdempotencyKey: key,
 		RunID:          runID,
 		CreatedAt:      createdAt,
@@ -3199,7 +3207,6 @@ func storeIdempotencyRecord(ctx context.Context, store recordPutter, pluginName,
 func storeSignalIdempotencyRecord(ctx context.Context, store recordPutter, pluginName, key, runID, signalID, workflowKey string, startedRun bool, createdAt time.Time) error {
 	record := workflowIdempotencyRecord{
 		ID:             idempotencyID(pluginName, key),
-		PluginName:     pluginName,
 		IdempotencyKey: key,
 		RunID:          runID,
 		SignalID:       signalID,
@@ -3688,6 +3695,9 @@ func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflow
 	if target.GetAgent() == nil && target.GetPlugin() == nil {
 		return nil, fmt.Errorf("%s %q target_json must contain plugin or agent target", recordKind, id)
 	}
+	if targetOwnerKey(target) == "" {
+		return nil, fmt.Errorf("%s %q target_json must contain plugin.plugin_name or agent.provider_name", recordKind, id)
+	}
 	return target, nil
 }
 
@@ -4110,7 +4120,6 @@ func timeField(value map[string]any, key string) *time.Time {
 func (r workflowScheduleRecord) toRecord() gestalt.Record {
 	record := gestalt.Record{
 		"id":            r.ID,
-		"plugin_name":   r.PluginName,
 		"cron":          r.Cron,
 		"timezone":      r.Timezone,
 		"target_json":   targetJSON(r.Target),
@@ -4137,7 +4146,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 	}
 	out := workflowScheduleRecord{
 		ID:           id,
-		PluginName:   stringField(value, "plugin_name"),
+		PluginName:   targetOwnerKey(target),
 		Cron:         stringField(value, "cron"),
 		Timezone:     stringField(value, "timezone"),
 		Target:       target,
@@ -4173,7 +4182,6 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 	return gestalt.Record{
 		"id":            r.ID,
-		"plugin_name":   r.PluginName,
 		"match_type":    r.MatchType,
 		"match_source":  r.MatchSource,
 		"match_subject": r.MatchSubject,
@@ -4195,7 +4203,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 	}
 	out := workflowEventTriggerRecord{
 		ID:           id,
-		PluginName:   stringField(value, "plugin_name"),
+		PluginName:   targetOwnerKey(target),
 		MatchType:    stringField(value, "match_type"),
 		MatchSource:  stringField(value, "match_source"),
 		MatchSubject: stringField(value, "match_subject"),
@@ -4233,7 +4241,6 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 func (r workflowRunRecord) toRecord() gestalt.Record {
 	record := gestalt.Record{
 		"id":                       r.ID,
-		"plugin_name":              r.PluginName,
 		"status":                   int64(r.Status),
 		"target_json":              targetJSON(r.Target),
 		"trigger_kind":             r.TriggerKind,
@@ -4274,7 +4281,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 	}
 	out := workflowRunRecord{
 		ID:                    id,
-		PluginName:            stringField(value, "plugin_name"),
+		PluginName:            targetOwnerKey(target),
 		Status:                proto.WorkflowRunStatus(intField(value, "status")),
 		Target:                target,
 		TriggerKind:           stringField(value, "trigger_kind"),
@@ -4341,7 +4348,6 @@ func (r workflowRunRecord) triggerProto() *proto.WorkflowRunTrigger {
 func (r workflowIdempotencyRecord) toRecord() gestalt.Record {
 	return gestalt.Record{
 		"id":              r.ID,
-		"plugin_name":     r.PluginName,
 		"idempotency_key": r.IdempotencyKey,
 		"run_id":          r.RunID,
 		"signal_id":       r.SignalID,
@@ -4355,7 +4361,6 @@ func idempotencyRecordFromRecord(record gestalt.Record) (workflowIdempotencyReco
 	value := map[string]any(record)
 	out := workflowIdempotencyRecord{
 		ID:             stringField(value, "id"),
-		PluginName:     stringField(value, "plugin_name"),
 		IdempotencyKey: stringField(value, "idempotency_key"),
 		RunID:          stringField(value, "run_id"),
 		SignalID:       stringField(value, "signal_id"),
