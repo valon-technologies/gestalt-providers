@@ -509,7 +509,7 @@ func TestRuntimeProviderContractTagsModalSandboxBeforeTunnelLookup(t *testing.T)
 	}
 }
 
-func TestRuntimeProviderContractUsesImagePullCredentialsForPrivateRegistry(t *testing.T) {
+func TestRuntimeProviderContractUsesDockerConfigImagePullAuthForPrivateRegistry(t *testing.T) {
 	t.Parallel()
 
 	fakeModal := newFakeModalControlPlane()
@@ -519,9 +519,8 @@ func TestRuntimeProviderContractUsesImagePullCredentialsForPrivateRegistry(t *te
 	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
 		PluginName: "agent-provider",
 		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
-		ImagePullCredentials: &proto.PluginRuntimeImagePullCredentials{
-			Username: " ghcr-user ",
-			Password: " ghcr-token ",
+		ImagePullAuth: &proto.PluginRuntimeImagePullAuth{
+			DockerConfigJson: `{"auths":{"ghcr.io":{"username":" ghcr-user ","password":" ghcr-token "}}}`,
 		},
 		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
 	})
@@ -575,30 +574,157 @@ func TestRuntimeProviderContractUsesImagePullCredentialsForPrivateRegistry(t *te
 	}
 }
 
-func TestRuntimeProviderContractRejectsInvalidImagePullCredentials(t *testing.T) {
+func TestRuntimeProviderContractUsesDockerConfigAuthFieldForPrivateRegistry(t *testing.T) {
+	t.Parallel()
+
+	fakeModal := newFakeModalControlPlane()
+	provider := newFakeModalProvider(t, fakeModal)
+	client := startRuntimeProviderServer(t, provider)
+
+	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "agent-provider",
+		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
+		ImagePullAuth: &proto.PluginRuntimeImagePullAuth{
+			DockerConfigJson: `{"auths":{"ghcr.io":{"auth":"Z2hjci11c2VyOmdoY3ItdG9rZW4="}}}`,
+		},
+		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	var logSeq uint64
+	_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, &proto.StartHostedPluginRequest{
+		SessionId:  session.GetId(),
+		PluginName: "agent-provider",
+	}, newSessionLogSink(session.GetId(), &logSeq, nil))
+	if err != nil {
+		t.Fatalf("ensureSessionSandbox: %v", err)
+	}
+
+	secretRequests := fakeModal.secretRequestsSnapshot()
+	if len(secretRequests) != 1 {
+		t.Fatalf("SecretGetOrCreate requests = %d, want 1", len(secretRequests))
+	}
+	if got, want := secretRequests[0].env[registryUsernameEnv], "ghcr-user"; got != want {
+		t.Fatalf("registry username secret value = %q, want %q", got, want)
+	}
+	if got, want := secretRequests[0].env[registryPasswordEnv], "ghcr-token"; got != want {
+		t.Fatalf("registry password secret value = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeProviderContractUsesDockerHubImagePullAuth(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name  string
-		creds *proto.PluginRuntimeImagePullCredentials
+		name             string
+		image            string
+		dockerConfigJSON string
 	}{
 		{
-			name: "missing username",
-			creds: &proto.PluginRuntimeImagePullCredentials{
-				Password: "ghcr-token",
+			name:             "single component tag",
+			image:            "ubuntu:latest",
+			dockerConfigJSON: `{"auths":{"https://index.docker.io/v1/":{"username":"docker-user","password":"docker-token"}}}`,
+		},
+		{
+			name:             "namespace image tag",
+			image:            "library/ubuntu:latest",
+			dockerConfigJSON: `{"auths":{"registry-1.docker.io":{"username":"docker-user","password":"docker-token"}}}`,
+		},
+		{
+			name:             "explicit docker host",
+			image:            "docker.io/library/ubuntu:latest",
+			dockerConfigJSON: `{"auths":{"docker.io":{"username":"docker-user","password":"docker-token"}}}`,
+		},
+		{
+			name:             "single component digest",
+			image:            "busybox@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			dockerConfigJSON: `{"auths":{"docker.io":{"username":"docker-user","password":"docker-token"}}}`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fakeModal := newFakeModalControlPlane()
+			provider := newFakeModalProvider(t, fakeModal)
+			client := startRuntimeProviderServer(t, provider)
+
+			session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+				PluginName: "agent-provider",
+				Image:      tc.image,
+				ImagePullAuth: &proto.PluginRuntimeImagePullAuth{
+					DockerConfigJson: tc.dockerConfigJSON,
+				},
+			})
+			if err != nil {
+				t.Fatalf("StartSession: %v", err)
+			}
+
+			var logSeq uint64
+			_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, &proto.StartHostedPluginRequest{
+				SessionId:  session.GetId(),
+				PluginName: "agent-provider",
+			}, newSessionLogSink(session.GetId(), &logSeq, nil))
+			if err != nil {
+				t.Fatalf("ensureSessionSandbox: %v", err)
+			}
+
+			secretRequests := fakeModal.secretRequestsSnapshot()
+			if len(secretRequests) != 1 {
+				t.Fatalf("SecretGetOrCreate requests = %d, want 1", len(secretRequests))
+			}
+			if got, want := secretRequests[0].env[registryUsernameEnv], "docker-user"; got != want {
+				t.Fatalf("registry username secret value = %q, want %q", got, want)
+			}
+			if got, want := secretRequests[0].env[registryPasswordEnv], "docker-token"; got != want {
+				t.Fatalf("registry password secret value = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		auth *proto.PluginRuntimeImagePullAuth
+	}{
+		{
+			name: "blank Docker config JSON",
+			auth: &proto.PluginRuntimeImagePullAuth{},
+		},
+		{
+			name: "invalid Docker config JSON",
+			auth: &proto.PluginRuntimeImagePullAuth{
+				DockerConfigJson: `{`,
+			},
+		},
+		{
+			name: "missing auths",
+			auth: &proto.PluginRuntimeImagePullAuth{
+				DockerConfigJson: `{}`,
+			},
+		},
+		{
+			name: "missing registry entry",
+			auth: &proto.PluginRuntimeImagePullAuth{
+				DockerConfigJson: `{"auths":{"index.docker.io/v1":{"username":"docker-user","password":"docker-token"}}}`,
 			},
 		},
 		{
 			name: "missing password",
-			creds: &proto.PluginRuntimeImagePullCredentials{
-				Username: "ghcr-user",
+			auth: &proto.PluginRuntimeImagePullAuth{
+				DockerConfigJson: `{"auths":{"ghcr.io":{"username":"ghcr-user"}}}`,
 			},
 		},
 		{
-			name: "blank password",
-			creds: &proto.PluginRuntimeImagePullCredentials{
-				Username: "ghcr-user",
-				Password: " \t ",
+			name: "identity token only",
+			auth: &proto.PluginRuntimeImagePullAuth{
+				DockerConfigJson: `{"auths":{"ghcr.io":{"identitytoken":"token"}}}`,
 			},
 		},
 	}
@@ -614,9 +740,9 @@ func TestRuntimeProviderContractRejectsInvalidImagePullCredentials(t *testing.T)
 			client := startRuntimeProviderServer(t, provider)
 
 			_, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
-				PluginName:           "agent-provider",
-				Image:                "ghcr.io/valon-technologies/agent-simple-runtime:latest",
-				ImagePullCredentials: tc.creds,
+				PluginName:    "agent-provider",
+				Image:         "ghcr.io/valon-technologies/agent-simple-runtime:latest",
+				ImagePullAuth: tc.auth,
 			})
 			if status.Code(err) != codes.InvalidArgument {
 				t.Fatalf("StartSession code = %v, want InvalidArgument: %v", status.Code(err), err)
