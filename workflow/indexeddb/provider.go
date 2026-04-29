@@ -239,7 +239,6 @@ type workflowExecutionReferenceRecord struct {
 	ID                  string
 	ProviderName        string
 	Target              *proto.BoundWorkflowTarget
-	TargetFingerprint   string
 	SubjectID           string
 	SubjectKind         string
 	DisplayName         string
@@ -2293,7 +2292,6 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
 			{Name: "provider_name", Type: columnTypeString, NotNull: true},
 			{Name: "target_json", Type: columnTypeString},
-			{Name: "target_fingerprint", Type: columnTypeString},
 			{Name: "subject_id", Type: columnTypeString, NotNull: true},
 			{Name: "subject_kind", Type: columnTypeString},
 			{Name: "display_name", Type: columnTypeString},
@@ -3704,238 +3702,6 @@ func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflow
 	return target, nil
 }
 
-type workflowFingerprintTarget struct {
-	Plugin *workflowFingerprintPluginTarget
-	Agent  *workflowFingerprintAgentTarget
-}
-
-type workflowFingerprintPluginTarget struct {
-	PluginName string
-	Operation  string
-	Connection string
-	Instance   string
-	Input      map[string]any
-}
-
-type workflowFingerprintAgentTarget struct {
-	ProviderName    string
-	Model           string
-	Prompt          string
-	Messages        []agentFingerprintMessage
-	ToolRefs        []agentFingerprintToolRef
-	ResponseSchema  map[string]any
-	ProviderOptions map[string]any
-	Metadata        map[string]any
-	TimeoutSeconds  int
-}
-
-type agentFingerprintMessage struct {
-	Role     string
-	Text     string
-	Parts    []agentFingerprintMessagePart
-	Metadata map[string]any
-}
-
-type agentFingerprintMessagePart struct {
-	Type       string
-	Text       string
-	JSON       map[string]any
-	ToolCall   *agentFingerprintToolCallPart
-	ToolResult *agentFingerprintToolResultPart
-	ImageRef   *agentFingerprintImageRefPart
-}
-
-type agentFingerprintToolCallPart struct {
-	ID        string
-	ToolID    string
-	Arguments map[string]any
-}
-
-type agentFingerprintToolResultPart struct {
-	ToolCallID string
-	Status     int
-	Content    string
-	Output     map[string]any
-}
-
-type agentFingerprintImageRefPart struct {
-	URI      string
-	MIMEType string
-}
-
-type agentFingerprintToolRef struct {
-	Plugin         string
-	Operation      string
-	Connection     string
-	Instance       string
-	CredentialMode string
-	Title          string
-	Description    string
-}
-
-func workflowTargetFingerprint(target *proto.BoundWorkflowTarget) (string, error) {
-	payload := normalizedWorkflowTargetFingerprintPayload(target)
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
-}
-
-func normalizedWorkflowTargetFingerprintPayload(target *proto.BoundWorkflowTarget) workflowFingerprintTarget {
-	out := workflowFingerprintTarget{}
-	if agent := target.GetAgent(); agent != nil {
-		out.Agent = workflowAgentFingerprintPayload(agent)
-		return out
-	}
-	if target.GetPlugin() != nil {
-		plugin := workflowPluginFingerprintPayload(target)
-		out.Plugin = &plugin
-	}
-	return out
-}
-
-func workflowPluginFingerprintPayload(target *proto.BoundWorkflowTarget) workflowFingerprintPluginTarget {
-	plugin := pluginTargetFields(target)
-	return workflowFingerprintPluginTarget{
-		PluginName: plugin.PluginName,
-		Operation:  plugin.Operation,
-		Connection: plugin.Connection,
-		Instance:   plugin.Instance,
-		Input:      nilIfEmptyMap(cloneStructMap(plugin.Input)),
-	}
-}
-
-func workflowAgentFingerprintPayload(agent *proto.BoundWorkflowAgentTarget) *workflowFingerprintAgentTarget {
-	return &workflowFingerprintAgentTarget{
-		ProviderName:    strings.TrimSpace(agent.GetProviderName()),
-		Model:           strings.TrimSpace(agent.GetModel()),
-		Prompt:          agent.GetPrompt(),
-		Messages:        nilIfEmptySlice(agentMessagesFingerprintPayload(agent.GetMessages())),
-		ToolRefs:        nilIfEmptySlice(agentToolRefsFingerprintPayload(agent.GetToolRefs())),
-		ResponseSchema:  nilIfEmptyMap(cloneStructMap(agent.GetResponseSchema())),
-		Metadata:        nilIfEmptyMap(cloneStructMap(agent.GetMetadata())),
-		ProviderOptions: nilIfEmptyMap(cloneStructMap(agent.GetProviderOptions())),
-		TimeoutSeconds:  int(agent.GetTimeoutSeconds()),
-	}
-}
-
-func agentMessagesFingerprintPayload(messages []*proto.AgentMessage) []agentFingerprintMessage {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]agentFingerprintMessage, 0, len(messages))
-	for _, message := range messages {
-		if message == nil {
-			out = append(out, agentFingerprintMessage{})
-			continue
-		}
-		out = append(out, agentFingerprintMessage{
-			Role:     message.GetRole(),
-			Text:     message.GetText(),
-			Parts:    nilIfEmptySlice(agentMessagePartsFingerprintPayload(message.GetParts())),
-			Metadata: cloneStructMap(message.GetMetadata()),
-		})
-	}
-	return out
-}
-
-func agentMessagePartsFingerprintPayload(parts []*proto.AgentMessagePart) []agentFingerprintMessagePart {
-	if len(parts) == 0 {
-		return nil
-	}
-	out := make([]agentFingerprintMessagePart, 0, len(parts))
-	for _, part := range parts {
-		if part == nil {
-			out = append(out, agentFingerprintMessagePart{})
-			continue
-		}
-		value := agentFingerprintMessagePart{
-			Type: agentMessagePartTypeFingerprintValue(part.GetType()),
-			Text: part.GetText(),
-			JSON: cloneStructMap(part.GetJson()),
-		}
-		if toolCall := part.GetToolCall(); toolCall != nil {
-			value.ToolCall = &agentFingerprintToolCallPart{
-				ID:        toolCall.GetId(),
-				ToolID:    toolCall.GetToolId(),
-				Arguments: cloneStructMap(toolCall.GetArguments()),
-			}
-		}
-		if toolResult := part.GetToolResult(); toolResult != nil {
-			value.ToolResult = &agentFingerprintToolResultPart{
-				ToolCallID: toolResult.GetToolCallId(),
-				Status:     int(toolResult.GetStatus()),
-				Content:    toolResult.GetContent(),
-				Output:     cloneStructMap(toolResult.GetOutput()),
-			}
-		}
-		if imageRef := part.GetImageRef(); imageRef != nil {
-			value.ImageRef = &agentFingerprintImageRefPart{
-				URI:      imageRef.GetUri(),
-				MIMEType: imageRef.GetMimeType(),
-			}
-		}
-		out = append(out, value)
-	}
-	return out
-}
-
-func agentToolRefsFingerprintPayload(refs []*proto.AgentToolRef) []agentFingerprintToolRef {
-	if len(refs) == 0 {
-		return nil
-	}
-	out := make([]agentFingerprintToolRef, 0, len(refs))
-	for _, ref := range refs {
-		if ref == nil {
-			out = append(out, agentFingerprintToolRef{})
-			continue
-		}
-		out = append(out, agentFingerprintToolRef{
-			Plugin:         ref.GetPlugin(),
-			Operation:      ref.GetOperation(),
-			Connection:     ref.GetConnection(),
-			Instance:       ref.GetInstance(),
-			CredentialMode: "",
-			Title:          ref.GetTitle(),
-			Description:    ref.GetDescription(),
-		})
-	}
-	return out
-}
-
-func agentMessagePartTypeFingerprintValue(partType proto.AgentMessagePartType) string {
-	switch partType {
-	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TEXT:
-		return "text"
-	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_JSON:
-		return "json"
-	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_CALL:
-		return "tool_call"
-	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_TOOL_RESULT:
-		return "tool_result"
-	case proto.AgentMessagePartType_AGENT_MESSAGE_PART_TYPE_IMAGE_REF:
-		return "image_ref"
-	default:
-		return ""
-	}
-}
-
-func nilIfEmptyMap(value map[string]any) map[string]any {
-	if len(value) == 0 {
-		return nil
-	}
-	return value
-}
-
-func nilIfEmptySlice[T any](value []T) []T {
-	if len(value) == 0 {
-		return nil
-	}
-	return value
-}
-
 func actorToMap(actor *proto.WorkflowActor) map[string]any {
 	if actor == nil {
 		return nil
@@ -4498,11 +4264,6 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 		CredentialSubjectID: strings.TrimSpace(ref.GetCredentialSubjectId()),
 		CallerPluginName:    strings.TrimSpace(ref.GetCallerPluginName()),
 	}
-	fingerprint, err := workflowTargetFingerprint(record.Target)
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, fmt.Errorf("target_fingerprint: %w", err)
-	}
-	record.TargetFingerprint = fingerprint
 	if record.ID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("id is required")
 	}
@@ -4540,7 +4301,6 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		ID:                  id,
 		ProviderName:        stringField(value, "provider_name"),
 		Target:              target,
-		TargetFingerprint:   stringField(value, "target_fingerprint"),
 		SubjectID:           stringField(value, "subject_id"),
 		SubjectKind:         stringField(value, "subject_kind"),
 		DisplayName:         stringField(value, "display_name"),
@@ -4561,7 +4321,6 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"id":                    r.ID,
 		"provider_name":         r.ProviderName,
 		"target_json":           targetJSON(r.Target),
-		"target_fingerprint":    r.TargetFingerprint,
 		"subject_id":            r.SubjectID,
 		"subject_kind":          r.SubjectKind,
 		"display_name":          r.DisplayName,
