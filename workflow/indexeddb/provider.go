@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.19"
+	providerVersion           = "0.0.1-alpha.20"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -255,14 +255,6 @@ type scopedTarget struct {
 	Target   *proto.BoundWorkflowTarget
 }
 
-type workflowPluginTargetFields struct {
-	PluginName string
-	Operation  string
-	Connection string
-	Instance   string
-	Input      *structpb.Struct
-}
-
 func New() *Provider {
 	return &Provider{now: time.Now}
 }
@@ -461,7 +453,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	target, err := normalizeScopedTarget("", req.GetTarget())
+	target, err := normalizeTarget(req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -797,7 +789,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	target, err := normalizeScopedTarget("", req.GetTarget())
+	target, err := normalizeTarget(req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -892,7 +884,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeScopedTarget("", req.GetTarget())
+	target, err := normalizeTarget(req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -1082,7 +1074,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeScopedTarget("", req.GetTarget())
+	target, err := normalizeTarget(req.GetTarget())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -2345,15 +2337,11 @@ func markStaleRunningRunsFailed(ctx context.Context, runStore, workflowKeyStore,
 	return nil
 }
 
-func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget) (scopedTarget, error) {
+func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
-	pluginName = strings.TrimSpace(pluginName)
 	if agentTarget := target.GetAgent(); agentTarget != nil {
-		if pluginName != "" {
-			return scopedTarget{}, fmt.Errorf("agent target is outside scoped plugin %q", pluginName)
-		}
 		agentProvider := strings.TrimSpace(agentTarget.GetProviderName())
 		if agentProvider == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
@@ -2369,25 +2357,25 @@ func normalizeScopedTarget(pluginName string, target *proto.BoundWorkflowTarget)
 			Target:   normalized,
 		}, nil
 	}
-	pluginFields := pluginTargetFields(target)
-	targetPlugin := pluginFields.PluginName
-	operation := pluginFields.Operation
-	connection := pluginFields.Connection
-	instance := pluginFields.Instance
-	input := cloneStructMap(pluginFields.Input)
-	if pluginName == "" {
-		pluginName = targetPlugin
-	}
-	if pluginName == "" {
+	pluginTarget := target.GetPlugin()
+	if pluginTarget == nil {
 		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
-	if targetPlugin != "" && targetPlugin != pluginName {
-		return scopedTarget{}, fmt.Errorf("target.plugin.plugin_name %q is outside scoped plugin %q", targetPlugin, pluginName)
+	pluginName := strings.TrimSpace(pluginTarget.GetPluginName())
+	operation := strings.TrimSpace(pluginTarget.GetOperation())
+	if pluginName == "" {
+		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
 	if operation == "" {
 		return scopedTarget{}, errors.New("target.plugin.operation is required")
 	}
-	normalized := pluginTargetProto(pluginName, operation, connection, instance, input)
+	normalized := pluginTargetProto(
+		pluginName,
+		operation,
+		strings.TrimSpace(pluginTarget.GetConnection()),
+		strings.TrimSpace(pluginTarget.GetInstance()),
+		cloneStructMap(pluginTarget.GetInput()),
+	)
 	return scopedTarget{
 		OwnerKey: pluginName,
 		Target:   normalized,
@@ -3622,28 +3610,11 @@ func timePtr(value time.Time) *time.Time {
 var workflowTargetJSON = protojson.MarshalOptions{EmitUnpopulated: false}
 var workflowTargetJSONUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
 
-func pluginTargetFields(target *proto.BoundWorkflowTarget) workflowPluginTargetFields {
-	if target == nil {
-		return workflowPluginTargetFields{}
-	}
-	return pluginMessageTargetFields(target.GetPlugin())
-}
-
 func pluginTargetInput(target *proto.BoundWorkflowTarget) map[string]any {
-	return cloneStructMap(pluginTargetFields(target).Input)
-}
-
-func pluginMessageTargetFields(plugin *proto.BoundWorkflowPluginTarget) workflowPluginTargetFields {
-	if plugin == nil {
-		return workflowPluginTargetFields{}
+	if target == nil || target.GetPlugin() == nil {
+		return nil
 	}
-	return workflowPluginTargetFields{
-		PluginName: strings.TrimSpace(plugin.GetPluginName()),
-		Operation:  strings.TrimSpace(plugin.GetOperation()),
-		Connection: strings.TrimSpace(plugin.GetConnection()),
-		Instance:   strings.TrimSpace(plugin.GetInstance()),
-		Input:      cloneStruct(plugin.GetInput()),
-	}
+	return cloneStructMap(target.GetPlugin().GetInput())
 }
 
 func targetJSON(target *proto.BoundWorkflowTarget) string {
@@ -4249,7 +4220,7 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 	if ref == nil {
 		return workflowExecutionReferenceRecord{}, errors.New("reference is required")
 	}
-	target, err := normalizeScopedTarget("", ref.GetTarget())
+	target, err := normalizeTarget(ref.GetTarget())
 	if err != nil {
 		return workflowExecutionReferenceRecord{}, err
 	}
