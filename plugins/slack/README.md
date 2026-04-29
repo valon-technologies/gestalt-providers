@@ -45,17 +45,18 @@ app that issues `slack-bot-token` must be granted the bot scopes needed by the
 enabled behaviors. The full scope set used by this provider's bot behaviors is:
 `app_mentions:read`, `channels:read`, `channels:history`, `groups:read`,
 `groups:history`, `im:read`, `im:history`, `mpim:read`, `mpim:history`,
-`users:read`, `files:read`, `chat:write`, `assistant:write`,
-`reactions:write`, `channels:manage`, `groups:write`, and `canvases:write`.
+`im:write`, `mpim:write`, `users:read`, `files:read`, `chat:write`,
+`assistant:write`, `reactions:write`, `channels:manage`, `groups:write`, and
+`canvases:write`.
 
 ## Capabilities
 
 Source-backed provider implemented in Python with both a REST surface and an
 [MCP](https://modelcontextprotocol.io/) surface. Exposes operations for listing
 and creating channels, reading message history and threads, sending and
-scheduling messages, searching messages, managing reactions, setting channel
-topics, inviting users, creating canvases, building thread context, and reading
-Slack file or image contents.
+scheduling messages, opening or resuming DMs, searching messages, managing
+reactions, setting channel topics, inviting users, creating canvases, building
+thread context, and reading Slack file or image contents.
 
 Authenticates user operations with Slack OAuth 2.0 (user scope). Operations with
 `actor=bot` and fixed bot operations use the deployment-owned `bot` bearer

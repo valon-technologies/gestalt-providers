@@ -346,26 +346,44 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(bot_connection["auth"], {"type": "bearer"})
         self.assertNotIn("instance" + "Selector", json.dumps(manifest))
 
-        selector_operations = (
+        user_default_selector_operations = (
             "conversations.list",
-            "chat.postMessage",
+            "conversations.open",
             "conversations.history",
             "conversations.replies",
         )
-        for operation_name in selector_operations:
+        for operation_name in user_default_selector_operations:
             operation = rest_ops[operation_name]
             self.assertEqual(
                 operation["connectionSelector"],
                 {
                     "parameter": "actor",
-                    "default": "bot",
+                    "default": "user",
                     "values": {"bot": "bot", "user": "default"},
                 },
             )
             self.assertIn("actor", _manifest_parameter_names(operation))
 
+        operation = rest_ops["chat.postMessage"]
+        self.assertEqual(
+            operation["connectionSelector"],
+            {
+                "parameter": "actor",
+                "default": "bot",
+                "values": {"bot": "bot", "user": "default"},
+            },
+        )
+        self.assertIn("actor", _manifest_parameter_names(operation))
+
         self.assertEqual(rest_ops["search.messages"]["connection"], "default")
         self.assertNotIn("connectionSelector", rest_ops["search.messages"])
+        self.assertIn("im:write", connections["default"]["auth"]["scopes"])
+        self.assertIn("mpim:write", connections["default"]["auth"]["scopes"])
+        self.assertIn("users:read.email", connections["default"]["auth"]["scopes"])
+        self.assertEqual(
+            _manifest_parameter_names(rest_ops["conversations.open"]),
+            ["actor", "users", "channel", "return_im", "prevent_creation"],
+        )
         for operation_name in (
             "assistant.threads.setStatus",
             "assistant.threads.setTitle",
