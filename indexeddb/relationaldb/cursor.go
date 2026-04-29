@@ -29,7 +29,7 @@ func (s *Store) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClientMes
 }
 
 func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorRequest) (*relationalCursor, error) {
-	meta, err := s.getMeta(req.GetStore())
+	meta, err := s.getMetaForContext(ctx, req.GetStore())
 	if err != nil {
 		return nil, err
 	}

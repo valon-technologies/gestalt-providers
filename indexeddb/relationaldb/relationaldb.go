@@ -189,19 +189,47 @@ func (s *Store) q(query string) string {
 	return rebind(s.bind, query)
 }
 
+type txContextKey struct{}
+
+type txContextState struct {
+	tx   *sql.Tx
+	meta map[string]*storeMeta
+}
+
+func contextWithTx(ctx context.Context, tx *sql.Tx, meta map[string]*storeMeta) context.Context {
+	return context.WithValue(ctx, txContextKey{}, txContextState{tx: tx, meta: meta})
+}
+
+func txFromContext(ctx context.Context) (*sql.Tx, bool) {
+	state, ok := ctx.Value(txContextKey{}).(txContextState)
+	return state.tx, ok && state.tx != nil
+}
+
 func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.ExecContext(ctx, s.q(query), args...)
+	}
 	return s.db.ExecContext(ctx, s.q(query), args...)
 }
 
 func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryContext(ctx, s.q(query), args...)
+	}
 	return queryWithRetry(ctx, s.db, s.conn, s.q(query), args...)
 }
 
 func (s *Store) scanOne(ctx context.Context, query string, args []any, scanDest ...any) error {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryRowContext(ctx, s.q(query), args...).Scan(scanDest...)
+	}
 	return queryRowScanWithRetry(ctx, s.db, s.conn, s.q(query), args, scanDest...)
 }
 
 func (s *Store) withTx(ctx context.Context, fn func(context.Context, *sql.Tx) error) error {
+	if tx, ok := txFromContext(ctx); ok {
+		return fn(ctx, tx)
+	}
 	return withRetry(ctx, s.conn, func(attemptCtx context.Context) error {
 		tx, err := s.db.BeginTx(attemptCtx, nil)
 		if err != nil {
@@ -233,6 +261,17 @@ func (s *Store) getMeta(name string) (*storeMeta, error) {
 		return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
 	}
 	return m, nil
+}
+
+func (s *Store) getMetaForContext(ctx context.Context, name string) (*storeMeta, error) {
+	if state, ok := ctx.Value(txContextKey{}).(txContextState); ok && state.meta != nil {
+		m, ok := state.meta[name]
+		if !ok {
+			return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
+		}
+		return m, nil
+	}
+	return s.getMeta(name)
 }
 
 func (s *Store) ensureGenericTables(ctx context.Context) error {
@@ -519,7 +558,7 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 // ---- Primary key CRUD ----
 
 func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +570,7 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 }
 
 func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +586,7 @@ func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 }
 
 func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +597,7 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 }
 
 func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +608,7 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 }
 
 func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +621,7 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emp
 // ---- Bulk operations ----
 
 func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
-	if _, err := s.getMeta(req.Store); err != nil {
+	if _, err := s.getMetaForContext(ctx, req.Store); err != nil {
 		return nil, err
 	}
 	if err := s.clearGeneric(ctx, req.Store); err != nil {
@@ -592,7 +631,7 @@ func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*
 }
 
 func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -608,7 +647,7 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 }
 
 func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -624,7 +663,7 @@ func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeReque
 }
 
 func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -636,7 +675,7 @@ func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (
 }
 
 func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
@@ -722,7 +761,7 @@ func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (
 // ---- Query builders for range and index operations ----
 
 func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest, keyOnly bool) (*storeMeta, []cursorutil.Entry, error) {
-	m, err := s.getMeta(req.Store)
+	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -11,6 +11,7 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -76,6 +77,10 @@ func Run(t *testing.T, harness Harness) {
 
 	t.Run("BulkConsistency", func(t *testing.T) {
 		runBulkConsistency(t, harness)
+	})
+
+	t.Run("ExplicitTransactionWireContract", func(t *testing.T) {
+		runExplicitTransactionWireContract(t, harness)
 	})
 
 	t.Run("TypedDeleteRangeFidelity", func(t *testing.T) {
@@ -521,6 +526,81 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 	})
 }
 
+func runExplicitTransactionWireContract(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "explicit_transaction_wire_contract"
+	mustCreateObjectStore(t, sess.client, store, &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_status", KeyPath: []string{"status"}},
+		},
+	})
+	mustAddRecord(t, sess.client, store, map[string]any{
+		"id":     "a",
+		"name":   "Alpha",
+		"status": "active",
+	})
+
+	tx := mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READWRITE)
+	if err := txPut(t, tx, store, map[string]any{"id": "b", "name": "Beta", "status": "active"}); err != nil {
+		t.Fatalf("transaction Put(b): %v", err)
+	}
+	gotB := mustTxGet(t, tx, store, "b")
+	if gotB["name"] != "Beta" {
+		t.Fatalf("transaction Get(b).name = %#v, want Beta", gotB["name"])
+	}
+	if got := mustTxIndexCount(t, tx, store, "by_status", "active"); got != 2 {
+		t.Fatalf("transaction IndexCount(active) = %d, want 2", got)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("transaction Commit: %v", err)
+	}
+	tx.Close()
+	mustGet(t, sess.client, store, "b")
+
+	tx = mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READWRITE)
+	if err := txPut(t, tx, store, map[string]any{"id": "c", "name": "Gamma", "status": "pending"}); err != nil {
+		t.Fatalf("transaction Put(c): %v", err)
+	}
+	if err := txDelete(t, tx, store, "b"); err != nil {
+		t.Fatalf("transaction Delete(b): %v", err)
+	}
+	if err := tx.Abort(); err != nil {
+		t.Fatalf("transaction Abort: %v", err)
+	}
+	tx.Close()
+	mustGet(t, sess.client, store, "b")
+	mustGetNotFound(t, sess.client, store, "c")
+
+	tx = mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READONLY)
+	err := txPut(t, tx, store, map[string]any{"id": "readonly", "name": "Read Only", "status": "active"})
+	if got := status.Code(err); got != codes.FailedPrecondition {
+		t.Fatalf("readonly transaction Put error = %v (%s), want %s", err, got, codes.FailedPrecondition)
+	}
+	if err := tx.ExpectAbort(); err != nil {
+		t.Fatalf("readonly transaction abort response: %v", err)
+	}
+	tx.Close()
+	mustGetNotFound(t, sess.client, store, "readonly")
+
+	tx = mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READWRITE)
+	if err := txPut(t, tx, store, map[string]any{"id": "d", "name": "Delta", "status": "active"}); err != nil {
+		t.Fatalf("transaction Put(d): %v", err)
+	}
+	err = txAdd(t, tx, store, map[string]any{"id": "a", "name": "Duplicate", "status": "active"})
+	if got := status.Code(err); got != codes.AlreadyExists {
+		t.Fatalf("duplicate Add error = %v (%s), want %s", err, got, codes.AlreadyExists)
+	}
+	if err := tx.ExpectAbort(); err != nil {
+		t.Fatalf("operation-error transaction abort response: %v", err)
+	}
+	tx.Close()
+	mustGetNotFound(t, sess.client, store, "d")
+}
+
 func runTypedDeleteRangeFidelity(t *testing.T, harness Harness) {
 	t.Helper()
 
@@ -836,6 +916,123 @@ func newBufconnClient(t *testing.T, serverImpl proto.IndexedDBServer) (proto.Ind
 	}
 }
 
+type contractTransaction struct {
+	stream proto.IndexedDB_TransactionClient
+	cancel context.CancelFunc
+	nextID uint64
+}
+
+func mustBeginTransaction(t *testing.T, client proto.IndexedDBClient, stores []string, mode proto.TransactionMode) *contractTransaction {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stream, err := client.Transaction(ctx)
+	if err != nil {
+		cancel()
+		t.Fatalf("Transaction: %v", err)
+	}
+	if err := stream.Send(&proto.TransactionClientMessage{
+		Msg: &proto.TransactionClientMessage_Begin{Begin: &proto.BeginTransactionRequest{
+			Stores: stores,
+			Mode:   mode,
+		}},
+	}); err != nil {
+		cancel()
+		t.Fatalf("Transaction send begin: %v", err)
+	}
+	resp, err := stream.Recv()
+	if err != nil {
+		cancel()
+		t.Fatalf("Transaction recv begin: %v", err)
+	}
+	if resp.GetBegin() == nil {
+		cancel()
+		t.Fatalf("Transaction begin response = %T, want begin", resp.GetMsg())
+	}
+	return &contractTransaction{stream: stream, cancel: cancel}
+}
+
+func (tx *contractTransaction) Close() {
+	if tx.stream != nil {
+		_ = tx.stream.CloseSend()
+		tx.stream = nil
+	}
+	if tx.cancel != nil {
+		tx.cancel()
+		tx.cancel = nil
+	}
+}
+
+func (tx *contractTransaction) Operation(op *proto.TransactionOperation) (*proto.TransactionOperationResponse, error) {
+	tx.nextID++
+	op.RequestId = tx.nextID
+	if err := tx.stream.Send(&proto.TransactionClientMessage{
+		Msg: &proto.TransactionClientMessage_Operation{Operation: op},
+	}); err != nil {
+		return nil, err
+	}
+	resp, err := tx.stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+	opResp := resp.GetOperation()
+	if opResp == nil {
+		return nil, fmt.Errorf("transaction response = %T, want operation", resp.GetMsg())
+	}
+	if opResp.GetRequestId() != op.GetRequestId() {
+		return nil, fmt.Errorf("transaction response request id = %d, want %d", opResp.GetRequestId(), op.GetRequestId())
+	}
+	if err := transactionStatusErr(opResp.GetError()); err != nil {
+		return nil, err
+	}
+	return opResp, nil
+}
+
+func (tx *contractTransaction) Commit() error {
+	if err := tx.stream.Send(&proto.TransactionClientMessage{
+		Msg: &proto.TransactionClientMessage_Commit{Commit: &proto.TransactionCommitRequest{}},
+	}); err != nil {
+		return err
+	}
+	resp, err := tx.stream.Recv()
+	if err != nil {
+		return err
+	}
+	commit := resp.GetCommit()
+	if commit == nil {
+		return fmt.Errorf("transaction response = %T, want commit", resp.GetMsg())
+	}
+	return transactionStatusErr(commit.GetError())
+}
+
+func (tx *contractTransaction) Abort() error {
+	if err := tx.stream.Send(&proto.TransactionClientMessage{
+		Msg: &proto.TransactionClientMessage_Abort{Abort: &proto.TransactionAbortRequest{}},
+	}); err != nil {
+		return err
+	}
+	return tx.ExpectAbort()
+}
+
+func (tx *contractTransaction) ExpectAbort() error {
+	resp, err := tx.stream.Recv()
+	if err != nil {
+		return err
+	}
+	abort := resp.GetAbort()
+	if abort == nil {
+		return fmt.Errorf("transaction response = %T, want abort", resp.GetMsg())
+	}
+	return transactionStatusErr(abort.GetError())
+}
+
+func transactionStatusErr(st *rpcstatus.Status) error {
+	if st == nil || st.GetCode() == int32(codes.OK) {
+		return nil
+	}
+	return status.Error(codes.Code(st.GetCode()), st.GetMessage())
+}
+
 func bulkItemsSchema() *proto.ObjectStoreSchema {
 	return &proto.ObjectStoreSchema{
 		Indexes: []*proto.IndexSchema{
@@ -928,6 +1125,89 @@ func mustAddRecord(t *testing.T, client proto.IndexedDBClient, store string, rec
 	}); err != nil {
 		t.Fatalf("Add(%s): %v", store, err)
 	}
+}
+
+func mustGet(t *testing.T, client proto.IndexedDBClient, store, id string) map[string]any {
+	t.Helper()
+	resp, err := client.Get(context.Background(), &proto.ObjectStoreRequest{Store: store, Id: id})
+	if err != nil {
+		t.Fatalf("Get(%s/%s): %v", store, id, err)
+	}
+	return mustRecord(t, resp.GetRecord())
+}
+
+func mustGetNotFound(t *testing.T, client proto.IndexedDBClient, store, id string) {
+	t.Helper()
+	_, err := client.Get(context.Background(), &proto.ObjectStoreRequest{Store: store, Id: id})
+	if got := status.Code(err); got != codes.NotFound {
+		t.Fatalf("Get(%s/%s) error = %v (%s), want %s", store, id, err, got, codes.NotFound)
+	}
+}
+
+func txAdd(t *testing.T, tx *contractTransaction, store string, record map[string]any) error {
+	t.Helper()
+	_, err := tx.Operation(&proto.TransactionOperation{
+		Operation: &proto.TransactionOperation_Add{Add: &proto.RecordRequest{
+			Store:  store,
+			Record: mustRecordProto(t, record),
+		}},
+	})
+	return err
+}
+
+func txPut(t *testing.T, tx *contractTransaction, store string, record map[string]any) error {
+	t.Helper()
+	_, err := tx.Operation(&proto.TransactionOperation{
+		Operation: &proto.TransactionOperation_Put{Put: &proto.RecordRequest{
+			Store:  store,
+			Record: mustRecordProto(t, record),
+		}},
+	})
+	return err
+}
+
+func txDelete(t *testing.T, tx *contractTransaction, store, id string) error {
+	t.Helper()
+	_, err := tx.Operation(&proto.TransactionOperation{
+		Operation: &proto.TransactionOperation_Delete{Delete: &proto.ObjectStoreRequest{
+			Store: store,
+			Id:    id,
+		}},
+	})
+	return err
+}
+
+func mustTxGet(t *testing.T, tx *contractTransaction, store, id string) map[string]any {
+	t.Helper()
+	resp, err := tx.Operation(&proto.TransactionOperation{
+		Operation: &proto.TransactionOperation_Get{Get: &proto.ObjectStoreRequest{
+			Store: store,
+			Id:    id,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("transaction Get(%s/%s): %v", store, id, err)
+	}
+	return mustRecord(t, resp.GetRecord().GetRecord())
+}
+
+func mustTxIndexCount(t *testing.T, tx *contractTransaction, store, index string, values ...any) int64 {
+	t.Helper()
+	typedValues := make([]*proto.TypedValue, 0, len(values))
+	for _, value := range values {
+		typedValues = append(typedValues, mustTypedValue(t, value))
+	}
+	resp, err := tx.Operation(&proto.TransactionOperation{
+		Operation: &proto.TransactionOperation_IndexCount{IndexCount: &proto.IndexQueryRequest{
+			Store:  store,
+			Index:  index,
+			Values: typedValues,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("transaction IndexCount(%s/%s): %v", store, index, err)
+	}
+	return resp.GetCount().GetCount()
 }
 
 func mustRecordProto(t *testing.T, record map[string]any) *proto.Record {

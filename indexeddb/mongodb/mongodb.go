@@ -95,6 +95,8 @@ func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjec
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	name := req.GetName()
 	if err := s.db.CreateCollection(ctx, name); err != nil {
@@ -123,9 +125,7 @@ func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjec
 		}
 	}
 
-	s.mu.Lock()
 	s.schemas[name] = indexes
-	s.mu.Unlock()
 
 	return &emptypb.Empty{}, nil
 }
@@ -135,13 +135,14 @@ func (p *Provider) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjec
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	name := req.GetName()
 	if err := s.db.Collection(name).Drop(ctx); err != nil {
 		return nil, status.Errorf(codes.Internal, "drop collection %s: %v", name, err)
 	}
-	s.mu.Lock()
 	delete(s.schemas, name)
-	s.mu.Unlock()
 	return &emptypb.Empty{}, nil
 }
 
@@ -417,7 +418,7 @@ func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQue
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	meta, err := s.getIndexMeta(req.GetStore(), req.GetIndex())
+	meta, err := getMongoIndexMetaForContext(ctx, s, req.GetStore(), req.GetIndex())
 	if err != nil {
 		return nil, err
 	}
@@ -430,12 +431,12 @@ func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *pro
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	meta, err := s.getIndexMeta(req.GetStore(), req.GetIndex())
+	meta, err := getMongoIndexMetaForContext(ctx, s, req.GetStore(), req.GetIndex())
 	if err != nil {
 		return nil, err
 	}
 
-	filter, err := s.indexFilter(req.GetStore(), req.GetIndex(), req.GetValues())
+	filter, err := s.indexFilter(ctx, req.GetStore(), req.GetIndex(), req.GetValues())
 	if err != nil {
 		return nil, err
 	}
@@ -510,8 +511,8 @@ func (s *Store) getIndexMeta(store, index string) (indexMeta, error) {
 	return meta, nil
 }
 
-func (s *Store) indexFilter(store, index string, values []*proto.TypedValue) (bson.M, error) {
-	meta, err := s.getIndexMeta(store, index)
+func (s *Store) indexFilter(ctx context.Context, store, index string, values []*proto.TypedValue) (bson.M, error) {
+	meta, err := getMongoIndexMetaForContext(ctx, s, store, index)
 	if err != nil {
 		return nil, err
 	}

@@ -2733,10 +2733,6 @@ func publishedEventExecutionReference(providerName, runID string, trigger workfl
 		return nil, nil
 	}
 	target := trigger.Target
-	fingerprint, err := workflowTargetFingerprint(target)
-	if err != nil {
-		return nil, err
-	}
 	permissions, err := eventExecutionReferencePermissions(trigger)
 	if err != nil {
 		return nil, err
@@ -2746,7 +2742,6 @@ func publishedEventExecutionReference(providerName, runID string, trigger workfl
 		Id:                  eventExecutionRefID(runID),
 		ProviderName:        strings.TrimSpace(providerName),
 		Target:              cloneTarget(target),
-		TargetFingerprint:   fingerprint,
 		SubjectId:           subjectID,
 		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
 		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
@@ -4038,7 +4033,6 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		Id:                  r.ID,
 		ProviderName:        r.ProviderName,
 		Target:              cloneTarget(r.Target),
-		TargetFingerprint:   r.TargetFingerprint,
 		SubjectId:           r.SubjectID,
 		SubjectKind:         r.SubjectKind,
 		DisplayName:         r.DisplayName,
@@ -4110,7 +4104,6 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		Id:                  ref.GetId(),
 		ProviderName:        ref.GetProviderName(),
 		Target:              cloneTarget(ref.GetTarget()),
-		TargetFingerprint:   ref.GetTargetFingerprint(),
 		SubjectId:           ref.GetSubjectId(),
 		SubjectKind:         ref.GetSubjectKind(),
 		DisplayName:         ref.GetDisplayName(),

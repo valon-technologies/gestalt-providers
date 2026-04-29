@@ -37,7 +37,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.24",
+            version="0.0.1-alpha.25",
         )
 
     def warnings(self) -> list[str]:
@@ -187,14 +187,14 @@ class SimpleAgentRuntimeProvider(
         )
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, _, _ = self._require_runtime(context)
+        _, _, config = self._require_runtime(context)
         return agent_pb2.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
             structured_output=True,
             interactions=False,
-            resumable_turns=False,
+            resumable_turns=config.resume.enabled,
             reasoning_summaries=False,
             native_tool_search=True,
         )
@@ -214,6 +214,10 @@ class SimpleAgentRuntimeProvider(
         self._store = SimpleRunStore(run_store=config.run_store, idempotency_store=config.idempotency_store)
         self._orchestrator = SimpleAgentOrchestrator(config=config, store=self._store)
         self._warnings = self._build_warnings(config)
+        try:
+            self._orchestrator.resume_incomplete_turns()
+        except grpc.RpcError:
+            pass
 
     def _build_warnings(self, config: SimpleAgentConfig) -> list[str]:
         warnings: list[str] = []

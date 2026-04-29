@@ -157,6 +157,9 @@ func (s *store) getIndexDef(storeName, indexName string) (*indexDef, error) {
 
 func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
 	st := p.store
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
 	sc := &storedSchema{}
 	if req.Schema != nil {
 		for _, idx := range req.Schema.Indexes {
@@ -185,19 +188,17 @@ func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjec
 		return nil, wrapErr(err)
 	}
 
-	st.mu.Lock()
 	st.schemas[req.Name] = sc
-	st.mu.Unlock()
 	return &emptypb.Empty{}, nil
 }
 
 func (p *Provider) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
 	st := p.store
-
 	st.mu.Lock()
+	defer st.mu.Unlock()
+
 	sc := st.schemas[req.Name]
 	delete(st.schemas, req.Name)
-	st.mu.Unlock()
 
 	_, _ = st.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: &st.table,
@@ -696,6 +697,13 @@ func (s *store) buildIndexItems(storeName, id string, record *proto.Record) []in
 	}
 	sc, ok := s.getSchema(storeName)
 	if !ok {
+		return nil
+	}
+	return buildIndexItemsForSchema(storeName, id, record, sc)
+}
+
+func buildIndexItemsForSchema(storeName, id string, record *proto.Record, sc *storedSchema) []indexItem {
+	if record == nil || sc == nil {
 		return nil
 	}
 	var items []indexItem
