@@ -169,21 +169,33 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.requests: list[dict[str, Any]] = []
         self.search_requests: list[dict[str, Any]] = []
         self.tools: list[Any] = []
+        self.load_ref_tools: list[Any] = []
+        self.candidates: list[Any] = []
+        self.has_more = False
         self.tool_responses: list[Any] = []
         self.wait_until_released = threading.Event()
         self.pause_on_lookup = False
 
     def SearchTools(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
-        self.search_requests.append(
-            {
-                "session_id": request.session_id,
-                "turn_id": request.turn_id,
-                "query": request.query,
-                "max_results": request.max_results,
-            }
-        )
-        return agent_pb2.SearchAgentToolsResponse(tools=list(self.tools))
+        search_request = {
+            "session_id": request.session_id,
+            "turn_id": request.turn_id,
+            "query": request.query,
+            "max_results": request.max_results,
+        }
+        if _proto_message_has_field(request, "candidate_limit"):
+            search_request["candidate_limit"] = request.candidate_limit
+        if _proto_message_has_field(request, "load_refs"):
+            search_request["load_refs"] = [_tool_ref_to_dict(ref) for ref in request.load_refs]
+        self.search_requests.append(search_request)
+        tools = self.load_ref_tools if search_request.get("load_refs") else self.tools
+        response = agent_pb2.SearchAgentToolsResponse(tools=list(tools))
+        if _proto_message_has_field(response, "candidates") and search_request.get("candidate_limit", 0) > 0:
+            response.candidates.extend(self.candidates)
+        if _proto_message_has_field(response, "has_more"):
+            response.has_more = self.has_more and len(response.candidates) > 0
+        return response
 
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -232,6 +244,50 @@ def _fake_slack_reply_tool() -> Any:
         target=agent_pb2.BoundAgentToolTarget(plugin="slack", operation="events.reply"),
         parameters_schema=tool_parameters,
     )
+
+
+def _fake_tool_candidate(*, plugin: str = "people", operation: str = "search_more") -> Any:
+    if not hasattr(agent_pb2, "AgentToolCandidate"):
+        raise unittest.SkipTest("adaptive tool search proto fields are not available")
+    return agent_pb2.AgentToolCandidate(
+        ref=agent_pb2.AgentToolRef(plugin=plugin, operation=operation, credential_mode="user"),
+        id=f"{plugin}/{operation}",
+        name="Search more people",
+        description="Search more historical records",
+        parameters=["query"],
+    )
+
+
+def _proto_message_has_field(message: Any, field_name: str) -> bool:
+    descriptor = getattr(message, "DESCRIPTOR", None)
+    fields_by_name = getattr(descriptor, "fields_by_name", {})
+    return field_name in fields_by_name
+
+
+def _supports_adaptive_tool_search() -> bool:
+    return _proto_message_has_field(
+        agent_pb2.SearchAgentToolsRequest(), "candidate_limit"
+    ) and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "candidates")
+
+
+def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for field in ("plugin", "operation", "connection", "instance", "credential_mode"):
+        value = str(getattr(ref, field, "") or "").strip()
+        if value:
+            out[field] = value
+    return out
+
+
+def _expected_search_request(
+    *, session_id: str, turn_id: str, query: str, max_results: int, candidate_limit: int | None = None
+) -> dict[str, Any]:
+    request: dict[str, Any] = {"session_id": session_id, "turn_id": turn_id, "query": query, "max_results": max_results}
+    if candidate_limit is not None and _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "candidate_limit"):
+        request["candidate_limit"] = candidate_limit
+    if _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "load_refs"):
+        request["load_refs"] = []
+    return request
 
 
 class _FakeOpenAIChatServer:
@@ -434,6 +490,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _host_servicer.requests.clear()
         _host_servicer.search_requests.clear()
         _host_servicer.tools = [_fake_resolved_tool(name="person_lookup")]
+        _host_servicer.load_ref_tools.clear()
+        _host_servicer.candidates.clear()
+        _host_servicer.has_more = False
         _host_servicer.tool_responses.clear()
         _host_servicer.pause_on_lookup = False
         _host_servicer.wait_until_released.set()
@@ -650,12 +709,13 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(
             _host_servicer.search_requests,
             [
-                {
-                    "session_id": "session-success",
-                    "turn_id": "turn-success",
-                    "query": "historical figure lookup",
-                    "max_results": 5,
-                }
+                _expected_search_request(
+                    session_id="session-success",
+                    turn_id="turn-success",
+                    query="historical figure lookup",
+                    max_results=5,
+                    candidate_limit=10,
+                )
             ],
         )
         self.assertEqual(len(_host_servicer.requests), 1)
@@ -678,6 +738,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(first_request["messages"][0]["role"], "system")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
         self.assertEqual([tool["function"]["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
+        if not _supports_adaptive_tool_search():
+            properties = first_request["tools"][0]["function"]["parameters"]["properties"]
+            self.assertNotIn("candidate_limit", properties)
+            self.assertNotIn("load_refs", properties)
         self.assertEqual(second_request["messages"][-1]["role"], "tool")
         self.assertIn("person_lookup", second_request["messages"][-1]["content"])
         self.assertNotIn('"id"', second_request["messages"][-1]["content"])
@@ -704,6 +768,136 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(listed_events.events[3].data.fields["tool_id"].string_value, "lookup")
         self.assertEqual(listed_events.events[4].data.fields["status"].number_value, 200)
         self.assertEqual([event.type for event in paged_events.events], ["tool.completed", "tool.started"])
+
+    @unittest.skipUnless(_supports_adaptive_tool_search(), "adaptive tool search proto fields are not available")
+    def test_create_turn_searches_candidates_and_loads_refs(self) -> None:
+        assert _host_servicer is not None
+        _, provider_client = _configure_provider()
+        _create_session(
+            provider_client, session_id="session-adaptive-search", idempotency_key="session-idem-adaptive-search"
+        )
+        _host_servicer.tools = []
+        _host_servicer.load_ref_tools = [_fake_resolved_tool(name="person_lookup")]
+        _host_servicer.candidates = [_fake_tool_candidate()]
+        _host_servicer.has_more = True
+
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-adaptive-1",
+                    "object": "chat.completion",
+                    "created": 1710000100,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call-search-candidates",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "gestalt_search_tools",
+                                            "arguments": '{"query":"historical records"}',
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                },
+                {
+                    "id": "chatcmpl-adaptive-2",
+                    "object": "chat.completion",
+                    "created": 1710000101,
+                    "model": "fake-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call-load-ref",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "gestalt_search_tools",
+                                            "arguments": (
+                                                '{"load_refs":[{"plugin":"people","operation":"search_more",'
+                                                '"credential_mode":"user"}]}'
+                                            ),
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                },
+                {
+                    "id": "chatcmpl-adaptive-3",
+                    "object": "chat.completion",
+                    "created": 1710000102,
+                    "model": "fake-model",
+                    "choices": [
+                        {"index": 0, "message": {"role": "assistant", "content": "done"}, "finish_reason": "stop"}
+                    ],
+                },
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+
+        provider_options = struct_pb2.Struct()
+        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key", "timeout": 7})
+
+        provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                turn_id="turn-adaptive-search",
+                session_id="session-adaptive-search",
+                idempotency_key="idem-adaptive-search",
+                model="fast",
+                messages=[agent_pb2.AgentMessage(role="user", text="Find historical records.")],
+                provider_options=provider_options,
+            )
+        )
+        fetched = _wait_for_turn(provider_client, "turn-adaptive-search", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        self.assertEqual(fetched.output_text, "done")
+        self.assertEqual(
+            _host_servicer.search_requests,
+            [
+                {
+                    "session_id": "session-adaptive-search",
+                    "turn_id": "turn-adaptive-search",
+                    "query": "historical records",
+                    "max_results": 3,
+                    "candidate_limit": 10,
+                    "load_refs": [],
+                },
+                {
+                    "session_id": "session-adaptive-search",
+                    "turn_id": "turn-adaptive-search",
+                    "query": "",
+                    "max_results": 0,
+                    "candidate_limit": 0,
+                    "load_refs": [{"plugin": "people", "operation": "search_more", "credential_mode": "user"}],
+                },
+            ],
+        )
+        first_tool_result = fake_llm.requests[1]["messages"][-1]["content"]
+        second_tool_result = fake_llm.requests[2]["messages"][-1]["content"]
+        self.assertIn('"candidates":[', first_tool_result)
+        self.assertIn('"has_more":true', first_tool_result)
+        self.assertNotIn("person_lookup", first_tool_result)
+        self.assertEqual([tool["function"]["name"] for tool in fake_llm.requests[1]["tools"]], ["gestalt_search_tools"])
+        self.assertIn("load_refs", fake_llm.requests[1]["tools"][0]["function"]["parameters"]["properties"])
+        self.assertIn("person_lookup", second_tool_result)
+        self.assertIn("person_lookup", [tool["function"]["name"] for tool in fake_llm.requests[2]["tools"]])
 
     def test_create_turn_backfills_missing_text_tool_argument_from_assistant_text(self) -> None:
         assert _host_servicer is not None
@@ -1553,12 +1747,13 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(
             _host_servicer.search_requests,
             [
-                {
-                    "session_id": "session-anthropic",
-                    "turn_id": "turn-anthropic",
-                    "query": "historical figure lookup",
-                    "max_results": 5,
-                }
+                _expected_search_request(
+                    session_id="session-anthropic",
+                    turn_id="turn-anthropic",
+                    query="historical figure lookup",
+                    max_results=5,
+                    candidate_limit=10,
+                )
             ],
         )
         self.assertEqual(
