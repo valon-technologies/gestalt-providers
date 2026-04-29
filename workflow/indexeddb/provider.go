@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion     = "0.0.1-alpha.16"
+	providerVersion     = "0.0.1-alpha.17"
 	defaultPollInterval = time.Second
 	maxSignalAddRetries = 8
 
@@ -72,7 +72,6 @@ const (
 
 type config struct {
 	PollInterval time.Duration `yaml:"pollInterval"`
-	DeferStart   bool          `yaml:"deferStart"`
 }
 
 type Provider struct {
@@ -283,12 +282,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.signalStore = signalStore
 	p.mu.Unlock()
 
-	if !cfg.DeferStart {
-		if err := p.Start(ctx); err != nil {
-			_ = p.Close()
-			return fmt.Errorf("indexeddb workflow: start worker: %w", err)
-		}
-	}
 	return nil
 }
 

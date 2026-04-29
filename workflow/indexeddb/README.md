@@ -30,19 +30,18 @@ providers:
           - workflow_signals
       config:
         pollInterval: 1s
-        deferStart: true
 ```
 
 `pollInterval` controls how often the single worker scans for due cron schedules
 and pending runs.
 
-`deferStart` defaults to `false` for compatibility with older hosts that only
-call `Configure`. Set it to `true` when the host supports
-`ProviderLifecycle.StartProvider`; this lets the host delay durable work until
-agents, authorization, and plugin providers are ready.
+The poll worker starts only when the host calls
+`ProviderLifecycle.StartProvider`, after agents, authorization, plugin
+providers, and workflow host services are ready.
 
 ## Runtime Requirements
 
+- Gestalt host support for `ProviderLifecycle.StartProvider`
 - `GESTALT_INDEXEDDB_SOCKET` must point at an IndexedDB provider socket
 - `GESTALT_WORKFLOW_HOST_SOCKET` must point at the workflow host socket
 

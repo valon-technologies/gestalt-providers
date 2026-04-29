@@ -120,7 +120,7 @@ func TestProviderStartControlsPollLoopLifecycle(t *testing.T) {
 	startTestWorkflowHost(t, host)
 
 	provider := New()
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms", "deferStart": true}); err != nil {
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
@@ -190,7 +190,7 @@ func TestProviderStartControlsPollLoopLifecycle(t *testing.T) {
 	}
 }
 
-func TestProviderConfigureAutostartsPollLoopByDefault(t *testing.T) {
+func TestProviderConfigureDoesNotStartPollLoopBeforeStart(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	startTestIndexedDBBackend(t)
@@ -205,17 +205,22 @@ func TestProviderConfigureAutostartsPollLoopByDefault(t *testing.T) {
 	provider.mu.Lock()
 	done := provider.pollDone
 	provider.mu.Unlock()
-	if done == nil {
-		t.Fatal("poll worker was not started by Configure")
+	if done != nil {
+		t.Fatalf("poll worker started during Configure: done=%p", done)
 	}
 
 	run, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		IdempotencyKey: "default-autostart",
+		IdempotencyKey: "start-after-configure",
 		Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"mode": "compat"}),
 	})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
+	if _, err := host.waitForCall(100 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("host call before Start error = %v, want deadline exceeded", err)
+	}
+
+	startProviderWorker(t, provider)
 
 	call, err := host.waitForCall(time.Second)
 	if err != nil {
