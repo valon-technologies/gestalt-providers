@@ -9,6 +9,7 @@ DEFAULT_TIMEOUT_SECONDS = 120.0
 DEFAULT_RESUME_STARTUP_SCAN_LIMIT = 100
 DEFAULT_RESUME_WORKER_LEASE_SECONDS = 60.0
 UNSUPPORTED_CONFIG_FIELDS = frozenset({"runStore", "idempotencyStore"})
+RESUME_CONFIG_FIELDS = frozenset({"enabled", "startupScanLimit", "workerLeaseSeconds"})
 
 
 @dataclass(slots=True)
@@ -16,7 +17,6 @@ class ResumeConfig:
     enabled: bool = True
     startup_scan_limit: int = DEFAULT_RESUME_STARTUP_SCAN_LIMIT
     worker_lease_seconds: float = DEFAULT_RESUME_WORKER_LEASE_SECONDS
-    legacy_running_policy: str = "fail"
 
 
 @dataclass(slots=True)
@@ -114,9 +114,9 @@ def _coerce_resume_config(raw_value: Any) -> ResumeConfig:
         return ResumeConfig()
     if not isinstance(raw_value, dict):
         raise ValueError("resume must be an object")
-    legacy_running_policy = _trimmed_text(raw_value.get("legacyRunningPolicy")) or "fail"
-    if legacy_running_policy not in {"fail", "ignore"}:
-        raise ValueError("resume.legacyRunningPolicy must be one of fail or ignore")
+    unsupported_fields = sorted(str(key) for key in raw_value if str(key) not in RESUME_CONFIG_FIELDS)
+    if unsupported_fields:
+        raise ValueError(f"resume contains unsupported fields: {', '.join(unsupported_fields)}")
     return ResumeConfig(
         enabled=_coerce_bool(raw_value.get("enabled"), default=True, field_name="resume.enabled"),
         startup_scan_limit=_coerce_positive_int(
@@ -129,7 +129,6 @@ def _coerce_resume_config(raw_value: Any) -> ResumeConfig:
             default=DEFAULT_RESUME_WORKER_LEASE_SECONDS,
             field_name="resume.workerLeaseSeconds",
         ),
-        legacy_running_policy=legacy_running_policy,
     )
 
 
