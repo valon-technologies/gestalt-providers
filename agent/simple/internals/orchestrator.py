@@ -2,7 +2,8 @@ import copy
 import json
 import re
 import threading
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -17,7 +18,7 @@ from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 
 from .config import SimpleAgentConfig
 from .model_backend import ModelBackend
-from .store import SimpleRunStore, StoredRun
+from .store import SimpleRunStore, StoredRun, StoredTurnCheckpoint
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
@@ -34,6 +35,18 @@ SLACK_EVENTS_REPLY_TOOL_ID = "slack/events.reply"
 SLACK_REPLY_REF_ARGUMENT_FIELD = "reply_ref"
 SLACK_REPLY_TEXT_ARGUMENT_FIELDS = ("text", "markdown_text")
 WORKFLOW_SIGNAL_BATCH_PREFIX = "Workflow signal batch:"
+CHECKPOINT_SCHEMA_VERSION = 1
+PHASE_MODEL_NEXT = "model_next"
+PHASE_REPAIR_ARGUMENTS = "repair_arguments"
+PHASE_TOOL_READY = "tool_ready"
+PHASE_TOOL_INFLIGHT = "tool_inflight"
+PHASE_TOOL_RESULT_RECORDED = "tool_result_recorded"
+PHASE_TERMINAL = "terminal"
+_TERMINAL_STATUSES = {
+    agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+    agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
+    agent_pb2.AGENT_EXECUTION_STATUS_CANCELED,
+}
 TOOL_SEARCH_SYSTEM_PROMPT = (
     "When a user asks you to use an external integration or read external data and the needed tool is not already "
     f"available, call `{TOOL_SEARCH_FUNCTION_NAME}` before saying you do not have access."
@@ -81,11 +94,11 @@ TOOL_SEARCH_TOOL_SPEC: dict[str, Any] = {
                     "items": {
                         "type": "object",
                         "properties": {
+                            "system": {"type": "string"},
                             "plugin": {"type": "string"},
                             "operation": {"type": "string"},
                             "connection": {"type": "string"},
                             "instance": {"type": "string"},
-                            "credential_mode": {"type": "string", "enum": ["", "none", "user"]},
                         },
                         "required": ["plugin", "operation"],
                         "additionalProperties": False,
@@ -102,6 +115,9 @@ class SimpleAgentOrchestrator:
         self._config = config
         self._store = store
         self._backend = ModelBackend(config)
+        self._scheduled_lock = threading.Lock()
+        self._scheduled_turns: set[str] = set()
+        self._worker_id = f"agent/simple:{config.name}:{uuid.uuid4().hex}"
 
     def create_turn(
         self, request: Any, context: grpc.ServicerContext, *, session_model: str = "", provider_name: str = ""
@@ -120,237 +136,561 @@ class SimpleAgentOrchestrator:
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
+        projected_messages = _project_messages(request.messages)
+        response_schema = _struct_to_dict(request.response_schema)
+        provider_options = _struct_to_dict(request.provider_options)
+        tool_specs_and_names = _tool_registry_from_resolved_tools(request.tools)
+        prepared_seed = _resume_seed_from_request(
+            messages=projected_messages,
+            response_schema=response_schema,
+            provider_options=provider_options,
+            tool_specs_and_names=tool_specs_and_names,
+            system_prompt=self._config.system_prompt,
+        )
+
         try:
+            start_event_source = provider_name.strip() or self._config.name
             started, created = self._store.begin_turn(
                 turn_id=turn_id,
                 session_id=session_id,
                 idempotency_key=str(request.idempotency_key or "").strip(),
                 provider_name=provider_name.strip(),
                 model=resolved_model,
-                messages=_project_messages(request.messages),
+                messages=projected_messages,
                 created_by=_actor_to_dict(request.created_by),
                 execution_ref=str(request.execution_ref or "").strip(),
+                resume_seed=prepared_seed,
+                start_event_source=start_event_source,
+                start_event_data={"session_id": session_id, "model": resolved_model},
             )
         except ValueError as exc:
             context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
         if not created:
             return self.turn_to_proto(started)
 
-        prepared = PreparedTurn(
-            session_id=session_id,
-            turn_id=turn_id,
-            provider_name=provider_name.strip() or self._config.name,
-            resolved_model=resolved_model,
-            messages=list(started.messages),
-            response_schema=_struct_to_dict(request.response_schema),
-            provider_options=_struct_to_dict(request.provider_options),
-            tool_specs_and_names=_tool_registry_from_resolved_tools(request.tools),
-        )
-        self._store.append_turn_event(
-            turn_id=turn_id,
-            event_type="turn.started",
-            source=prepared.provider_name,
-            data={"session_id": session_id, "model": resolved_model},
-        )
-        threading.Thread(target=self._complete_turn, args=(prepared,), daemon=True).start()
+        self.schedule_turn(turn_id)
         return self.turn_to_proto(started)
 
-    def _complete_turn(self, prepared: "PreparedTurn") -> None:
-        tool_specs, function_name_to_tool_id, loaded_tool_ids = _copy_tool_registry(prepared.tool_specs_and_names)
-        slack_reply_ref = _slack_reply_ref_from_messages(prepared.messages)
-        conversation = _build_initial_conversation(
-            system_prompt=self._config.system_prompt,
-            projected_messages=prepared.messages,
-            response_schema=prepared.response_schema,
-        )
+    def resume_incomplete_turns(self) -> None:
+        if not self._config.resume.enabled:
+            return
+        for turn_id in self._store.list_recoverable_turn_ids(limit=self._config.resume.startup_scan_limit):
+            self.schedule_turn(turn_id)
 
+    def schedule_turn(self, turn_id: str) -> None:
+        turn_id = turn_id.strip()
+        if not turn_id:
+            return
+        with self._scheduled_lock:
+            if turn_id in self._scheduled_turns:
+                return
+            self._scheduled_turns.add(turn_id)
+        threading.Thread(target=self._complete_turn_by_id, args=(turn_id,), daemon=True).start()
+
+    def _complete_turn_by_id(self, turn_id: str) -> None:
+        claimed = False
+        heartbeat_stop: threading.Event | None = None
+        heartbeat: threading.Thread | None = None
         try:
-            canceled = self._store.get_turn(prepared.turn_id)
-            if canceled is None:
+            run = self._store.get_turn(turn_id)
+            if run is None or run.status in _TERMINAL_STATUSES:
                 return
-            if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+            checkpoint = self._store.get_turn_checkpoint(turn_id)
+            if checkpoint is None:
+                checkpoint = self._store.ensure_turn_checkpoint_from_seed(run)
+            if checkpoint is None:
+                if self._config.resume.legacy_running_policy == "fail":
+                    self._fail_run(
+                        run=run,
+                        messages=list(run.messages),
+                        status_message="turn was running before durable checkpoints were introduced; it cannot be resumed safely",
+                    )
                 return
-            for _ in range(self._config.max_steps):
-                canceled = self._store.get_turn(prepared.turn_id)
-                if canceled is None:
-                    return
-                if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+            claimed = self._store.claim_turn_lease(
+                turn_id, owner=self._worker_id, lease_seconds=self._config.resume.worker_lease_seconds
+            )
+            if not claimed:
+                return
+            heartbeat_stop, heartbeat = self._start_lease_heartbeat(turn_id)
+            self._run_turn_loop(turn_id)
+        finally:
+            if heartbeat_stop is not None:
+                heartbeat_stop.set()
+            if heartbeat is not None:
+                heartbeat.join(timeout=1.0)
+            if claimed:
+                try:
+                    self._store.release_turn_lease(turn_id, owner=self._worker_id)
+                except (grpc.RpcError, RuntimeError):
+                    pass
+            with self._scheduled_lock:
+                self._scheduled_turns.discard(turn_id)
+
+    def _start_lease_heartbeat(self, turn_id: str) -> tuple[threading.Event, threading.Thread]:
+        stop = threading.Event()
+        lease_seconds = self._config.resume.worker_lease_seconds
+        interval = max(1.0, min(10.0, lease_seconds / 3.0))
+
+        def renew_loop() -> None:
+            while not stop.wait(interval):
+                try:
+                    if not self._store.renew_turn_lease(turn_id, owner=self._worker_id, lease_seconds=lease_seconds):
+                        return
+                except (grpc.RpcError, RuntimeError):
                     return
 
-                step = self._backend.complete(
-                    model=prepared.resolved_model,
-                    messages=conversation,
-                    tools=tool_specs,
-                    provider_options=prepared.provider_options,
+        thread = threading.Thread(target=renew_loop, daemon=True)
+        thread.start()
+        return stop, thread
+
+    def _run_turn_loop(self, turn_id: str) -> None:
+        try:
+            for _ in range(self._config.max_steps + 1):
+                run = self._store.get_turn(turn_id)
+                if run is None or run.status in _TERMINAL_STATUSES:
+                    return
+                if run.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                    return
+                checkpoint = self._store.get_turn_checkpoint(turn_id)
+                if checkpoint is None:
+                    checkpoint = self._store.ensure_turn_checkpoint_from_seed(run)
+                if checkpoint is None:
+                    if self._config.resume.legacy_running_policy == "fail":
+                        self._fail_run(
+                            run=run,
+                            messages=list(run.messages),
+                            status_message="turn was running before durable checkpoints were introduced; it cannot be resumed safely",
+                        )
+                    return
+                if checkpoint.lease_owner != self._worker_id:
+                    return
+
+                self._store.append_turn_event_once(
+                    event_key=f"{turn_id}:turn.started",
+                    turn_id=turn_id,
+                    event_type="turn.started",
+                    source=checkpoint.provider_name,
+                    data={"session_id": checkpoint.session_id, "model": checkpoint.model},
                 )
-                conversation.append(step.assistant_message)
-
-                if step.tool_calls:
-                    for tool_call in step.tool_calls:
-                        resolved_tool_id = function_name_to_tool_id.get(tool_call.tool_id, "")
-                        if not resolved_tool_id:
-                            self._fail_turn(
-                                prepared=prepared,
-                                messages=prepared.messages,
-                                status_message=f"model requested unknown tool {tool_call.tool_id!r}",
-                            )
-                            return
-
-                        canceled = self._store.get_turn(prepared.turn_id)
-                        if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-                            return
-
-                        arguments = _augment_tool_arguments_from_assistant_text(
-                            resolved_tool_id=resolved_tool_id,
-                            tool_name=tool_call.tool_id,
-                            arguments=tool_call.arguments,
-                            tool_specs=tool_specs,
-                            assistant_text=step.output_text,
-                        )
-                        arguments = self._repair_missing_slack_reply_text(
-                            prepared=prepared,
-                            conversation=conversation[:-1],
-                            assistant_message=step.assistant_message,
-                            tool_call_id=tool_call.call_id,
-                            resolved_tool_id=resolved_tool_id,
-                            tool_name=tool_call.tool_id,
-                            arguments=arguments,
-                            tool_specs=tool_specs,
-                            default_reply_ref=slack_reply_ref,
-                        )
-                        canceled = self._store.get_turn(prepared.turn_id)
-                        if canceled is None:
-                            return
-                        if canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-                            return
-                        validation_error = _tool_arguments_validation_error(
-                            tool_name=tool_call.tool_id, arguments=arguments, tool_specs=tool_specs
-                        )
-                        execution_arguments, slack_reply_ref_error = _inject_slack_reply_ref(
-                            resolved_tool_id=resolved_tool_id, arguments=arguments, default_reply_ref=slack_reply_ref
-                        )
-                        self._store.append_turn_event(
-                            turn_id=prepared.turn_id,
-                            event_type="tool.started",
-                            source=prepared.provider_name,
-                            data={
-                                "tool_call_id": tool_call.call_id,
-                                "tool_id": resolved_tool_id,
-                                "arguments": execution_arguments,
-                            },
-                        )
-                        if resolved_tool_id == TOOL_SEARCH_TOOL_ID:
-                            with gestalt.AgentHost() as host:
-                                tool_response_body = _search_tools_for_model(
-                                    host=host,
-                                    prepared=prepared,
-                                    tool_call_arguments=arguments,
-                                    tool_specs=tool_specs,
-                                    function_name_to_tool_id=function_name_to_tool_id,
-                                    loaded_tool_ids=loaded_tool_ids,
-                                )
-                            self._store.append_turn_event(
-                                turn_id=prepared.turn_id,
-                                event_type="tool.completed",
-                                source=prepared.provider_name,
-                                data={"tool_call_id": tool_call.call_id, "tool_id": resolved_tool_id, "status": 200},
-                            )
-                            conversation.append(
-                                {"role": "tool", "tool_call_id": tool_call.call_id, "content": tool_response_body}
-                            )
-                            continue
-
-                        if slack_reply_ref_error:
-                            validation_error = slack_reply_ref_error
-                        if validation_error:
-                            self._store.append_turn_event(
-                                turn_id=prepared.turn_id,
-                                event_type="tool.completed",
-                                source=prepared.provider_name,
-                                data={
-                                    "tool_call_id": tool_call.call_id,
-                                    "tool_id": resolved_tool_id,
-                                    "status": 400,
-                                    "error": validation_error,
-                                },
-                            )
-                            conversation.append(
-                                _tool_result_message(
-                                    tool_call_id=tool_call.call_id, content=validation_error, is_error=True
-                                )
-                            )
-                            continue
-
-                        with gestalt.AgentHost() as host:
-                            tool_response = host.execute_tool(
-                                agent_pb2.ExecuteAgentToolRequest(
-                                    session_id=prepared.session_id,
-                                    turn_id=prepared.turn_id,
-                                    tool_call_id=tool_call.call_id,
-                                    tool_id=resolved_tool_id,
-                                    arguments=_dict_to_struct(execution_arguments),
-                                )
-                            )
-                        canceled = self._store.get_turn(prepared.turn_id)
-                        if canceled is not None and canceled.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
-                            return
-                        self._store.append_turn_event(
-                            turn_id=prepared.turn_id,
-                            event_type="tool.completed",
-                            source=prepared.provider_name,
-                            data={
-                                "tool_call_id": tool_call.call_id,
-                                "tool_id": resolved_tool_id,
-                                "status": int(tool_response.status or 0),
-                            },
-                        )
-                        conversation.append(
-                            _tool_result_message(
-                                tool_call_id=tool_call.call_id,
-                                content=str(tool_response.body or ""),
-                                is_error=int(tool_response.status or 0) >= 400,
-                            )
-                        )
+                if checkpoint.phase in {PHASE_REPAIR_ARGUMENTS, PHASE_TOOL_READY, PHASE_TOOL_RESULT_RECORDED}:
+                    if not self._continue_pending_tool(run=run, checkpoint=checkpoint):
+                        return
                     continue
-
-                final_text = step.output_text.strip()
-                if not final_text:
-                    self._fail_turn(
-                        prepared=prepared,
-                        messages=prepared.messages,
-                        status_message="model returned no final text and no tool calls",
+                if checkpoint.phase == PHASE_TOOL_INFLIGHT:
+                    pending = checkpoint.pending_tool_call or {}
+                    result = self._store.get_tool_result(
+                        turn_id=turn_id, tool_call_id=str(pending.get("tool_call_id") or "")
+                    )
+                    if result is not None:
+                        self._record_tool_result_in_conversation(
+                            checkpoint=replace(checkpoint, phase=PHASE_TOOL_RESULT_RECORDED), result=result
+                        )
+                        continue
+                    self._fail_run(
+                        run=run,
+                        messages=checkpoint.messages,
+                        status_message=_uncertain_tool_status_message(checkpoint.pending_tool_call),
+                        lease_owner=self._worker_id,
                     )
                     return
-
-                structured_output = _parse_structured_output(
-                    output_text=final_text, response_schema=prepared.response_schema
+                if checkpoint.phase == PHASE_TERMINAL:
+                    return
+                if checkpoint.step_index >= self._config.max_steps:
+                    self._fail_run(
+                        run=run,
+                        messages=checkpoint.messages,
+                        status_message=f"run exceeded maxSteps ({self._config.max_steps})",
+                        lease_owner=self._worker_id,
+                    )
+                    return
+                if not self._run_model_step(run=run, checkpoint=checkpoint):
+                    return
+            run = self._store.get_turn(turn_id)
+            if run is not None and run.status not in _TERMINAL_STATUSES:
+                self._fail_run(
+                    run=run,
+                    messages=list(run.messages),
+                    status_message=f"run exceeded maxSteps ({self._config.max_steps})",
+                    lease_owner=self._worker_id,
                 )
-                self._store.mark_turn_succeeded(
-                    turn_id=prepared.turn_id,
-                    messages=_append_assistant_message(prepared.messages, final_text),
-                    output_text=final_text,
-                    structured_output=structured_output,
-                )
-                return
         except ValidationError as exc:
-            self._fail_turn(
-                prepared=prepared,
-                messages=prepared.messages,
-                status_message=f"response_schema validation failed: {exc.message}",
-            )
-            return
+            run = self._store.get_turn(turn_id)
+            if run is not None:
+                self._fail_run(
+                    run=run,
+                    messages=_checkpoint_messages(self._store.get_turn_checkpoint(turn_id), fallback=run.messages),
+                    status_message=f"response_schema validation failed: {exc.message}",
+                    lease_owner=self._worker_id,
+                )
         except Exception as exc:
-            self._fail_turn(prepared=prepared, messages=prepared.messages, status_message=str(exc))
-            return
+            run = self._store.get_turn(turn_id)
+            if run is not None:
+                self._fail_run(
+                    run=run,
+                    messages=_checkpoint_messages(self._store.get_turn_checkpoint(turn_id), fallback=run.messages),
+                    status_message=str(exc),
+                    lease_owner=self._worker_id,
+                )
 
-        self._fail_turn(
-            prepared=prepared,
-            messages=prepared.messages,
-            status_message=f"run exceeded maxSteps ({self._config.max_steps})",
+    def _run_model_step(self, *, run: StoredRun, checkpoint: StoredTurnCheckpoint) -> bool:
+        tool_specs, function_name_to_tool_id, loaded_tool_ids = _tool_registry_from_checkpoint(checkpoint)
+        step = self._backend.complete(
+            model=checkpoint.model,
+            messages=list(checkpoint.conversation),
+            tools=tool_specs,
+            provider_options=checkpoint.provider_options,
+        )
+        if step.tool_calls:
+            conversation = list(checkpoint.conversation)
+            conversation.append(copy.deepcopy(step.assistant_message))
+            assistant_message_index = len(conversation) - 1
+            pending_tool_calls: list[dict[str, Any]] = []
+            for tool_call in step.tool_calls:
+                resolved_tool_id = function_name_to_tool_id.get(tool_call.tool_id, "")
+                if not resolved_tool_id:
+                    self._fail_run(
+                        run=run,
+                        messages=checkpoint.messages,
+                        status_message=f"model requested unknown tool {tool_call.tool_id!r}",
+                        lease_owner=self._worker_id,
+                    )
+                    return False
+                arguments = _augment_tool_arguments_from_assistant_text(
+                    resolved_tool_id=resolved_tool_id,
+                    tool_name=tool_call.tool_id,
+                    arguments=tool_call.arguments,
+                    tool_specs=tool_specs,
+                    assistant_text=step.output_text,
+                )
+                pending = _pending_tool_call(
+                    tool_call_id=tool_call.call_id,
+                    tool_name=tool_call.tool_id,
+                    resolved_tool_id=resolved_tool_id,
+                    arguments=arguments,
+                    assistant_message_index=assistant_message_index,
+                )
+                pending_tool_calls.append(pending)
+            pending = pending_tool_calls[0]
+            pending["remaining_tool_calls"] = pending_tool_calls[1:]
+            phase = _phase_for_pending_tool(
+                pending_tool_call=pending, tool_specs=tool_specs, default_reply_ref=checkpoint.slack_reply_ref
+            )
+            next_checkpoint = replace(
+                checkpoint,
+                phase=phase,
+                conversation=copy.deepcopy(conversation),
+                tool_specs=copy.deepcopy(tool_specs),
+                function_name_to_tool_id=dict(function_name_to_tool_id),
+                loaded_tool_ids=sorted(loaded_tool_ids),
+                pending_tool_call=pending,
+                repaired_arguments=None,
+                step_index=checkpoint.step_index + 1,
+                updated_at=datetime.now(tz=UTC),
+            )
+            self._store.put_turn_checkpoint(next_checkpoint, lease_owner=self._worker_id)
+            return self._continue_pending_tool(run=run, checkpoint=next_checkpoint)
+
+        final_text = step.output_text.strip()
+        if not final_text:
+            self._fail_run(
+                run=run,
+                messages=checkpoint.messages,
+                status_message="model returned no final text and no tool calls",
+                lease_owner=self._worker_id,
+            )
+            return False
+        structured_output = _parse_structured_output(output_text=final_text, response_schema=checkpoint.response_schema)
+        completed = self._store.mark_turn_succeeded(
+            turn_id=checkpoint.turn_id,
+            messages=_append_assistant_message(checkpoint.messages, final_text),
+            output_text=final_text,
+            structured_output=structured_output,
+            lease_owner=self._worker_id,
+        )
+        if completed.status != agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
+            return False
+        try:
+            self._persist_terminal_events(checkpoint=checkpoint, final_text=final_text)
+            self._store.put_turn_checkpoint(
+                replace(
+                    checkpoint,
+                    phase=PHASE_TERMINAL,
+                    conversation=list(checkpoint.conversation),
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                lease_owner=self._worker_id,
+            )
+        except (grpc.RpcError, RuntimeError):
+            pass
+        return False
+
+    def _continue_pending_tool(self, *, run: StoredRun, checkpoint: StoredTurnCheckpoint) -> bool:
+        prepared = _prepared_from_checkpoint(checkpoint)
+        pending = checkpoint.pending_tool_call or {}
+        tool_call_id = str(pending.get("tool_call_id") or "")
+        tool_name = str(pending.get("tool_name") or "")
+        resolved_tool_id = str(pending.get("resolved_tool_id") or "")
+        if not tool_call_id or not tool_name or not resolved_tool_id:
+            self._fail_run(
+                run=run,
+                messages=checkpoint.messages,
+                status_message="checkpoint is missing pending tool call",
+                lease_owner=self._worker_id,
+            )
+            return False
+        tool_specs, function_name_to_tool_id, loaded_tool_ids = _tool_registry_from_checkpoint(checkpoint)
+        arguments = copy.deepcopy(checkpoint.repaired_arguments or pending.get("arguments") or {})
+        conversation = copy.deepcopy(checkpoint.conversation)
+        if checkpoint.phase == PHASE_REPAIR_ARGUMENTS:
+            assistant_message_index = _assistant_message_index_from_pending(
+                pending_tool_call=pending, conversation=conversation
+            )
+            assistant_message = conversation[assistant_message_index] if assistant_message_index is not None else {}
+            if not isinstance(assistant_message, dict):
+                assistant_message = {}
+            arguments = self._repair_missing_slack_reply_text(
+                prepared=prepared,
+                conversation=conversation[: assistant_message_index or 0],
+                assistant_message=assistant_message,
+                tool_call_id=tool_call_id,
+                resolved_tool_id=resolved_tool_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                tool_specs=tool_specs,
+                default_reply_ref=checkpoint.slack_reply_ref,
+            )
+            if assistant_message_index is not None:
+                conversation[assistant_message_index] = assistant_message
+            checkpoint = replace(
+                checkpoint,
+                phase=PHASE_TOOL_READY,
+                conversation=conversation,
+                repaired_arguments=copy.deepcopy(arguments),
+                updated_at=datetime.now(tz=UTC),
+            )
+            self._store.put_turn_checkpoint(checkpoint, lease_owner=self._worker_id)
+
+        if checkpoint.phase == PHASE_TOOL_RESULT_RECORDED:
+            result = self._store.get_tool_result(turn_id=checkpoint.turn_id, tool_call_id=tool_call_id)
+            if result is None:
+                self._fail_run(
+                    run=run,
+                    messages=checkpoint.messages,
+                    status_message="checkpoint references missing tool result",
+                    lease_owner=self._worker_id,
+                )
+                return False
+            return self._record_tool_result_in_conversation(checkpoint=checkpoint, result=result)
+
+        validation_error = _tool_arguments_validation_error(
+            tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
+        )
+        execution_arguments, slack_reply_ref_error = _inject_slack_reply_ref(
+            resolved_tool_id=resolved_tool_id, arguments=arguments, default_reply_ref=checkpoint.slack_reply_ref
+        )
+        if slack_reply_ref_error:
+            validation_error = slack_reply_ref_error
+        self._store.append_turn_event_once(
+            event_key=f"{checkpoint.turn_id}:tool:{tool_call_id}:started",
+            turn_id=checkpoint.turn_id,
+            event_type="tool.started",
+            source=checkpoint.provider_name,
+            data={"tool_call_id": tool_call_id, "tool_id": resolved_tool_id, "arguments": execution_arguments},
+        )
+        inflight = replace(
+            checkpoint,
+            phase=PHASE_TOOL_INFLIGHT,
+            pending_tool_call={
+                **pending,
+                "arguments": copy.deepcopy(arguments),
+                "execution_arguments": copy.deepcopy(execution_arguments),
+            },
+            repaired_arguments=copy.deepcopy(arguments),
+            updated_at=datetime.now(tz=UTC),
+        )
+        self._store.put_turn_checkpoint(inflight, lease_owner=self._worker_id)
+        if validation_error:
+            result = {"status": 400, "body": validation_error, "is_error": True, "tool_id": resolved_tool_id}
+            try:
+                self._store.put_tool_result(
+                    turn_id=checkpoint.turn_id,
+                    tool_call_id=tool_call_id,
+                    result=result,
+                    lease_owner=self._worker_id,
+                )
+            except RuntimeError:
+                return False
+            self._store.append_turn_event_once(
+                event_key=f"{checkpoint.turn_id}:tool:{tool_call_id}:completed",
+                turn_id=checkpoint.turn_id,
+                event_type="tool.completed",
+                source=checkpoint.provider_name,
+                data={
+                    "tool_call_id": tool_call_id,
+                    "tool_id": resolved_tool_id,
+                    "status": 400,
+                    "error": validation_error,
+                },
+            )
+            return self._record_tool_result_in_conversation(
+                checkpoint=replace(inflight, phase=PHASE_TOOL_RESULT_RECORDED), result=result
+            )
+
+        if resolved_tool_id == TOOL_SEARCH_TOOL_ID:
+            with gestalt.AgentHost() as host:
+                body = _search_tools_for_model(
+                    host=host,
+                    prepared=prepared,
+                    tool_call_arguments=arguments,
+                    tool_specs=tool_specs,
+                    function_name_to_tool_id=function_name_to_tool_id,
+                    loaded_tool_ids=loaded_tool_ids,
+                )
+            result = {"status": 200, "body": body, "tool_id": resolved_tool_id}
+            updated = replace(
+                inflight,
+                tool_specs=copy.deepcopy(tool_specs),
+                function_name_to_tool_id=dict(function_name_to_tool_id),
+                loaded_tool_ids=sorted(loaded_tool_ids),
+            )
+            try:
+                self._store.put_tool_result(
+                    turn_id=checkpoint.turn_id,
+                    tool_call_id=tool_call_id,
+                    result=result,
+                    lease_owner=self._worker_id,
+                )
+            except RuntimeError:
+                return False
+            self._store.append_turn_event_once(
+                event_key=f"{checkpoint.turn_id}:tool:{tool_call_id}:completed",
+                turn_id=checkpoint.turn_id,
+                event_type="tool.completed",
+                source=checkpoint.provider_name,
+                data={"tool_call_id": tool_call_id, "tool_id": resolved_tool_id, "status": 200},
+            )
+            return self._record_tool_result_in_conversation(
+                checkpoint=replace(updated, phase=PHASE_TOOL_RESULT_RECORDED), result=result
+            )
+
+        with gestalt.AgentHost() as host:
+            tool_response = host.execute_tool(
+                _execute_tool_request(
+                    checkpoint=checkpoint,
+                    tool_call_id=tool_call_id,
+                    resolved_tool_id=resolved_tool_id,
+                    execution_arguments=execution_arguments,
+                )
+            )
+        current = self._store.get_turn(checkpoint.turn_id)
+        if current is not None and current.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+            return False
+        result = {
+            "status": int(tool_response.status or 0),
+            "body": str(tool_response.body or ""),
+            "is_error": int(tool_response.status or 0) >= 400,
+            "tool_id": resolved_tool_id,
+        }
+        try:
+            self._store.put_tool_result(
+                turn_id=checkpoint.turn_id, tool_call_id=tool_call_id, result=result, lease_owner=self._worker_id
+            )
+        except RuntimeError:
+            return False
+        self._store.append_turn_event_once(
+            event_key=f"{checkpoint.turn_id}:tool:{tool_call_id}:completed",
+            turn_id=checkpoint.turn_id,
+            event_type="tool.completed",
+            source=checkpoint.provider_name,
+            data={"tool_call_id": tool_call_id, "tool_id": resolved_tool_id, "status": result["status"]},
+        )
+        return self._record_tool_result_in_conversation(
+            checkpoint=replace(inflight, phase=PHASE_TOOL_RESULT_RECORDED), result=result
         )
 
-    def _fail_turn(self, *, prepared: "PreparedTurn", messages: list[dict[str, Any]], status_message: str) -> None:
-        self._store.mark_turn_failed(turn_id=prepared.turn_id, messages=messages, status_message=status_message)
+    def _record_tool_result_in_conversation(self, *, checkpoint: StoredTurnCheckpoint, result: dict[str, Any]) -> bool:
+        pending = checkpoint.pending_tool_call or {}
+        tool_call_id = str(pending.get("tool_call_id") or "")
+        conversation = copy.deepcopy(checkpoint.conversation)
+        conversation.append(
+            _tool_result_message(
+                tool_call_id=tool_call_id, content=str(result.get("body") or ""), is_error=bool(result.get("is_error"))
+            )
+        )
+        remaining_tool_calls = _remaining_tool_calls_from_pending(pending)
+        if remaining_tool_calls:
+            next_pending = remaining_tool_calls[0]
+            next_pending["remaining_tool_calls"] = remaining_tool_calls[1:]
+            tool_specs, _, _ = _tool_registry_from_checkpoint(checkpoint)
+            self._store.put_turn_checkpoint(
+                replace(
+                    checkpoint,
+                    phase=_phase_for_pending_tool(
+                        pending_tool_call=next_pending,
+                        tool_specs=tool_specs,
+                        default_reply_ref=checkpoint.slack_reply_ref,
+                    ),
+                    conversation=conversation,
+                    pending_tool_call=next_pending,
+                    repaired_arguments=None,
+                    updated_at=datetime.now(tz=UTC),
+                ),
+                lease_owner=self._worker_id,
+            )
+            return True
+        self._store.put_turn_checkpoint(
+            replace(
+                checkpoint,
+                phase=PHASE_MODEL_NEXT,
+                conversation=conversation,
+                pending_tool_call=None,
+                repaired_arguments=None,
+                updated_at=datetime.now(tz=UTC),
+            ),
+            lease_owner=self._worker_id,
+        )
+        return True
+
+    def _persist_terminal_events(self, *, checkpoint: StoredTurnCheckpoint, final_text: str) -> None:
+        self._store.append_turn_event_once(
+            event_key=f"{checkpoint.turn_id}:assistant.completed",
+            turn_id=checkpoint.turn_id,
+            event_type="assistant.completed",
+            source=checkpoint.provider_name,
+            data={"text": final_text},
+        )
+        self._store.append_turn_event_once(
+            event_key=f"{checkpoint.turn_id}:turn.completed",
+            turn_id=checkpoint.turn_id,
+            event_type="turn.completed",
+            source=checkpoint.provider_name,
+            data={"status": "succeeded"},
+        )
+
+    def _fail_run(
+        self, *, run: StoredRun, messages: list[dict[str, Any]], status_message: str, lease_owner: str = ""
+    ) -> None:
+        cleaned_status_message = status_message.strip()
+        try:
+            failed = self._store.mark_turn_failed(
+                turn_id=run.run_id, messages=messages, status_message=cleaned_status_message, lease_owner=lease_owner
+            )
+        except RuntimeError:
+            if lease_owner:
+                return
+            raise
+        if failed.status != agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
+            return
+        try:
+            self._store.append_turn_event_once(
+                event_key=f"{run.run_id}:turn.failed",
+                turn_id=run.run_id,
+                event_type="turn.failed",
+                source=run.provider_name,
+                data={"status_message": cleaned_status_message},
+            )
+        except (grpc.RpcError, RuntimeError):
+            pass
 
     def _repair_missing_slack_reply_text(
         self,
@@ -433,6 +773,163 @@ class PreparedTurn:
     response_schema: dict[str, Any]
     provider_options: dict[str, Any]
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]]
+
+
+def _resume_seed_from_request(
+    *,
+    messages: list[dict[str, Any]],
+    response_schema: dict[str, Any],
+    provider_options: dict[str, Any],
+    tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]],
+    system_prompt: str,
+) -> dict[str, Any]:
+    tool_specs, function_name_to_tool_id, loaded_tool_ids = _copy_tool_registry(tool_specs_and_names)
+    return {
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "phase": PHASE_MODEL_NEXT,
+        "messages": copy.deepcopy(messages),
+        "conversation": _build_initial_conversation(
+            system_prompt=system_prompt, projected_messages=messages, response_schema=response_schema
+        ),
+        "response_schema": copy.deepcopy(response_schema),
+        "provider_options": copy.deepcopy(provider_options),
+        "tool_specs": copy.deepcopy(tool_specs),
+        "function_name_to_tool_id": dict(function_name_to_tool_id),
+        "loaded_tool_ids": sorted(loaded_tool_ids),
+        "slack_reply_ref": _slack_reply_ref_from_messages(messages),
+        "step_index": 0,
+        "pending_tool_call": None,
+        "repaired_arguments": None,
+    }
+
+
+def _prepared_from_checkpoint(checkpoint: StoredTurnCheckpoint) -> PreparedTurn:
+    return PreparedTurn(
+        session_id=checkpoint.session_id,
+        turn_id=checkpoint.turn_id,
+        provider_name=checkpoint.provider_name,
+        resolved_model=checkpoint.model,
+        messages=copy.deepcopy(checkpoint.messages),
+        response_schema=copy.deepcopy(checkpoint.response_schema),
+        provider_options=copy.deepcopy(checkpoint.provider_options),
+        tool_specs_and_names=_tool_registry_from_checkpoint(checkpoint),
+    )
+
+
+def _tool_registry_from_checkpoint(
+    checkpoint: StoredTurnCheckpoint,
+) -> tuple[list[dict[str, Any]], dict[str, str], set[str]]:
+    return (
+        copy.deepcopy(checkpoint.tool_specs),
+        dict(checkpoint.function_name_to_tool_id),
+        set(checkpoint.loaded_tool_ids),
+    )
+
+
+def _pending_tool_call(
+    *,
+    tool_call_id: str,
+    tool_name: str,
+    resolved_tool_id: str,
+    arguments: dict[str, Any],
+    assistant_message_index: int | None = None,
+) -> dict[str, Any]:
+    pending: dict[str, Any] = {
+        "tool_call_id": tool_call_id,
+        "tool_name": tool_name,
+        "resolved_tool_id": resolved_tool_id,
+        "arguments": copy.deepcopy(arguments),
+    }
+    if assistant_message_index is not None:
+        pending["assistant_message_index"] = assistant_message_index
+    return pending
+
+
+def _phase_for_pending_tool(
+    *, pending_tool_call: dict[str, Any], tool_specs: list[dict[str, Any]], default_reply_ref: str
+) -> str:
+    return (
+        PHASE_REPAIR_ARGUMENTS
+        if _needs_slack_reply_repair(
+            resolved_tool_id=str(pending_tool_call.get("resolved_tool_id") or ""),
+            tool_name=str(pending_tool_call.get("tool_name") or ""),
+            arguments=copy.deepcopy(pending_tool_call.get("arguments") or {}),
+            tool_specs=tool_specs,
+            default_reply_ref=default_reply_ref,
+        )
+        else PHASE_TOOL_READY
+    )
+
+
+def _remaining_tool_calls_from_pending(pending_tool_call: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_remaining = pending_tool_call.get("remaining_tool_calls")
+    if not isinstance(raw_remaining, list):
+        return []
+    return [copy.deepcopy(call) for call in raw_remaining if isinstance(call, dict)]
+
+
+def _assistant_message_index_from_pending(
+    *, pending_tool_call: dict[str, Any], conversation: list[dict[str, Any]]
+) -> int | None:
+    raw_index = pending_tool_call.get("assistant_message_index")
+    if isinstance(raw_index, int) and 0 <= raw_index < len(conversation):
+        return raw_index
+    if conversation:
+        return len(conversation) - 1
+    return None
+
+
+def _needs_slack_reply_repair(
+    *,
+    resolved_tool_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    tool_specs: list[dict[str, Any]],
+    default_reply_ref: str,
+) -> bool:
+    return (
+        bool(default_reply_ref)
+        and _missing_slack_reply_text_argument_name(
+            resolved_tool_id=resolved_tool_id, tool_name=tool_name, arguments=arguments, tool_specs=tool_specs
+        )
+        is not None
+    )
+
+
+def _uncertain_tool_status_message(pending_tool_call: dict[str, Any] | None) -> str:
+    tool_call_id = ""
+    if isinstance(pending_tool_call, dict):
+        tool_call_id = str(pending_tool_call.get("tool_call_id") or "").strip()
+    if not tool_call_id:
+        tool_call_id = "unknown"
+    return f"tool call {tool_call_id} may have executed before provider restart; refusing to replay without a durable completed result"
+
+
+def _execute_tool_request(
+    *, checkpoint: StoredTurnCheckpoint, tool_call_id: str, resolved_tool_id: str, execution_arguments: dict[str, Any]
+) -> Any:
+    request = agent_pb2.ExecuteAgentToolRequest(
+        session_id=checkpoint.session_id,
+        turn_id=checkpoint.turn_id,
+        tool_call_id=tool_call_id,
+        tool_id=resolved_tool_id,
+        arguments=_dict_to_struct(execution_arguments),
+    )
+    if "idempotency_key" in request.DESCRIPTOR.fields_by_name:
+        request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
+    return request
+
+
+def _tool_invocation_idempotency_key(*, checkpoint: StoredTurnCheckpoint, tool_call_id: str) -> str:
+    return f"agent/simple:{checkpoint.provider_name}:{checkpoint.turn_id}:{tool_call_id}"
+
+
+def _checkpoint_messages(
+    checkpoint: StoredTurnCheckpoint | None, *, fallback: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    if checkpoint is not None and checkpoint.messages:
+        return copy.deepcopy(checkpoint.messages)
+    return copy.deepcopy(fallback)
 
 
 @dataclass(frozen=True, slots=True)
@@ -765,7 +1262,7 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
 def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool = False) -> int:
     try:
         value = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     if value < 0:
         return default
@@ -777,7 +1274,7 @@ def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool =
 def _tool_search_candidate_limit(raw_value: Any, *, default: int) -> int:
     try:
         value = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     if value <= 0:
         return 0
@@ -796,9 +1293,9 @@ def _tool_search_load_refs(raw_value: Any) -> list[Any]:
         if not plugin or not operation:
             continue
         ref = agent_pb2.AgentToolRef(plugin=plugin, operation=operation)
+        _set_proto_string_field(ref, "system", item.get("system"))
         _set_proto_string_field(ref, "connection", item.get("connection"))
         _set_proto_string_field(ref, "instance", item.get("instance"))
-        _set_proto_string_field(ref, "credential_mode", item.get("credential_mode"))
         refs.append(ref)
     return refs
 
@@ -830,7 +1327,7 @@ def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
     if ref is None:
         return {}
     out: dict[str, str] = {}
-    for field in ("plugin", "operation", "connection", "instance", "credential_mode"):
+    for field in ("system", "plugin", "operation", "connection", "instance"):
         value = str(getattr(ref, field, "") or "").strip()
         if value:
             out[field] = value
