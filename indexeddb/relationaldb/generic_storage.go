@@ -745,14 +745,14 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 		if err != nil {
 			return nil, err
 		}
-			nonUniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
-			if err != nil {
-				return nil, err
-			}
-			uniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
-			if err != nil {
-				return nil, err
-			}
+		nonUniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
+		if err != nil {
+			return nil, err
+		}
+		uniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		nonUniqueRows, err = s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.GetName())
 		if err != nil {
