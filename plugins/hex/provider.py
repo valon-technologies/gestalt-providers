@@ -129,6 +129,7 @@ class ContextVersionPublishInput(gestalt.Model):
     id="projects.export",
     method="POST",
     description="Export a Hex project as YAML via Hex's CLI-only API endpoint",
+    tags=["notebook"],
 )
 def project_export(input: ProjectExportInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -153,6 +154,7 @@ def project_export(input: ProjectExportInput, req: gestalt.Request) -> Operation
     id="projects.import",
     method="POST",
     description="Import or update a Hex project from raw YAML via Hex's CLI-only API endpoint",
+    tags=["notebook"],
 )
 def project_import(input: ProjectImportInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -173,6 +175,7 @@ def project_import(input: ProjectImportInput, req: gestalt.Request) -> Operation
     id="projects.runDraft",
     method="POST",
     description="Run the draft notebook version of a Hex project via Hex's CLI-only API endpoint",
+    tags=["notebook"],
 )
 def project_run_draft(
     input: ProjectRunDraftInput, req: gestalt.Request
@@ -199,6 +202,7 @@ def project_run_draft(
     id="cells.run",
     method="POST",
     description="Run a Hex cell and its dependencies via Hex's CLI-only API endpoint",
+    tags=["notebook"],
 )
 def cell_run(input: CellRunInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)

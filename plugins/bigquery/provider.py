@@ -49,7 +49,7 @@ class QueryOutput(gestalt.Model):
 QueryResult = QueryOutput | gestalt.Response[dict[str, str]]
 
 
-@gestalt.operation(description="Execute a BigQuery SQL query")
+@gestalt.operation(description="Execute a BigQuery SQL query", tags=["bq", "sql"])
 def query(input: QueryInput, req: gestalt.Request) -> QueryResult:
     project_id = input.project_id.strip()
     if not project_id:

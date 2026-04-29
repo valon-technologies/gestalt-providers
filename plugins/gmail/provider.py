@@ -97,6 +97,7 @@ class ForwardMessageInput(gestalt.Model):
     id="messages.send",
     method="POST",
     description="Send an email message",
+    tags=["email", "mail"],
 )
 def messages_send(input: SendMessageInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -117,6 +118,7 @@ def messages_send(input: SendMessageInput, req: gestalt.Request) -> OperationRes
     id="drafts.create",
     method="POST",
     description="Create an email draft",
+    tags=["email", "mail"],
 )
 def drafts_create(input: CreateDraftInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -137,6 +139,7 @@ def drafts_create(input: CreateDraftInput, req: gestalt.Request) -> OperationRes
     id="drafts.update",
     method="PUT",
     description="Update an email draft",
+    tags=["email", "mail"],
 )
 def drafts_update(input: UpdateDraftInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -157,6 +160,7 @@ def drafts_update(input: UpdateDraftInput, req: gestalt.Request) -> OperationRes
     id="drafts.send",
     method="POST",
     description="Send an existing email draft",
+    tags=["email", "mail"],
 )
 def drafts_send(input: SendDraftInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -177,6 +181,7 @@ def drafts_send(input: SendDraftInput, req: gestalt.Request) -> OperationResult:
     id="messages.reply",
     method="POST",
     description="Reply to an existing message",
+    tags=["email", "mail"],
 )
 def messages_reply(input: ReplyMessageInput, req: gestalt.Request) -> OperationResult:
     token_error = _validate_token(req)
@@ -204,6 +209,7 @@ def messages_reply(input: ReplyMessageInput, req: gestalt.Request) -> OperationR
     id="messages.forward",
     method="POST",
     description="Forward a message to new recipients",
+    tags=["email", "mail"],
 )
 def messages_forward(
     input: ForwardMessageInput, req: gestalt.Request
