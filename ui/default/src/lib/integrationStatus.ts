@@ -365,9 +365,14 @@ function normalizeConnection(
     isManagedIdentityOwned,
   );
   const isMCPPassthrough = raw.mcpPassthrough === true;
+  const shouldShowCredentialDetail =
+    credentialState === "missing" ||
+    credentialState === "invalid" ||
+    credentialState === "unknown";
   const detailLines = compact([
-    isMCPPassthrough ? "MCP passthrough" : credentialLabel,
-    isNoAuth ? undefined : ownerLabel,
+    isMCPPassthrough ? "MCP passthrough" : undefined,
+    shouldShowCredentialDetail ? credentialLabel : undefined,
+    shouldShowCredentialDetail && !isNoAuth ? ownerLabel : undefined,
     healthLabel,
   ]);
   const usefulStatusDetail =
@@ -377,7 +382,6 @@ function normalizeConnection(
     status === "unavailable" ||
     credentialState === "missing" ||
     credentialState === "invalid" ||
-    validHealthState(raw.healthState) === "not_checked" ||
     validHealthState(raw.healthState) === "unhealthy" ||
     inferredActions.includes("admin_configure") ||
     raw.mcpPassthrough === true ||
@@ -746,7 +750,7 @@ function healthDisplayLabel(state: HealthState): string | undefined {
     case "unhealthy":
       return "Health unhealthy";
     case "not_checked":
-      return "Health not checked";
+      return undefined;
     case "not_applicable":
       return undefined;
     case "unknown":

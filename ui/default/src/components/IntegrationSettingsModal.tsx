@@ -14,7 +14,7 @@ import {
   statusTone,
   type ConnectionContext,
   type NormalizedConnection,
-  type StatusTone,
+  type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
 import Button from "./Button";
 import { CheckCircleIcon, CloseIcon } from "./icons";
@@ -55,7 +55,7 @@ interface IntegrationSettingsModalProps {
   connectionContext?: ConnectionContext;
 }
 
-function statusBadgeClasses(tone: StatusTone): string {
+function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
   switch (tone) {
     case "success":
       return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
@@ -66,6 +66,20 @@ function statusBadgeClasses(tone: StatusTone): string {
     case "neutral":
       return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
   }
+}
+
+function shouldShowIntegrationSummary(status: NormalizedIntegrationStatus): boolean {
+  if (status.connected && status.status === "ready") {
+    return false;
+  }
+  return status.status !== "needs_user_connection";
+}
+
+function shouldShowConnectionStatusText(connection: NormalizedConnection): boolean {
+  if (connection.connected && connection.status === "ready") {
+    return false;
+  }
+  return connection.status !== "needs_user_connection";
 }
 
 function normalizeActionKinds(connection: NormalizedConnection): ActionKind[] {
@@ -309,6 +323,9 @@ export default function IntegrationSettingsModal({
   }
 
   function renderStatusBadge(connection: NormalizedConnection) {
+    if (!shouldShowConnectionStatusText(connection)) {
+      return null;
+    }
     const tone = statusTone(
       connection.status,
       connection.credentialState,
@@ -377,9 +394,7 @@ export default function IntegrationSettingsModal({
             <div className="flex items-center gap-2.5">
               {connection.connected ? (
                 <CheckCircleIcon className="h-4 w-4 shrink-0 text-grove-500" />
-              ) : (
-                <span className="h-2 w-2 shrink-0 rounded-full bg-faint" />
-              )}
+              ) : null}
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-primary">
                   {connection.label}
@@ -546,9 +561,11 @@ export default function IntegrationSettingsModal({
                 >
                   {displayName}
                 </h2>
-                <p className="mt-2 text-sm text-muted">
-                  {normalizedStatus.summaryLabel}
-                </p>
+                {shouldShowIntegrationSummary(normalizedStatus) ? (
+                  <p className="mt-2 text-sm text-muted">
+                    {normalizedStatus.summaryLabel}
+                  </p>
+                ) : null}
               </div>
               <button
                 onClick={closeDialog}
