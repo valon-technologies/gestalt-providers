@@ -104,15 +104,13 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
 
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Agent Identities" }),
     ).toBeVisible();
 
     await page.goto("/identities?id=agent-1");
-    await expect(page).toHaveURL(/\/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Agent Identities" }),
     ).toBeVisible();
   });
 

@@ -135,7 +135,7 @@ export async function mockManagedIdentities(
   page: Page,
   identities: ManagedIdentity[],
 ) {
-  await page.route("**/api/v1/identities", (route: Route, request) => {
+  await page.route("**/api/v1/authorization/subjects", (route: Route, request) => {
     if (request.method() === "GET") {
       route.fulfill({ json: identities });
     } else {

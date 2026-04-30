@@ -46,27 +46,11 @@ export default function IdentityTokenCreateForm({
 
     const permissions: AccessPermission[] = [];
     for (const grant of grants) {
-      const operations = uniqueOperations(grant.operations);
       if (fd.get(`plugin_${grant.plugin}`)) {
         permissions.push({ plugin: grant.plugin });
         continue;
       }
-      if (operations.length === 0) {
-        const narrowedOperations = parseOperations(fd.get(`plugin_ops_${grant.plugin}`));
-        if (narrowedOperations.length > 0) {
-          permissions.push({
-            plugin: grant.plugin,
-            operations: narrowedOperations,
-          });
-        } else if (fd.get(`plugin_${grant.plugin}`)) {
-          permissions.push({ plugin: grant.plugin });
-        }
-        continue;
-      }
-
-      const selectedOperations = operations.filter((operation) =>
-        fd.get(`op_${grant.plugin}_${operation}`),
-      );
+      const selectedOperations = parseOperations(fd.get(`plugin_ops_${grant.plugin}`));
       if (selectedOperations.length > 0) {
         permissions.push({
           plugin: grant.plugin,
@@ -123,13 +107,17 @@ export default function IdentityTokenCreateForm({
             ) : (
               <div className="mt-3 space-y-4">
                 {grants.map((grant) => {
-                  const operations = uniqueOperations(grant.operations);
                   return (
                     <div
                       key={grant.plugin}
                       className="rounded-md border border-alpha bg-base-50 p-4 dark:bg-surface-raised"
                     >
-                      <p className="text-sm font-medium text-primary">{grant.plugin}</p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-primary">{grant.plugin}</p>
+                        <span className="rounded-full border border-alpha px-2.5 py-1 text-xs text-faint">
+                          {grant.role}
+                        </span>
+                      </div>
                       <label className="mt-3 flex items-center gap-2 text-sm text-muted">
                         <input
                           type="checkbox"
@@ -138,49 +126,24 @@ export default function IdentityTokenCreateForm({
                         />
                         Grant full access to {grant.plugin}
                       </label>
-                      {operations.length === 0 ? (
-                        <div className="mt-3 space-y-3">
-                          <div>
-                            <label
-                              htmlFor={`plugin-ops-${grant.plugin}`}
-                              className="label-text block"
-                            >
-                              Operations for {grant.plugin}
-                            </label>
-                            <input
-                              id={`plugin-ops-${grant.plugin}`}
-                              name={`plugin_ops_${grant.plugin}`}
-                              type="text"
-                              placeholder="Optional, comma-separated"
-                              className={`mt-2 w-full ${INPUT_CLASSES}`}
-                            />
-                            <p className="mt-2 text-xs text-faint">
-                              Leave blank and check full access to mint a plugin-wide token.
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="mt-3 flex flex-wrap gap-3">
-                            {operations.map((operation) => (
-                              <label
-                                key={operation}
-                                className="flex items-center gap-2 text-sm text-muted"
-                              >
-                                <input
-                                  type="checkbox"
-                                  name={`op_${grant.plugin}_${operation}`}
-                                  className="h-4 w-4"
-                                />
-                                {operation}
-                              </label>
-                            ))}
-                          </div>
-                          <p className="mt-2 text-xs text-faint">
-                            Leave full access unchecked to mint an operation-scoped token.
-                          </p>
-                        </>
-                      )}
+                      <div className="mt-3">
+                        <label
+                          htmlFor={`plugin-ops-${grant.plugin}`}
+                          className="label-text block"
+                        >
+                          Operations for {grant.plugin}
+                        </label>
+                        <input
+                          id={`plugin-ops-${grant.plugin}`}
+                          name={`plugin_ops_${grant.plugin}`}
+                          type="text"
+                          placeholder="Optional, comma-separated"
+                          className={`mt-2 w-full ${INPUT_CLASSES}`}
+                        />
+                        <p className="mt-2 text-xs text-faint">
+                          Leave blank and check full access to mint a plugin-wide token.
+                        </p>
+                      </div>
                     </div>
                   );
                 })}

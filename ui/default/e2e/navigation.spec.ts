@@ -73,11 +73,10 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("identities page redirects to authorization", async ({ authenticatedPage: page }) => {
+  test("identities page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/authorization/);
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Agent Identities" }),
     ).toBeVisible();
   });
 

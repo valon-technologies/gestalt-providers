@@ -16,15 +16,33 @@ import IdentitySummaryCard from "@/components/IdentitySummaryCard";
 import ManagedIdentityDetailView from "@/components/ManagedIdentityDetailView";
 import Nav from "@/components/Nav";
 
+function managedIdentityLocalIDFromName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 128);
+}
+
+function canonicalManagedIdentityID(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes(":")) return trimmed;
+  return `service_account:${trimmed}`;
+}
+
 export default function ManagedIdentitiesPageClient() {
   const searchParams = useSearchParams();
-  const identityID = searchParams.get("id")?.trim() || "";
+  const identityID = canonicalManagedIdentityID(searchParams.get("id") || "");
   const [identitiesAvailable, setIdentitiesAvailable] = useState<boolean | null>(null);
   const [identities, setIdentities] = useState<ManagedIdentity[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [displayNameInput, setDisplayNameInput] = useState("");
+  const [identityLocalID, setIdentityLocalID] = useState("");
+  const [identityIDEdited, setIdentityIDEdited] = useState(false);
   const loadRequestIdRef = useRef(0);
 
   async function loadIdentities() {
@@ -75,14 +93,16 @@ export default function ManagedIdentitiesPageClient() {
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
-    const displayName = (new FormData(form).get("displayName") as string)?.trim();
-    if (!displayName) return;
+    const fd = new FormData(form);
+    const displayName = (fd.get("displayName") as string)?.trim();
+    const id = (fd.get("identityID") as string)?.trim();
+    if (!displayName || !id) return;
 
     setCreating(true);
     setCreateError(null);
     try {
-      const identity = await createManagedIdentity(displayName);
-      window.location.href = `/identities?id=${encodeURIComponent(identity.id)}`;
+      const identity = await createManagedIdentity(id, displayName);
+      window.location.href = `/identities?id=${encodeURIComponent(identity.subjectId)}`;
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create identity");
     } finally {
@@ -126,15 +146,15 @@ export default function ManagedIdentitiesPageClient() {
                 Agent Identities
               </h1>
               <p className="mt-2 text-sm text-muted">
-                Create and manage shared non-human identities for tokens and plugin connections.
+                Create and manage shared non-human identities for tokens and plugin authorization.
               </p>
             </div>
 
             <form
               onSubmit={handleCreate}
-              className="mt-8 flex flex-col gap-3 rounded-lg border border-alpha bg-base-white p-5 dark:bg-surface sm:flex-row sm:items-end"
+              className="mt-8 grid gap-3 rounded-lg border border-alpha bg-base-white p-5 dark:bg-surface lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
             >
-              <div className="flex-1">
+              <div>
                 <label htmlFor="identity-display-name" className="label-text block">
                   Display name
                 </label>
@@ -144,12 +164,49 @@ export default function ManagedIdentitiesPageClient() {
                   type="text"
                   required
                   placeholder="e.g. Release Bot"
+                  value={displayNameInput}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setDisplayNameInput(nextValue);
+                    if (!identityIDEdited) {
+                      setIdentityLocalID(managedIdentityLocalIDFromName(nextValue));
+                    }
+                  }}
                   className={`mt-2 w-full ${INPUT_CLASSES}`}
                 />
               </div>
-              <Button type="submit" disabled={creating}>
-                {creating ? "Creating..." : "Create Identity"}
-              </Button>
+              <div>
+                <label htmlFor="identity-id" className="label-text block">
+                  Identity ID
+                </label>
+                <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-alpha-5 dark:bg-surface">
+                  <span className="flex items-center border-r border-alpha px-3 font-mono text-sm text-faint">
+                    service_account:
+                  </span>
+                  <input
+                    id="identity-id"
+                    name="identityID"
+                    type="text"
+                    required
+                    pattern="[A-Za-z0-9._-]{1,128}"
+                    placeholder="release-bot"
+                    value={identityLocalID}
+                    onChange={(event) => {
+                      setIdentityIDEdited(true);
+                      setIdentityLocalID(event.target.value);
+                    }}
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-none"
+                  />
+                </div>
+                <p className="mt-2 text-xs text-faint">
+                  Letters, numbers, dots, underscores, and hyphens.
+                </p>
+              </div>
+              <div>
+                <Button type="submit" disabled={creating}>
+                  {creating ? "Creating..." : "Create Identity"}
+                </Button>
+              </div>
             </form>
 
             {createError && <p className="mt-4 text-sm text-ember-500">{createError}</p>}
