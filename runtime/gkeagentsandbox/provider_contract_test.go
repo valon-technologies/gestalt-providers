@@ -129,8 +129,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	execCalls := slices.Clone(fake.execCalls)
 	forwardPorts := slices.Clone(fake.forwardPorts)
 	fake.mu.Unlock()
-	if len(execCalls) != 1 {
-		t.Fatalf("runtime Exec calls = %d, want 1", len(execCalls))
+	if len(execCalls) < 2 {
+		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(execCalls))
 	}
 	if !slices.Equal(execCalls[0].command[:2], []string{"sh", "-c"}) {
 		t.Fatalf("runtime Exec command = %#v, want sh -c", execCalls[0].command)
@@ -147,6 +147,17 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	} {
 		if !strings.Contains(launchScript, want) {
 			t.Fatalf("launch script missing %q:\n%s", want, launchScript)
+		}
+	}
+	readyScript := execCalls[1].command[2]
+	for _, want := range []string{
+		"test -S '/tmp/gestalt/plugin.sock'",
+		"/tmp/gestalt-socket-proxy.pid",
+		":C383",
+		"/proc/net/tcp",
+	} {
+		if !strings.Contains(readyScript, want) {
+			t.Fatalf("ready script missing %q:\n%s", want, readyScript)
 		}
 	}
 	if !slices.Equal(forwardPorts, []int{50051}) {
@@ -261,8 +272,8 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 			t.Fatalf("hostname egress endpoints = %#v, want %#v", policies[0].config.Endpoints, want)
 		}
 	}
-	if len(execCalls) != 1 {
-		t.Fatalf("runtime Exec calls = %d, want 1", len(execCalls))
+	if len(execCalls) < 2 {
+		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(execCalls))
 	}
 	launchScript := execCalls[0].command[2]
 	for _, want := range []string{
@@ -390,8 +401,8 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 	if len(fake.hostnamePolicies) != 0 {
 		t.Fatalf("hostname egress policies = %d, want 0 for relay-only launch", len(fake.hostnamePolicies))
 	}
-	if len(fake.execCalls) != 1 {
-		t.Fatalf("runtime Exec calls = %d, want 1", len(fake.execCalls))
+	if len(fake.execCalls) < 2 {
+		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(fake.execCalls))
 	}
 	launchScript := fake.execCalls[0].command[2]
 	for _, want := range []string{
@@ -410,6 +421,7 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 	fake := &fakeSandboxRuntime{
 		tunnel: &fakeTunnel{dialTarget: startPluginLifecycleServer(t)},
 		execErrors: []error{
+			nil,
 			nil,
 			status.Error(codes.Unavailable, "cleanup failed"),
 		},
