@@ -536,10 +536,12 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [PLATFORM_MISSING_INTEGRATION]);
 
     await page.goto("/integrations");
-    await expect(page.getByText("Admin configuration required")).toBeVisible();
+    const card = page.getByTestId("integration-card-platform-missing-svc");
+    await expect(card.getByText("Admin configuration required")).toHaveCount(0);
     await page.getByRole("button", { name: "Platform Missing Service settings" }).click();
 
     const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Admin configuration required").first()).toBeVisible();
     await expect(dialog.getByText("Deployment-managed credentials unconfigured")).toBeVisible();
     await expect(dialog.getByText("Ask an admin to configure deployment-managed credentials.")).toBeVisible();
     await expect(dialog.getByRole("button", { name: /connect|reconnect|disconnect|add/i })).toHaveCount(0);
@@ -779,17 +781,19 @@ test.describe("Integrations", () => {
     await expect(dialog.getByRole("button", { name: "Disconnect" })).toHaveCount(2);
   });
 
-  test("select-instance status is rendered without starting auth", async ({
+  test("select-instance status stays in settings without starting auth", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [SELECT_INSTANCE_INTEGRATION]);
 
     await page.goto("/integrations");
-    await expect(page.getByText("Instance selection required")).toBeVisible();
+    const card = page.getByTestId("integration-card-select-instance-svc");
+    await expect(card.getByText("Instance selection required")).toHaveCount(0);
     await page.getByRole("button", { name: "Select Instance Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
+    await expect(dialog.getByText("Instance selection required").first()).toBeVisible();
     await expect(dialog.getByText("alpha", { exact: true })).toBeVisible();
     await expect(dialog.getByText("beta", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Select Instance" })).toHaveCount(0);
