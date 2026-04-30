@@ -751,6 +751,84 @@ func TestProviderTerminalKeyedRunWithPendingSignalIsRunnable(t *testing.T) {
 	}
 }
 
+func TestProviderProcessNextPendingRunClaimsRunAcrossProviders(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	host.releaseCh = make(chan struct{})
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	first := New()
+	if err := first.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(first): %v", err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	second := New()
+	if err := second.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure(second): %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "shared-pending-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now,
+	}
+	if err := first.runStore.Add(ctx, run.toRecord()); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	type result struct {
+		processed bool
+		err       error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, provider := range []*Provider{first, second} {
+		provider := provider
+		go func() {
+			<-start
+			processed, err := provider.processNextPendingRun(ctx, run.ID)
+			results <- result{processed: processed, err: err}
+		}()
+	}
+	close(start)
+
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(first): %v", err)
+	}
+	if call.GetRunId() != run.ID {
+		t.Fatalf("run_id = %q, want %q", call.GetRunId(), run.ID)
+	}
+	if _, err := host.waitForCall(100 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second host call error = %v, want deadline exceeded", err)
+	}
+	close(host.releaseCh)
+
+	processedCount := 0
+	for i := 0; i < 2; i++ {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("process result %d error: %v", i, result.err)
+		}
+		if result.processed {
+			processedCount++
+		}
+	}
+	if processedCount != 1 {
+		t.Fatalf("processed count = %d, want 1", processedCount)
+	}
+	if _, found, err := loadRunClaimRecord(ctx, first.runClaimStore, run.ID); err != nil {
+		t.Fatalf("load run claim: %v", err)
+	} else if found {
+		t.Fatalf("run claim for %q still exists after completion", run.ID)
+	}
+}
+
 func TestProviderSignalOrStartRunReplacesStaleWorkflowKey(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
@@ -813,6 +891,7 @@ func TestProviderSignalOrStartRunRecoversStaleRunningWorkflowKey(t *testing.T) {
 	}.toRecord()); err != nil {
 		t.Fatalf("Put(stale-running-run): %v", err)
 	}
+	putExpiredRunClaim(t, ctx, provider.runClaimStore, "stale-running-run", staleStartedAt)
 	if err := addWorkflowKeyRecord(ctx, provider.workflowKeyStore, workflowKey, "stale-running-run", staleStartedAt); err != nil {
 		t.Fatalf("addWorkflowKeyRecord: %v", err)
 	}
@@ -2329,6 +2408,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	}.toRecord()); err != nil {
 		t.Fatalf("Put(stale-run): %v", err)
 	}
+	putExpiredRunClaim(t, ctx, first.runClaimStore, "stale-run", startedAt)
 	workflowKey := "slack:T123:C123:1700000000.000001"
 	if err := first.runStore.Put(ctx, workflowRunRecord{
 		ID:           "stale-agent-run",
@@ -2342,6 +2422,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	}.toRecord()); err != nil {
 		t.Fatalf("Put(stale-agent-run): %v", err)
 	}
+	putExpiredRunClaim(t, ctx, first.runClaimStore, "stale-agent-run", startedAt)
 	if err := addWorkflowKeyRecord(ctx, first.workflowKeyStore, workflowKey, "stale-agent-run", startedAt); err != nil {
 		t.Fatalf("addWorkflowKeyRecord(stale-agent-run): %v", err)
 	}
@@ -2455,6 +2536,7 @@ func TestProviderStartDoesNotBlockOnStaleRunRecoveryFailure(t *testing.T) {
 	}.toRecord()); err != nil {
 		t.Fatalf("Put(recoverable-stale-run): %v", err)
 	}
+	putExpiredRunClaim(t, ctx, provider.runClaimStore, "recoverable-stale-run", startedAt)
 
 	if err := provider.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -2486,6 +2568,19 @@ func newWorkflowHostStub(status int32, body string) *workflowHostStub {
 		callsCh: make(chan *proto.InvokeWorkflowOperationRequest, 16),
 		status:  status,
 		body:    body,
+	}
+}
+
+func putExpiredRunClaim(t *testing.T, ctx context.Context, store *gestalt.ObjectStoreClient, runID string, claimedAt time.Time) {
+	t.Helper()
+	if err := store.Put(ctx, workflowRunClaimRecord{
+		ID:        runID,
+		RunID:     runID,
+		OwnerID:   "old-provider",
+		ClaimedAt: claimedAt,
+		ExpiresAt: claimedAt.Add(time.Second),
+	}.toRecord()); err != nil {
+		t.Fatalf("Put(%s claim): %v", runID, err)
 	}
 }
 
