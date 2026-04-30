@@ -316,6 +316,7 @@ export interface AgentToolRef {
 
 export interface AgentRun {
   id: string;
+  sessionId?: string;
   provider: string;
   model?: string;
   status?: string;
@@ -342,6 +343,51 @@ export interface AgentRunCreate {
   metadata?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
   idempotencyKey?: string;
+}
+
+interface AgentSession {
+  id: string;
+  provider: string;
+  model?: string;
+  clientRef?: string;
+  state?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastTurnAt?: string;
+}
+
+type AgentTurnWire = Omit<AgentRun, "sessionRef"> & {
+  sessionId: string;
+};
+
+function normalizeAgentRun(turn: AgentTurnWire, session?: AgentSession): AgentRun {
+  return {
+    ...turn,
+    sessionRef: session?.clientRef || turn.sessionId,
+  };
+}
+
+function compareAgentRunsDesc(left: AgentRun, right: AgentRun): number {
+  const leftTime = Date.parse(left.createdAt || "");
+  const rightTime = Date.parse(right.createdAt || "");
+  const leftValue = Number.isNaN(leftTime) ? 0 : leftTime;
+  const rightValue = Number.isNaN(rightTime) ? 0 : rightTime;
+  return rightValue - leftValue || right.id.localeCompare(left.id);
+}
+
+function idempotencyKeyPart(prefix: string, key?: string): string | undefined {
+  return key ? `${prefix}:${key}` : undefined;
+}
+
+function agentToolRefsToRequest(toolRefs?: AgentToolRef[]) {
+  return toolRefs?.map((tool) => ({
+    plugin: tool.pluginName,
+    operation: tool.operation,
+    connection: tool.connection,
+    instance: tool.instance,
+    title: tool.title,
+    description: tool.description,
+  }));
 }
 
 export interface ManagedIdentity {
@@ -721,32 +767,84 @@ export async function getAgentRuns(opts?: {
   provider?: string;
   status?: string;
 }): Promise<AgentRun[]> {
-  const query = new URLSearchParams();
-  if (opts?.provider) query.set("provider", opts.provider);
-  if (opts?.status && opts.status !== "all") query.set("status", opts.status);
-  const params = query.toString();
-  return fetchAPI(`/api/v1/agent/runs${params ? `?${params}` : ""}`);
+  const sessionQuery = new URLSearchParams({
+    view: "summary",
+    limit: "50",
+  });
+  if (opts?.provider) sessionQuery.set("provider", opts.provider);
+  const sessions = await fetchAPI<AgentSession[]>(
+    `/api/v1/agent/sessions?${sessionQuery}`,
+  );
+
+  const turnLists = await Promise.all(
+    sessions.map(async (session) => {
+      const turnQuery = new URLSearchParams({
+        limit: "20",
+      });
+      if (opts?.status && opts.status !== "all") {
+        turnQuery.set("status", opts.status);
+      }
+      const turns = await fetchAPI<AgentTurnWire[]>(
+        `/api/v1/agent/sessions/${encodeURIComponent(session.id)}/turns?${turnQuery}`,
+      );
+      return turns.map((turn) => normalizeAgentRun(turn, session));
+    }),
+  );
+
+  return turnLists.flat().sort(compareAgentRunsDesc);
 }
 
 export async function getAgentRun(id: string): Promise<AgentRun> {
-  return fetchAPI(`/api/v1/agent/runs/${encodeURIComponent(id)}`);
+  const turn = await fetchAPI<AgentTurnWire>(
+    `/api/v1/agent/turns/${encodeURIComponent(id)}`,
+  );
+  return normalizeAgentRun(turn);
 }
 
 export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
-  return fetchAPI("/api/v1/agent/runs", {
+  const session = await fetchAPI<AgentSession>("/api/v1/agent/sessions", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      provider: body.provider,
+      model: body.model,
+      clientRef: body.sessionRef,
+      metadata: body.metadata,
+      providerOptions: body.providerOptions,
+      idempotencyKey: idempotencyKeyPart("session", body.idempotencyKey),
+    }),
   });
+
+  const turn = await fetchAPI<AgentTurnWire>(
+    `/api/v1/agent/sessions/${encodeURIComponent(session.id)}/turns`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model: body.model,
+        messages: body.messages,
+        toolRefs: agentToolRefsToRequest(body.toolRefs),
+        toolSource: body.toolSource,
+        responseSchema: body.responseSchema,
+        metadata: body.metadata,
+        providerOptions: body.providerOptions,
+        idempotencyKey: idempotencyKeyPart("turn", body.idempotencyKey),
+      }),
+    },
+  );
+  return normalizeAgentRun(turn, session);
 }
 
 export async function cancelAgentRun(
   id: string,
   reason?: string,
 ): Promise<AgentRun> {
-  return fetchAPI(`/api/v1/agent/runs/${encodeURIComponent(id)}/cancel`, {
-    method: "POST",
-    body: JSON.stringify(reason ? { reason } : {}),
-  });
+  const turn = await fetchAPI<AgentTurnWire>(
+    `/api/v1/agent/turns/${encodeURIComponent(id)}/cancel`,
+    {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    },
+  );
+  return normalizeAgentRun(turn);
 }
 
 export async function createToken(name: string): Promise<CreateTokenResponse> {

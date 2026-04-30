@@ -174,15 +174,74 @@ export async function mockAgentRuns(
   opts?: MockAgentRunsOptions,
 ): Promise<MockAgentRunsController> {
   let currentRuns = runs.map((run) => structuredClone(run));
+  const createdSessions = new Map<
+    string,
+    {
+      id: string;
+      provider: string;
+      model?: string;
+      clientRef?: string;
+      state: string;
+      createdAt: string;
+      updatedAt: string;
+      lastTurnAt?: string;
+    }
+  >();
+  const sessionIDsByRunID = new Map<string, string>();
 
-  await page.route("**/api/v1/agent/runs", async (route: Route, request) => {
+  function runSessionID(run: AgentRun): string {
+    if (run.sessionId) return run.sessionId;
+    if (run.sessionRef) return run.sessionRef;
+    const existing = sessionIDsByRunID.get(run.id);
+    if (existing) return existing;
+    const next = `agent_session_${sessionIDsByRunID.size + 1}`;
+    sessionIDsByRunID.set(run.id, next);
+    return next;
+  }
+
+  function runWithSession(run: AgentRun): AgentRun {
+    const sessionId = runSessionID(run);
+    return {
+      ...run,
+      sessionId,
+      sessionRef: run.sessionRef || sessionId,
+    };
+  }
+
+  function sessionsForRuns() {
+    const sessions = new Map(createdSessions);
+    currentRuns.forEach((run) => {
+      const value = runWithSession(run);
+      const sessionID = value.sessionId || runSessionID(value);
+      const existing = sessions.get(sessionID);
+      sessions.set(sessionID, {
+        id: sessionID,
+        provider: value.provider,
+        model: value.model,
+        clientRef: value.sessionRef,
+        state: existing?.state || "active",
+        createdAt: existing?.createdAt || value.createdAt || "2026-04-23T00:00:00Z",
+        updatedAt: existing?.updatedAt || value.createdAt || "2026-04-23T00:00:00Z",
+        lastTurnAt: value.createdAt || existing?.lastTurnAt,
+      });
+    });
+    return [...sessions.values()].sort((left, right) => {
+      const leftTime = Date.parse(left.lastTurnAt || left.createdAt || "");
+      const rightTime = Date.parse(right.lastTurnAt || right.createdAt || "");
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+  }
+
+  function sessionByID(id: string) {
+    return sessionsForRuns().find((session) => session.id === id);
+  }
+
+  await page.route(/\/api\/v1\/agent\/sessions(?:\?.*)?$/, async (route: Route, request) => {
     if (request.method() === "GET") {
       const url = new URL(request.url());
       const provider = url.searchParams.get("provider") || "";
-      const status = url.searchParams.get("status") || "";
-      const filtered = currentRuns.filter((run) => {
-        if (provider && run.provider !== provider) return false;
-        if (status && run.status !== status) return false;
+      const filtered = sessionsForRuns().filter((session) => {
+        if (provider && session.provider !== provider) return false;
         return true;
       });
       await route.fulfill({ json: filtered });
@@ -194,79 +253,152 @@ export async function mockAgentRuns(
       return;
     }
 
-    const body = (request.postDataJSON() as Partial<AgentRun> & Record<string, unknown>) ?? {};
-    const created =
-      opts?.onCreate?.(body) ??
-      ({
-        id: `agent_run_${currentRuns.length + 1}`,
-        provider: typeof body.provider === "string" ? body.provider : "simple",
-        model: typeof body.model === "string" ? body.model : "fast",
-        status: "running",
-        messages: Array.isArray(body.messages)
-          ? (body.messages as AgentRun["messages"])
-          : [],
-        createdAt: "2026-04-23T00:00:00Z",
-        startedAt: "2026-04-23T00:00:00Z",
-        executionRef: `agent_run_${currentRuns.length + 1}`,
-      } satisfies AgentRun);
-
-    if (typeof (created as { status?: unknown }).status === "number") {
-      const override = created as { status: number; json: unknown };
-      await route.fulfill({ status: override.status, json: override.json });
-      return;
-    }
-
-    currentRuns = [structuredClone(created), ...currentRuns];
-    await route.fulfill({ status: 201, json: created });
+    const body = (request.postDataJSON() as Record<string, unknown>) ?? {};
+    const id = `agent_session_${createdSessions.size + currentRuns.length + 1}`;
+    const session = {
+      id,
+      provider: typeof body.provider === "string" ? body.provider : "simple",
+      model: typeof body.model === "string" ? body.model : undefined,
+      clientRef: typeof body.clientRef === "string" ? body.clientRef : undefined,
+      state: "active",
+      createdAt: "2026-04-23T00:00:00Z",
+      updatedAt: "2026-04-23T00:00:00Z",
+    };
+    createdSessions.set(id, session);
+    await route.fulfill({ status: 201, json: session });
   });
 
-  await page.route("**/api/v1/agent/runs/**", async (route: Route, request) => {
-    const url = new URL(request.url());
-    const parts = url.pathname.split("/");
-    const id = parts[parts.length - 2] === "runs"
-      ? parts[parts.length - 1]
-      : parts[parts.length - 2];
+  await page.route(
+    /\/api\/v1\/agent\/sessions\/[^/?]+(?:\/turns)?(?:\?.*)?$/,
+    async (route: Route, request) => {
+      const url = new URL(request.url());
+      const parts = url.pathname.split("/");
+      const sessionIndex = parts.indexOf("sessions");
+      const sessionID = sessionIndex >= 0 ? parts[sessionIndex + 1] : "";
+      const session = sessionByID(sessionID);
+      if (!session) {
+        await route.fulfill({ status: 404, json: { error: "not found" } });
+        return;
+      }
 
-    if (request.method() === "POST" && parts[parts.length - 1] === "cancel") {
+      if (parts[sessionIndex + 2] !== "turns") {
+        if (request.method() === "GET") {
+          await route.fulfill({ json: session });
+          return;
+        }
+        await route.fallback();
+        return;
+      }
+
+      if (request.method() === "GET") {
+        const status = url.searchParams.get("status") || "";
+        const filtered = currentRuns
+          .map((run) => runWithSession(run))
+          .filter((run) => {
+            if (run.sessionId !== sessionID) return false;
+            if (status && run.status !== status) return false;
+            return true;
+          });
+        await route.fulfill({ json: filtered });
+        return;
+      }
+
+      if (request.method() !== "POST") {
+        await route.fallback();
+        return;
+      }
+
+      const body = (request.postDataJSON() as Partial<AgentRun> & Record<string, unknown>) ?? {};
+      const createBody = {
+        ...body,
+        provider: session.provider,
+        model: typeof body.model === "string" ? body.model : session.model,
+        sessionId: session.id,
+        sessionRef: session.clientRef || session.id,
+      };
+      const created =
+        opts?.onCreate?.(createBody) ??
+        ({
+          id: `agent_run_${currentRuns.length + 1}`,
+          sessionId: session.id,
+          sessionRef: session.clientRef || session.id,
+          provider: session.provider,
+          model: typeof body.model === "string" ? body.model : session.model || "fast",
+          status: "running",
+          messages: Array.isArray(body.messages)
+            ? (body.messages as AgentRun["messages"])
+            : [],
+          createdAt: "2026-04-23T00:00:00Z",
+          startedAt: "2026-04-23T00:00:00Z",
+          executionRef: `agent_run_${currentRuns.length + 1}`,
+        } satisfies AgentRun);
+
+      if (typeof (created as { status?: unknown }).status === "number") {
+        const override = created as { status: number; json: unknown };
+        await route.fulfill({ status: override.status, json: override.json });
+        return;
+      }
+
+      const normalized = runWithSession({
+        ...created,
+        sessionId: created.sessionId || session.id,
+        sessionRef: created.sessionRef || session.clientRef || session.id,
+      });
+      currentRuns = [structuredClone(normalized), ...currentRuns];
+      await route.fulfill({ status: 201, json: normalized });
+    },
+  );
+
+  await page.route(
+    /\/api\/v1\/agent\/turns\/[^/?]+(?:\/cancel)?(?:\?.*)?$/,
+    async (route: Route, request) => {
+      const url = new URL(request.url());
+      const parts = url.pathname.split("/");
+      const id = parts[parts.length - 2] === "turns"
+        ? parts[parts.length - 1]
+        : parts[parts.length - 2];
+
+      if (request.method() === "POST" && parts[parts.length - 1] === "cancel") {
+        const run = currentRuns.find((item) => item.id === id);
+        if (!run) {
+          await route.fulfill({ status: 404, json: { error: "not found" } });
+          return;
+        }
+        const body = (request.postDataJSON() as { reason?: string } | null) ?? null;
+        const override = opts?.onCancel?.(structuredClone(run), body);
+        if (override) {
+          await route.fulfill({ status: override.status, json: override.json });
+          return;
+        }
+        if (run.status !== "pending" && run.status !== "running") {
+          await route.fulfill({
+            status: 412,
+            json: { error: "agent run is no longer active" },
+          });
+          return;
+        }
+        run.status = "canceled";
+        run.completedAt = new Date().toISOString();
+        if (body?.reason) {
+          run.statusMessage = body.reason;
+        }
+        await route.fulfill({ json: runWithSession(run) });
+        return;
+      }
+
+      if (request.method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+
       const run = currentRuns.find((item) => item.id === id);
       if (!run) {
         await route.fulfill({ status: 404, json: { error: "not found" } });
         return;
       }
-      const body = (request.postDataJSON() as { reason?: string } | null) ?? null;
-      const override = opts?.onCancel?.(structuredClone(run), body);
-      if (override) {
-        await route.fulfill({ status: override.status, json: override.json });
-        return;
-      }
-      if (run.status !== "pending" && run.status !== "running") {
-        await route.fulfill({
-          status: 412,
-          json: { error: "agent run is no longer active" },
-        });
-        return;
-      }
-      run.status = "canceled";
-      run.completedAt = new Date().toISOString();
-      if (body?.reason) {
-        run.statusMessage = body.reason;
-      }
-      await route.fulfill({ json: run });
-      return;
-    }
-
-    if (request.method() !== "GET") {
-      await route.fallback();
-      return;
-    }
-
-    const run = currentRuns.find((item) => item.id === id);
-    if (!run) {
-      await route.fulfill({ status: 404, json: { error: "not found" } });
-      return;
-    }
-    await route.fulfill({ json: run });
-  });
+      await route.fulfill({ json: runWithSession(run) });
+    },
+  );
 
   return {
     setRuns(nextRuns) {
@@ -279,18 +411,30 @@ export async function mockAgentRuns(
 }
 
 export async function mockAgentNotConfigured(page: Page) {
-  await page.route("**/api/v1/agent/runs", async (route: Route) => {
+  await page.route(/\/api\/v1\/agent\/sessions(?:\?.*)?$/, async (route: Route) => {
     await route.fulfill({
       status: 412,
       json: { error: "agent is not configured" },
     });
   });
-  await page.route("**/api/v1/agent/runs/**", async (route: Route) => {
-    await route.fulfill({
-      status: 412,
-      json: { error: "agent is not configured" },
-    });
-  });
+  await page.route(
+    /\/api\/v1\/agent\/sessions\/[^/?]+(?:\/turns)?(?:\?.*)?$/,
+    async (route: Route) => {
+      await route.fulfill({
+        status: 412,
+        json: { error: "agent is not configured" },
+      });
+    },
+  );
+  await page.route(
+    /\/api\/v1\/agent\/turns\/[^/?]+(?:\/cancel)?(?:\?.*)?$/,
+    async (route: Route) => {
+      await route.fulfill({
+        status: 412,
+        json: { error: "agent is not configured" },
+      });
+    },
+  );
 }
 
 export async function mockWorkflowRuns(
