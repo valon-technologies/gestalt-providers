@@ -1,0 +1,23 @@
+type: object
+additionalProperties: false
+properties:
+  defaultModel:
+    type: string
+  claudeBinary:
+    type: string
+  workingDirectory:
+    type: string
+  timeoutSeconds:
+    type: number
+    exclusiveMinimum: 0
+  systemPrompt:
+    type: string
+  permissionMode:
+    type: string
+    enum:
+      - default
+      - acceptEdits
+      - auto
+      - bypassPermissions
+      - dontAsk
+      - plan

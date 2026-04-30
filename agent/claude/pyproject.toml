@@ -1,0 +1,54 @@
+[project]
+name = "gestalt-agent-claude"
+version = "0.0.1a1"
+requires-python = "==3.14.*"
+dependencies = [
+  "gestalt-sdk @ git+https://github.com/valon-technologies/gestalt.git@f9d35fa6b9cbd1a06d600787827bec7de6ca5c1a#subdirectory=sdk/python",
+]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "ty==0.0.29",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+override-dependencies = [
+  "typing-extensions>=4.14.1",
+]
+
+[tool.gestalt]
+plugin = "provider"
+agent = "provider"
+
+[tool.gestalt.ci]
+vulture-ignore-names = [
+  "CreateSession",
+  "GetSession",
+  "ListSessions",
+  "UpdateSession",
+  "CreateTurn",
+  "GetTurn",
+  "ListTurns",
+  "CancelTurn",
+  "ListTurnEvents",
+  "GetInteraction",
+  "ListInteractions",
+  "ResolveInteraction",
+  "GetCapabilities",
+  "configure",
+  "metadata",
+  "ListTools",
+  "ExecuteTool",
+  "setUpModule",
+  "tearDownModule",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
