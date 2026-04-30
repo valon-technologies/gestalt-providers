@@ -225,17 +225,7 @@ func TestRuntimeContractPodIPDialTargetUsesSandboxPodIP(t *testing.T) {
 func TestRuntimeContractServiceDNSDialTargetUsesSandboxService(t *testing.T) {
 	t.Parallel()
 
-	runtime := &kubernetesSandboxRuntime{
-		core: k8sfake.NewSimpleClientset(&corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "sandbox-service",
-				Namespace: "runtime-system",
-			},
-			Spec: corev1.ServiceSpec{
-				ClusterIP: corev1.ClusterIPNone,
-			},
-		}),
-	}
+	runtime := &kubernetesSandboxRuntime{}
 
 	tunnel, err := runtime.ServiceDNSDialTarget(context.Background(), sandboxHandle{
 		Namespace:   "runtime-system",
