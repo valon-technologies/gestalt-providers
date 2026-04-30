@@ -1096,6 +1096,23 @@ func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
 	}
 }
 
+func TestProviderConfigureFailsWhenRunStatusIndexMissing(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		return &indexedDBServerSpy{IndexedDBServer: inner, missingRunIndex: "by_status"}
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
+	if err == nil {
+		t.Fatal("Configure succeeded, want missing run index error")
+	}
+	if !strings.Contains(err.Error(), "validate run indexes") || !strings.Contains(err.Error(), "by_status") {
+		t.Fatalf("Configure error = %v, want by_status validation failure", err)
+	}
+}
+
 func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
@@ -2351,6 +2368,7 @@ type indexedDBServerSpy struct {
 	proto.IndexedDBServer
 	failUnscopedSignalGetAll bool
 	failUnscopedRunGetAll    bool
+	missingRunIndex          string
 	missingSignalIndex       string
 }
 
@@ -2365,6 +2383,9 @@ func (s *indexedDBServerSpy) GetAll(ctx context.Context, req *proto.ObjectStoreR
 }
 
 func (s *indexedDBServerSpy) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+	if req.GetStore() == storeRuns && req.GetIndex() == s.missingRunIndex {
+		return nil, status.Errorf(codes.NotFound, "index not found: %s", req.GetIndex())
+	}
 	if req.GetStore() == storeSignals && req.GetIndex() == s.missingSignalIndex {
 		return nil, status.Errorf(codes.NotFound, "index not found: %s", req.GetIndex())
 	}

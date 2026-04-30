@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.25"
+	providerVersion           = "0.0.1-alpha.26"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -302,6 +302,10 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
 	executionRefStore := db.ObjectStore(storeExecutionRefs)
 	signalStore := db.ObjectStore(storeSignals)
+	if err := validateWorkflowRunIndexes(ctx, runStore); err != nil {
+		cleanup()
+		return fmt.Errorf("indexeddb workflow: validate run indexes: %w", err)
+	}
 	if err := validateWorkflowSignalIndexes(ctx, signalStore); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: validate signal indexes: %w", err)
@@ -2197,6 +2201,13 @@ func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient) erro
 	return nil
 }
 
+func validateWorkflowRunIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
+	if _, err := store.Index("by_status").Count(ctx, nil, int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING)); err != nil {
+		return fmt.Errorf("by_status: %w", err)
+	}
+	return nil
+}
+
 func validateWorkflowSignalIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
 	probes := []struct {
 		name   string
@@ -2231,7 +2242,7 @@ func workflowStoreSchemas() []storeSchemaDef {
 		},
 		{
 			name:   storeRuns,
-			schema: &proto.ObjectStoreSchema{},
+			schema: workflowRunSchema(),
 		},
 		{
 			name:   storeIdempotency,
@@ -2248,6 +2259,15 @@ func workflowStoreSchemas() []storeSchemaDef {
 		{
 			name:   storeSignals,
 			schema: workflowSignalSchema(),
+		},
+	}
+}
+
+func workflowRunSchema() *proto.ObjectStoreSchema {
+	// Keep by_status in the stored schema for compatibility with existing run stores.
+	return &proto.ObjectStoreSchema{
+		Indexes: []*proto.IndexSchema{
+			{Name: "by_status", KeyPath: []string{"status"}},
 		},
 	}
 }
