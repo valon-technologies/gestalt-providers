@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.28"
+	providerVersion           = "0.0.1-alpha.29"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -99,7 +99,6 @@ type Provider struct {
 	executionRefStore *gestalt.ObjectStoreClient
 	workflowKeyStore  *gestalt.ObjectStoreClient
 	signalStore       *gestalt.ObjectStoreClient
-	runStatusIndex    bool
 	pollCancel        context.CancelFunc
 	pollDone          chan struct{}
 	wake              chan string
@@ -294,8 +293,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		_ = db.Close()
 	}
 
-	runStatusIndex, err := ensureWorkflowStores(ctx, admin, db)
-	if err != nil {
+	if err := ensureWorkflowStores(ctx, admin, db); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
 	}
@@ -323,7 +321,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.executionRefStore = executionRefStore
 	p.workflowKeyStore = workflowKeyStore
 	p.signalStore = signalStore
-	p.runStatusIndex = runStatusIndex
 	p.mu.Unlock()
 
 	return nil
@@ -333,14 +330,20 @@ func (p *Provider) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, err := p.requireConfiguredLocked(); err != nil {
+	state, err := p.requireConfiguredLocked()
+	if err != nil {
 		return err
 	}
 	if p.pollCancel != nil {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := recoverStaleRunningRuns(ctx, state.runStore, state.workflowKeyStore, state.signalStore, p.clock().UTC()); err != nil {
+		return fmt.Errorf("indexeddb workflow: recover stale workflow runs: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -351,11 +354,7 @@ func (p *Provider) Start(ctx context.Context) error {
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
 	var wg sync.WaitGroup
-	wg.Add(defaultWorkerCount + 1)
-	go func() {
-		defer wg.Done()
-		p.recoverStaleRunningRuns(loopCtx)
-	}()
+	wg.Add(defaultWorkerCount)
 	for range defaultWorkerCount {
 		go func() {
 			defer wg.Done()
@@ -420,7 +419,6 @@ func (p *Provider) Close() error {
 	p.executionRefStore = nil
 	p.workflowKeyStore = nil
 	p.signalStore = nil
-	p.runStatusIndex = false
 	p.pollCancel = nil
 	p.pollDone = nil
 	p.wake = nil
@@ -1964,29 +1962,28 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	completedAt := p.clock().UTC()
 	current.CompletedAt = &completedAt
 	if invokeErr != nil {
-		if workflowRunRetryableAfterInvokeError(current, invokeErr) {
-			current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
-			current.CompletedAt = nil
-			current.StatusMessage = "retrying workflow operation after retryable error: " + strings.TrimSpace(invokeErr.Error())
-			if err := state.runStore.Put(ctx, current.toRecord()); err != nil {
-				return true, err
-			}
-			return false, nil
-		}
 		current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 		current.StatusMessage = invokeErr.Error()
-		_ = markRunSignalsFailed(ctx, state.signalStore, current.ID, claimedSignals, completedAt, invokeErr.Error())
+		if err := markRunSignalsFailed(ctx, state.signalStore, current.ID, claimedSignals, completedAt, invokeErr.Error()); err != nil {
+			return true, err
+		}
 		if current.WorkflowKey != "" {
-			_ = deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID)
+			if err := deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+				return true, err
+			}
 		}
 	} else {
 		current.ResultBody = resp.GetBody()
 		if resp.GetStatus() >= http.StatusBadRequest {
 			current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 			current.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.GetStatus())
-			_ = markRunSignalsFailed(ctx, state.signalStore, current.ID, claimedSignals, completedAt, current.StatusMessage)
+			if err := markRunSignalsFailed(ctx, state.signalStore, current.ID, claimedSignals, completedAt, current.StatusMessage); err != nil {
+				return true, err
+			}
 			if current.WorkflowKey != "" {
-				_ = deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID)
+				if err := deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+					return true, err
+				}
 			}
 		} else {
 			_ = markSignalsDelivered(ctx, state.signalStore, claimedSignals, completedAt)
@@ -2188,38 +2185,32 @@ func dialIndexedDBAdmin() (*grpc.ClientConn, proto.IndexedDBClient, error) {
 	return conn, proto.NewIndexedDBClient(conn), nil
 }
 
-func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient, db *gestalt.IndexedDBClient) (bool, error) {
+func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient, db *gestalt.IndexedDBClient) error {
 	for _, def := range []storeSchemaDef{
 		{name: storeSchedules, schema: &proto.ObjectStoreSchema{}},
 		{name: storeEventTriggers, schema: &proto.ObjectStoreSchema{}},
 		{name: storeIdempotency, schema: &proto.ObjectStoreSchema{}},
 	} {
 		if err := createWorkflowStore(ctx, admin, def.name, def.schema); err != nil {
-			return false, err
+			return err
 		}
 	}
 	if err := ensureWorkflowStoreExists(ctx, admin, db.ObjectStore(storeWorkflowKeys), storeWorkflowKeys, &proto.ObjectStoreSchema{}); err != nil {
-		return false, err
+		return err
 	}
 
 	runStore := db.ObjectStore(storeRuns)
 	if err := ensureWorkflowStoreExists(ctx, admin, runStore, storeRuns, &proto.ObjectStoreSchema{}); err != nil {
-		return false, err
-	}
-	runStatusIndex := false
-	if err := validateWorkflowRunIndexes(ctx, runStore); err == nil {
-		runStatusIndex = true
-	} else if !errors.Is(err, gestalt.ErrNotFound) {
-		return false, fmt.Errorf("validate run indexes: %w", err)
+		return err
 	}
 
 	if err := ensureIndexedWorkflowStore(ctx, admin, db.ObjectStore(storeExecutionRefs), storeExecutionRefs, workflowExecutionReferenceSchema(), validateWorkflowExecutionReferenceIndexes); err != nil {
-		return false, err
+		return err
 	}
 	if err := ensureIndexedWorkflowStore(ctx, admin, db.ObjectStore(storeSignals), storeSignals, workflowSignalSchema(), validateWorkflowSignalIndexes); err != nil {
-		return false, err
+		return err
 	}
-	return runStatusIndex, nil
+	return nil
 }
 
 func createWorkflowStore(ctx context.Context, admin proto.IndexedDBClient, name string, schema *proto.ObjectStoreSchema) error {
@@ -2254,13 +2245,6 @@ func ensureIndexedWorkflowStore(ctx context.Context, admin proto.IndexedDBClient
 	return validate(ctx, store)
 }
 
-func validateWorkflowRunIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
-	if _, err := store.Index("by_status").Count(ctx, nil, int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING)); err != nil {
-		return fmt.Errorf("by_status: %w", err)
-	}
-	return nil
-}
-
 func validateWorkflowExecutionReferenceIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
 	if _, err := store.Index("by_subject").Count(ctx, nil, "__workflow_schema_probe__"); err != nil {
 		return fmt.Errorf("by_subject: %w", err)
@@ -2288,48 +2272,6 @@ func validateWorkflowSignalIndexes(ctx context.Context, store *gestalt.ObjectSto
 type storeSchemaDef struct {
 	name   string
 	schema *proto.ObjectStoreSchema
-}
-
-func workflowStoreSchemas() []storeSchemaDef {
-	return []storeSchemaDef{
-		{
-			name:   storeSchedules,
-			schema: &proto.ObjectStoreSchema{},
-		},
-		{
-			name:   storeEventTriggers,
-			schema: &proto.ObjectStoreSchema{},
-		},
-		{
-			name:   storeRuns,
-			schema: workflowRunSchema(),
-		},
-		{
-			name:   storeIdempotency,
-			schema: &proto.ObjectStoreSchema{},
-		},
-		{
-			name:   storeExecutionRefs,
-			schema: workflowExecutionReferenceSchema(),
-		},
-		{
-			name:   storeWorkflowKeys,
-			schema: workflowKeySchema(),
-		},
-		{
-			name:   storeSignals,
-			schema: workflowSignalSchema(),
-		},
-	}
-}
-
-func workflowRunSchema() *proto.ObjectStoreSchema {
-	// Keep by_status in the stored schema for compatibility with existing run stores.
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
-			{Name: "by_status", KeyPath: []string{"status"}},
-		},
-	}
 }
 
 func workflowKeySchema() *proto.ObjectStoreSchema {
@@ -2390,49 +2332,13 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func (p *Provider) recoverStaleRunningRuns(ctx context.Context) {
-	p.mu.RLock()
-	runStore := p.runStore
-	workflowKeyStore := p.workflowKeyStore
-	signalStore := p.signalStore
-	runStatusIndex := p.runStatusIndex
-	now := p.clock().UTC()
-	p.mu.RUnlock()
-
-	if runStore == nil || workflowKeyStore == nil || signalStore == nil {
-		return
-	}
-	if err := recoverStaleRunningRuns(ctx, runStore, workflowKeyStore, signalStore, now, runStatusIndex); err != nil && ctx.Err() == nil {
-		slog.WarnContext(ctx, "recovering stale workflow runs failed", "error", err)
-		return
-	}
-	p.mu.Lock()
-	p.signalWorkerLocked("")
-	p.mu.Unlock()
-}
-
-func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time, useStatusIndex bool) error {
-	var runs []workflowRunRecord
-	var err error
-	if useStatusIndex {
-		runs, err = listRunRecordsByStatus(ctx, runStore, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING, "")
-	} else {
-		runs, err = listRunRecords(ctx, runStore, "")
-	}
+func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
+	runs, err := listRunRecords(ctx, runStore, "")
 	if err != nil {
 		return err
 	}
 	for _, run := range runs {
 		if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
-			continue
-		}
-		if workflowRunTargetSupportsDurableRetry(run) {
-			run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
-			run.CompletedAt = nil
-			run.StatusMessage = "workflow provider restarted before invocation completed; retrying"
-			if err := runStore.Put(ctx, run.toRecord()); err != nil {
-				return err
-			}
 			continue
 		}
 		run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
@@ -2460,25 +2366,6 @@ func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, si
 		}
 	}
 	return nil
-}
-
-func workflowRunRetryableAfterInvokeError(run workflowRunRecord, err error) bool {
-	if err == nil || !workflowRunTargetSupportsDurableRetry(run) {
-		return false
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	switch status.Code(err) {
-	case codes.Canceled, codes.DeadlineExceeded, codes.Unavailable, codes.Aborted:
-		return true
-	default:
-		return false
-	}
-}
-
-func workflowRunTargetSupportsDurableRetry(run workflowRunRecord) bool {
-	return run.Target != nil && run.Target.GetAgent() != nil
 }
 
 func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
@@ -2718,15 +2605,6 @@ func workflowRunRunnable(ctx context.Context, signalStore *gestalt.ObjectStoreCl
 		if strings.TrimSpace(run.WorkflowKey) == "" {
 			return true, nil
 		}
-		if workflowRunTargetSupportsDurableRetry(run) {
-			hasClaimed, err := hasClaimedSignals(ctx, signalStore, run.ID)
-			if err != nil {
-				return false, err
-			}
-			if hasClaimed {
-				return true, nil
-			}
-		}
 		hasPending, err := hasPendingSignals(ctx, signalStore, run.ID)
 		if err != nil {
 			return false, err
@@ -2745,10 +2623,6 @@ func workflowRunRunnable(ctx context.Context, signalStore *gestalt.ObjectStoreCl
 
 func hasPendingSignals(ctx context.Context, store *gestalt.ObjectStoreClient, runID string) (bool, error) {
 	return hasSignalsInState(ctx, store, runID, signalStatePending)
-}
-
-func hasClaimedSignals(ctx context.Context, store *gestalt.ObjectStoreClient, runID string) (bool, error) {
-	return hasSignalsInState(ctx, store, runID, signalStateClaimed)
 }
 
 func hasSignalsInState(ctx context.Context, store *gestalt.ObjectStoreClient, runID, state string) (bool, error) {
@@ -3297,43 +3171,6 @@ func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, owner
 			return nil, err
 		}
 		if !found {
-			continue
-		}
-		if ownerKey != "" && run.ownerKey() != ownerKey {
-			continue
-		}
-		out = append(out, run)
-	}
-	if err := cursor.Err(); err != nil {
-		return nil, err
-	}
-	slices.SortFunc(out, func(a, b workflowRunRecord) int {
-		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
-			return cmp
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-	return out, nil
-}
-
-func listRunRecordsByStatus(ctx context.Context, store *gestalt.ObjectStoreClient, status proto.WorkflowRunStatus, ownerKey string) ([]workflowRunRecord, error) {
-	cursor, err := store.Index("by_status").OpenKeyCursor(ctx, nil, gestalt.CursorNext, int64(status))
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close()
-
-	var out []workflowRunRecord
-	for cursor.Continue() {
-		key := strings.TrimSpace(cursor.PrimaryKey())
-		if key == "" {
-			continue
-		}
-		run, found, err := loadRunRecord(ctx, store, "", key)
-		if err != nil {
-			return nil, err
-		}
-		if !found || run.Status != status {
 			continue
 		}
 		if ownerKey != "" && run.ownerKey() != ownerKey {
