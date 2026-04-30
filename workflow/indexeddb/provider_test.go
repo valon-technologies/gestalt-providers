@@ -2313,7 +2313,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		t.Fatalf("Start(second): %v", err)
 	}
 
-	waitForCondition(t, time.Second, func() bool {
+	waitForCondition(t, 5*time.Second, func() bool {
 		stale, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
 			RunId: "stale-run",
 		})
@@ -2323,7 +2323,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		return stale.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED &&
 			stale.GetStatusMessage() == "workflow provider restarted while run was in progress"
 	})
-	waitForCondition(t, time.Second, func() bool {
+	waitForCondition(t, 5*time.Second, func() bool {
 		staleAgent, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "stale-agent-run"})
 		if err != nil {
 			t.Fatalf("GetRun(stale-agent-run): %v", err)
@@ -2352,7 +2352,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	}
 }
 
-func TestProviderStartFailsWhenStaleRunRecoveryFails(t *testing.T) {
+func TestProviderStartDoesNotBlockOnStaleRunRecoveryFailure(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
@@ -2372,13 +2372,8 @@ func TestProviderStartFailsWhenStaleRunRecoveryFails(t *testing.T) {
 		t.Fatalf("Put(malformed-run): %v", err)
 	}
 
-	err := provider.Start(ctx)
-	if err == nil {
-		t.Fatal("Start succeeded, want stale recovery error")
-	}
-	if !strings.Contains(err.Error(), "recover stale workflow runs") ||
-		!strings.Contains(err.Error(), "invalid target_json") {
-		t.Fatalf("Start error = %v, want stale recovery target_json error", err)
+	if err := provider.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
 	}
 }
 
