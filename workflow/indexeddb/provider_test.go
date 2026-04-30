@@ -781,6 +781,95 @@ func TestProviderSignalOrStartRunReplacesStaleWorkflowKey(t *testing.T) {
 	}
 }
 
+func TestProviderSignalOrStartRunRecoversStaleRunningWorkflowKey(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	base := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	now := base
+	provider := New()
+	provider.now = func() time.Time { return now }
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	if err := provider.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	workflowKey := "slack:T123:C123:1700000000.000001"
+	staleStartedAt := base.Add(-time.Minute)
+	now = base.Add(time.Minute)
+	if err := provider.runStore.Put(ctx, workflowRunRecord{
+		ID:           "stale-running-run",
+		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		WorkflowKey:  workflowKey,
+		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread"),
+		TriggerKind:  triggerKindManual,
+		CreatedAt:    staleStartedAt.Add(-time.Second),
+		StartedAt:    &staleStartedAt,
+		ExecutionRef: "stale-ref",
+	}.toRecord()); err != nil {
+		t.Fatalf("Put(stale-running-run): %v", err)
+	}
+	if err := addWorkflowKeyRecord(ctx, provider.workflowKeyStore, workflowKey, "stale-running-run", staleStartedAt); err != nil {
+		t.Fatalf("addWorkflowKeyRecord: %v", err)
+	}
+	oldSignal := workflowSignalRecord{
+		ID:             "old-signal",
+		RunID:          "stale-running-run",
+		WorkflowKey:    workflowKey,
+		State:          signalStatePending,
+		Signal:         protoWorkflowSignal(t, "old-signal", "old-delivery", "old"),
+		IdempotencyKey: "old-delivery",
+		Sequence:       1,
+		CreatedAt:      staleStartedAt,
+	}
+	if err := provider.signalStore.Put(ctx, oldSignal.toRecord()); err != nil {
+		t.Fatalf("Put(old-signal): %v", err)
+	}
+	if err := storeSignalIdempotencyRecord(ctx, provider.idempotencyStore, "agent:managed", "old-delivery", "stale-running-run", "old-signal", workflowKey, true, staleStartedAt); err != nil {
+		t.Fatalf("store stale signal idempotency: %v", err)
+	}
+
+	resp, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  workflowKey,
+		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread"),
+		ExecutionRef: "fresh-ref",
+		Signal:       protoWorkflowSignal(t, "old-signal", "old-delivery", "fresh retry"),
+	})
+	if err != nil {
+		t.Fatalf("SignalOrStartRun: %v", err)
+	}
+	if !resp.GetStartedRun() || resp.GetRun().GetId() == "" || resp.GetRun().GetId() == "stale-running-run" {
+		t.Fatalf("response = %#v, want fresh replacement run", resp)
+	}
+
+	stale, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "stale-running-run"})
+	if err != nil {
+		t.Fatalf("GetRun(stale): %v", err)
+	}
+	if stale.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED ||
+		stale.GetStatusMessage() != staleRunStatusMessage {
+		t.Fatalf("stale run status = %s %q, want failed stale recovery", stale.GetStatus(), stale.GetStatusMessage())
+	}
+	signals, err := listSignalRecords(ctx, provider.signalStore, "stale-running-run", "")
+	if err != nil {
+		t.Fatalf("listSignalRecords(stale): %v", err)
+	}
+	if len(signals) != 1 || signals[0].State != signalStateFailed {
+		t.Fatalf("stale signals = %#v, want one failed signal", signals)
+	}
+	idempotency, found, err := loadIdempotencyRecord(ctx, provider.idempotencyStore, "agent:managed", "old-delivery")
+	if err != nil {
+		t.Fatalf("load idempotency: %v", err)
+	}
+	if !found || idempotency.RunID != resp.GetRun().GetId() || idempotency.SignalID == "old-signal" {
+		t.Fatalf("idempotency = %#v, found %v; want rebound to fresh run/signal", idempotency, found)
+	}
+}
+
 func TestProviderFinalizingOldTerminalRunDoesNotDeleteNewerWorkflowKey(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -1059,17 +1148,15 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	}
 
 	startProviderWorker(t, provider)
-	for i := 0; i < defaultWorkerCount; i++ {
-		call, err := host.waitForCall(time.Second)
-		if err != nil {
-			t.Fatalf("waitForCall(initial %d): %v", i, err)
-		}
-		if !oldRunIDs[call.GetRunId()] {
-			t.Fatalf("initial call %d run_id = %q, want old hot run", i, call.GetRunId())
-		}
-		if got := len(call.GetSignals()); got != defaultMaxSignalsPerBatch {
-			t.Fatalf("initial call %d signal count = %d, want max batch %d", i, got, defaultMaxSignalsPerBatch)
-		}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(initial): %v", err)
+	}
+	if !oldRunIDs[call.GetRunId()] {
+		t.Fatalf("initial call run_id = %q, want old hot run", call.GetRunId())
+	}
+	if got := len(call.GetSignals()); got != defaultMaxSignalsPerBatch {
+		t.Fatalf("initial call signal count = %d, want max batch %d", got, defaultMaxSignalsPerBatch)
 	}
 
 	preferred, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
@@ -1081,31 +1168,18 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignalOrStartRun(preferred): %v", err)
 	}
-	if _, err := host.waitForCall(50 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("host call while workers are blocked error = %v, want deadline exceeded", err)
+	call, err = host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(preferred): %v", err)
+	}
+	if call.GetRunId() != preferred.GetRun().GetId() {
+		t.Fatalf("preferred call run_id = %q, want %q", call.GetRunId(), preferred.GetRun().GetId())
+	}
+	if len(call.GetSignals()) != 1 || call.GetSignals()[0].GetIdempotencyKey() != "slack-event-1" {
+		t.Fatalf("preferred call signals = %#v, want Slack signal", call.GetSignals())
 	}
 
 	close(host.releaseCh)
-	sawPreferred := false
-	for i := 0; i < defaultWorkerCount; i++ {
-		call, err := host.waitForCall(time.Second)
-		if err != nil {
-			t.Fatalf("waitForCall(after release %d): %v", i, err)
-		}
-		if call.GetRunId() == preferred.GetRun().GetId() {
-			sawPreferred = true
-			if len(call.GetSignals()) != 1 || call.GetSignals()[0].GetIdempotencyKey() != "slack-event-1" {
-				t.Fatalf("preferred call signals = %#v, want Slack signal", call.GetSignals())
-			}
-			continue
-		}
-		if !oldRunIDs[call.GetRunId()] {
-			t.Fatalf("after release call %d run_id = %q, want preferred or old hot run", i, call.GetRunId())
-		}
-	}
-	if !sawPreferred {
-		t.Fatal("preferred Slack run was not invoked between saturated hot-lane batches")
-	}
 }
 
 func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
@@ -2452,10 +2526,29 @@ func TestProviderStartDoesNotBlockOnStaleRunRecoveryFailure(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Put(malformed-run): %v", err)
 	}
+	startedAt := time.Now().UTC().Add(-time.Minute)
+	if err := provider.runStore.Put(ctx, workflowRunRecord{
+		ID:          "recoverable-stale-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   startedAt.Add(-time.Second),
+		StartedAt:   &startedAt,
+	}.toRecord()); err != nil {
+		t.Fatalf("Put(recoverable-stale-run): %v", err)
+	}
 
 	if err := provider.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	waitForCondition(t, time.Second, func() bool {
+		recovered, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "recoverable-stale-run"})
+		if err != nil {
+			t.Fatalf("GetRun(recoverable): %v", err)
+		}
+		return recovered.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED &&
+			recovered.GetStatusMessage() == staleRunStatusMessage
+	})
 }
 
 type workflowHostStub struct {

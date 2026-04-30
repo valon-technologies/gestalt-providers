@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.32"
+	providerVersion           = "0.0.1-alpha.34"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -58,6 +58,7 @@ const (
 	configManagedWorkflowSubject = "system:config"
 	configManagedWorkflowAuth    = "config"
 	configManagedWorkflowKind    = "system"
+	staleRunStatusMessage        = "workflow provider restarted while run was in progress"
 
 	signalStatePending   = "pending"
 	signalStateClaimed   = "claimed"
@@ -99,6 +100,7 @@ type Provider struct {
 	executionRefStore *gestalt.ObjectStoreClient
 	workflowKeyStore  *gestalt.ObjectStoreClient
 	signalStore       *gestalt.ObjectStoreClient
+	startedAt         time.Time
 	pollCancel        context.CancelFunc
 	pollDone          chan struct{}
 	wake              chan string
@@ -311,25 +313,23 @@ func (p *Provider) Start(ctx context.Context) error {
 		return err
 	}
 
+	startedAt := p.clock().UTC()
 	p.wake = make(chan string, max(128, defaultWorkerCount*8))
 	p.pollDone = make(chan struct{})
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
+	p.startedAt = startedAt
 	wake := p.wake
 	pollInterval := p.cfg.PollInterval
-	recoveryNow := p.clock().UTC()
 	var wg sync.WaitGroup
 	wg.Add(defaultWorkerCount + 1)
 	go func() {
 		defer wg.Done()
 		defer p.workerMu.Unlock()
-		if err := recoverStaleRunningRuns(loopCtx, state.runStore, state.workflowKeyStore, state.signalStore, recoveryNow); err != nil && loopCtx.Err() == nil {
+		if err := recoverStaleRunningRuns(loopCtx, state.runStore, state.workflowKeyStore, state.signalStore, p.clock().UTC(), startedAt); err != nil && loopCtx.Err() == nil {
 			slog.WarnContext(loopCtx, "indexeddb workflow: recover stale workflow runs failed", "error", err)
 			return
 		}
-		p.mu.Lock()
-		p.signalWorkerLocked("")
-		p.mu.Unlock()
 	}()
 	for range defaultWorkerCount {
 		go func() {
@@ -396,6 +396,7 @@ func (p *Provider) Close() error {
 	p.executionRefStore = nil
 	p.workflowKeyStore = nil
 	p.signalStore = nil
+	p.startedAt = time.Time{}
 	p.pollCancel = nil
 	p.pollDone = nil
 	p.wake = nil
@@ -496,6 +497,13 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		if err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "load workflow key: %v", err)
+		}
+		if found && workflowRunStaleAtStart(active, state.startedAt) {
+			if err := failStaleRunningRun(ctx, state.runStore, state.workflowKeyStore, state.signalStore, active, workflowKey, now); err != nil {
+				p.mu.Unlock()
+				return nil, status.Errorf(codes.Internal, "recover stale workflow key: %v", err)
+			}
+			found = false
 		}
 		if found && workflowRunTerminal(active.Status) {
 			_ = deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, workflowKey, active.ID)
@@ -791,7 +799,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 			return nil, status.Errorf(codes.Internal, "start signal transaction: %v", err)
 		}
 
-		resp, signalID, err := signalOrStartRunInTransaction(ctx, stores, target, req, workflowKey, signal, now)
+		resp, signalID, err := signalOrStartRunInTransaction(ctx, stores, target, req, workflowKey, signal, now, state.startedAt)
 		if err != nil {
 			_ = tx.Abort(ctx)
 			var conflict *workflowSignalAddConflictError
@@ -1467,35 +1475,47 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
 		}
 		if found && existing.SignalID != "" {
-			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, run.ownerKey(), existing)
+			resp, _, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, run.ownerKey(), "", existing)
 			return resp, existing.SignalID, err
 		}
 	}
 	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, signal, false)
 }
 
-func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, now time.Time) (*proto.SignalWorkflowRunResponse, string, error) {
-	if key := strings.TrimSpace(signal.GetIdempotencyKey()); key != "" {
-		existing, found, err := loadIdempotencyRecordTx(ctx, stores.idempotencyStore, target.OwnerKey, key)
-		if err != nil {
-			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
-		}
-		if found && existing.SignalID != "" {
-			resp, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, target.OwnerKey, existing)
-			return resp, existing.SignalID, err
-		}
-	}
-
+func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, now, staleBefore time.Time) (*proto.SignalWorkflowRunResponse, string, error) {
 	startedRun := false
+	enqueueSignal := signal
 	run, active, err := activeWorkflowKeyRunInTransaction(ctx, stores.workflowKeyStore, stores.runStore, workflowKey)
 	if err != nil {
 		return nil, "", status.Errorf(codes.Internal, "load workflow key: %v", err)
+	}
+	if active && workflowRunStaleAtStart(run, staleBefore) {
+		if err := failStaleRunningRunTx(ctx, stores.runStore, stores.workflowKeyStore, stores.signalStore, run, workflowKey, now); err != nil {
+			return nil, "", status.Errorf(codes.Internal, "recover stale workflow key: %v", err)
+		}
+		active = false
 	}
 	if active && workflowRunTerminal(run.Status) {
 		if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, workflowKey, run.ID); err != nil {
 			return nil, "", status.Errorf(codes.Internal, "delete terminal workflow key: %v", err)
 		}
 		active = false
+	}
+	if key := strings.TrimSpace(signal.GetIdempotencyKey()); key != "" {
+		existing, found, err := loadIdempotencyRecordTx(ctx, stores.idempotencyStore, target.OwnerKey, key)
+		if err != nil {
+			return nil, "", status.Errorf(codes.Internal, "load signal idempotency key: %v", err)
+		}
+		if found && existing.SignalID != "" {
+			resp, reusable, err := signalIdempotencyResponseTx(ctx, stores.runStore, stores.signalStore, target.OwnerKey, workflowKey, existing)
+			if err != nil || reusable {
+				return resp, existing.SignalID, err
+			}
+			if strings.TrimSpace(enqueueSignal.GetId()) == existing.SignalID {
+				enqueueSignal = cloneSignal(enqueueSignal)
+				enqueueSignal.Id = ""
+			}
+		}
 	}
 	if !active {
 		startedRun = true
@@ -1526,7 +1546,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 	// The existing keyed run owns the execution ref and target. Later signals
 	// deliberately do not replace that context, even if the caller's current
 	// config would build a different target.
-	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, signal, startedRun)
+	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, enqueueSignal, startedRun)
 }
 
 func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idempotencyStore recordPutter, signalStore *gestalt.TransactionObjectStore, run workflowRunRecord, signal *proto.WorkflowSignal, startedRun bool) (*proto.SignalWorkflowRunResponse, string, error) {
@@ -1600,35 +1620,52 @@ func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idem
 	}, record.ID, nil
 }
 
-func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore *gestalt.TransactionObjectStore, pluginName string, record workflowIdempotencyRecord) (*proto.SignalWorkflowRunResponse, error) {
+func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore *gestalt.TransactionObjectStore, pluginName, workflowKey string, record workflowIdempotencyRecord) (*proto.SignalWorkflowRunResponse, bool, error) {
 	run, found, err := loadRunRecordTx(ctx, runStore, pluginName, record.RunID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "load idempotent signal run: %v", err)
+		return nil, false, status.Errorf(codes.Internal, "load idempotent signal run: %v", err)
 	}
 	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow run %q not found", record.RunID)
+		return nil, false, status.Errorf(codes.NotFound, "workflow run %q not found", record.RunID)
 	}
 	signal, found, err := loadSignalRecordTx(ctx, signalStore, record.SignalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "load idempotent signal: %v", err)
+		return nil, false, status.Errorf(codes.Internal, "load idempotent signal: %v", err)
 	}
 	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow signal %q not found", record.SignalID)
+		return nil, false, status.Errorf(codes.NotFound, "workflow signal %q not found", record.SignalID)
+	}
+	if signalIdempotencyRecordIsStaleRecovery(run, signal, record, workflowKey) {
+		return nil, false, nil
 	}
 	pbRun, err := run.toProto()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build run response: %v", err)
+		return nil, false, status.Errorf(codes.Internal, "build run response: %v", err)
 	}
-	workflowKey := strings.TrimSpace(record.WorkflowKey)
-	if workflowKey == "" {
-		workflowKey = run.WorkflowKey
+	responseWorkflowKey := strings.TrimSpace(record.WorkflowKey)
+	if responseWorkflowKey == "" {
+		responseWorkflowKey = run.WorkflowKey
 	}
 	return &proto.SignalWorkflowRunResponse{
 		Run:         pbRun,
 		Signal:      signal.signalProto(),
 		StartedRun:  record.StartedRun,
-		WorkflowKey: workflowKey,
-	}, nil
+		WorkflowKey: responseWorkflowKey,
+	}, true, nil
+}
+
+func signalIdempotencyRecordIsStaleRecovery(run workflowRunRecord, signal workflowSignalRecord, record workflowIdempotencyRecord, workflowKey string) bool {
+	workflowKey = strings.TrimSpace(workflowKey)
+	if workflowKey == "" {
+		return false
+	}
+	if firstNonEmpty(record.WorkflowKey, signal.WorkflowKey, run.WorkflowKey) != workflowKey {
+		return false
+	}
+	return run.Status == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED &&
+		run.StatusMessage == staleRunStatusMessage &&
+		signal.State == signalStateFailed &&
+		signal.StatusMessage == staleRunStatusMessage
 }
 
 func signalRecordResponse(ctx context.Context, runStore recordGetter, signal workflowSignalRecord) (*proto.SignalWorkflowRunResponse, error) {
@@ -1738,8 +1775,6 @@ func (p *Provider) updateEventTriggerPaused(ctx context.Context, pluginName, tri
 }
 
 func (p *Provider) pollLoop(ctx context.Context, pollInterval time.Duration, wake <-chan string) {
-	p.logTickError(ctx, p.tick(ctx, ""))
-
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
@@ -2049,6 +2084,7 @@ func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
 		executionRefStore: p.executionRefStore,
 		workflowKeyStore:  p.workflowKeyStore,
 		signalStore:       p.signalStore,
+		startedAt:         p.startedAt,
 	}, nil
 }
 
@@ -2097,6 +2133,7 @@ type configuredState struct {
 	executionRefStore *gestalt.ObjectStoreClient
 	workflowKeyStore  *gestalt.ObjectStoreClient
 	signalStore       *gestalt.ObjectStoreClient
+	startedAt         time.Time
 }
 
 type recordGetter interface {
@@ -2380,40 +2417,109 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
-	runs, err := listRunRecords(ctx, runStore, "")
+func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now, staleBefore time.Time) error {
+	cursor, err := runStore.OpenKeyCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
 		return err
 	}
-	for _, run := range runs {
-		if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+	defer cursor.Close()
+
+	var errs []error
+	for cursor.Continue() {
+		key := strings.TrimSpace(cursor.PrimaryKey())
+		if key == "" {
 			continue
 		}
-		run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
-		run.CompletedAt = &now
-		run.StatusMessage = "workflow provider restarted while run was in progress"
-		if err := runStore.Put(ctx, run.toRecord()); err != nil {
-			return err
-		}
-		if run.WorkflowKey != "" {
-			if err := deleteWorkflowKeyRecordForRun(ctx, workflowKeyStore, run.WorkflowKey, run.ID); err != nil {
-				return err
-			}
-		}
-		signals, err := listSignalRecords(ctx, signalStore, run.ID, signalStatePending)
+		run, found, err := loadRunRecord(ctx, runStore, "", key)
 		if err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("load run %q: %w", key, err))
+			continue
 		}
-		claimedSignals, err := listSignalRecords(ctx, signalStore, run.ID, signalStateClaimed)
-		if err != nil {
-			return err
+		if !found || !workflowRunStaleAtStart(run, staleBefore) {
+			continue
 		}
-		signals = append(signals, claimedSignals...)
-		if err := markSignalsFailed(ctx, signalStore, signals, now, run.StatusMessage); err != nil {
+		if err := failStaleRunningRun(ctx, runStore, workflowKeyStore, signalStore, run, run.WorkflowKey, now); err != nil {
+			errs = append(errs, fmt.Errorf("fail stale run %q: %w", run.ID, err))
+			continue
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func workflowRunStaleAtStart(run workflowRunRecord, staleBefore time.Time) bool {
+	if staleBefore.IsZero() || run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		return false
+	}
+	if run.StartedAt == nil {
+		return true
+	}
+	return !run.StartedAt.After(staleBefore)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore interface {
+	recordGetter
+	recordDeleter
+}, signalStore *gestalt.ObjectStoreClient, run workflowRunRecord, workflowKey string, now time.Time) error {
+	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
+	run.CompletedAt = &now
+	run.StatusMessage = staleRunStatusMessage
+	if err := runStore.Put(ctx, run.toRecord()); err != nil {
+		return err
+	}
+	if key := firstNonEmpty(workflowKey, run.WorkflowKey); key != "" {
+		if err := deleteWorkflowKeyRecordForRun(ctx, workflowKeyStore, key, run.ID); err != nil {
 			return err
 		}
 	}
-	return nil
+	signals, err := listSignalRecords(ctx, signalStore, run.ID, signalStatePending)
+	if err != nil {
+		return err
+	}
+	claimedSignals, err := listSignalRecords(ctx, signalStore, run.ID, signalStateClaimed)
+	if err != nil {
+		return err
+	}
+	signals = append(signals, claimedSignals...)
+	return markSignalsFailed(ctx, signalStore, signals, now, run.StatusMessage)
+}
+
+func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowKeyStore interface {
+	recordGetter
+	recordDeleter
+}, signalStore *gestalt.TransactionObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
+	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
+	run.CompletedAt = &now
+	run.StatusMessage = staleRunStatusMessage
+	if err := runStore.Put(ctx, run.toRecord()); err != nil {
+		return err
+	}
+	if key := firstNonEmpty(workflowKey, run.WorkflowKey); key != "" {
+		if err := deleteWorkflowKeyRecordForRun(ctx, workflowKeyStore, key, run.ID); err != nil {
+			return err
+		}
+	}
+	signals, err := listSignalRecordsTx(ctx, signalStore, run.ID, signalStatePending)
+	if err != nil {
+		return err
+	}
+	claimedSignals, err := listSignalRecordsTx(ctx, signalStore, run.ID, signalStateClaimed)
+	if err != nil {
+		return err
+	}
+	signals = append(signals, claimedSignals...)
+	return markSignalsFailedTx(ctx, signalStore, signals, now, run.StatusMessage)
 }
 
 func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
@@ -3067,6 +3173,10 @@ func listSignalRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ru
 	if err != nil {
 		return nil, err
 	}
+	return signalRecordsFromRecords(records, runID, state)
+}
+
+func signalRecordsFromRecords(records []gestalt.Record, runID, state string) ([]workflowSignalRecord, error) {
 	out := make([]workflowSignalRecord, 0, len(records))
 	for _, record := range records {
 		signal, err := signalRecordFromRecord(record)
@@ -3114,33 +3224,7 @@ func listSignalRecordsTx(ctx context.Context, store *gestalt.TransactionObjectSt
 	if err != nil {
 		return nil, err
 	}
-	out := make([]workflowSignalRecord, 0, len(records))
-	for _, record := range records {
-		signal, err := signalRecordFromRecord(record)
-		if err != nil {
-			return nil, err
-		}
-		if runID != "" && signal.RunID != runID {
-			continue
-		}
-		if state != "" && signal.State != state {
-			continue
-		}
-		out = append(out, signal)
-	}
-	slices.SortFunc(out, func(a, b workflowSignalRecord) int {
-		if a.Sequence != b.Sequence {
-			if a.Sequence < b.Sequence {
-				return -1
-			}
-			return 1
-		}
-		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
-			return cmp
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-	return out, nil
+	return signalRecordsFromRecords(records, runID, state)
 }
 
 func listSignalRecordsLimit(ctx context.Context, store *gestalt.ObjectStoreClient, runID, state string, limit int) ([]workflowSignalRecord, error) {
