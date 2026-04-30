@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useState } from "react";
 import { getIntegrations, Integration } from "@/lib/api";
+import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { filterIntegrations } from "@/lib/integrationSearch";
 import Nav from "@/components/Nav";
 import IntegrationCard from "@/components/IntegrationCard";
@@ -25,9 +26,24 @@ export default function IntegrationsPage() {
   const hasSearchQuery = query.trim().length > 0;
 
   useEffect(() => {
-    if (toast) {
-      window.history.replaceState(null, "", "/integrations");
+    if (!toast) {
+      window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+      return;
     }
+
+    const returnPath = window.sessionStorage.getItem(
+      CONNECTION_RETURN_PATH_STORAGE_KEY,
+    );
+    window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+    if (returnPath) {
+      const nextURL = new URL(returnPath, window.location.origin);
+      if (nextURL.origin === window.location.origin && nextURL.pathname.startsWith("/")) {
+        window.location.replace(`${nextURL.pathname}${nextURL.search}${nextURL.hash}`);
+        return;
+      }
+    }
+
+    window.history.replaceState(null, "", "/integrations");
   }, [toast]);
 
   function loadIntegrations() {

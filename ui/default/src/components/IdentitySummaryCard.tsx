@@ -10,7 +10,7 @@ export default function IdentitySummaryCard({
 }) {
   return (
     <Link
-      href={`/identities?id=${encodeURIComponent(identity.id)}`}
+      href={`/identities?id=${encodeURIComponent(identity.subjectId)}`}
       className="group rounded-lg border border-alpha bg-base-100 p-6 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
     >
       <div className="flex items-start justify-between gap-4">
@@ -19,12 +19,10 @@ export default function IdentitySummaryCard({
           <h2 className="mt-2 text-lg font-heading font-bold text-primary">
             {identity.displayName}
           </h2>
-          <p className="mt-2 text-sm text-muted">
-            Role: <span className="font-medium text-primary">{identity.role}</span>
-          </p>
+          <p className="mt-2 font-mono text-xs text-muted">{identity.subjectId}</p>
         </div>
         <span className="rounded-full border border-alpha px-3 py-1 text-xs uppercase tracking-[0.16em] text-faint">
-          {identity.role}
+          {identity.kind}
         </span>
       </div>
       <p className="mt-4 text-sm text-muted group-hover:text-primary transition-colors duration-150">

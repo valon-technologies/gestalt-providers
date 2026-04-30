@@ -2,20 +2,19 @@ import { expect, mockAuthInfo, test } from "./fixtures";
 import type {
   APIToken,
   Integration,
-  IntegrationOperation,
   ManagedIdentity,
   ManagedIdentityGrant,
   ManagedIdentityMember,
 } from "../src/lib/api";
+import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "../src/lib/constants";
 
 type IdentityState = {
   identities: ManagedIdentity[];
   membersByIdentityID: Record<string, ManagedIdentityMember[]>;
   grantsByIdentityID: Record<string, ManagedIdentityGrant[]>;
   tokensByIdentityID: Record<string, APIToken[]>;
-  integrationsByIdentityID: Record<string, Integration[]>;
   visibleIntegrations: Integration[];
-  operationsByIntegrationName: Record<string, IntegrationOperation[]>;
+  managedIntegrationsByIdentityID: Record<string, Integration[]>;
 };
 
 function isoDate(days: number): string {
@@ -27,9 +26,10 @@ async function wireIdentityRoutes(
   page: import("@playwright/test").Page,
   state: IdentityState,
   opts?: {
-    onStartOAuth?: (body: Record<string, unknown>) => void;
     onCreateToken?: (body: Record<string, unknown>) => void;
-    integrationsRouteMode?: "json" | "html-fallback";
+    onManagedConnect?: (body: Record<string, unknown>) => void;
+    onManagedDisconnect?: (integration: string) => void;
+    wrapGrantResponse?: boolean;
   },
 ) {
   await page.route("**/api/v1/integrations", async (route, request) => {
@@ -40,53 +40,52 @@ async function wireIdentityRoutes(
     await route.fallback();
   });
 
-  await page.route("**/api/v1/integrations/**", async (route, request) => {
-    const url = new URL(request.url());
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length === 5 && parts[4] === "operations" && request.method() === "GET") {
-      const integration = decodeURIComponent(parts[3]);
-      await route.fulfill({ json: state.operationsByIntegrationName[integration] || [] });
-      return;
-    }
-    await route.fallback();
-  });
-
-  await page.route("**/api/v1/identities", async (route, request) => {
+  await page.route("**/api/v1/authorization/subjects", async (route, request) => {
     if (request.method() === "GET") {
       await route.fulfill({ json: state.identities });
       return;
     }
     if (request.method() === "POST") {
-      const body = request.postDataJSON() as { displayName: string };
+      const body = request.postDataJSON() as { id: string; subjectId?: string; displayName: string };
+      const subjectId = body.subjectId || `service_account:${body.id}`;
+      const localId = subjectId.replace(/^service_account:/, "");
       const identity: ManagedIdentity = {
-        id: `agent-${state.identities.length + 1}`,
+        id: localId,
+        subjectId,
+        kind: "service_account",
         displayName: body.displayName,
-        role: "admin",
+        credentialSubjectId: subjectId,
+        createdBySubjectId: "user:test@gestalt.dev",
         createdAt: isoDate(10 + state.identities.length),
         updatedAt: isoDate(10 + state.identities.length),
       };
       state.identities = [...state.identities, identity];
-      state.membersByIdentityID[identity.id] = [];
-      state.grantsByIdentityID[identity.id] = [];
-      state.tokensByIdentityID[identity.id] = [];
-      state.integrationsByIdentityID[identity.id] = [];
+      state.membersByIdentityID[identity.subjectId] = [
+        {
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+          role: "admin",
+        },
+      ];
+      state.grantsByIdentityID[identity.subjectId] = [];
+      state.tokensByIdentityID[identity.subjectId] = [];
+      state.managedIntegrationsByIdentityID[identity.subjectId] = createManagedIdentityIntegrations();
       await route.fulfill({ status: 201, json: identity });
       return;
     }
     await route.fallback();
   });
 
-  await page.route("**/api/v1/identities/**", async (route, request) => {
-    const url = new URL(request.url());
-    const parts = url.pathname.split("/").filter(Boolean);
-    const identityID = parts[3];
-    const identity = state.identities.find((item) => item.id === identityID);
+  await page.route("**/api/v1/authorization/subjects/**", async (route, request) => {
+    const parts = new URL(request.url()).pathname.split("/").filter(Boolean);
+    const identityID = decodeURIComponent(parts[4]);
+    const identity = state.identities.find((item) => item.subjectId === identityID);
     if (!identity) {
       await route.fulfill({ status: 404, json: { error: "identity not found" } });
       return;
     }
 
-    if (parts.length === 4) {
+    if (parts.length === 5) {
       if (request.method() === "GET") {
         await route.fulfill({ json: identity });
         return;
@@ -99,28 +98,25 @@ async function wireIdentityRoutes(
         return;
       }
       if (request.method() === "DELETE") {
-        state.identities = state.identities.filter((item) => item.id !== identityID);
+        state.identities = state.identities.filter((item) => item.subjectId !== identityID);
         await route.fulfill({ json: { status: "deleted" } });
         return;
       }
     }
 
-    if (parts[4] === "members") {
-      if (parts.length === 5 && request.method() === "GET") {
+    if (parts[5] === "members") {
+      if (parts.length === 6 && request.method() === "GET") {
         await route.fulfill({ json: state.membersByIdentityID[identityID] || [] });
         return;
       }
-      if (parts.length === 5 && request.method() === "PUT") {
+      if (parts.length === 6 && request.method() === "PUT") {
         const body = request.postDataJSON() as { email: string; role: ManagedIdentityMember["role"] };
-        const now = isoDate(40);
         const nextMembers = [...(state.membersByIdentityID[identityID] || [])];
         const existingIndex = nextMembers.findIndex((member) => member.email === body.email);
         const nextMember: ManagedIdentityMember = {
-          userId: body.email,
+          subjectId: `user:${body.email}`,
           email: body.email,
           role: body.role,
-          createdAt: existingIndex >= 0 ? nextMembers[existingIndex].createdAt : now,
-          updatedAt: now,
         };
         if (existingIndex >= 0) nextMembers.splice(existingIndex, 1, nextMember);
         else nextMembers.push(nextMember);
@@ -128,37 +124,41 @@ async function wireIdentityRoutes(
         await route.fulfill({ json: nextMember });
         return;
       }
-      if (parts.length === 6 && request.method() === "DELETE") {
-        const email = decodeURIComponent(parts[5]);
+      if (parts.length === 7 && request.method() === "DELETE") {
+        const memberSubjectID = decodeURIComponent(parts[6]);
         state.membersByIdentityID[identityID] =
-          (state.membersByIdentityID[identityID] || []).filter((member) => member.email !== email);
+          (state.membersByIdentityID[identityID] || []).filter((member) => member.subjectId !== memberSubjectID);
         await route.fulfill({ json: { status: "deleted" } });
         return;
       }
     }
 
-    if (parts[4] === "grants") {
-      if (parts.length === 5 && request.method() === "GET") {
+    if (parts[5] === "grants") {
+      if (parts.length === 6 && request.method() === "GET") {
         await route.fulfill({ json: state.grantsByIdentityID[identityID] || [] });
         return;
       }
-      if (parts.length === 6 && request.method() === "PUT") {
-        const plugin = decodeURIComponent(parts[5]);
-        const body = request.postDataJSON() as { operations?: string[] };
-        const now = isoDate(50);
+      if (parts.length === 7 && request.method() === "PUT") {
+        const plugin = decodeURIComponent(parts[6]);
+        const body = request.postDataJSON() as { role: ManagedIdentityGrant["role"] };
         const nextGrant: ManagedIdentityGrant = {
           plugin,
-          operations: body.operations?.length ? body.operations : undefined,
-          createdAt: now,
-          updatedAt: now,
+          role: body.role,
+          source: "dynamic",
+          mutable: true,
         };
         const nextGrants = [...(state.grantsByIdentityID[identityID] || []).filter((grant) => grant.plugin !== plugin), nextGrant];
         state.grantsByIdentityID[identityID] = nextGrants;
-        await route.fulfill({ json: nextGrant });
+        await route.fulfill({
+          status: opts?.wrapGrantResponse ? 202 : 200,
+          json: opts?.wrapGrantResponse
+            ? { status: "persisted_pending_reload", grant: nextGrant, reloaded: false }
+            : nextGrant,
+        });
         return;
       }
-      if (parts.length === 6 && request.method() === "DELETE") {
-        const plugin = decodeURIComponent(parts[5]);
+      if (parts.length === 7 && request.method() === "DELETE") {
+        const plugin = decodeURIComponent(parts[6]);
         state.grantsByIdentityID[identityID] =
           (state.grantsByIdentityID[identityID] || []).filter((grant) => grant.plugin !== plugin);
         await route.fulfill({ json: { status: "deleted" } });
@@ -166,12 +166,12 @@ async function wireIdentityRoutes(
       }
     }
 
-    if (parts[4] === "tokens") {
-      if (parts.length === 5 && request.method() === "GET") {
+    if (parts[5] === "tokens") {
+      if (parts.length === 6 && request.method() === "GET") {
         await route.fulfill({ json: state.tokensByIdentityID[identityID] || [] });
         return;
       }
-      if (parts.length === 5 && request.method() === "POST") {
+      if (parts.length === 6 && request.method() === "POST") {
         const body = request.postDataJSON() as {
           name: string;
           permissions: { plugin: string; operations?: string[] }[];
@@ -195,8 +195,8 @@ async function wireIdentityRoutes(
         });
         return;
       }
-      if (parts.length === 6 && request.method() === "DELETE") {
-        const tokenID = decodeURIComponent(parts[5]);
+      if (parts.length === 7 && request.method() === "DELETE") {
+        const tokenID = decodeURIComponent(parts[6]);
         state.tokensByIdentityID[identityID] =
           (state.tokensByIdentityID[identityID] || []).filter((token) => token.id !== tokenID);
         await route.fulfill({ json: { status: "revoked" } });
@@ -204,96 +204,130 @@ async function wireIdentityRoutes(
       }
     }
 
-    if (parts[4] === "integrations" && parts.length === 5 && request.method() === "GET") {
-      if (opts?.integrationsRouteMode === "html-fallback") {
+    if (parts[5] === "integrations") {
+      if (parts.length === 6 && request.method() === "GET") {
+        await route.fulfill({ json: state.managedIntegrationsByIdentityID[identityID] || [] });
+        return;
+      }
+      if (parts.length === 7 && request.method() === "DELETE") {
+        const integration = decodeURIComponent(parts[6]);
+        updateManagedIdentityIntegrationConnection(state, identityID, integration, false);
+        opts?.onManagedDisconnect?.(integration);
+        await route.fulfill({ json: { status: "deleted" } });
+        return;
+      }
+    }
+
+    if (parts[5] === "auth") {
+      if (parts[6] === "start-oauth" && request.method() === "POST") {
         await route.fulfill({
-          contentType: "text/html; charset=utf-8",
-          body: "<!DOCTYPE html><html><body><h1>fallback shell</h1></body></html>",
+          json: {
+            state: "managed-oauth-state",
+            url: "https://oauth.example.test/authorize",
+          },
         });
         return;
       }
-      await route.fulfill({ json: state.integrationsByIdentityID[identityID] || [] });
-      return;
-    }
-
-    if (parts[4] === "integrations" && parts.length === 6 && request.method() === "DELETE") {
-      await route.fulfill({ json: { status: "disconnected" } });
-      return;
-    }
-
-    if (parts[4] === "auth" && parts[5] === "start-oauth" && request.method() === "POST") {
-      const body = request.postDataJSON() as Record<string, unknown>;
-      opts?.onStartOAuth?.(body);
-      await route.fulfill({
-        json: {
-          url: "/oauth-handler",
-          state: "oauth-state",
-        },
-      });
-      return;
-    }
-
-    if (parts[4] === "auth" && parts[5] === "connect-manual" && request.method() === "POST") {
-      await route.fulfill({ json: { status: "connected" } });
-      return;
+      if (parts[6] === "connect-manual" && request.method() === "POST") {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        const integration = String(body.integration || "");
+        updateManagedIdentityIntegrationConnection(state, identityID, integration, true);
+        opts?.onManagedConnect?.(body);
+        await route.fulfill({ json: { status: "connected", integration } });
+        return;
+      }
     }
 
     await route.fallback();
   });
 
-  await page.route("**/oauth-handler", async (route) => {
-    await route.fulfill({
-      contentType: "text/html",
-      body: "<html><body><h1>OAuth redirect</h1></body></html>",
-    });
-  });
 }
 
-function createBaseState(role: ManagedIdentity["role"]): IdentityState {
+function createManagedIdentityIntegrations(slackConnected = false): Integration[] {
+  return [
+    {
+      name: "github",
+      displayName: "GitHub",
+      description: "Repository and workflow operations",
+      authTypes: ["manual"],
+      credentialFields: [{ name: "token", label: "GitHub token" }],
+      connected: false,
+      status: "needs_user_connection",
+      credentialState: "missing",
+      healthState: "not_checked",
+      actions: ["connect"],
+    },
+    {
+      name: "slack",
+      displayName: "Slack",
+      description: "Workspace chat integration",
+      authTypes: ["manual"],
+      credentialFields: [{ name: "token", label: "Bot token" }],
+      connected: slackConnected,
+      status: slackConnected ? "ready" : "needs_user_connection",
+      credentialState: slackConnected ? "connected" : "missing",
+      healthState: "not_checked",
+      actions: slackConnected ? ["disconnect"] : ["connect"],
+    },
+  ];
+}
+
+function updateManagedIdentityIntegrationConnection(
+  state: IdentityState,
+  identityID: string,
+  integrationName: string,
+  connected: boolean,
+) {
+  state.managedIntegrationsByIdentityID[identityID] =
+    (state.managedIntegrationsByIdentityID[identityID] || []).map((integration) =>
+      integration.name === integrationName
+        ? {
+            ...integration,
+            connected,
+            status: connected ? "ready" : "needs_user_connection",
+            credentialState: connected ? "connected" : "missing",
+            actions: connected ? ["disconnect"] : ["connect"],
+          }
+        : integration,
+    );
+}
+
+function createBaseState(role: ManagedIdentityMember["role"]): IdentityState {
+  const subjectId = "service_account:agent-1";
   return {
     identities: [
       {
         id: "agent-1",
+        subjectId,
+        kind: "service_account",
         displayName: "Release Bot",
-        role,
+        credentialSubjectId: subjectId,
+        createdBySubjectId: "user:test@gestalt.dev",
         createdAt: isoDate(0),
         updatedAt: isoDate(1),
       },
     ],
     membersByIdentityID: {
-      "agent-1": [
+      [subjectId]: [
         {
-          userId: "admin@example.test",
-          email: "admin@example.test",
-          role: "admin",
-          createdAt: isoDate(0),
-          updatedAt: isoDate(1),
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+          role,
         },
       ],
     },
     grantsByIdentityID: {
-      "agent-1": [
+      [subjectId]: [
         {
           plugin: "slack",
-          operations: ["channels.read", "users.read"],
-          createdAt: isoDate(2),
-          updatedAt: isoDate(2),
+          role: "viewer",
+          source: "dynamic",
+          mutable: true,
         },
       ],
     },
     tokensByIdentityID: {
-      "agent-1": [],
-    },
-    integrationsByIdentityID: {
-      "agent-1": [
-        {
-          name: "slack",
-          displayName: "Slack",
-          description: "Workspace chat integration",
-          mountedPath: "/integrations/slack",
-          authTypes: ["oauth"],
-        },
-      ],
+      [subjectId]: [],
     },
     visibleIntegrations: [
       {
@@ -307,24 +341,17 @@ function createBaseState(role: ManagedIdentity["role"]): IdentityState {
         description: "Workspace chat integration",
       },
     ],
-    operationsByIntegrationName: {
-      github: [
-        { id: "issues.read", title: "List issues" },
-        { id: "repos.read", title: "Read repository metadata" },
-      ],
-      slack: [
-        { id: "channels.read", title: "List channels" },
-        { id: "users.read", title: "List users" },
-      ],
+    managedIntegrationsByIdentityID: {
+      [subjectId]: createManagedIdentityIntegrations(),
     },
   };
 }
 
-test.describe.skip("Managed identities", () => {
+test.describe("Managed identities", () => {
   test("lists identities and creates a new one", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state);
+    await wireIdentityRoutes(page, state, { wrapGrantResponse: true });
 
     await page.goto("/identities");
     await expect(page.getByRole("heading", { name: "Agent Identities" })).toBeVisible();
@@ -333,28 +360,73 @@ test.describe.skip("Managed identities", () => {
     await page.getByLabel("Display name").fill("Deploy Bot");
     await page.getByRole("button", { name: "Create Identity" }).click();
 
-    await expect(page).toHaveURL(/\/identities\?id=agent-2$/);
+    await expect(page).toHaveURL(/\/identities\?id=service_account%3Adeploy-bot$/);
     await expect(page.getByRole("heading", { name: "Deploy Bot" })).toBeVisible();
   });
 
-  test("creates an identity even when managed identity connection APIs are unavailable", async ({ authenticatedPage: page }) => {
+  test("connects and disconnects managed identity plugin credentials", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    const managedConnectBodies: Record<string, unknown>[] = [];
+    const managedDisconnects: string[] = [];
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, {
+      onManagedConnect: (body) => managedConnectBodies.push(body),
+      onManagedDisconnect: (integration) => managedDisconnects.push(integration),
+    });
+
+    await page.goto("/identities?id=agent-1");
+
+    await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Slack settings" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Slack settings" }).click();
+    await page.getByRole("button", { name: "Connect" }).click();
+    await page.getByRole("dialog").getByRole("textbox", { name: "Bot token" }).fill("xoxb-managed-identity");
+    await page.getByRole("dialog").getByRole("button", { name: "Submit" }).click();
+
+    await expect.poll(() => managedConnectBodies).toEqual([
+      {
+        integration: "slack",
+        credential: "xoxb-managed-identity",
+        returnPath: "/identities?id=service_account%3Aagent-1",
+      },
+    ]);
+    await expect(page.getByLabel("Connected")).toBeVisible();
+
+    await page.getByRole("button", { name: "Slack settings" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Disconnect" }).click();
+    await expect(dialog.getByRole("heading", { name: "Disconnect Slack?" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Disconnect" }).click();
+
+    await expect.poll(() => managedDisconnects).toEqual(["slack"]);
+    await page.getByRole("button", { name: "Slack settings" }).click();
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+
+  test("returns completed OAuth flows to the managed identity detail page", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, { integrationsRouteMode: "html-fallback" });
+    await wireIdentityRoutes(page, state);
 
-    await page.goto("/identities");
-    await page.getByLabel("Display name").fill("Deploy Bot");
-    await page.getByRole("button", { name: "Create Identity" }).click();
+    await page.goto("/identities?id=agent-1");
+    await page.evaluate(
+      ([key, value]) => window.sessionStorage.setItem(key, value),
+      [
+        CONNECTION_RETURN_PATH_STORAGE_KEY,
+        "/identities?id=service_account%3Aagent-1",
+      ],
+    );
 
-    await expect(page).toHaveURL(/\/identities\?id=agent-2$/);
-    await expect(page.getByRole("heading", { name: "Deploy Bot" })).toBeVisible();
-    await expect(page.getByText("Managed identity plugin connections are unavailable on this server.")).toBeVisible();
-    await expect(page.getByText("Unexpected token '<'")).toHaveCount(0);
+    await page.goto("/integrations?connected=slack");
+
+    await expect(page).toHaveURL(/\/identities\?id=service_account%3Aagent-1$/);
+    await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
   });
 
-  test("renders a viewer detail page as read-only except for token creation", async ({ authenticatedPage: page }) => {
+  test("renders a viewer detail page as read-only", async ({ authenticatedPage: page }) => {
     const state = createBaseState("viewer");
-    state.tokensByIdentityID["agent-1"] = [
+    state.tokensByIdentityID["service_account:agent-1"] = [
       {
         id: "tok-1",
         name: "viewer-token",
@@ -362,38 +434,18 @@ test.describe.skip("Managed identities", () => {
         createdAt: isoDate(3),
       },
     ];
-    state.integrationsByIdentityID["agent-1"] = [
-      {
-        name: "slack",
-        displayName: "Slack",
-        description: "Workspace chat integration",
-        connected: true,
-        instances: [
-          {
-            name: "workspace-a",
-            connection: "primary",
-          },
-        ],
-        mountedPath: "/integrations/slack",
-        authTypes: ["oauth"],
-      },
-    ];
-
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
     await page.goto("/identities?id=agent-1");
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create Token" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete Identity" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add or Update Member" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Set Grant" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Slack settings" })).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
     await page.getByRole("button", { name: "Slack settings" }).click();
-    await expect(page.getByText("workspace-a")).toBeVisible();
-    await expect(page.getByText("primary")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Disconnect" })).toHaveCount(0);
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   });
 
   test("lets an admin update sharing, grants, and tokens", async ({ authenticatedPage: page }) => {
@@ -408,120 +460,86 @@ test.describe.skip("Managed identities", () => {
     await expect(page.getByRole("heading", { name: "Release Automation" })).toBeVisible();
 
     await page.getByLabel("User email").fill("viewer@example.test");
-    await page.getByLabel("Role").selectOption("viewer");
+    await page.getByLabel("Role", { exact: true }).selectOption("viewer");
     await page.getByRole("button", { name: "Add or Update Member" }).click();
-    await expect(page.getByText("viewer@example.test")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "viewer@example.test", exact: true })).toBeVisible();
 
-    await expect(page.getByLabel("Operations")).toBeDisabled();
     await page.getByLabel("Plugin").fill("git");
     await page.getByRole("option", { name: /GitHub/ }).click();
-    await expect(page.getByLabel("Operations")).toBeEnabled();
-    await page.getByLabel("Operations").click();
-    await page.getByLabel("Filter operations").fill("read");
-    await page.getByLabel("repos.read").check();
-    await page.getByLabel("issues.read").check();
+    await page.getByLabel("Grant role").selectOption("viewer");
     await page.getByRole("button", { name: "Set Grant" }).click();
     await expect(page.getByRole("cell", { name: "github" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "issues.read, repos.read" })).toBeVisible();
+    const githubGrantRow = page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "github" }),
+    });
+    await expect(githubGrantRow.getByRole("cell", { name: "viewer" })).toBeVisible();
 
     await page.getByLabel("Token name").fill("release-token");
-    await page.getByLabel("channels.read").check();
+    await page.getByLabel("Operations for slack").fill("channels.read");
     await page.getByRole("button", { name: "Create Token" }).click();
     await expect(page.getByText("Copy this token now")).toBeVisible();
     await expect(page.getByText("gst_api_identity_secret")).toBeVisible();
     await expect(page.getByText("release-token")).toBeVisible();
   });
 
-  test("starts identity-scoped OAuth with the identity detail return path", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("editor");
-    let oauthBody: Record<string, unknown> | null = null;
-
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onStartOAuth: (body) => {
-        oauthBody = body;
-      },
-    });
-
-    await page.goto("/identities?id=agent-1");
-    await page.getByRole("button", { name: "Slack settings" }).click();
-    await page.getByRole("button", { name: "Connect" }).click();
-
-    await expect.poll(() => oauthBody?.returnPath).toBe("/identities?id=agent-1");
-    await expect(page).toHaveURL(/\/oauth-handler$/);
-  });
-
-  test("renders managed identity connection status with identity wording", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("editor");
-    let oauthBody: Record<string, unknown> | null = null;
-    state.integrationsByIdentityID["agent-1"] = [
+  test("lets an admin remove members, grants, tokens, and identities", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    state.membersByIdentityID["service_account:agent-1"] = [
+      ...state.membersByIdentityID["service_account:agent-1"],
       {
-        name: "slack",
-        displayName: "Slack",
-        description: "Workspace chat integration",
-        status: "needs_user_connection",
-        credentialState: "missing",
-        mountedPath: "/integrations/slack",
-        connections: [
-          {
-            name: "workspace",
-            displayName: "Workspace",
-            credentialMode: "subject",
-            ownerKind: "managed_identity",
-            credentialState: "missing",
-            healthState: "unknown",
-            status: "needs_user_connection",
-            actions: ["connect"],
-            authTypes: ["oauth"],
-          },
-        ],
+        subjectId: "user:viewer@example.test",
+        email: "viewer@example.test",
+        role: "viewer",
+      },
+    ];
+    state.tokensByIdentityID["service_account:agent-1"] = [
+      {
+        id: "tok-1",
+        name: "cleanup-token",
+        permissions: [{ plugin: "slack" }],
+        createdAt: isoDate(3),
       },
     ];
 
-    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
-    await wireIdentityRoutes(page, state, {
-      onStartOAuth: (body) => {
-        oauthBody = body;
-      },
-    });
-
-    await page.goto("/identities?id=agent-1");
-    await expect(page.getByText("Identity connection required")).toBeVisible();
-    await page.getByRole("button", { name: "Slack settings" }).click();
-    const dialog = page.getByRole("dialog");
-
-    await expect(dialog.getByText("Identity credentials missing")).toBeVisible();
-    await expect(dialog.getByText("Managed identity owned")).toBeVisible();
-    await expect(dialog.getByText("your connection")).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Connect" }).click();
-
-    await expect.poll(() => oauthBody?.returnPath).toBe("/identities?id=agent-1");
-    expect(oauthBody).toMatchObject({
-      integration: "slack",
-      connection: "workspace",
-    });
-  });
-
-  test("does not navigate identity connections into user-scoped plugin pages", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("editor");
-
+    page.on("dialog", (dialog) => dialog.accept());
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
     await page.goto("/identities?id=agent-1");
-    await page.getByTestId("integration-card-slack").click();
 
-    await expect(page).toHaveURL(/\/identities\?id=agent-1$/);
-    await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
+    const memberRow = page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "viewer@example.test", exact: true }),
+    });
+    await memberRow.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByRole("cell", { name: "viewer@example.test", exact: true })).toHaveCount(0);
+
+    const grantRow = page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "slack", exact: true }),
+    });
+    await grantRow.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "slack", exact: true }),
+    })).toHaveCount(0);
+
+    const tokenRow = page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "cleanup-token", exact: true }),
+    });
+    await tokenRow.getByRole("button", { name: "Revoke" }).click();
+    await expect(page.getByRole("cell", { name: "cleanup-token", exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Delete Identity" }).click();
+    await expect(page).toHaveURL(/\/identities$/);
+    await expect(page.getByText("Release Bot")).toHaveCount(0);
   });
 
-  test("allows operation-scoped tokens from plugin-wide grants", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("viewer");
-    state.grantsByIdentityID["agent-1"] = [
+  test("allows operation-scoped tokens from role-based plugin grants", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    state.grantsByIdentityID["service_account:agent-1"] = [
       {
         plugin: "github",
-        createdAt: isoDate(4),
-        updatedAt: isoDate(4),
+        role: "viewer",
+        source: "dynamic",
+        mutable: true,
       },
     ];
     let createTokenBody: Record<string, unknown> | null = null;
@@ -550,8 +568,8 @@ test.describe.skip("Managed identities", () => {
     await expect(page.getByText("gst_api_identity_secret")).toBeVisible();
   });
 
-  test("allows plugin-level tokens from operation-scoped grants", async ({ authenticatedPage: page }) => {
-    const state = createBaseState("viewer");
+  test("allows plugin-level tokens from role-based plugin grants", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
     let createTokenBody: Record<string, unknown> | null = null;
 
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });

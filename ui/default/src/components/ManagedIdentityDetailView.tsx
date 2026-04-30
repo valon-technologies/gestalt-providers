@@ -6,77 +6,53 @@ import {
   ComboboxInput,
   ComboboxOption,
   ComboboxOptions,
-  Popover,
-  PopoverButton,
-  PopoverPanel,
 } from "@headlessui/react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  APIError,
   type APIToken,
+  connectManagedIdentityManualIntegration,
   deleteManagedIdentity,
   deleteManagedIdentityGrant,
+  disconnectManagedIdentityIntegration,
   deleteManagedIdentityMember,
   getManagedIdentity,
   getManagedIdentityGrants,
-  getIntegrationOperations,
   getIntegrations,
   getManagedIdentityIntegrations,
   getManagedIdentityMembers,
   getManagedIdentityTokens,
   putManagedIdentityGrant,
   putManagedIdentityMember,
-  startManagedIdentityOAuth,
-  connectManagedIdentityManual,
-  disconnectManagedIdentityIntegration,
+  startManagedIdentityIntegrationOAuth,
   updateManagedIdentity,
   type Integration,
-  type IntegrationOperation,
   type ManagedIdentity,
   type ManagedIdentityGrant,
   type ManagedIdentityMember,
 } from "@/lib/api";
-import { INPUT_CLASSES } from "@/lib/constants";
+import { getUserEmail } from "@/lib/auth";
+import {
+  CONNECTION_RETURN_PATH_STORAGE_KEY,
+  INPUT_CLASSES,
+} from "@/lib/constants";
 import { filterIntegrations, getIntegrationLabel } from "@/lib/integrationSearch";
 import Button from "./Button";
+import IntegrationCard from "./IntegrationCard";
 import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
 import IdentityTokenTable from "./IdentityTokenTable";
-import IntegrationCard from "./IntegrationCard";
-import { CheckIcon, SearchIcon } from "./icons";
+import { SearchIcon } from "./icons";
 
 const SECTION_CARD =
   "rounded-lg border border-alpha bg-base-white p-6 dark:bg-surface";
-const DROPDOWN_TRIGGER_CLASSES =
-  `${INPUT_CLASSES} flex items-center justify-between gap-3 text-left`;
-
-function uniqueSorted(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean))).sort();
-}
-
-function uniqueOperationsByID(
-  operations: IntegrationOperation[],
-): IntegrationOperation[] {
-  const seen = new Set<string>();
-  const unique: IntegrationOperation[] = [];
-  for (const operation of operations) {
-    const id = operation.id?.trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    unique.push({ ...operation, id });
-  }
-  return unique.sort((left, right) => left.id.localeCompare(right.id));
-}
 
 function mergeGrantPluginOptions(
   visibleIntegrations: Integration[],
-  connectedIntegrations: Integration[],
   grants: ManagedIdentityGrant[],
 ): Integration[] {
   const byName = new Map<string, Integration>();
   for (const integration of [
     ...visibleIntegrations,
-    ...connectedIntegrations,
     ...grants.map((grant) => ({ name: grant.plugin })),
   ]) {
     const name = integration.name?.trim();
@@ -110,29 +86,6 @@ function resolveGrantPluginOption(
   );
 }
 
-function filterGrantOperations(
-  operations: IntegrationOperation[],
-  rawQuery: string,
-): IntegrationOperation[] {
-  const query = rawQuery.trim().toLowerCase();
-  if (!query) return operations;
-  return operations.filter((operation) =>
-    [operation.id, operation.title || "", operation.description || ""].some((value) =>
-      value.toLowerCase().includes(query),
-    ),
-  );
-}
-
-function operationSecondaryText(operation: IntegrationOperation): string | null {
-  if (operation.title && operation.title !== operation.id) {
-    return operation.title;
-  }
-  if (operation.description) {
-    return operation.description;
-  }
-  return null;
-}
-
 function ChevronUpDownIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -151,24 +104,6 @@ function ChevronUpDownIcon({ className }: { className?: string }) {
   );
 }
 
-function formatOperations(operations?: string[]): string {
-  return operations?.length ? operations.join(", ") : "All operations";
-}
-
-function isManagedIdentityConnectionsUnavailable(err: unknown, identityID: string): boolean {
-  if (!(err instanceof Error)) {
-    return false;
-  }
-  if (err instanceof APIError && err.status === 404) {
-    return true;
-  }
-  return (
-    err instanceof APIError &&
-    err.message.includes(`/api/v1/identities/${identityID}/integrations`) &&
-    err.message.includes("Expected JSON response")
-  );
-}
-
 export default function ManagedIdentityDetailView({
   identityID,
 }: {
@@ -178,9 +113,9 @@ export default function ManagedIdentityDetailView({
   const [members, setMembers] = useState<ManagedIdentityMember[]>([]);
   const [grants, setGrants] = useState<ManagedIdentityGrant[]>([]);
   const [tokens, setTokens] = useState<APIToken[]>([]);
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [visibleIntegrations, setVisibleIntegrations] = useState<Integration[]>([]);
-  const [connectionsUnavailable, setConnectionsUnavailable] = useState(false);
+  const [managedIntegrations, setManagedIntegrations] = useState<Integration[]>([]);
+  const [managedIntegrationError, setManagedIntegrationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
@@ -188,16 +123,11 @@ export default function ManagedIdentityDetailView({
   const [grantBusy, setGrantBusy] = useState(false);
   const [selectedGrantPlugin, setSelectedGrantPlugin] = useState("");
   const [grantPluginQuery, setGrantPluginQuery] = useState("");
-  const [grantOperationsByPlugin, setGrantOperationsByPlugin] = useState<
-    Record<string, IntegrationOperation[]>
-  >({});
-  const [selectedGrantOperations, setSelectedGrantOperations] = useState<string[]>([]);
-  const [grantOperationsQuery, setGrantOperationsQuery] = useState("");
-  const [grantOperationsLoading, setGrantOperationsLoading] = useState(false);
+  const [selectedGrantRole, setSelectedGrantRole] =
+    useState<ManagedIdentityGrant["role"]>("viewer");
   const [grantSelectionError, setGrantSelectionError] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const loadRequestIdRef = useRef(0);
-  const grantOperationsRequestIdRef = useRef(0);
 
   const loadAll = useCallback(async () => {
     if (!identityID) return;
@@ -205,33 +135,36 @@ export default function ManagedIdentityDetailView({
     loadRequestIdRef.current = requestID;
 
     try {
-      const [nextIdentity, nextMembers, nextGrants, nextTokens, nextVisibleIntegrations] =
+      const managedIntegrationsResult = getManagedIdentityIntegrations(identityID)
+        .then((integrations) => ({ integrations, error: null as string | null }))
+        .catch((err) => ({
+          integrations: [] as Integration[],
+          error: err instanceof Error ? err.message : "Failed to load plugin connections",
+        }));
+      const [
+        nextIdentity,
+        nextMembers,
+        nextGrants,
+        nextTokens,
+        nextVisibleIntegrations,
+        nextManagedIntegrationsResult,
+      ] =
         await Promise.all([
-        getManagedIdentity(identityID),
-        getManagedIdentityMembers(identityID),
-        getManagedIdentityGrants(identityID),
-        getManagedIdentityTokens(identityID),
-        getIntegrations().catch(() => [] as Integration[]),
-      ]);
-      let nextIntegrations: Integration[] = [];
-      let nextConnectionsUnavailable = false;
-      try {
-        nextIntegrations = await getManagedIdentityIntegrations(identityID);
-      } catch (err) {
-        if (isManagedIdentityConnectionsUnavailable(err, identityID)) {
-          nextConnectionsUnavailable = true;
-        } else {
-          throw err;
-        }
-      }
+          getManagedIdentity(identityID),
+          getManagedIdentityMembers(identityID),
+          getManagedIdentityGrants(identityID),
+          getManagedIdentityTokens(identityID),
+          getIntegrations().catch(() => [] as Integration[]),
+          managedIntegrationsResult,
+        ]);
       if (loadRequestIdRef.current !== requestID) return;
       setIdentity(nextIdentity);
       setMembers(nextMembers);
       setGrants(nextGrants);
       setTokens(nextTokens);
-      setIntegrations(nextIntegrations);
       setVisibleIntegrations(nextVisibleIntegrations);
-      setConnectionsUnavailable(nextConnectionsUnavailable);
+      setManagedIntegrations(nextManagedIntegrationsResult.integrations);
+      setManagedIntegrationError(nextManagedIntegrationsResult.error);
       setError(null);
     } catch (err) {
       if (loadRequestIdRef.current !== requestID) return;
@@ -247,13 +180,15 @@ export default function ManagedIdentityDetailView({
     void loadAll();
   }, [loadAll]);
 
-  const role = identity?.role;
-  const canEdit = role === "editor" || role === "admin";
+  const currentUserEmail = getUserEmail()?.trim().toLowerCase() || "";
+  const role =
+    members.find((member) => member.email?.trim().toLowerCase() === currentUserEmail)
+      ?.role ?? "viewer";
   const canAdmin = role === "admin";
-  const returnPath = `/identities?id=${encodeURIComponent(identityID)}`;
+  const canConnect = role === "editor" || role === "admin";
+  const connectionReturnPath = `/identities?id=${encodeURIComponent(identityID)}`;
   const grantPluginOptions = mergeGrantPluginOptions(
     visibleIntegrations,
-    integrations,
     grants,
   );
   const filteredGrantPluginOptions = filterIntegrations(
@@ -266,17 +201,7 @@ export default function ManagedIdentityDetailView({
     grantPluginQuery,
   );
   const activeGrantPluginName = activeGrantPlugin?.name ?? "";
-  const activeGrantOperations = activeGrantPluginName
-    ? grantOperationsByPlugin[activeGrantPluginName] ?? []
-    : [];
-  const filteredGrantOperations = filterGrantOperations(
-    activeGrantOperations,
-    grantOperationsQuery,
-  );
-  const canSubmitGrant =
-    !!activeGrantPluginName &&
-    !grantBusy &&
-    !grantOperationsLoading;
+  const canSubmitGrant = !!activeGrantPluginName && !!selectedGrantRole && !grantBusy;
 
   async function handleRename(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -331,14 +256,15 @@ export default function ManagedIdentityDetailView({
     }
   }
 
-  async function handleRemoveMember(email: string) {
-    if (!window.confirm(`Remove ${email} from this identity?`)) {
+  async function handleRemoveMember(member: ManagedIdentityMember) {
+    const label = member.email || member.subjectId;
+    if (!window.confirm(`Remove ${label} from this identity?`)) {
       return;
     }
     setMemberBusy(true);
     setError(null);
     try {
-      await deleteManagedIdentityMember(identityID, email);
+      await deleteManagedIdentityMember(identityID, member.subjectId);
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove member");
@@ -347,49 +273,10 @@ export default function ManagedIdentityDetailView({
     }
   }
 
-  useEffect(() => {
-    if (!activeGrantPluginName) {
-      grantOperationsRequestIdRef.current += 1;
-      setGrantOperationsLoading(false);
-      return;
-    }
-    if (grantOperationsByPlugin[activeGrantPluginName]) {
-      return;
-    }
-
-    const requestID = grantOperationsRequestIdRef.current + 1;
-    grantOperationsRequestIdRef.current = requestID;
-    setGrantOperationsLoading(true);
-    setGrantSelectionError(null);
-
-    void getIntegrationOperations(activeGrantPluginName)
-      .then((operations) => {
-        if (grantOperationsRequestIdRef.current !== requestID) return;
-        setGrantOperationsByPlugin((current) => ({
-          ...current,
-          [activeGrantPluginName]: uniqueOperationsByID(operations),
-        }));
-      })
-      .catch((err) => {
-        if (grantOperationsRequestIdRef.current !== requestID) return;
-        setGrantSelectionError(
-          err instanceof Error
-            ? err.message
-            : `Failed to load operations for ${activeGrantPluginName}`,
-        );
-      })
-      .finally(() => {
-        if (grantOperationsRequestIdRef.current === requestID) {
-          setGrantOperationsLoading(false);
-        }
-      });
-  }, [activeGrantPluginName, grantOperationsByPlugin]);
-
   function resetGrantForm() {
     setSelectedGrantPlugin("");
     setGrantPluginQuery("");
-    setSelectedGrantOperations([]);
-    setGrantOperationsQuery("");
+    setSelectedGrantRole("viewer");
     setGrantSelectionError(null);
   }
 
@@ -397,29 +284,17 @@ export default function ManagedIdentityDetailView({
     const nextPlugin = integration?.name ?? "";
     setSelectedGrantPlugin(nextPlugin);
     setGrantPluginQuery(integration ? getIntegrationLabel(integration) : "");
-    setSelectedGrantOperations([]);
-    setGrantOperationsQuery("");
     setGrantSelectionError(null);
-  }
-
-  function toggleGrantOperation(operationID: string) {
-    setSelectedGrantOperations((current) =>
-      current.includes(operationID)
-        ? current.filter((operation) => operation !== operationID)
-        : [...current, operationID].sort(),
-    );
   }
 
   async function handleGrantSubmit() {
     if (!activeGrantPluginName) return;
-    const operations =
-      selectedGrantOperations.length > 0 ? selectedGrantOperations : undefined;
 
     setGrantBusy(true);
     setError(null);
     setGrantSelectionError(null);
     try {
-      await putManagedIdentityGrant(identityID, activeGrantPluginName, operations);
+      await putManagedIdentityGrant(identityID, activeGrantPluginName, selectedGrantRole);
       resetGrantForm();
       await loadAll();
     } catch (err) {
@@ -442,6 +317,19 @@ export default function ManagedIdentityDetailView({
     }
   }
 
+  function rememberConnectionReturnPath() {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(
+      CONNECTION_RETURN_PATH_STORAGE_KEY,
+      connectionReturnPath,
+    );
+  }
+
+  function forgetConnectionReturnPath() {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-12">
       <div className="animate-fade-in-up">
@@ -454,7 +342,7 @@ export default function ManagedIdentityDetailView({
         </h1>
         {identity ? (
           <p className="mt-2 text-sm text-muted">
-            You currently have <span className="font-medium text-primary">{identity.role}</span> access.
+            You currently have <span className="font-medium text-primary">{role}</span> access.
           </p>
         ) : null}
       </div>
@@ -469,7 +357,10 @@ export default function ManagedIdentityDetailView({
               <div>
                 <span className="label-text">Overview</span>
                 <p className="mt-3 text-sm text-muted">
-                  Identity ID: <code className="font-mono text-xs text-primary">{identity.id}</code>
+                  Subject ID: <code className="font-mono text-xs text-primary">{identity.subjectId}</code>
+                </p>
+                <p className="mt-2 text-sm text-muted">
+                  Local ID: <code className="font-mono text-xs text-primary">{identity.id}</code>
                 </p>
                 <p className="mt-2 text-sm text-muted">
                   Created {new Date(identity.createdAt).toLocaleString()} · Updated {new Date(identity.updatedAt).toLocaleString()}
@@ -554,24 +445,22 @@ export default function ManagedIdentityDetailView({
                 <thead>
                   <tr className="border-b border-alpha text-left">
                     <th className="px-5 py-3.5 label-text">Email</th>
+                    <th className="px-5 py-3.5 label-text">Subject</th>
                     <th className="px-5 py-3.5 label-text">Role</th>
-                    <th className="px-5 py-3.5 label-text">Added</th>
                     <th className="px-5 py-3.5 label-text"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {members.map((member) => (
-                    <tr key={member.email} className="border-b border-alpha last:border-b-0">
-                      <td className="px-5 py-4 text-primary font-medium">{member.email}</td>
+                    <tr key={member.subjectId} className="border-b border-alpha last:border-b-0">
+                      <td className="px-5 py-4 text-primary font-medium">{member.email || "-"}</td>
+                      <td className="px-5 py-4 text-muted font-mono text-xs">{member.subjectId}</td>
                       <td className="px-5 py-4 text-muted">{member.role}</td>
-                      <td className="px-5 py-4 text-muted font-mono text-xs">
-                        {new Date(member.createdAt).toLocaleDateString()}
-                      </td>
                       <td className="px-5 py-4">
                         {canAdmin ? (
                           <Button
                             variant="danger"
-                            onClick={() => handleRemoveMember(member.email)}
+                            onClick={() => handleRemoveMember(member)}
                             disabled={memberBusy}
                           >
                             Remove
@@ -588,7 +477,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <span className="label-text">Authorization</span>
             <h2 className="mt-2 text-lg font-heading font-bold text-primary">Plugin Grants</h2>
-            {canEdit ? (
+            {canAdmin ? (
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -612,8 +501,6 @@ export default function ManagedIdentityDetailView({
                         onChange={(event) => {
                           setSelectedGrantPlugin("");
                           setGrantPluginQuery(event.target.value);
-                          setSelectedGrantOperations([]);
-                          setGrantOperationsQuery("");
                           setGrantSelectionError(null);
                         }}
                         placeholder="Choose a visible plugin"
@@ -655,105 +542,23 @@ export default function ManagedIdentityDetailView({
                     </Combobox>
                   </div>
                 </div>
-                <div className="flex-1">
-                  <label id="grant-operations-label" className="label-text block">
-                    Operations
+                <div className="w-full xl:w-48">
+                  <label htmlFor="grant-role" className="label-text block">
+                    Role
                   </label>
-                  <Popover className="relative mt-2">
-                    <PopoverButton
-                      aria-labelledby="grant-operations-label"
-                      disabled={!activeGrantPluginName || grantOperationsLoading}
-                      className={`${DROPDOWN_TRIGGER_CLASSES} ${
-                        !activeGrantPluginName || grantOperationsLoading
-                          ? "cursor-not-allowed opacity-60"
-                          : ""
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-sm text-left text-primary">
-                        {!activeGrantPluginName
-                          ? "Select a plugin first"
-                          : grantOperationsLoading
-                            ? "Loading operations..."
-                            : selectedGrantOperations.length === 0
-                              ? "Optional, select operations"
-                              : selectedGrantOperations.length <= 2
-                                ? selectedGrantOperations.join(", ")
-                                : `${selectedGrantOperations.length} operations selected`}
-                      </span>
-                      <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-faint" />
-                    </PopoverButton>
-                    <PopoverPanel className="absolute left-0 top-full z-20 mt-2 w-full rounded-lg border border-alpha bg-base-white p-3 shadow-dropdown dark:bg-surface">
-                      <div className="relative">
-                        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-                        <input
-                          aria-label="Filter operations"
-                          value={grantOperationsQuery}
-                          onChange={(event) => setGrantOperationsQuery(event.target.value)}
-                          placeholder="Filter operations"
-                          className={`w-full pl-9 ${INPUT_CLASSES}`}
-                        />
-                      </div>
-                      <div className="mt-3 max-h-64 overflow-auto">
-                        {filteredGrantOperations.length > 0 ? (
-                          <div className="space-y-2">
-                            {filteredGrantOperations.map((operation) => {
-                              const secondaryText = operationSecondaryText(operation);
-                              return (
-                                <label
-                                  key={operation.id}
-                                  className="flex cursor-pointer items-start gap-3 rounded-md px-3 py-2 transition-colors duration-150 hover:bg-base-100 dark:hover:bg-surface-raised"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedGrantOperations.includes(operation.id)}
-                                    onChange={() => toggleGrantOperation(operation.id)}
-                                    className="mt-0.5 h-4 w-4"
-                                  />
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-sm font-medium text-primary">
-                                      {operation.id}
-                                    </span>
-                                    {secondaryText ? (
-                                      <span className="mt-0.5 block text-xs text-muted">
-                                        {secondaryText}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="px-3 py-2 text-sm text-muted">
-                            {grantSelectionError
-                              ? "Operations are unavailable right now."
-                              : activeGrantOperations.length > 0
-                              ? "No matching operations."
-                              : "This plugin does not expose grantable operations."}
-                          </p>
-                        )}
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-alpha pt-3">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedGrantOperations([])}
-                          className="text-sm text-muted transition-colors duration-150 hover:text-primary"
-                        >
-                          Clear selection
-                        </button>
-                        <p className="text-right text-xs text-faint">
-                          Leave all unchecked to grant full access.
-                        </p>
-                      </div>
-                    </PopoverPanel>
-                  </Popover>
-                  <p className="mt-2 text-xs text-faint">
-                    {!activeGrantPluginName
-                      ? "Select a plugin first to load operations."
-                      : grantSelectionError
-                        ? "Operations could not be loaded. Leave all unchecked to grant full access."
-                        : "Leave all unchecked to grant full access."}
-                  </p>
+                  <select
+                    id="grant-role"
+                    aria-label="Grant role"
+                    value={selectedGrantRole}
+                    onChange={(event) =>
+                      setSelectedGrantRole(event.target.value as ManagedIdentityGrant["role"])
+                    }
+                    className={`mt-2 w-full ${INPUT_CLASSES}`}
+                  >
+                    <option value="viewer">viewer</option>
+                    <option value="editor">editor</option>
+                    <option value="admin">admin</option>
+                  </select>
                   {grantSelectionError ? (
                     <p className="mt-2 text-xs text-ember-500">{grantSelectionError}</p>
                   ) : null}
@@ -768,8 +573,8 @@ export default function ManagedIdentityDetailView({
                 <thead>
                   <tr className="border-b border-alpha text-left">
                     <th className="px-5 py-3.5 label-text">Plugin</th>
-                    <th className="px-5 py-3.5 label-text">Operations</th>
-                    <th className="px-5 py-3.5 label-text">Updated</th>
+                    <th className="px-5 py-3.5 label-text">Role</th>
+                    <th className="px-5 py-3.5 label-text">Source</th>
                     <th className="px-5 py-3.5 label-text"></th>
                   </tr>
                 </thead>
@@ -777,12 +582,10 @@ export default function ManagedIdentityDetailView({
                   {grants.map((grant) => (
                     <tr key={grant.plugin} className="border-b border-alpha last:border-b-0">
                       <td className="px-5 py-4 text-primary font-medium">{grant.plugin}</td>
-                      <td className="px-5 py-4 text-muted">{formatOperations(grant.operations)}</td>
-                      <td className="px-5 py-4 text-muted font-mono text-xs">
-                        {new Date(grant.updatedAt).toLocaleDateString()}
-                      </td>
+                      <td className="px-5 py-4 text-muted">{grant.role}</td>
+                      <td className="px-5 py-4 text-muted">{grant.source}</td>
                       <td className="px-5 py-4">
-                        {canEdit ? (
+                        {canAdmin && grant.mutable ? (
                           <Button
                             variant="danger"
                             onClick={() => handleDeleteGrant(grant.plugin)}
@@ -802,45 +605,62 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <span className="label-text">Connections</span>
             <h2 className="mt-2 text-lg font-heading font-bold text-primary">Plugin Connections</h2>
-            {connectionsUnavailable ? (
+            {managedIntegrationError ? (
+              <p className="mt-6 text-sm text-ember-500">{managedIntegrationError}</p>
+            ) : managedIntegrations.length === 0 ? (
               <p className="mt-6 text-sm text-muted">
-                Managed identity plugin connections are unavailable on this server.
+                No plugins are available to connect for this identity.
               </p>
             ) : (
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {integrations.map((integration) => (
+              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                {managedIntegrations.map((integration) => (
                   <IntegrationCard
                     key={integration.name}
                     integration={integration}
-                    onConnected={loadAll}
-                    onDisconnected={loadAll}
-                    startOAuth={(integrationName, scopes, connectionParams, instance, connection, nextReturnPath) =>
-                      startManagedIdentityOAuth(
+                    startOAuth={async (plugin, scopes, connectionParams, instance, connection, returnPath) => {
+                      rememberConnectionReturnPath();
+                      try {
+                        return await startManagedIdentityIntegrationOAuth(
+                          identityID,
+                          plugin,
+                          scopes,
+                          connectionParams,
+                          instance,
+                          connection,
+                          returnPath,
+                        );
+                      } catch (err) {
+                        forgetConnectionReturnPath();
+                        throw err;
+                      }
+                    }}
+                    connectManual={async (plugin, credential, connectionParams, instance, connection, returnPath) => {
+                      const result = await connectManagedIdentityManualIntegration(
                         identityID,
-                        integrationName,
-                        scopes,
-                        connectionParams,
-                        instance,
-                        connection,
-                        nextReturnPath,
-                      )
-                    }
-                    connectManual={(integrationName, credential, connectionParams, instance, connection, nextReturnPath) =>
-                      connectManagedIdentityManual(
-                        identityID,
-                        integrationName,
+                        plugin,
                         credential,
                         connectionParams,
                         instance,
                         connection,
-                        nextReturnPath,
+                        returnPath,
+                      );
+                      if (result.status === "selection_required") {
+                        rememberConnectionReturnPath();
+                      }
+                      return result;
+                    }}
+                    disconnect={(plugin, instance, connection) =>
+                      disconnectManagedIdentityIntegration(
+                        identityID,
+                        plugin,
+                        instance,
+                        connection,
                       )
                     }
-                    disconnect={(integrationName, instance, connection) =>
-                      disconnectManagedIdentityIntegration(identityID, integrationName, instance, connection)
-                    }
-                    returnPath={returnPath}
-                    readOnly={!canEdit}
+                    onConnected={loadAll}
+                    onDisconnected={loadAll}
+                    returnPath={connectionReturnPath}
+                    readOnly={!canConnect}
                     disableNavigation
                     connectionContext="managed_identity"
                   />
@@ -852,16 +672,22 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <span className="label-text">API Access</span>
             <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity Tokens</h2>
-            <IdentityTokenCreateForm
-              identityID={identityID}
-              grants={grants}
-              onCreated={loadAll}
-            />
+            {canAdmin ? (
+              <IdentityTokenCreateForm
+                identityID={identityID}
+                grants={grants}
+                onCreated={loadAll}
+              />
+            ) : (
+              <p className="mt-6 text-sm text-muted">
+                Only identity admins can create subject-owned API tokens.
+              </p>
+            )}
             <div className="mt-8">
               <IdentityTokenTable
                 identityID={identityID}
                 tokens={tokens}
-                canRevoke={canEdit}
+                canRevoke={canAdmin}
                 onRevoked={loadAll}
               />
             </div>

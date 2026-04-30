@@ -106,6 +106,7 @@ export interface IntegrationOperation {
 export interface AccessPermission {
   plugin: string;
   operations?: string[];
+  actions?: string[];
 }
 
 export interface APIToken {
@@ -392,25 +393,28 @@ function agentToolRefsToRequest(toolRefs?: AgentToolRef[]) {
 
 export interface ManagedIdentity {
   id: string;
+  subjectId: string;
+  kind: "service_account";
   displayName: string;
-  role: "viewer" | "editor" | "admin";
+  description?: string;
+  credentialSubjectId: string;
+  createdBySubjectId?: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 }
 
 export interface ManagedIdentityMember {
-  userId?: string;
-  email: string;
+  subjectId: string;
+  email?: string;
   role: "viewer" | "editor" | "admin";
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface ManagedIdentityGrant {
   plugin: string;
-  operations?: string[];
-  createdAt: string;
-  updatedAt: string;
+  role: "viewer" | "editor" | "admin";
+  source: "static" | "dynamic" | string;
+  mutable: boolean;
 }
 
 export interface ConnectIntegrationResult {
@@ -858,108 +862,45 @@ export async function revokeToken(id: string): Promise<void> {
   await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
 }
 
-export async function getManagedIdentities(): Promise<ManagedIdentity[]> {
-  return fetchAPI("/api/v1/identities");
+const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";
+
+function managedSubjectPath(id: string): string {
+  return `${MANAGED_SUBJECTS_PATH}/${encodeURIComponent(id)}`;
 }
 
-export async function createManagedIdentity(displayName: string): Promise<ManagedIdentity> {
-  return fetchAPI("/api/v1/identities", {
+function unwrapManagedIdentityGrant(
+  response: ManagedIdentityGrant | { grant?: ManagedIdentityGrant },
+): ManagedIdentityGrant {
+  if ("grant" in response && response.grant) {
+    return response.grant;
+  }
+  return response as ManagedIdentityGrant;
+}
+
+export async function getManagedIdentities(): Promise<ManagedIdentity[]> {
+  return fetchAPI(MANAGED_SUBJECTS_PATH);
+}
+
+export async function createManagedIdentity(
+  id: string,
+  displayName: string,
+  description?: string,
+): Promise<ManagedIdentity> {
+  return fetchAPI(MANAGED_SUBJECTS_PATH, {
     method: "POST",
-    body: JSON.stringify({ displayName }),
+    body: JSON.stringify({ id, displayName, description }),
   });
 }
 
 export async function getManagedIdentity(id: string): Promise<ManagedIdentity> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}`);
-}
-
-export async function updateManagedIdentity(id: string, displayName: string): Promise<ManagedIdentity> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: JSON.stringify({ displayName }),
-  });
-}
-
-export async function deleteManagedIdentity(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-export async function getManagedIdentityMembers(id: string): Promise<ManagedIdentityMember[]> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/members`);
-}
-
-export async function putManagedIdentityMember(
-  id: string,
-  email: string,
-  role: ManagedIdentityMember["role"],
-): Promise<ManagedIdentityMember> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/members`, {
-    method: "PUT",
-    body: JSON.stringify({ email, role }),
-  });
-}
-
-export async function deleteManagedIdentityMember(id: string, email: string): Promise<void> {
-  await fetchAPI(
-    `/api/v1/identities/${encodeURIComponent(id)}/members/${encodeURIComponent(email)}`,
-    { method: "DELETE" },
-  );
-}
-
-export async function getManagedIdentityGrants(id: string): Promise<ManagedIdentityGrant[]> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/grants`);
-}
-
-export async function putManagedIdentityGrant(
-  id: string,
-  plugin: string,
-  operations?: string[],
-): Promise<ManagedIdentityGrant> {
-  return fetchAPI(
-    `/api/v1/identities/${encodeURIComponent(id)}/grants/${encodeURIComponent(plugin)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ operations }),
-    },
-  );
-}
-
-export async function deleteManagedIdentityGrant(id: string, plugin: string): Promise<void> {
-  await fetchAPI(
-    `/api/v1/identities/${encodeURIComponent(id)}/grants/${encodeURIComponent(plugin)}`,
-    { method: "DELETE" },
-  );
-}
-
-export async function getManagedIdentityTokens(id: string): Promise<APIToken[]> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/tokens`);
-}
-
-export async function createManagedIdentityToken(
-  id: string,
-  name: string,
-  permissions: AccessPermission[],
-): Promise<CreateTokenResponse> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/tokens`, {
-    method: "POST",
-    body: JSON.stringify({ name, permissions }),
-  });
-}
-
-export async function revokeManagedIdentityToken(id: string, tokenId: string): Promise<void> {
-  await fetchAPI(
-    `/api/v1/identities/${encodeURIComponent(id)}/tokens/${encodeURIComponent(tokenId)}`,
-    { method: "DELETE" },
-  );
+  return fetchAPI(managedSubjectPath(id));
 }
 
 export async function getManagedIdentityIntegrations(id: string): Promise<Integration[]> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/integrations`);
+  return fetchAPI<Integration[]>(`${managedSubjectPath(id)}/integrations`);
 }
 
-export async function startManagedIdentityOAuth(
+export async function startManagedIdentityIntegrationOAuth(
   id: string,
   integration: string,
   scopes?: string[],
@@ -968,7 +909,7 @@ export async function startManagedIdentityOAuth(
   connection?: string,
   returnPath?: string,
 ): Promise<{ url: string; state: string }> {
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/auth/start-oauth`, {
+  return fetchAPI(`${managedSubjectPath(id)}/auth/start-oauth`, {
     method: "POST",
     body: JSON.stringify({
       integration,
@@ -981,7 +922,7 @@ export async function startManagedIdentityOAuth(
   });
 }
 
-export async function connectManagedIdentityManual(
+export async function connectManagedIdentityManualIntegration(
   id: string,
   integration: string,
   credential: string | Record<string, string>,
@@ -1002,7 +943,7 @@ export async function connectManagedIdentityManual(
   } else {
     body.credentials = credential;
   }
-  return fetchAPI(`/api/v1/identities/${encodeURIComponent(id)}/auth/connect-manual`, {
+  return fetchAPI(`${managedSubjectPath(id)}/auth/connect-manual`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1019,7 +960,92 @@ export async function disconnectManagedIdentityIntegration(
   if (connection) query.set("_connection", connection);
   const params = query.toString();
   await fetchAPI(
-    `/api/v1/identities/${encodeURIComponent(id)}/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
+    `${managedSubjectPath(id)}/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export async function updateManagedIdentity(id: string, displayName: string): Promise<ManagedIdentity> {
+  return fetchAPI(managedSubjectPath(id), {
+    method: "PATCH",
+    body: JSON.stringify({ displayName }),
+  });
+}
+
+export async function deleteManagedIdentity(id: string): Promise<void> {
+  await fetchAPI(managedSubjectPath(id), {
+    method: "DELETE",
+  });
+}
+
+export async function getManagedIdentityMembers(id: string): Promise<ManagedIdentityMember[]> {
+  return fetchAPI(`${managedSubjectPath(id)}/members`);
+}
+
+export async function putManagedIdentityMember(
+  id: string,
+  email: string,
+  role: ManagedIdentityMember["role"],
+): Promise<ManagedIdentityMember> {
+  return fetchAPI(`${managedSubjectPath(id)}/members`, {
+    method: "PUT",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export async function deleteManagedIdentityMember(id: string, memberSubjectID: string): Promise<void> {
+  await fetchAPI(
+    `${managedSubjectPath(id)}/members/${encodeURIComponent(memberSubjectID)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getManagedIdentityGrants(id: string): Promise<ManagedIdentityGrant[]> {
+  return fetchAPI(`${managedSubjectPath(id)}/grants`);
+}
+
+export async function putManagedIdentityGrant(
+  id: string,
+  plugin: string,
+  role: ManagedIdentityGrant["role"],
+): Promise<ManagedIdentityGrant> {
+  const response = await fetchAPI<ManagedIdentityGrant | { grant?: ManagedIdentityGrant }>(
+    `${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    },
+  );
+  return unwrapManagedIdentityGrant(response);
+}
+
+export async function deleteManagedIdentityGrant(id: string, plugin: string): Promise<void> {
+  await fetchAPI(
+    `${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getManagedIdentityTokens(id: string): Promise<APIToken[]> {
+  return fetchAPI(`${managedSubjectPath(id)}/tokens`);
+}
+
+export async function createManagedIdentityToken(
+  id: string,
+  name: string,
+  permissions: AccessPermission[],
+): Promise<CreateTokenResponse> {
+  return fetchAPI(`${managedSubjectPath(id)}/tokens`, {
+    method: "POST",
+    body: JSON.stringify({ name, permissions }),
+  });
+}
+
+export async function revokeManagedIdentityToken(id: string, tokenId: string): Promise<void> {
+  await fetchAPI(
+    `${managedSubjectPath(id)}/tokens/${encodeURIComponent(tokenId)}`,
     { method: "DELETE" },
   );
 }
