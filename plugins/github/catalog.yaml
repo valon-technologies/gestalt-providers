@@ -38,7 +38,7 @@ operations:
   - name: installation_id
     type: integer
     description: GitHub App installation ID. If omitted, it is taken from the webhook
-      workload subject.
+      service account subject.
     default: 0
   - name: coauthors
     type: array
@@ -105,7 +105,7 @@ operations:
   - name: installation_id
     type: integer
     description: GitHub App installation ID. If omitted, it is taken from the webhook
-      workload subject.
+      service account subject.
     default: 0
   - name: head_owner
     type: string
@@ -161,7 +161,7 @@ operations:
   - name: installation_id
     type: integer
     description: GitHub App installation ID. If omitted, it is taken from the webhook
-      workload subject.
+      service account subject.
     default: 0
   - name: coauthors
     type: array

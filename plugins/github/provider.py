@@ -88,7 +88,7 @@ class CommitFilesInput(gestalt.Model):
         required=False,
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook workload subject.",
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
         default=0,
         required=False,
     )
@@ -134,7 +134,7 @@ class OpenPullRequestInput(gestalt.Model):
         description="Pull request body", default="", required=False
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook workload subject.",
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
         default=0,
         required=False,
     )
@@ -178,7 +178,7 @@ class CreatePullRequestInput(gestalt.Model):
         required=False,
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook workload subject.",
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
         default=0,
         required=False,
     )

@@ -110,8 +110,8 @@ def github_request(
 ) -> gestalt.Request:
     return gestalt.Request(
         subject=gestalt.Subject(
-            id=f"workload:github_app_installation:{installation_id}:repo:{repo}",
-            kind="workload",
+            id=f"service_account:github_app_installation:{installation_id}:repo:{repo}",
+            kind="service_account",
             display_name=f"GitHub App installation {installation_id}",
             auth_source="github_app_webhook",
         )
@@ -283,7 +283,7 @@ class GitHubProviderTests(unittest.TestCase):
             ],
         )
 
-    def test_resolve_http_subject_maps_installation_to_workload(self) -> None:
+    def test_resolve_http_subject_maps_installation_to_service_account(self) -> None:
         subject = provider_module.resolve_http_subject(
             gestalt.HTTPSubjectRequest(
                 params={
@@ -296,9 +296,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsNotNone(subject)
         assert subject is not None
         self.assertEqual(
-            subject.id, "workload:github_app_installation:99:repo:acme/widgets"
+            subject.id, "service_account:github_app_installation:99:repo:acme/widgets"
         )
-        self.assertEqual(subject.kind, "workload")
+        self.assertEqual(subject.kind, "service_account")
         self.assertEqual(subject.auth_source, "github_app_webhook")
         self.assertIn("acme/widgets", subject.display_name)
 
