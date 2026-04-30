@@ -1,7 +1,7 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/incident_io
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: incident.io
-description: Manage incidents, schedules, users, severities, and statuses.
+description: Manage incidents, schedules, users, severities, statuses, and incident.io MCP tools.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
@@ -9,6 +9,9 @@ spec:
     openapi:
       connection: default
       document: https://api.incident.io/v1/openapiV3.json
+    mcp:
+      connection: MCP
+      url: https://mcp.incident.io/mcp
   allowedOperations:
     Incidents V2#List:
       alias: Incidents.List
@@ -39,3 +42,7 @@ spec:
         - name: token
           label: API Key
           description: "Create one in [Settings \u2192 API Keys](https://app.incident.io/settings/api-keys)"
+    MCP:
+      mode: user
+      auth:
+        type: mcp_oauth
