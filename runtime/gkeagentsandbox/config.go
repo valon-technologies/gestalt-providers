@@ -96,7 +96,7 @@ func normalizeConfigValues(values map[string]any) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		normalized[key] = int64(duration)
+		normalized[key] = duration.String()
 	}
 	return normalized, nil
 }
