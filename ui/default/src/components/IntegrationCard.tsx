@@ -15,7 +15,6 @@ import {
   normalizeIntegrationStatus,
   shouldShowIntegrationSettings,
   type ConnectionContext,
-  type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
 import Button from "./Button";
 import { CheckCircleIcon, GearIcon, DefaultIcon } from "./icons";
@@ -243,39 +242,6 @@ type DisconnectFn = (
   instance?: string,
   connection?: string,
 ) => Promise<void>;
-
-function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
-  switch (tone) {
-    case "success":
-      return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
-    case "warning":
-      return "border-gold-200 bg-gold-50 text-gold-700 dark:border-gold-600 dark:bg-gold-700/20 dark:text-gold-200";
-    case "danger":
-      return "border-ember-200 bg-ember-50 text-ember-700 dark:border-ember-600 dark:bg-ember-700/20 dark:text-ember-200";
-    case "neutral":
-      return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
-  }
-}
-
-function statusDotClasses(tone: NormalizedIntegrationStatus["tone"]): string {
-  switch (tone) {
-    case "success":
-      return "bg-grove-500";
-    case "warning":
-      return "bg-gold-500";
-    case "danger":
-      return "bg-ember-500";
-    case "neutral":
-      return "bg-faint";
-  }
-}
-
-function shouldShowStatusText(status: NormalizedIntegrationStatus): boolean {
-  if (status.connected && status.status === "ready") {
-    return false;
-  }
-  return status.status !== "needs_user_connection";
-}
 
 export default function IntegrationCard({
   integration,
@@ -534,17 +500,7 @@ export default function IntegrationCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {shouldShowStatusText(normalizedStatus) ? (
-            <div
-              className={`flex max-w-[11rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(normalizedStatus.tone)}`}
-            >
-              <span
-                aria-hidden="true"
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClasses(normalizedStatus.tone)}`}
-              />
-              <span className="truncate">{normalizedStatus.summaryLabel}</span>
-            </div>
-          ) : normalizedStatus.connected && normalizedStatus.status === "ready" ? (
+          {normalizedStatus.connected && normalizedStatus.status === "ready" ? (
             <span
               aria-label="Connected"
               className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-grove-500"
