@@ -104,13 +104,15 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
 
     await page.goto("/identities");
+    await expect(page).toHaveURL(/\/authorization/);
     await expect(
-      page.getByText("Managed identities require platform auth and are unavailable when auth is disabled."),
+      page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
 
     await page.goto("/identities?id=agent-1");
+    await expect(page).toHaveURL(/\/authorization/);
     await expect(
-      page.getByText("Managed identities require platform auth and are unavailable when auth is disabled."),
+      page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
   });
 

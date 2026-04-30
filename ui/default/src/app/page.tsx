@@ -6,7 +6,6 @@ import {
   getAuthInfo,
   getAgentRuns,
   getIntegrations,
-  getManagedIdentities,
   getTokens,
   getWorkflowEventTriggers,
   getWorkflowRuns,
@@ -18,8 +17,6 @@ import AuthGuard from "@/components/AuthGuard";
 
 export default function DashboardPage() {
   const [data, setData] = useState<{
-    identitiesAvailable: boolean;
-    identities: number | null;
     integrations: number | null;
     tokens: number | null;
     workflowResources: number | null;
@@ -27,8 +24,6 @@ export default function DashboardPage() {
     agentRuns: number | null;
     error: string | null;
   }>({
-    identitiesAvailable: false,
-    identities: null,
     integrations: null,
     tokens: null,
     workflowResources: null,
@@ -49,10 +44,8 @@ export default function DashboardPage() {
       }))
       .then((authInfo) => {
         if (!active) return;
-        const identitiesAvailable = authInfo.provider !== "none";
         const agentFeature = authInfo.features?.agent;
         return Promise.allSettled([
-          identitiesAvailable ? getManagedIdentities() : Promise.resolve(null),
           getIntegrations(),
           getTokens(),
           getWorkflowSchedules(),
@@ -60,7 +53,6 @@ export default function DashboardPage() {
           getWorkflowRuns(),
           agentFeature === false ? Promise.resolve(null) : getAgentRuns(),
         ]).then(([
-          identitiesResult,
           integrationsResult,
           tokensResult,
           workflowSchedulesResult,
@@ -71,13 +63,11 @@ export default function DashboardPage() {
           if (!active) return;
 
           const error =
-            identitiesAvailable && identitiesResult.status === "rejected"
-              ? errorMessage(identitiesResult.reason)
-              : integrationsResult.status === "rejected"
-                ? errorMessage(integrationsResult.reason)
-                : tokensResult.status === "rejected"
-                  ? errorMessage(tokensResult.reason)
-                  : null;
+            integrationsResult.status === "rejected"
+              ? errorMessage(integrationsResult.reason)
+              : tokensResult.status === "rejected"
+                ? errorMessage(tokensResult.reason)
+                : null;
 
           const workflowResources =
             workflowSchedulesResult.status === "fulfilled" &&
@@ -96,11 +86,6 @@ export default function DashboardPage() {
                 );
 
           setData({
-            identitiesAvailable,
-            identities:
-              identitiesAvailable && identitiesResult.status === "fulfilled"
-                ? identitiesResult.value?.length ?? null
-                : null,
             integrations:
               integrationsResult.status === "fulfilled"
                 ? integrationsResult.value.length
@@ -152,26 +137,11 @@ export default function DashboardPage() {
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
             >
               <span className="label-text">Authorization</span>
-              <div className="mt-4 grid grid-cols-2 gap-5">
-                <div>
-                  <p className="text-3xl font-heading font-bold text-primary">
-                    {data.tokens ?? "--"}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.14em] text-faint">
-                    Tokens
-                  </p>
-                </div>
-                <div>
-                  <p className="text-3xl font-heading font-bold text-primary">
-                    {data.identitiesAvailable ? (data.identities ?? "--") : "Off"}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.14em] text-faint">
-                    {data.identitiesAvailable ? "Identities" : "Auth Disabled"}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-4 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                Manage personal access and shared automation
+              <p className="mt-3 text-3xl font-heading font-bold text-primary">
+                {data.tokens ?? "--"}
+              </p>
+              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                Manage API tokens
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>
