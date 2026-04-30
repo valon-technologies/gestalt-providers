@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -408,6 +409,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	execCleanupNeeded = true
 	if err := runtime.Exec(execCtx, handle, []string{"sh", "-c", launchScript}, nil); err != nil {
 		return nil, status.Errorf(codes.Internal, "start plugin process in gke agent sandbox: %v", err)
+	}
+	if err := sleepContext(execCtx, 1*time.Second); err != nil {
+		return nil, status.Errorf(codes.DeadlineExceeded, "wait for plugin socket proxy startup: %v", err)
 	}
 
 	tunnel, err := runtime.ForwardPort(ctx, handle, cfg.PluginPort)
