@@ -18,11 +18,62 @@ export interface InstanceInfo {
   connection?: string;
 }
 
+export type AuthType = "oauth" | "manual";
+export type IntegrationStatus =
+  | "ready"
+  | "degraded"
+  | "needs_user_connection"
+  | "needs_instance_selection"
+  | "needs_admin_configuration"
+  | "unavailable"
+  | "unknown";
+export type CredentialState =
+  | "not_required"
+  | "connected"
+  | "configured"
+  | "missing"
+  | "invalid"
+  | "unknown";
+export type HealthState =
+  | "healthy"
+  | "unhealthy"
+  | "not_checked"
+  | "not_applicable"
+  | "unknown";
+export type IntegrationAction =
+  | "connect"
+  | "disconnect"
+  | "add_instance"
+  | "select_instance"
+  | "reconnect"
+  | "admin_configure";
+export type ConnectionMode = "none" | "user" | "platform";
+export type CredentialMode = "none" | "subject" | "platform";
+export type OwnerKind =
+  | "none"
+  | "current_user"
+  | "managed_identity"
+  | "service_account"
+  | "platform"
+  | "unknown";
+
 export interface ConnectionDefInfo {
   name: string;
   displayName?: string;
-  authTypes: ("oauth" | "manual")[];
+  authTypes?: AuthType[];
   credentialFields?: CredentialFieldDef[];
+  status?: IntegrationStatus;
+  credentialState?: CredentialState;
+  healthState?: HealthState;
+  actions?: IntegrationAction[];
+  mode?: ConnectionMode;
+  credentialMode?: CredentialMode;
+  ownerKind?: OwnerKind;
+  disconnectable?: boolean;
+  connected?: boolean;
+  connectable?: boolean;
+  instances?: InstanceInfo[];
+  mcpPassthrough?: boolean;
 }
 
 export interface Integration {
@@ -33,10 +84,14 @@ export interface Integration {
   mountedPath?: string;
   connected?: boolean;
   instances?: InstanceInfo[];
-  authTypes?: ("oauth" | "manual")[];
+  authTypes?: AuthType[];
   connectionParams?: Record<string, ConnectionParamDef>;
   connections?: ConnectionDefInfo[];
   credentialFields?: CredentialFieldDef[];
+  status?: IntegrationStatus;
+  credentialState?: CredentialState;
+  healthState?: HealthState;
+  actions?: IntegrationAction[];
 }
 
 export interface IntegrationOperation {

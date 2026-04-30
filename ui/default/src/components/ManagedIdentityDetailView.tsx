@@ -842,6 +842,7 @@ export default function ManagedIdentityDetailView({
                     returnPath={returnPath}
                     readOnly={!canEdit}
                     disableNavigation
+                    connectionContext="managed_identity"
                   />
                 ))}
               </div>
