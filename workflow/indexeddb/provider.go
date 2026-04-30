@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.29"
+	providerVersion           = "0.0.1-alpha.30"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -587,14 +587,14 @@ func (p *Provider) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRun
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
 
-	p.mu.Lock()
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	run, found, err := loadRunRecord(ctx, state.runStore, pluginName, runID)
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get run: %v", err)
 	}
@@ -614,14 +614,14 @@ func (p *Provider) ListRuns(ctx context.Context, req *proto.ListWorkflowProvider
 	}
 	pluginName := ""
 
-	p.mu.Lock()
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	runs, err := listRunRecords(ctx, state.runStore, pluginName)
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list runs: %v", err)
 	}
