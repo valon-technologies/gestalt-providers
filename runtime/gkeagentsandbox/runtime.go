@@ -323,7 +323,11 @@ func (r *kubernetesSandboxRuntime) Get(ctx context.Context, handle sandboxHandle
 		if err != nil {
 			return sandboxHandle{}, err
 		}
-		handle.SandboxName = claim.Status.SandboxStatus.Name
+		sandboxName, err := r.sandboxNameForClaim(ctx, handle, claim)
+		if err != nil {
+			return sandboxHandle{}, err
+		}
+		handle.SandboxName = sandboxName
 	}
 	return r.refreshSandbox(ctx, handle)
 }
@@ -512,8 +516,12 @@ func (r *kubernetesSandboxRuntime) waitForClaimReady(ctx context.Context, handle
 		if err != nil {
 			return sandboxHandle{}, fmt.Errorf("get SandboxClaim %s/%s: %w", handle.Namespace, handle.ClaimName, err)
 		}
-		if claim.Status.SandboxStatus.Name != "" {
-			handle.SandboxName = claim.Status.SandboxStatus.Name
+		sandboxName, err := r.sandboxNameForClaim(ctx, handle, claim)
+		if err != nil {
+			return sandboxHandle{}, err
+		}
+		if sandboxName != "" {
+			handle.SandboxName = sandboxName
 			return r.waitForSandboxReady(ctx, handle)
 		}
 		if time.Now().After(deadline) {
@@ -523,6 +531,38 @@ func (r *kubernetesSandboxRuntime) waitForClaimReady(ctx context.Context, handle
 			return sandboxHandle{}, err
 		}
 	}
+}
+
+func (r *kubernetesSandboxRuntime) sandboxNameForClaim(ctx context.Context, handle sandboxHandle, claim *extv1alpha1.SandboxClaim) (string, error) {
+	if claim != nil {
+		if name := strings.TrimSpace(claim.Status.SandboxStatus.Name); name != "" {
+			return name, nil
+		}
+	}
+	if name := strings.TrimSpace(handle.ClaimName); name != "" {
+		sb, err := r.agents.AgentsV1alpha1().Sandboxes(handle.Namespace).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			return sb.Name, nil
+		}
+		if !k8serrors.IsNotFound(err) {
+			return "", fmt.Errorf("get Sandbox %s/%s for claim fallback: %w", handle.Namespace, name, err)
+		}
+	}
+	if claim == nil || claim.UID == "" {
+		return "", nil
+	}
+	sandboxes, err := r.agents.AgentsV1alpha1().Sandboxes(handle.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("list Sandboxes for claim %s/%s fallback: %w", handle.Namespace, handle.ClaimName, err)
+	}
+	for i := range sandboxes.Items {
+		for _, owner := range sandboxes.Items[i].OwnerReferences {
+			if owner.UID == claim.UID {
+				return sandboxes.Items[i].Name, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 func (r *kubernetesSandboxRuntime) waitForSandboxReady(ctx context.Context, handle sandboxHandle) (sandboxHandle, error) {

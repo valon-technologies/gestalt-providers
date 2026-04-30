@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	sandboxv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	agentfake "sigs.k8s.io/agent-sandbox/clients/k8s/clientset/versioned/fake"
 	extfake "sigs.k8s.io/agent-sandbox/clients/k8s/extensions/clientset/versioned/fake"
 	extv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
@@ -115,6 +117,78 @@ func TestRuntimeContractHostnameEgressPolicyRejectsManagedTemplates(t *testing.T
 	}
 	if got := len(policies.Items); got != 0 {
 		t.Fatalf("network policy count = %d, want 0", got)
+	}
+}
+
+func TestRuntimeContractResolvesClaimSandboxByClaimNameFallback(t *testing.T) {
+	t.Parallel()
+
+	runtime := &kubernetesSandboxRuntime{
+		cfg:    Config{SandboxReadyTimeout: time.Second},
+		core:   k8sfake.NewSimpleClientset(),
+		agents: agentfake.NewSimpleClientset(),
+		extensions: extfake.NewSimpleClientset(
+			&extv1alpha1.SandboxClaim{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: extv1alpha1.SchemeGroupVersion.String(),
+					Kind:       "SandboxClaim",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "claim-1",
+					Namespace: "runtime-system",
+					UID:       "claim-uid-1",
+				},
+				Status: extv1alpha1.SandboxClaimStatus{
+					Conditions: []metav1.Condition{{
+						Type:   "Ready",
+						Status: metav1.ConditionTrue,
+					}},
+					SandboxStatus: extv1alpha1.SandboxStatus{},
+				},
+			},
+		),
+	}
+
+	_, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Create(context.Background(), &sandboxv1alpha1.Sandbox{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: sandboxv1alpha1.SchemeGroupVersion.String(),
+			Kind:       "Sandbox",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "claim-1",
+			Namespace: "runtime-system",
+		},
+		Status: sandboxv1alpha1.SandboxStatus{
+			Conditions: []metav1.Condition{{
+				Type:   string(sandboxv1alpha1.SandboxConditionReady),
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("seed Sandbox Create: %v", err)
+	}
+	if _, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Get(context.Background(), "claim-1", metav1.GetOptions{}); err != nil {
+		t.Fatalf("seed Sandbox Get: %v", err)
+	}
+
+	ready, err := runtime.waitForClaimReady(context.Background(), sandboxHandle{
+		Name:      "session-1",
+		Namespace: "runtime-system",
+		Mode:      "claim",
+		ClaimName: "claim-1",
+	})
+	if err != nil {
+		t.Fatalf("waitForClaimReady: %v", err)
+	}
+	if got, want := ready.SandboxName, "claim-1"; got != want {
+		t.Fatalf("SandboxName = %q, want %q", got, want)
+	}
+	if got, want := ready.PodName, "claim-1"; got != want {
+		t.Fatalf("PodName = %q, want %q", got, want)
+	}
+	if !ready.Ready {
+		t.Fatalf("Ready = false, want true")
 	}
 }
 
