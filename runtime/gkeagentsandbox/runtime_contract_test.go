@@ -192,6 +192,36 @@ func TestRuntimeContractResolvesClaimSandboxByClaimNameFallback(t *testing.T) {
 	}
 }
 
+func TestRuntimeContractPodIPDialTargetUsesSandboxPodIP(t *testing.T) {
+	t.Parallel()
+
+	runtime := &kubernetesSandboxRuntime{
+		core: k8sfake.NewSimpleClientset(&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "sandbox-pod",
+				Namespace: "runtime-system",
+			},
+			Status: corev1.PodStatus{
+				PodIP: "10.20.0.44",
+			},
+		}),
+	}
+
+	tunnel, err := runtime.PodIPDialTarget(context.Background(), sandboxHandle{
+		Namespace: "runtime-system",
+		PodName:   "sandbox-pod",
+	}, 50051)
+	if err != nil {
+		t.Fatalf("PodIPDialTarget: %v", err)
+	}
+	if got, want := tunnel.DialTarget(), "tcp://10.20.0.44:50051"; got != want {
+		t.Fatalf("DialTarget = %q, want %q", got, want)
+	}
+	if err := tunnel.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func assertPolicyRule(t *testing.T, rule networkingv1.NetworkPolicyEgressRule, wantCIDRs []string, wantPort int32, wantProtocol corev1.Protocol) {
 	t.Helper()
 

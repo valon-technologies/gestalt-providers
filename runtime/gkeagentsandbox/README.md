@@ -16,8 +16,8 @@ GKE Agent Sandbox is a good fit for the `RuntimeProvider` interface when the
 unit of isolation is a Kubernetes sandbox pod. The provider maps one Gestalt
 runtime session to one Agent Sandbox `SandboxClaim` or direct `Sandbox`, starts
 the plugin process already present in the runtime image, and returns a
-host-reachable `tcp://127.0.0.1:<port>` dial target through a Kubernetes
-port-forward.
+`tcp://...` dial target through either Kubernetes port-forwarding or direct
+pod-IP networking for in-cluster `gestaltd` deployments.
 
 It is not a Modal-equivalent hosted process API. The runtime image or template
 must contain the tools required to launch the plugin process.
@@ -32,7 +32,7 @@ must contain the tools required to launch the plugin process.
   the plugin or hosted agent provider.
 - `StartPlugin` starts the manifest-derived command with
   `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix socket to
-  `config.pluginPort` with `socat`, and opens a Kubernetes port-forward back to
+  `config.pluginPort` with `socat`, and opens the configured connection back to
   `gestaltd`.
 - `BindHostService` accepts relay-backed bindings only. This matches the public
   relay path that `gestaltd` uses for hosted runtimes without direct host
@@ -60,6 +60,7 @@ runtime:
         namespace: gestalt-runtime
         container: runtime
         pluginPort: 50051
+        connectionMode: portForward
         sandboxReadyTimeout: 3m
         pluginReadyTimeout: 30s
         execTimeout: 2m
@@ -103,6 +104,7 @@ runtime:
       config:
         namespace: gestalt-runtime
         container: runtime
+        connectionMode: portForward
         direct:
           runtimeClassName: gvisor
           cpuRequest: 250m
@@ -145,6 +147,16 @@ The selected template image or direct image must include:
 For template mode, keep the container alive and ready before `StartPlugin`
 runs. The provider launches the plugin later with Kubernetes `exec`; it does
 not expect the container entrypoint to start the plugin by itself.
+
+## Connection Modes
+
+`connectionMode: portForward` is the default and returns a loopback dial target
+from a Kubernetes port-forward. This is suitable for local development and
+out-of-cluster `gestaltd` processes with Kubernetes API access.
+
+`connectionMode: podIP` returns the sandbox pod IP directly. Use this only when
+`gestaltd` runs inside the same cluster or otherwise has routed access to pod
+CIDRs. This avoids Kubernetes port-forward behavior on GKE Agent Sandbox pods.
 
 ## Egress
 
@@ -226,7 +238,8 @@ The provider identity needs permissions for:
 - `extensions.agents.x-k8s.io/v1alpha1` `sandboxclaims`
 - `extensions.agents.x-k8s.io/v1alpha1` `sandboxtemplates` (read-only)
 - `agents.x-k8s.io/v1alpha1` `sandboxes`
-- core `pods`, including `pods/exec` and `pods/portforward`
+- core `pods`, including `pods/exec`; `pods/portforward` is required for
+  `connectionMode: portForward`
 - `networking.k8s.io/v1` `networkpolicies`
 
 ## Verification
