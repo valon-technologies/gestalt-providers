@@ -487,10 +487,7 @@ func (s *Store) insertGenericRecord(ctx context.Context, tx *sql.Tx, store strin
 	if loadErr != nil {
 		return loadErr
 	}
-	if existing != nil && bytes.Equal(existing.pkBytes, primary.raw) {
-		return status.Error(codes.AlreadyExists, "already exists")
-	}
-	return status.Error(codes.Internal, "primary key hash collision")
+	return classifyGenericRecordInsertConflict(existing, primary)
 }
 
 func (s *Store) insertPostgresGenericRecord(ctx context.Context, tx *sql.Tx, store string, primary encodedKey, payload []byte) error {
@@ -512,7 +509,17 @@ func (s *Store) insertPostgresGenericRecord(ctx context.Context, tx *sql.Tx, sto
 	if loadErr != nil {
 		return loadErr
 	}
-	if existing != nil && bytes.Equal(existing.pkBytes, primary.raw) {
+	return classifyGenericRecordInsertConflict(existing, primary)
+}
+
+func classifyGenericRecordInsertConflict(existing *genericRecordRow, primary encodedKey) error {
+	if existing == nil {
+		// A concurrent insert may win the unique-key race without being visible in
+		// this transaction snapshot. Surface that as a normal duplicate so callers
+		// can retry and observe the committed row in a fresh transaction.
+		return status.Error(codes.AlreadyExists, "already exists")
+	}
+	if bytes.Equal(existing.pkBytes, primary.raw) {
 		return status.Error(codes.AlreadyExists, "already exists")
 	}
 	return status.Error(codes.Internal, "primary key hash collision")
