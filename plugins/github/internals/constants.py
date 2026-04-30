@@ -9,7 +9,7 @@ BOT_CREATE_PULL_REQUEST_OPERATION = "bot.createPullRequest"
 
 GITHUB_WORKFLOW_SIGNAL_NAME = "github.app.webhook"
 
-GITHUB_INSTALLATION_SUBJECT_PREFIX = "workload:github_app_installation:"
+GITHUB_INSTALLATION_SUBJECT_PREFIX = "service_account:github_app_installation:"
 GITHUB_REPOSITORY_SUBJECT_SEPARATOR = ":repo:"
 
 DEFAULT_WEBHOOK_EVENTS = (

@@ -437,7 +437,7 @@ def scoped_installation_id(
     subject_installation_id, subject_repo = github_scope_from_subject(subject)
     if subject_installation_id <= 0:
         raise GitHubAuthorizationError(
-            "GitHub bot operations require a GitHub App installation workload subject"
+            "GitHub bot operations require a GitHub App installation service account subject"
         )
     if explicit > 0 and explicit != subject_installation_id:
         raise GitHubAuthorizationError(
@@ -446,7 +446,7 @@ def scoped_installation_id(
     requested_repo = f"{owner}/{repo}".lower()
     if not subject_repo:
         raise GitHubAuthorizationError(
-            "GitHub bot operations require a repository-scoped webhook workload subject"
+            "GitHub bot operations require a repository-scoped webhook service account subject"
         )
     if subject_repo.lower() != requested_repo:
         raise GitHubAuthorizationError(
@@ -456,7 +456,7 @@ def scoped_installation_id(
 
 
 def github_scope_from_subject(subject: Any) -> tuple[int, str]:
-    if subject.kind != "workload" or subject.auth_source != "github_app_webhook":
+    if subject.kind != "service_account" or subject.auth_source != "github_app_webhook":
         return 0, ""
     if not subject.id.startswith(GITHUB_INSTALLATION_SUBJECT_PREFIX):
         return 0, ""

@@ -158,10 +158,10 @@ plugins:
 
 ## Bot Operation Interfaces
 
-Bot write operations are scoped to the verified webhook workload subject:
-`workload:github_app_installation:<installation_id>:repo:<owner>/<repo>`. If
-`installation_id` is omitted, the operation uses the workload subject
-installation. If it is supplied, it must match the workload subject. The target
+Bot write operations are scoped to the verified webhook service account subject:
+`service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`. If
+`installation_id` is omitted, the operation uses the service account subject
+installation. If it is supplied, it must match the service account subject. The target
 `owner` and `repo` must also match the repository that produced the webhook.
 
 Create or update a branch commit with `bot.commitFiles`:

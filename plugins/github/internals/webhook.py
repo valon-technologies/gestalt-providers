@@ -37,7 +37,7 @@ def webhook_subject_from_payload(
         display_name = f"{display_name} ({repo})"
     return GitHubWebhookSubject(
         id=subject_id,
-        kind="workload",
+        kind="service_account",
         display_name=display_name,
         auth_source="github_app_webhook",
     )

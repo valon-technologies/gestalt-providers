@@ -1537,15 +1537,10 @@ func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idem
 	assignSequence := signal.GetSequence() == 0
 	advanceSequence := false
 
-	if run.NextSignalSequence <= 0 {
-		next, err := nextSignalSequenceInTransaction(ctx, signalStore, run.ID)
-		if err != nil {
-			return nil, signal.GetId(), status.Errorf(codes.Internal, "assign signal sequence: %v", err)
-		}
-		run.NextSignalSequence = next
-		advanceSequence = true
-	}
 	if assignSequence {
+		if run.NextSignalSequence <= 0 {
+			run.NextSignalSequence = 1
+		}
 		signal.Sequence = run.NextSignalSequence
 		run.NextSignalSequence++
 		advanceSequence = true
@@ -3188,73 +3183,6 @@ func listSignalRecordsLimit(ctx context.Context, store *gestalt.ObjectStoreClien
 		return nil, err
 	}
 	return out, nil
-}
-
-func nextSignalSequence(ctx context.Context, store *gestalt.ObjectStoreClient, runID string) (int64, error) {
-	runID = strings.TrimSpace(runID)
-	if runID == "" {
-		return 1, nil
-	}
-	cursor, err := store.Index("by_run_sequence").OpenKeyCursor(ctx, nil, gestalt.CursorPrev, runID)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = cursor.Close() }()
-	if !cursor.Continue() {
-		if err := cursor.Err(); err != nil {
-			return 0, err
-		}
-		return 1, nil
-	}
-	sequence, ok := signalSequenceFromIndexKey(cursor.Key())
-	if !ok {
-		return 0, fmt.Errorf("workflow signal sequence index key %v is malformed", cursor.Key())
-	}
-	return sequence + 1, nil
-}
-
-func nextSignalSequenceInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, runID string) (int64, error) {
-	runID = strings.TrimSpace(runID)
-	if runID == "" {
-		return 1, nil
-	}
-	records, err := store.Index("by_run_sequence").GetAll(ctx, nil, runID)
-	if err != nil {
-		return 0, err
-	}
-	var maxSequence int64
-	for _, record := range records {
-		signal, err := signalRecordFromRecord(record)
-		if err != nil {
-			return 0, err
-		}
-		if signal.RunID != runID {
-			continue
-		}
-		if signal.Sequence > maxSequence {
-			maxSequence = signal.Sequence
-		}
-	}
-	return maxSequence + 1, nil
-}
-
-func signalSequenceFromIndexKey(key any) (int64, bool) {
-	parts, ok := key.([]any)
-	if !ok || len(parts) == 0 {
-		return 0, false
-	}
-	switch raw := parts[len(parts)-1].(type) {
-	case int64:
-		return raw, true
-	case int:
-		return int64(raw), true
-	case int32:
-		return int64(raw), true
-	case float64:
-		return int64(raw), true
-	default:
-		return 0, false
-	}
 }
 
 func indexedDBAlreadyExists(err error) bool {
