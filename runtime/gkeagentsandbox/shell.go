@@ -58,6 +58,17 @@ func pluginHealthCommand() []string {
 	return []string{"sh", "-c", "test -s /tmp/gestalt-plugin.pid && kill -0 \"$(cat /tmp/gestalt-plugin.pid)\""}
 }
 
+func socketProxyReadyCommand(port int, socketPath string) []string {
+	portHex := strings.ToUpper(intHex4(port))
+	script := strings.Join([]string{
+		"test -S " + shellQuote(socketPath),
+		"test -s /tmp/gestalt-plugin.pid && kill -0 \"$(cat /tmp/gestalt-plugin.pid)\"",
+		"test -s /tmp/gestalt-socket-proxy.pid && kill -0 \"$(cat /tmp/gestalt-socket-proxy.pid)\"",
+		"files=/proc/net/tcp; test -r /proc/net/tcp6 && files=\"$files /proc/net/tcp6\"; awk -v port=':" + portHex + "' '$2 ~ port \"$\" && $4 == \"0A\" { found=1 } END { exit found ? 0 : 1 }' $files",
+	}, "\n")
+	return []string{"sh", "-c", script}
+}
+
 func pluginCleanupCommand() []string {
 	return []string{"sh", "-c", "for f in /tmp/gestalt-plugin.pid /tmp/gestalt-socket-proxy.pid; do if test -s \"$f\"; then kill \"$(cat \"$f\")\" >/dev/null 2>&1 || true; rm -f \"$f\"; fi; done; rm -f /tmp/gestalt/plugin.sock"}
 }
@@ -93,4 +104,17 @@ func intString(value int) string {
 		value /= 10
 	}
 	return string(digits[i:])
+}
+
+func intHex4(value int) string {
+	if value <= 0 {
+		return "0000"
+	}
+	const hex = "0123456789ABCDEF"
+	var digits [4]byte
+	for i := len(digits) - 1; i >= 0; i-- {
+		digits[i] = hex[value&0xf]
+		value >>= 4
+	}
+	return string(digits[:])
 }

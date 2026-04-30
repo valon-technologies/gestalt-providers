@@ -410,9 +410,8 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	if err := runtime.Exec(execCtx, handle, []string{"sh", "-c", launchScript}, nil); err != nil {
 		return nil, status.Errorf(codes.Internal, "start plugin process in gke agent sandbox: %v", err)
 	}
-	settleDelay := pluginSocketProxySettleDelay(cfg.ExecTimeout)
-	if err := sleepContext(execCtx, settleDelay); err != nil {
-		return nil, status.Errorf(codes.DeadlineExceeded, "wait for plugin socket proxy startup: %v", err)
+	if err := waitForSocketProxyReady(execCtx, runtime, handle, cfg.PluginPort, env[proto.EnvProviderSocket]); err != nil {
+		return nil, status.Errorf(codes.DeadlineExceeded, "wait for in-sandbox plugin socket proxy: %v", err)
 	}
 
 	tunnel, err := runtime.ForwardPort(ctx, handle, cfg.PluginPort)
@@ -456,16 +455,24 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	}, nil
 }
 
-func pluginSocketProxySettleDelay(execTimeout time.Duration) time.Duration {
-	const defaultSettleDelay = 5 * time.Second
-	if execTimeout <= 0 || execTimeout >= 2*defaultSettleDelay {
-		return defaultSettleDelay
+func waitForSocketProxyReady(ctx context.Context, runtime sandboxRuntime, handle sandboxHandle, port int, socketPath string) error {
+	command := socketProxyReadyCommand(port, socketPath)
+	var lastErr error
+	for {
+		if err := runtime.Exec(ctx, handle, command, nil); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("%w: %v", ctx.Err(), lastErr)
+			}
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
-	delay := execTimeout / 2
-	if delay < 100*time.Millisecond {
-		return 100 * time.Millisecond
-	}
-	return delay
 }
 
 func (p *Provider) Close() error {
