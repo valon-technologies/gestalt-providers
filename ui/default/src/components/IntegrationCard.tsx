@@ -15,10 +15,10 @@ import {
   normalizeIntegrationStatus,
   shouldShowIntegrationSettings,
   type ConnectionContext,
-  type StatusTone,
+  type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
 import Button from "./Button";
-import { GearIcon, DefaultIcon } from "./icons";
+import { CheckCircleIcon, GearIcon, DefaultIcon } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
 
 const SAFE_SVG_ELEMENTS = new Set([
@@ -244,7 +244,7 @@ type DisconnectFn = (
   connection?: string,
 ) => Promise<void>;
 
-function statusBadgeClasses(tone: StatusTone): string {
+function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
   switch (tone) {
     case "success":
       return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
@@ -257,7 +257,7 @@ function statusBadgeClasses(tone: StatusTone): string {
   }
 }
 
-function statusDotClasses(tone: StatusTone): string {
+function statusDotClasses(tone: NormalizedIntegrationStatus["tone"]): string {
   switch (tone) {
     case "success":
       return "bg-grove-500";
@@ -268,6 +268,13 @@ function statusDotClasses(tone: StatusTone): string {
     case "neutral":
       return "bg-faint";
   }
+}
+
+function shouldShowStatusText(status: NormalizedIntegrationStatus): boolean {
+  if (status.connected && status.status === "ready") {
+    return false;
+  }
+  return status.status !== "needs_user_connection";
 }
 
 export default function IntegrationCard({
@@ -527,15 +534,24 @@ export default function IntegrationCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <div
-            className={`flex max-w-[11rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(normalizedStatus.tone)}`}
-          >
+          {shouldShowStatusText(normalizedStatus) ? (
+            <div
+              className={`flex max-w-[11rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(normalizedStatus.tone)}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClasses(normalizedStatus.tone)}`}
+              />
+              <span className="truncate">{normalizedStatus.summaryLabel}</span>
+            </div>
+          ) : normalizedStatus.connected && normalizedStatus.status === "ready" ? (
             <span
-              aria-hidden="true"
-              className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClasses(normalizedStatus.tone)}`}
-            />
-            <span className="truncate">{normalizedStatus.summaryLabel}</span>
-          </div>
+              aria-label="Connected"
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-grove-500"
+            >
+              <CheckCircleIcon className="h-5 w-5" />
+            </span>
+          ) : null}
           {settingsAvailable && (
             <button
               onClick={(event) => {
