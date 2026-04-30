@@ -129,8 +129,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	execCalls := slices.Clone(fake.execCalls)
 	forwardPorts := slices.Clone(fake.forwardPorts)
 	fake.mu.Unlock()
-	if len(execCalls) != 1 {
-		t.Fatalf("runtime Exec calls = %d, want 1", len(execCalls))
+	if len(execCalls) < 2 {
+		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(execCalls))
 	}
 	if !slices.Equal(execCalls[0].command[:2], []string{"sh", "-c"}) {
 		t.Fatalf("runtime Exec command = %#v, want sh -c", execCalls[0].command)
@@ -147,6 +147,17 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	} {
 		if !strings.Contains(launchScript, want) {
 			t.Fatalf("launch script missing %q:\n%s", want, launchScript)
+		}
+	}
+	readyScript := execCalls[1].command[2]
+	for _, want := range []string{
+		"test -S '/tmp/gestalt/plugin.sock'",
+		"/tmp/gestalt-socket-proxy.pid",
+		":C383",
+		"/proc/net/tcp",
+	} {
+		if !strings.Contains(readyScript, want) {
+			t.Fatalf("ready script missing %q:\n%s", want, readyScript)
 		}
 	}
 	if !slices.Equal(forwardPorts, []int{50051}) {
@@ -261,8 +272,8 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 			t.Fatalf("hostname egress endpoints = %#v, want %#v", policies[0].config.Endpoints, want)
 		}
 	}
-	if len(execCalls) != 1 {
-		t.Fatalf("runtime Exec calls = %d, want 1", len(execCalls))
+	if len(execCalls) < 2 {
+		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(execCalls))
 	}
 	launchScript := execCalls[0].command[2]
 	for _, want := range []string{
@@ -284,6 +295,60 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 	fake.mu.Unlock()
 	if got, want := deletedPolicies, []string{policies[0].name}; !slices.Equal(got, want) {
 		t.Fatalf("deleted hostname egress policies = %#v, want %#v", got, want)
+	}
+}
+
+func TestRuntimeProviderContractSupportsPodIPConnectionMode(t *testing.T) {
+	t.Parallel()
+
+	pluginTarget := startPluginLifecycleServer(t)
+	fake := &fakeSandboxRuntime{
+		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+	}
+	client := startRuntimeProviderServer(t, &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			ConnectionMode:      connectionModePodIP,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*session{},
+	})
+
+	ctx := context.Background()
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "simple-agent",
+		Template:   "agent-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	hosted, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
+		SessionId:  session.GetId(),
+		PluginName: "simple-agent",
+		Command:    "./plugin",
+	})
+	if err != nil {
+		t.Fatalf("StartPlugin: %v", err)
+	}
+	if got, want := hosted.GetDialTarget(), pluginTarget; got != want {
+		t.Fatalf("StartPlugin dial target = %q, want %q", got, want)
+	}
+
+	fake.mu.Lock()
+	forwardPorts := slices.Clone(fake.forwardPorts)
+	podIPTargets := slices.Clone(fake.podIPTargets)
+	fake.mu.Unlock()
+	if len(forwardPorts) != 0 {
+		t.Fatalf("runtime ForwardPort calls = %#v, want none", forwardPorts)
+	}
+	if !slices.Equal(podIPTargets, []int{50051}) {
+		t.Fatalf("runtime PodIPDialTarget calls = %#v, want [50051]", podIPTargets)
 	}
 }
 
@@ -390,8 +455,8 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 	if len(fake.hostnamePolicies) != 0 {
 		t.Fatalf("hostname egress policies = %d, want 0 for relay-only launch", len(fake.hostnamePolicies))
 	}
-	if len(fake.execCalls) != 1 {
-		t.Fatalf("runtime Exec calls = %d, want 1", len(fake.execCalls))
+	if len(fake.execCalls) < 2 {
+		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(fake.execCalls))
 	}
 	launchScript := fake.execCalls[0].command[2]
 	for _, want := range []string{
@@ -410,6 +475,7 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 	fake := &fakeSandboxRuntime{
 		tunnel: &fakeTunnel{dialTarget: startPluginLifecycleServer(t)},
 		execErrors: []error{
+			nil,
 			nil,
 			status.Error(codes.Unavailable, "cleanup failed"),
 		},
@@ -694,6 +760,7 @@ type fakeSandboxRuntime struct {
 	startRequests           []startSandboxRequest
 	execCalls               []execCall
 	forwardPorts            []int
+	podIPTargets            []int
 	stopped                 []sandboxHandle
 	tunnel                  tunnel
 	hostnamePolicies        []hostnamePolicyCall
@@ -708,6 +775,7 @@ type fakeSandboxRuntime struct {
 	hostnameEgressErr error
 	execErrors        []error
 	forwardPortErr    error
+	podIPDialErr      error
 }
 
 type execCall struct {
@@ -743,6 +811,7 @@ func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (
 		ClaimName:   claimName,
 		SandboxName: req.Name + "-sandbox",
 		PodName:     req.Name + "-pod",
+		PodIP:       "10.20.0.10",
 		Ready:       true,
 	}, nil
 }
@@ -811,6 +880,16 @@ func (f *fakeSandboxRuntime) ForwardPort(_ context.Context, _ sandboxHandle, rem
 		return nil, f.forwardPortErr
 	}
 	f.forwardPorts = append(f.forwardPorts, remotePort)
+	return f.tunnel, nil
+}
+
+func (f *fakeSandboxRuntime) PodIPDialTarget(_ context.Context, _ sandboxHandle, remotePort int) (tunnel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.podIPDialErr != nil {
+		return nil, f.podIPDialErr
+	}
+	f.podIPTargets = append(f.podIPTargets, remotePort)
 	return f.tunnel, nil
 }
 

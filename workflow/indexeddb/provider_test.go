@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -1091,25 +1092,89 @@ func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("Configure succeeded, want missing signal index error")
 	}
-	if !strings.Contains(err.Error(), "validate signal indexes") || !strings.Contains(err.Error(), "by_run_sequence") {
+	if !strings.Contains(err.Error(), "by_run_sequence") {
 		t.Fatalf("Configure error = %v, want by_run_sequence validation failure", err)
 	}
 }
 
-func TestProviderConfigureFailsWhenRunStatusIndexMissing(t *testing.T) {
+func TestProviderConfigureDoesNotRequireRunStatusIndex(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
-		return &indexedDBServerSpy{IndexedDBServer: inner, missingRunIndex: "by_status"}
+		return &indexedDBServerSpy{IndexedDBServer: inner, missingRunIndex: "by_status", failUnscopedRunGetAll: true}
 	})
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
 
 	provider := New()
-	err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
-	if err == nil {
-		t.Fatal("Configure succeeded, want missing run index error")
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
 	}
-	if !strings.Contains(err.Error(), "validate run indexes") || !strings.Contains(err.Error(), "by_status") {
-		t.Fatalf("Configure error = %v, want by_status validation failure", err)
+	t.Cleanup(func() { _ = provider.Close() })
+	if provider.runStatusIndex {
+		t.Fatal("runStatusIndex = true, want false when by_status is unavailable")
+	}
+}
+
+func TestProviderConfigureFailsExistingSignalStoreMissingIndexesWithoutMigration(t *testing.T) {
+	ctx := context.Background()
+	var spy *indexedDBServerSpy
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		spy = &indexedDBServerSpy{IndexedDBServer: inner}
+		return spy
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	adminConn, admin, err := dialIndexedDBAdmin()
+	if err != nil {
+		t.Fatalf("dialIndexedDBAdmin: %v", err)
+	}
+	defer adminConn.Close()
+	if err := createWorkflowStore(ctx, admin, storeSignals, &proto.ObjectStoreSchema{}); err != nil {
+		t.Fatalf("precreate workflow_signals: %v", err)
+	}
+	precreateCount := spy.createObjectStoreCount(storeSignals)
+
+	provider := New()
+	err = provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
+	if err == nil {
+		t.Fatal("Configure succeeded, want missing signal index error")
+	}
+	if !strings.Contains(err.Error(), "by_run") {
+		t.Fatalf("Configure error = %v, want signal index validation failure", err)
+	}
+	if got := spy.createObjectStoreCount(storeSignals); got != precreateCount {
+		t.Fatalf("workflow_signals CreateObjectStore calls = %d, want %d", got, precreateCount)
+	}
+}
+
+func TestProviderConfigureFailsExistingExecutionRefsMissingSubjectIndexWithoutMigration(t *testing.T) {
+	ctx := context.Background()
+	var spy *indexedDBServerSpy
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		spy = &indexedDBServerSpy{IndexedDBServer: inner}
+		return spy
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	adminConn, admin, err := dialIndexedDBAdmin()
+	if err != nil {
+		t.Fatalf("dialIndexedDBAdmin: %v", err)
+	}
+	defer adminConn.Close()
+	if err := createWorkflowStore(ctx, admin, storeExecutionRefs, &proto.ObjectStoreSchema{}); err != nil {
+		t.Fatalf("precreate execution_refs: %v", err)
+	}
+	precreateCount := spy.createObjectStoreCount(storeExecutionRefs)
+
+	provider := New()
+	err = provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
+	if err == nil {
+		t.Fatal("Configure succeeded, want missing execution ref index error")
+	}
+	if !strings.Contains(err.Error(), "by_subject") {
+		t.Fatalf("Configure error = %v, want by_subject validation failure", err)
+	}
+	if got := spy.createObjectStoreCount(storeExecutionRefs); got != precreateCount {
+		t.Fatalf("execution_refs CreateObjectStore calls = %d, want %d", got, precreateCount)
 	}
 }
 
@@ -1758,7 +1823,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	}
 }
 
-func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
+func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
@@ -1774,6 +1839,10 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 		target *proto.BoundWorkflowTarget
 	}{
 		{
+			name:   "missing provider",
+			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{}),
+		},
+		{
 			name:   "empty prompt",
 			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{ProviderName: "managed"}),
 		},
@@ -1783,14 +1852,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				ProviderName:   "managed",
 				Prompt:         "send a Slack reminder",
 				TimeoutSeconds: -1,
-			}),
-		},
-		{
-			name: "empty tool plugin",
-			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
-				ProviderName: "managed",
-				Prompt:       "send a Slack reminder",
-				ToolRefs:     []*proto.AgentToolRef{{Operation: "chat.postMessage"}},
 			}),
 		},
 	}
@@ -1805,6 +1866,33 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				t.Fatal("UpsertSchedule succeeded, want error")
 			}
 		})
+	}
+
+	target := protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
+		ProviderName: " managed ",
+		Prompt:       "send a Slack reminder",
+		ToolRefs: []*proto.AgentToolRef{
+			{Operation: "chat.postMessage"},
+		},
+	})
+	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId: "host-validated-agent",
+		Cron:       "* * * * *",
+		Timezone:   "UTC",
+		Target:     target,
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedule(agent payload host validation): %v", err)
+	}
+	agent := schedule.GetTarget().GetAgent()
+	if agent == nil {
+		t.Fatalf("schedule target = %#v, want agent target", schedule.GetTarget())
+	}
+	if agent.GetProviderName() != "managed" {
+		t.Fatalf("agent provider_name = %q, want trimmed provider", agent.GetProviderName())
+	}
+	if got := agent.GetToolRefs()[0].GetPlugin(); got != "" {
+		t.Fatalf("agent tool plugin = %q, want tool validation left to host", got)
 	}
 }
 
@@ -2138,9 +2226,7 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 
 func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	ctx := context.Background()
-	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
-		return &indexedDBServerSpy{IndexedDBServer: inner, failUnscopedRunGetAll: true}
-	})
+	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
 
 	first := New()
@@ -2168,19 +2254,20 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		t.Fatalf("Configure(second): %v", err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
+	if err := second.Start(ctx); err != nil {
+		t.Fatalf("Start(second): %v", err)
+	}
 
-	stale, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
-		RunId: "stale-run",
+	waitForCondition(t, time.Second, func() bool {
+		stale, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
+			RunId: "stale-run",
+		})
+		if err != nil {
+			t.Fatalf("GetRun(stale): %v", err)
+		}
+		return stale.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED &&
+			stale.GetStatusMessage() == "workflow provider restarted while run was in progress"
 	})
-	if err != nil {
-		t.Fatalf("GetRun(stale): %v", err)
-	}
-	if stale.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED {
-		t.Fatalf("stale status = %v, want %v", stale.GetStatus(), proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED)
-	}
-	if stale.GetStatusMessage() != "workflow provider restarted while run was in progress" {
-		t.Fatalf("stale status message = %q", stale.GetStatusMessage())
-	}
 }
 
 func TestProviderRecoversStaleRunningAgentRunOnStartup(t *testing.T) {
@@ -2230,6 +2317,9 @@ func TestProviderRecoversStaleRunningAgentRunOnStartup(t *testing.T) {
 		t.Fatalf("Configure(second): %v", err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
+	if err := recoverStaleRunningRuns(ctx, second.runStore, second.workflowKeyStore, second.signalStore, second.clock().UTC(), second.runStatusIndex); err != nil {
+		t.Fatalf("recoverStaleRunningRuns: %v", err)
+	}
 
 	stale, err := second.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{
 		RunId: "stale-agent-run",
@@ -2370,6 +2460,24 @@ type indexedDBServerSpy struct {
 	failUnscopedRunGetAll    bool
 	missingRunIndex          string
 	missingSignalIndex       string
+	mu                       sync.Mutex
+	createObjectStores       map[string]int
+}
+
+func (s *indexedDBServerSpy) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+	s.mu.Lock()
+	if s.createObjectStores == nil {
+		s.createObjectStores = make(map[string]int)
+	}
+	s.createObjectStores[req.GetName()]++
+	s.mu.Unlock()
+	return s.IndexedDBServer.CreateObjectStore(ctx, req)
+}
+
+func (s *indexedDBServerSpy) createObjectStoreCount(name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.createObjectStores[name]
 }
 
 func (s *indexedDBServerSpy) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {

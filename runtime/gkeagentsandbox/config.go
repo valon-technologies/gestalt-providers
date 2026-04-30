@@ -13,6 +13,7 @@ const (
 	defaultNamespace           = "default"
 	defaultContainer           = "runtime"
 	defaultPluginPort          = 50051
+	defaultConnectionMode      = connectionModePortForward
 	defaultSandboxReadyTimeout = 3 * time.Minute
 	defaultPluginReadyTimeout  = 30 * time.Second
 	defaultExecTimeout         = 2 * time.Minute
@@ -23,6 +24,9 @@ const (
 	defaultCPULimit            = "1000m"
 	defaultMemoryLimit         = "1Gi"
 	defaultRunAsUser           = int64(65532)
+
+	connectionModePortForward = "portForward"
+	connectionModePodIP       = "podIP"
 )
 
 type Config struct {
@@ -31,6 +35,7 @@ type Config struct {
 	Kubeconfig          string        `yaml:"kubeconfig,omitempty"`
 	Context             string        `yaml:"context,omitempty"`
 	PluginPort          int           `yaml:"pluginPort,omitempty"`
+	ConnectionMode      string        `yaml:"connectionMode,omitempty"`
 	SandboxReadyTimeout time.Duration `yaml:"sandboxReadyTimeout,omitempty"`
 	PluginReadyTimeout  time.Duration `yaml:"pluginReadyTimeout,omitempty"`
 	ExecTimeout         time.Duration `yaml:"execTimeout,omitempty"`
@@ -145,6 +150,10 @@ func (c *Config) Normalize() {
 	if c.PluginPort == 0 {
 		c.PluginPort = defaultPluginPort
 	}
+	c.ConnectionMode = normalizeConnectionMode(c.ConnectionMode)
+	if c.ConnectionMode == "" {
+		c.ConnectionMode = defaultConnectionMode
+	}
 	if c.SandboxReadyTimeout == 0 {
 		c.SandboxReadyTimeout = defaultSandboxReadyTimeout
 	}
@@ -169,6 +178,11 @@ func (c Config) Validate() error {
 	}
 	if c.PluginPort <= 0 || c.PluginPort > 65535 {
 		return fmt.Errorf("gke agent sandbox runtime pluginPort must be between 1 and 65535")
+	}
+	switch c.ConnectionMode {
+	case connectionModePortForward, connectionModePodIP:
+	default:
+		return fmt.Errorf("gke agent sandbox runtime connectionMode must be %q or %q", connectionModePortForward, connectionModePodIP)
 	}
 	if c.SandboxReadyTimeout < 0 {
 		return fmt.Errorf("gke agent sandbox runtime sandboxReadyTimeout must be non-negative")
@@ -225,6 +239,22 @@ func (c DirectConfig) Validate() error {
 		return fmt.Errorf("gke agent sandbox runtime direct resource requests and limits are required")
 	}
 	return nil
+}
+
+func normalizeConnectionMode(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	switch normalized {
+	case "":
+		return ""
+	case "portforward":
+		return connectionModePortForward
+	case "podip", "incluster":
+		return connectionModePodIP
+	default:
+		return strings.TrimSpace(value)
+	}
 }
 
 func expandHome(path string) string {

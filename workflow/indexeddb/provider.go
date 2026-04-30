@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.26"
+	providerVersion           = "0.0.1-alpha.28"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -99,6 +99,7 @@ type Provider struct {
 	executionRefStore *gestalt.ObjectStoreClient
 	workflowKeyStore  *gestalt.ObjectStoreClient
 	signalStore       *gestalt.ObjectStoreClient
+	runStatusIndex    bool
 	pollCancel        context.CancelFunc
 	pollDone          chan struct{}
 	wake              chan string
@@ -293,7 +294,8 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		_ = db.Close()
 	}
 
-	if err := ensureWorkflowStores(ctx, admin); err != nil {
+	runStatusIndex, err := ensureWorkflowStores(ctx, admin, db)
+	if err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
 	}
@@ -302,17 +304,9 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
 	executionRefStore := db.ObjectStore(storeExecutionRefs)
 	signalStore := db.ObjectStore(storeSignals)
-	if err := validateWorkflowRunIndexes(ctx, runStore); err != nil {
-		cleanup()
-		return fmt.Errorf("indexeddb workflow: validate run indexes: %w", err)
-	}
 	if err := validateWorkflowSignalIndexes(ctx, signalStore); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: validate signal indexes: %w", err)
-	}
-	if err := recoverStaleRunningRuns(ctx, runStore, workflowKeyStore, signalStore, p.clock().UTC()); err != nil {
-		cleanup()
-		return fmt.Errorf("indexeddb workflow: recover stale runs: %w", err)
 	}
 
 	p.mu.Lock()
@@ -329,6 +323,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.executionRefStore = executionRefStore
 	p.workflowKeyStore = workflowKeyStore
 	p.signalStore = signalStore
+	p.runStatusIndex = runStatusIndex
 	p.mu.Unlock()
 
 	return nil
@@ -356,7 +351,11 @@ func (p *Provider) Start(ctx context.Context) error {
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
 	var wg sync.WaitGroup
-	wg.Add(defaultWorkerCount)
+	wg.Add(defaultWorkerCount + 1)
+	go func() {
+		defer wg.Done()
+		p.recoverStaleRunningRuns(loopCtx)
+	}()
 	for range defaultWorkerCount {
 		go func() {
 			defer wg.Done()
@@ -421,6 +420,7 @@ func (p *Provider) Close() error {
 	p.executionRefStore = nil
 	p.workflowKeyStore = nil
 	p.signalStore = nil
+	p.runStatusIndex = false
 	p.pollCancel = nil
 	p.pollDone = nil
 	p.wake = nil
@@ -2188,22 +2188,82 @@ func dialIndexedDBAdmin() (*grpc.ClientConn, proto.IndexedDBClient, error) {
 	return conn, proto.NewIndexedDBClient(conn), nil
 }
 
-func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient) error {
-	for _, def := range workflowStoreSchemas() {
-		_, err := admin.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-			Name:   def.name,
-			Schema: def.schema,
-		})
-		if err != nil && status.Code(err) != codes.AlreadyExists {
-			return err
+func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient, db *gestalt.IndexedDBClient) (bool, error) {
+	for _, def := range []storeSchemaDef{
+		{name: storeSchedules, schema: &proto.ObjectStoreSchema{}},
+		{name: storeEventTriggers, schema: &proto.ObjectStoreSchema{}},
+		{name: storeIdempotency, schema: &proto.ObjectStoreSchema{}},
+	} {
+		if err := createWorkflowStore(ctx, admin, def.name, def.schema); err != nil {
+			return false, err
 		}
 	}
+	if err := ensureWorkflowStoreExists(ctx, admin, db.ObjectStore(storeWorkflowKeys), storeWorkflowKeys, &proto.ObjectStoreSchema{}); err != nil {
+		return false, err
+	}
+
+	runStore := db.ObjectStore(storeRuns)
+	if err := ensureWorkflowStoreExists(ctx, admin, runStore, storeRuns, &proto.ObjectStoreSchema{}); err != nil {
+		return false, err
+	}
+	runStatusIndex := false
+	if err := validateWorkflowRunIndexes(ctx, runStore); err == nil {
+		runStatusIndex = true
+	} else if !errors.Is(err, gestalt.ErrNotFound) {
+		return false, fmt.Errorf("validate run indexes: %w", err)
+	}
+
+	if err := ensureIndexedWorkflowStore(ctx, admin, db.ObjectStore(storeExecutionRefs), storeExecutionRefs, workflowExecutionReferenceSchema(), validateWorkflowExecutionReferenceIndexes); err != nil {
+		return false, err
+	}
+	if err := ensureIndexedWorkflowStore(ctx, admin, db.ObjectStore(storeSignals), storeSignals, workflowSignalSchema(), validateWorkflowSignalIndexes); err != nil {
+		return false, err
+	}
+	return runStatusIndex, nil
+}
+
+func createWorkflowStore(ctx context.Context, admin proto.IndexedDBClient, name string, schema *proto.ObjectStoreSchema) error {
+	_, err := admin.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name:   name,
+		Schema: schema,
+	})
+	if err != nil && status.Code(err) != codes.AlreadyExists {
+		return err
+	}
 	return nil
+}
+
+func ensureWorkflowStoreExists(ctx context.Context, admin proto.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema *proto.ObjectStoreSchema) error {
+	if _, err := store.Count(ctx, nil); err == nil {
+		return nil
+	} else if !errors.Is(err, gestalt.ErrNotFound) {
+		return err
+	}
+	return createWorkflowStore(ctx, admin, name, schema)
+}
+
+func ensureIndexedWorkflowStore(ctx context.Context, admin proto.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema *proto.ObjectStoreSchema, validate func(context.Context, *gestalt.ObjectStoreClient) error) error {
+	if _, err := store.Count(ctx, nil); errors.Is(err, gestalt.ErrNotFound) {
+		if err := createWorkflowStore(ctx, admin, name, schema); err != nil {
+			return err
+		}
+		return validate(ctx, store)
+	} else if err != nil {
+		return err
+	}
+	return validate(ctx, store)
 }
 
 func validateWorkflowRunIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
 	if _, err := store.Index("by_status").Count(ctx, nil, int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING)); err != nil {
 		return fmt.Errorf("by_status: %w", err)
+	}
+	return nil
+}
+
+func validateWorkflowExecutionReferenceIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
+	if _, err := store.Index("by_subject").Count(ctx, nil, "__workflow_schema_probe__"); err != nil {
+		return fmt.Errorf("by_subject: %w", err)
 	}
 	return nil
 }
@@ -2330,8 +2390,35 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
-	runs, err := listRunRecords(ctx, runStore, "")
+func (p *Provider) recoverStaleRunningRuns(ctx context.Context) {
+	p.mu.RLock()
+	runStore := p.runStore
+	workflowKeyStore := p.workflowKeyStore
+	signalStore := p.signalStore
+	runStatusIndex := p.runStatusIndex
+	now := p.clock().UTC()
+	p.mu.RUnlock()
+
+	if runStore == nil || workflowKeyStore == nil || signalStore == nil {
+		return
+	}
+	if err := recoverStaleRunningRuns(ctx, runStore, workflowKeyStore, signalStore, now, runStatusIndex); err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "recovering stale workflow runs failed", "error", err)
+		return
+	}
+	p.mu.Lock()
+	p.signalWorkerLocked("")
+	p.mu.Unlock()
+}
+
+func recoverStaleRunningRuns(ctx context.Context, runStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time, useStatusIndex bool) error {
+	var runs []workflowRunRecord
+	var err error
+	if useStatusIndex {
+		runs, err = listRunRecordsByStatus(ctx, runStore, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING, "")
+	} else {
+		runs, err = listRunRecords(ctx, runStore, "")
+	}
 	if err != nil {
 		return err
 	}
@@ -2403,11 +2490,12 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 		if agentProvider == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
 		}
-		normalized := &proto.BoundWorkflowTarget{
-			Kind: &proto.BoundWorkflowTarget_Agent{Agent: cloneAgentTarget(agentTarget)},
-		}
-		if err := normalizeAgentTarget(normalized.GetAgent(), agentProvider); err != nil {
+		agent := cloneAgentTarget(agentTarget)
+		if err := normalizeAgentTarget(agent, agentProvider); err != nil {
 			return scopedTarget{}, err
+		}
+		normalized := &proto.BoundWorkflowTarget{
+			Kind: &proto.BoundWorkflowTarget_Agent{Agent: agent},
 		}
 		return scopedTarget{
 			OwnerKey: "agent:" + agentProvider,
@@ -2467,20 +2555,6 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 	}
 	if target.GetTimeoutSeconds() < 0 {
 		return errors.New("target.agent.timeout_seconds must not be negative")
-	}
-	for i, ref := range target.GetToolRefs() {
-		if ref == nil {
-			return fmt.Errorf("target.agent.tool_refs[%d] is required", i)
-		}
-		ref.Plugin = strings.TrimSpace(ref.GetPlugin())
-		ref.Operation = strings.TrimSpace(ref.GetOperation())
-		ref.Connection = strings.TrimSpace(ref.GetConnection())
-		ref.Instance = strings.TrimSpace(ref.GetInstance())
-		ref.Title = strings.TrimSpace(ref.GetTitle())
-		ref.Description = strings.TrimSpace(ref.GetDescription())
-		if ref.GetPlugin() == "" {
-			return fmt.Errorf("target.agent.tool_refs[%d].plugin is required", i)
-		}
 	}
 	return nil
 }
@@ -3223,6 +3297,43 @@ func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, owner
 			return nil, err
 		}
 		if !found {
+			continue
+		}
+		if ownerKey != "" && run.ownerKey() != ownerKey {
+			continue
+		}
+		out = append(out, run)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(out, func(a, b workflowRunRecord) int {
+		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
+}
+
+func listRunRecordsByStatus(ctx context.Context, store *gestalt.ObjectStoreClient, status proto.WorkflowRunStatus, ownerKey string) ([]workflowRunRecord, error) {
+	cursor, err := store.Index("by_status").OpenKeyCursor(ctx, nil, gestalt.CursorNext, int64(status))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close()
+
+	var out []workflowRunRecord
+	for cursor.Continue() {
+		key := strings.TrimSpace(cursor.PrimaryKey())
+		if key == "" {
+			continue
+		}
+		run, found, err := loadRunRecord(ctx, store, "", key)
+		if err != nil {
+			return nil, err
+		}
+		if !found || run.Status != status {
 			continue
 		}
 		if ownerKey != "" && run.ownerKey() != ownerKey {
