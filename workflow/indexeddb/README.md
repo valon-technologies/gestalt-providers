@@ -17,17 +17,17 @@ providers:
 
   workflow:
     local:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.27/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.29/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
         pollInterval: 1s
 ```
 
-`pollInterval` controls how often the single worker scans for due cron schedules
+`pollInterval` controls how often workers scan for due cron schedules
 and pending runs.
 
-The poll worker starts only when the host calls
+Poll workers start only when the host calls
 `ProviderLifecycle.StartProvider`, after agents, authorization, plugin
 providers, and workflow host services are ready.
 
@@ -39,10 +39,9 @@ providers, and workflow host services are ready.
 
 ## v1 Behavior
 
-- single-process, single-worker execution
+- single-process worker execution
 - pending-only cancellation
-- startup retries stale `running` agent-target runs and marks other stale
-  `running` runs as `failed`
+- startup marks stale `running` runs as `failed`
 - missed cron ticks collapse to one run
 - `PublishEvent` enqueues runs for matching event triggers
 - `SignalOrStartRun` keeps one active run per workflow key and appends durable
