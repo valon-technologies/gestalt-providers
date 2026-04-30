@@ -165,7 +165,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = "==0.96.0" },
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Fotel-genai-host-telemetry" },
+    { name = "gestalt-sdk", specifier = "==0.0.1a18" },
     { name = "jsonschema", specifier = "==4.23.0" },
     { name = "openai", specifier = "==2.32.0" },
 ]
@@ -179,8 +179,8 @@ dev = [
 
 [[package]]
 name = "gestalt-sdk"
-version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Fotel-genai-host-telemetry#9b238efe1b8786a12de14fa7508dfbb9378aa2c1" }
+version = "0.0.1a18"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
@@ -192,6 +192,10 @@ dependencies = [
     { name = "pyinstaller" },
     { name = "pyyaml" },
     { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b6/28/f0b7e298041c9b22e6b25027f509925bc20aced68354fb128a2d025493e6/gestalt_sdk-0.0.1a18.tar.gz", hash = "sha256:147ce46ff241a1410770749c397e19c0bfd5f43863076dabde886569a5821841", size = 129161 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bc/91/3153098a7ff29602c8d811802eefd0f4f77e6809280a0cc62ed6595e4490/gestalt_sdk-0.0.1a18-py3-none-any.whl", hash = "sha256:ac700f64db9a742eed29a9b918591903030e6226dc25d43cf16f7ac6875437ed", size = 119475 },
 ]
 
 [[package]]
