@@ -526,61 +526,6 @@ func (s *Store) upsertGenericRecord(ctx context.Context, tx *sql.Tx, store strin
 	return s.insertGenericRecord(ctx, tx, store, primary, payload)
 }
 
-func (s *Store) reindexGenericStore(ctx context.Context, store string, schema *proto.ObjectStoreSchema) error {
-	records, err := s.loadAllGenericRecords(ctx, store)
-	if err != nil {
-		return err
-	}
-	meta := newStoredSchema(schema).toMeta(store)
-	rewriteRecords := !genericPrimaryKeyStorageMatches(s.meta[store], meta)
-	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
-		if rewriteRecords {
-			if err := s.clearGenericStoreTables(txCtx, tx, store); err != nil {
-				return err
-			}
-		} else {
-			if err := s.clearGenericIndexTables(txCtx, tx, store); err != nil {
-				return err
-			}
-		}
-		for _, row := range records {
-			record, err := unmarshalRecordBlob(row.recordBlob)
-			if err != nil {
-				return err
-			}
-			primary, err := extractGenericPrimaryKey(record, meta)
-			if err != nil {
-				return err
-			}
-			uniqueRows, nonUniqueRows, err := buildGenericIndexRows(record, meta, primary)
-			if err != nil {
-				return err
-			}
-			if rewriteRecords {
-				if err := s.upsertGenericRecord(txCtx, tx, store, primary, row.recordBlob); err != nil {
-					return err
-				}
-			}
-			for _, uniqueRow := range uniqueRows {
-				if err := s.insertGenericUniqueIndexRow(txCtx, tx, store, uniqueRow); err != nil {
-					return err
-				}
-			}
-			if err := s.insertGenericIndexRows(txCtx, tx, s.genericIndexTable(), store, nonUniqueRows); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func genericPrimaryKeyStorageMatches(existing, next *storeMeta) bool {
-	if existing == nil || next == nil {
-		return false
-	}
-	return existing.pkCol == next.pkCol && columnType(existing, existing.pkCol) == columnType(next, next.pkCol)
-}
-
 func (s *Store) addGeneric(ctx context.Context, store string, m *storeMeta, record *proto.Record) error {
 	primary, err := extractGenericPrimaryKey(record, m)
 	if err != nil {
