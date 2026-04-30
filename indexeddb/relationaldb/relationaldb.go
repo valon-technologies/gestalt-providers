@@ -196,14 +196,6 @@ func (s *Store) refreshStoreMetadataLocked(ctx context.Context, storeName string
 	return nil
 }
 
-func (s *Store) refreshedStoreMetadataMatchesLocked(ctx context.Context, storeName string, schema *proto.ObjectStoreSchema) bool {
-	if err := s.refreshStoreMetadataLocked(ctx, storeName); err != nil {
-		return false
-	}
-	existing, ok := s.meta[storeName]
-	return ok && genericStoreSchemaMatches(existing, schema)
-}
-
 func (s *Store) currentMetadataStoreName(key string) (string, bool) {
 	if !s.usesNamespacedMetadata() {
 		return key, true
@@ -495,25 +487,10 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 		if genericStoreSchemaMatches(existing, schema) {
 			return &emptypb.Empty{}, nil
 		}
-		if err := s.reindexGenericStore(ctx, req.Name, schema); err != nil {
-			if isRetryableConnectionError(err) && s.refreshedStoreMetadataMatchesLocked(ctx, req.Name, schema) {
-				return &emptypb.Empty{}, nil
-			}
-			return nil, err
-		}
-		if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
-			if isRetryableConnectionError(err) && s.refreshedStoreMetadataMatchesLocked(ctx, req.Name, schema) {
-				return &emptypb.Empty{}, nil
-			}
-			return nil, err
-		}
-		return &emptypb.Empty{}, nil
+		return nil, status.Errorf(codes.FailedPrecondition, "object store %q schema does not match; automatic schema upgrades are disabled, run an explicit migration before deploying this provider version", req.Name)
 	}
 
 	if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
-		if isRetryableConnectionError(err) && s.refreshedStoreMetadataMatchesLocked(ctx, req.Name, schema) {
-			return &emptypb.Empty{}, nil
-		}
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

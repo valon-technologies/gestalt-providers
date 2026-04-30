@@ -479,7 +479,7 @@ func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
 	}
 }
 
-func TestCreateObjectStoreSkipsGenericReindexWhenSchemaUnchanged(t *testing.T) {
+func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
@@ -528,7 +528,7 @@ func TestCreateObjectStoreSkipsGenericReindexWhenSchemaUnchanged(t *testing.T) {
 	}
 }
 
-func TestCreateObjectStoreReindexesWithoutClearingRecordsWhenPrimaryKeyUnchanged(t *testing.T) {
+func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
 
@@ -556,8 +556,8 @@ func TestCreateObjectStoreReindexesWithoutClearingRecordsWhenPrimaryKeyUnchanged
 
 	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
 		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore upgraded indexes: %v", err)
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("CreateObjectStore schema change error = %v, want FailedPrecondition", err)
 	}
 
 	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
@@ -565,21 +565,17 @@ func TestCreateObjectStoreReindexesWithoutClearingRecordsWhenPrimaryKeyUnchanged
 		t.Fatalf("Count: %v", err)
 	}
 	if got := count.GetCount(); got != 1 {
-		t.Fatalf("Count after reindex = %d, want 1", got)
+		t.Fatalf("Count after rejected schema change = %d, want 1", got)
 	}
 	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
-	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
+	if _, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
 		Store: "widgets", Index: "by_code", Values: vals,
-	})
-	if err != nil {
-		t.Fatalf("IndexGet: %v", err)
-	}
-	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "w1" {
-		t.Fatalf("IndexGet id: got %q, want w1", got)
+	}); status.Code(err) != codes.NotFound {
+		t.Fatalf("IndexGet after rejected schema change error = %v, want NotFound", err)
 	}
 }
 
-func TestCreateObjectStoreRefreshesExternalMetadataBeforeReindex(t *testing.T) {
+func TestCreateObjectStoreRefreshesExternalMetadataBeforeSchemaCheck(t *testing.T) {
 	ctx := context.Background()
 	dsn := "file:" + filepath.Join(t.TempDir(), "metadata-refresh.sqlite")
 	first := testStoreWithDSN(t, dsn)
@@ -600,8 +596,8 @@ func TestCreateObjectStoreRefreshesExternalMetadataBeforeReindex(t *testing.T) {
 	second := testStoreWithDSN(t, dsn)
 	if _, err := first.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
 		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore upgraded indexes: %v", err)
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("CreateObjectStore schema change error = %v, want FailedPrecondition", err)
 	}
 
 	for _, tc := range []struct {
@@ -624,19 +620,16 @@ func TestCreateObjectStoreRefreshesExternalMetadataBeforeReindex(t *testing.T) {
 
 	if _, err := second.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
 		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
-		t.Fatalf("CreateObjectStore refreshed external metadata: %v", err)
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("CreateObjectStore refreshed external metadata error = %v, want FailedPrecondition", err)
 	}
 
-	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
-	idxResp, err := second.IndexGet(ctx, &proto.IndexQueryRequest{
-		Store: "widgets", Index: "by_code", Values: vals,
-	})
+	count, err := second.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
 	if err != nil {
-		t.Fatalf("IndexGet: %v", err)
+		t.Fatalf("Count: %v", err)
 	}
-	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "w1" {
-		t.Fatalf("IndexGet id: got %q, want w1", got)
+	if got := count.GetCount(); got != 1 {
+		t.Fatalf("Count after rejected external schema change = %d, want 1", got)
 	}
 }
 
