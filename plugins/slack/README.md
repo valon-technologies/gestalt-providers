@@ -103,15 +103,6 @@ plugins:
         operation: events.setSuggestedPrompts
         credentialMode: none
       - plugin: slack
-        operation: events.startStream
-        credentialMode: none
-      - plugin: slack
-        operation: events.appendStream
-        credentialMode: none
-      - plugin: slack
-        operation: events.stopStream
-        credentialMode: none
-      - plugin: slack
         operation: interactions.request
         credentialMode: none
       - plugin: slack
@@ -172,35 +163,38 @@ The workflow target is an agent target built from the `agent` and `agent.routes`
 configuration. The Slack event, `reply_ref`, and generated user prompt are
 delivered in the signal payload, so later Slack messages in the same thread
 signal the existing keyed run instead of replacing its target or authorization
-context.
+context. The target also sets `output_delivery` so the workflow runtime delivers
+the agent's final assistant answer through `events.reply` with `text` sourced
+from the agent output and `reply_ref` sourced from the current signal payload.
 
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
 declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
 with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user through the managed
 `external_identity` authorization relationship. Workflow-started agent runs use
-`toolSource=native_search` with scoped Slack event helper refs plus native tool
-search for the resolved Gestalt user.
+scoped Slack event helper refs plus global tool search for the resolved Gestalt
+user.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,
-the native stream helpers, and the interaction helpers are hidden operations
-(`visible: false`).
+and the interaction helpers are hidden operations (`visible: false`).
 `events.handle` is invoked by the signed Slack webhook binding. It starts an
 or signals a keyed workflow run and passes an opaque `reply_ref` in the signal
-payload's user prompt. The agent should call `slack.events.reply` with that
-`reply_ref` and response text; the provider validates that the ref belongs to
-the invoking Gestalt subject before posting to Slack with the configured bot
-token. The same `reply_ref` scopes progress statuses, native assistant updates,
-streaming replies, suggested prompts, thread titles, and reactions to the source
-event channel, so the agent never needs raw `chat.postMessage` access for event
-replies.
+payload. The agent returns the final Slack message body as its final assistant
+answer; the workflow runtime invokes `events.reply` using the configured output
+delivery binding. The provider validates that the ref belongs to the invoking
+Gestalt subject before posting to Slack with the configured bot token. The same
+`reply_ref` scopes progress statuses, native assistant updates, suggested
+prompts, thread titles, reactions, and interactions to the source event channel,
+so the agent never needs raw `chat.postMessage` access for event replies.
 
-Agent-facing event helper examples:
+Runtime output-delivery input:
 
 ```json
 {"reply_ref":"...","text":"I'll check that now."}
 ```
+
+Agent-facing event helper examples:
 
 Call `slack.events.setStatus` without `status_ts` to create a progress message:
 
@@ -249,21 +243,6 @@ native assistant thread metadata:
     {"title": "Summarize deploys", "message": "Summarize the latest deploy status"}
   ]
 }
-```
-
-Use `slack.events.startStream`, `slack.events.appendStream`, and
-`slack.events.stopStream` for Slack's native streaming response UI:
-
-```json
-{"reply_ref":"...","markdown_text":"Starting deploy checks"}
-```
-
-```json
-{"reply_ref":"...","stream_ts":"1712161831.000500","markdown_text":"Still checking"}
-```
-
-```json
-{"reply_ref":"...","stream_ts":"1712161831.000500","markdown_text":"Done"}
 ```
 
 Use `slack.interactions.request` to post signed Slack buttons.
@@ -346,15 +325,6 @@ plugins:
         credentialMode: none
       - plugin: slack
         operation: events.setSuggestedPrompts
-        credentialMode: none
-      - plugin: slack
-        operation: events.startStream
-        credentialMode: none
-      - plugin: slack
-        operation: events.appendStream
-        credentialMode: none
-      - plugin: slack
-        operation: events.stopStream
         credentialMode: none
       - plugin: slack
         operation: conversations.getThreadContext

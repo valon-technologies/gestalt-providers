@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
 from http import HTTPStatus
@@ -81,15 +82,13 @@ Use the available Gestalt tools under the Slack user's authorization.
 Use {status_tool} only when you intentionally want a visible progress message
 in the Slack thread; reuse the returned status_ts to update or delete the same
 status message.
-Use {stream_start_tool}, {stream_append_tool}, and {stream_stop_tool} when a
-streaming Slack reply is better than a single final message.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
-When you answer the Slack user, call {reply_tool} with text set to the complete
-Slack message body to post and reply_ref set exactly to the provided value. Do
-not call the final reply tool without text or reply_ref, and do not use raw
-Slack message-posting tools for the final reply.
-After posting to Slack, return a concise final summary of what you did.
+Use the current signal's reply_ref only for Slack event helper tools that require
+it, such as visible progress, reactions, or interactions.
+When you answer the Slack user, return the complete Slack message body as your
+final assistant answer. Gestalt will deliver that final answer to Slack.
+Do not use raw Slack message-posting tools for the final reply.
 """.strip()
 
 
@@ -355,7 +354,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             )
         if not _workflow_manager_contract_available():
             return _server_error(
-                "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start support"
+                "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start and output-delivery support"
             )
         workflow_manager_factory = getattr(req, "workflow_manager", None)
         if workflow_manager_factory is None:
@@ -454,7 +453,7 @@ def handle_slack_interaction(input: dict[str, Any], req: gestalt.Request) -> Ope
         )
     if not _workflow_manager_contract_available():
         return _server_error(
-            "Slack interactions require a Gestalt SDK/runtime with workflow signal-or-start support"
+            "Slack interactions require a Gestalt SDK/runtime with workflow signal-or-start and output-delivery support"
         )
     workflow_manager_factory = getattr(req, "workflow_manager", None)
     if workflow_manager_factory is None:
@@ -506,6 +505,7 @@ def reply_to_slack_event(
             channel=verified_ref.channel_id,
             text=normalized_text,
             thread_ts=verified_ref.reply_thread_ts,
+            client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
@@ -1701,8 +1701,8 @@ def _build_workflow_agent_target(
         messages=[
             agent_pb2.AgentMessage(role="system", text=_agent_system_prompt(route)),
         ],
-        tool_source=_agent_tool_source_native_search(),
         tool_refs=_agent_event_tool_refs(route),
+        output_delivery=_workflow_output_delivery(),
     )
     agent.metadata.CopyFrom(_agent_session_metadata(event))
     provider_options = _agent_provider_options(route)
@@ -1717,12 +1717,31 @@ def _workflow_agent_prompt() -> str:
             "Handle Slack events and interactions delivered in the final workflow signal batch.",
             "Each signal payload includes user_prompt, reply_ref, and Slack event fields.",
             "Use the payload's user_prompt as the current Slack request.",
-            (
-                f"Final Slack replies must use {_agent_config.plugin_name}.{SLACK_REPLY_OPERATION} "
-                "with text set to the complete Slack message body and reply_ref set exactly as provided."
-            ),
+            "Return the complete Slack reply as your final assistant answer.",
             "If the batch contains multiple Slack events, handle them in sequence.",
         ]
+    )
+
+
+def _workflow_output_delivery() -> Any:
+    return workflow_pb2.WorkflowOutputDelivery(
+        target=workflow_pb2.BoundWorkflowPluginTarget(
+            plugin_name=_agent_config.plugin_name,
+            operation=SLACK_REPLY_OPERATION,
+        ),
+        credential_mode="none",
+        input_bindings=[
+            workflow_pb2.WorkflowOutputBinding(
+                input_field="text",
+                value=workflow_pb2.WorkflowOutputValueSource(agent_output="text"),
+            ),
+            workflow_pb2.WorkflowOutputBinding(
+                input_field="reply_ref",
+                value=workflow_pb2.WorkflowOutputValueSource(
+                    signal_payload="reply_ref"
+                ),
+            ),
+        ],
     )
 
 
@@ -1847,8 +1866,6 @@ def _interaction_user_prompt(
         f"trigger_id: {str(payload.get('trigger_id') or '').strip()}",
         f"reply_ref: {interaction_ref.reply_ref}",
         "",
-        *_reply_tool_contract_lines(interaction_ref.reply_ref),
-        "",
         "Thread context tool:",
         f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
         f"channel: {interaction_ref.channel_id}",
@@ -1870,7 +1887,6 @@ def _agent_tool_ref(*, plugin: str, operation: str) -> Any:
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
     _ = route
     operations = [
-        SLACK_REPLY_OPERATION,
         SLACK_STATUS_OPERATION,
         SLACK_DELETE_STATUS_OPERATION,
         SLACK_ADD_REACTION_OPERATION,
@@ -1883,9 +1899,6 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
                 SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
                 SLACK_ASSISTANT_TITLE_OPERATION,
                 SLACK_ASSISTANT_PROMPTS_OPERATION,
-                SLACK_STREAM_START_OPERATION,
-                SLACK_STREAM_APPEND_OPERATION,
-                SLACK_STREAM_STOP_OPERATION,
             ]
         )
     operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
@@ -1899,13 +1912,6 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
             for operation in operations
         ],
     ]
-
-
-def _agent_tool_source_native_search() -> int:
-    native_value = getattr(agent_pb2, "AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH", None)
-    if native_value is not None:
-        return int(native_value)
-    return int(agent_pb2.AGENT_TOOL_SOURCE_MODE_EXPLICIT)
 
 
 def _agent_session_metadata(event: SlackAgentEvent) -> Any:
@@ -1970,11 +1976,7 @@ def _agent_provider_options(route: SlackAgentRoute | None) -> dict[str, Any]:
 def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
     parts = [
         DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
-            reply_tool=f"{_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
             status_tool=f"{_agent_config.plugin_name}.{SLACK_STATUS_OPERATION}",
-            stream_start_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_START_OPERATION}",
-            stream_append_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_APPEND_OPERATION}",
-            stream_stop_tool=f"{_agent_config.plugin_name}.{SLACK_STREAM_STOP_OPERATION}",
             context_tool=f"{_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
             file_tool=f"{_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
         )
@@ -2210,8 +2212,6 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         f"reply_thread_ts: {event.reply_thread_ts}",
         f"reply_ref: {reply_ref}",
         "",
-        *_reply_tool_contract_lines(reply_ref),
-        "",
         "Thread context tool:",
         f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
         f"channel: {event.channel_id}",
@@ -2231,17 +2231,6 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         ]
     )
     return "\n".join(lines)
-
-
-def _reply_tool_contract_lines(reply_ref: str) -> list[str]:
-    return [
-        "Final reply tool:",
-        f"operation: {_agent_config.plugin_name}.{SLACK_REPLY_OPERATION}",
-        "required text argument:",
-        "text: <complete Slack message body to post>",
-        "required reply_ref argument:",
-        f"reply_ref: {reply_ref}",
-    ]
 
 
 def _event_file_summaries(event: SlackAgentEvent) -> list[str]:
@@ -2286,6 +2275,14 @@ def _agent_turn_idempotency_key(event: SlackAgentEvent) -> str:
     return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
 
 
+def _slack_client_msg_id(idempotency_key: str) -> str:
+    key = idempotency_key.strip()
+    if not key:
+        return ""
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return str(uuid.UUID(hex=digest[:32]))
+
+
 def _workflow_run_status_name(status: int) -> str:
     if not status:
         return ""
@@ -2300,7 +2297,11 @@ def _workflow_manager_contract_available() -> bool:
         getattr(workflow_pb2, name, None) is not None
         for name in (
             "BoundWorkflowAgentTarget",
+            "BoundWorkflowPluginTarget",
             "BoundWorkflowTarget",
+            "WorkflowOutputBinding",
+            "WorkflowOutputDelivery",
+            "WorkflowOutputValueSource",
             "WorkflowManagerSignalOrStartRunRequest",
             "WorkflowSignal",
         )

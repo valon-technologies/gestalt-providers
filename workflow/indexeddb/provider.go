@@ -2443,6 +2443,78 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 	if target.GetTimeoutSeconds() < 0 {
 		return errors.New("target.agent.timeout_seconds must not be negative")
 	}
+	if err := normalizeAgentOutputDelivery(target.GetOutputDelivery()); err != nil {
+		return err
+	}
+	return nil
+}
+
+func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error {
+	if delivery == nil {
+		return nil
+	}
+	deliveryTarget := delivery.GetTarget()
+	if deliveryTarget == nil {
+		return errors.New("target.agent.output_delivery.target.plugin_name is required")
+	}
+	pluginName := strings.TrimSpace(deliveryTarget.GetPluginName())
+	operation := strings.TrimSpace(deliveryTarget.GetOperation())
+	if pluginName == "" {
+		return errors.New("target.agent.output_delivery.target.plugin_name is required")
+	}
+	if operation == "" {
+		return errors.New("target.agent.output_delivery.target.operation is required")
+	}
+	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
+	switch credentialMode {
+	case "", "none", "user":
+	default:
+		return fmt.Errorf("target.agent.output_delivery.credential_mode %q is not supported", delivery.GetCredentialMode())
+	}
+	delivery.Target = &proto.BoundWorkflowPluginTarget{
+		PluginName: pluginName,
+		Operation:  operation,
+		Connection: strings.TrimSpace(deliveryTarget.GetConnection()),
+		Instance:   strings.TrimSpace(deliveryTarget.GetInstance()),
+		Input:      structFromAny(cloneStructMap(deliveryTarget.GetInput())),
+	}
+	delivery.CredentialMode = credentialMode
+	for _, binding := range delivery.GetInputBindings() {
+		if binding == nil {
+			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+		}
+		binding.InputField = strings.TrimSpace(binding.GetInputField())
+		if binding.GetInputField() == "" {
+			return errors.New("target.agent.output_delivery.input_bindings.input_field is required")
+		}
+		value := binding.GetValue()
+		if value == nil || value.GetKind() == nil {
+			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+		}
+		switch kind := value.GetKind().(type) {
+		case *proto.WorkflowOutputValueSource_AgentOutput:
+			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
+			if kind.AgentOutput == "" {
+				return errors.New("target.agent.output_delivery.input_bindings.value.agent_output is required")
+			}
+		case *proto.WorkflowOutputValueSource_SignalPayload:
+			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
+			if kind.SignalPayload == "" {
+				return errors.New("target.agent.output_delivery.input_bindings.value.signal_payload is required")
+			}
+		case *proto.WorkflowOutputValueSource_SignalMetadata:
+			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
+			if kind.SignalMetadata == "" {
+				return errors.New("target.agent.output_delivery.input_bindings.value.signal_metadata is required")
+			}
+		case *proto.WorkflowOutputValueSource_Literal:
+			if kind.Literal == nil {
+				return errors.New("target.agent.output_delivery.input_bindings.value.literal is required")
+			}
+		default:
+			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+		}
+	}
 	return nil
 }
 
@@ -3396,6 +3468,19 @@ func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) [
 				permissionsByPlugin[pluginName] = ops
 			}
 			ops[operation] = struct{}{}
+		}
+		if delivery := agent.GetOutputDelivery(); delivery != nil {
+			deliveryTarget := delivery.GetTarget()
+			pluginName := strings.TrimSpace(deliveryTarget.GetPluginName())
+			operation := strings.TrimSpace(deliveryTarget.GetOperation())
+			if pluginName != "" && operation != "" {
+				ops := permissionsByPlugin[pluginName]
+				if ops == nil {
+					ops = map[string]struct{}{}
+					permissionsByPlugin[pluginName] = ops
+				}
+				ops[operation] = struct{}{}
+			}
 		}
 		return accessPermissionsFromSet(permissionsByPlugin)
 	}

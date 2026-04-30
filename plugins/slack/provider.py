@@ -66,7 +66,6 @@ SlackAgentRoute = _agent.SlackAgentRoute
 SlackAgentRouteMatch = _agent.SlackAgentRouteMatch
 SlackReplyRef = _agent.SlackReplyRef
 _agent_session_ref = _agent._agent_session_ref
-_agent_tool_source_native_search = _agent._agent_tool_source_native_search
 _select_agent_route = _agent._select_agent_route
 _sign_reply_ref = _agent._sign_reply_ref
 _slack_agent_event_from_payload = _agent._slack_agent_event_from_payload

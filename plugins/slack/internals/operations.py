@@ -53,6 +53,7 @@ def post_message(
     unfurl_media: bool | None = None,
     blocks: list[dict[str, Any]] | None = None,
     metadata: dict[str, Any] | None = None,
+    client_msg_id: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"channel": channel, "text": text}
     if thread_ts:
@@ -65,6 +66,8 @@ def post_message(
         payload["blocks"] = blocks
     if metadata:
         payload["metadata"] = metadata
+    if client_msg_id:
+        payload["client_msg_id"] = client_msg_id
     return slack_post("chat.postMessage", payload, token)
 
 
