@@ -35,7 +35,7 @@ export ANTHROPIC_API_KEY=...
 Then point a Gestalt config at both the IndexedDB backend and this provider:
 
 ```yaml
-apiVersion: gestaltd.config/v3
+apiVersion: gestaltd.config/v4
 server:
   public:
     port: 18080
@@ -100,6 +100,37 @@ Notes:
 - `CreateTurn` returns after the turn is persisted in `RUNNING`; the provider continues the model/tool loop in the background and callers should use `GetTurn`, `ListTurns`, or `ListTurnEvents` to observe terminal state. Startup recovery is backed by IndexedDB transactions.
 - If a restart finds a tool call that may already have executed, the provider marks the turn failed rather than replaying a possible side effect. Tool retries can be added once the host/tool invocation layer guarantees idempotency before the side effect.
 - The provider advertises native tool search. Each turn initially exposes a small `gestalt_search_tools` function; matching authorized integration tools are loaded lazily through `AgentHost.SearchTools` before the model invokes them.
+
+## Telemetry
+
+`agent/simple` consumes the shared `gestalt.telemetry` Python SDK helpers. It
+does not configure OpenTelemetry exporters inside the provider. Configure
+telemetry once in `gestaltd`, and the host injects standard `OTEL_*` environment
+into this provider process before the SDK runtime starts serving.
+
+```yaml
+apiVersion: gestaltd.config/v4
+server:
+  encryptionKey: ${GESTALT_ENCRYPTION_KEY}
+  providers:
+    telemetry: default
+
+providers:
+  telemetry:
+    default:
+      source: otlp
+      config:
+        endpoint: otel-collector:4317
+        protocol: grpc
+        traces:
+          samplingRatio: 1.0
+        metrics:
+          interval: 60s
+```
+
+The same pattern applies to any Python provider using `gestalt-sdk`: keep
+exporter configuration in `providers.telemetry`, let `gestaltd` inject the OTel
+environment, and use SDK helpers around the GenAI work owned by provider code.
 
 ## Hosted runtime image
 
