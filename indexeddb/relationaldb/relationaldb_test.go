@@ -3,6 +3,7 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -524,6 +525,57 @@ func TestCreateObjectStoreSkipsGenericReindexWhenSchemaUnchanged(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatalf("sentinel index rows = %d, want 1", len(rows))
+	}
+}
+
+func TestCreateObjectStoreReindexesWithoutClearingRecordsWhenPrimaryKeyUnchanged(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+
+	initialSchema := widgetsSchema()
+	initialSchema.Indexes = nil
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: initialSchema,
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
+	}); err != nil {
+		t.Fatalf("Add record: %v", err)
+	}
+
+	trigger := fmt.Sprintf(
+		"CREATE TRIGGER prevent_widget_record_delete BEFORE DELETE ON %s WHEN OLD.%s = 'widgets' BEGIN SELECT RAISE(ABORT, 'record rows must not be cleared'); END",
+		quoteTableName(s.dialect, s.genericRecordsTable()),
+		quoteIdent(s.dialect, "store_name"),
+	)
+	if _, err := s.exec(ctx, trigger); err != nil {
+		t.Fatalf("create delete guard trigger: %v", err)
+	}
+
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore upgraded indexes: %v", err)
+	}
+
+	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if got := count.GetCount(); got != 1 {
+		t.Fatalf("Count after reindex = %d, want 1", got)
+	}
+	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
+	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
+		Store: "widgets", Index: "by_code", Values: vals,
+	})
+	if err != nil {
+		t.Fatalf("IndexGet: %v", err)
+	}
+	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "w1" {
+		t.Fatalf("IndexGet id: got %q, want w1", got)
 	}
 }
 

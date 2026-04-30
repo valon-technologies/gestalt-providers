@@ -318,14 +318,28 @@ func (s *Store) deleteGenericIndexRowsByPrimaryKey(ctx context.Context, tx *sql.
 }
 
 func (s *Store) clearGenericStoreTables(ctx context.Context, tx *sql.Tx, store string) error {
+	if err := s.clearGenericIndexTables(ctx, tx, store); err != nil {
+		return err
+	}
 	statements := []string{
-		"DELETE FROM " + quoteTableName(s.dialect, s.genericIndexTable()) + " WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
-		"DELETE FROM " + quoteTableName(s.dialect, s.genericUniqueIndexTable()) + " WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
 		"DELETE FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) + " WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
 	}
 	for _, stmt := range statements {
 		if _, err := tx.ExecContext(ctx, s.q(stmt), store); err != nil {
 			return status.Errorf(codes.Internal, "clear store: %v", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) clearGenericIndexTables(ctx context.Context, tx *sql.Tx, store string) error {
+	statements := []string{
+		"DELETE FROM " + quoteTableName(s.dialect, s.genericIndexTable()) + " WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
+		"DELETE FROM " + quoteTableName(s.dialect, s.genericUniqueIndexTable()) + " WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
+	}
+	for _, stmt := range statements {
+		if _, err := tx.ExecContext(ctx, s.q(stmt), store); err != nil {
+			return status.Errorf(codes.Internal, "clear index rows: %v", err)
 		}
 	}
 	return nil
@@ -518,9 +532,16 @@ func (s *Store) reindexGenericStore(ctx context.Context, store string, schema *p
 		return err
 	}
 	meta := newStoredSchema(schema).toMeta(store)
+	rewriteRecords := !genericPrimaryKeyStorageMatches(s.meta[store], meta)
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
-		if err := s.clearGenericStoreTables(txCtx, tx, store); err != nil {
-			return err
+		if rewriteRecords {
+			if err := s.clearGenericStoreTables(txCtx, tx, store); err != nil {
+				return err
+			}
+		} else {
+			if err := s.clearGenericIndexTables(txCtx, tx, store); err != nil {
+				return err
+			}
 		}
 		for _, row := range records {
 			record, err := unmarshalRecordBlob(row.recordBlob)
@@ -535,8 +556,10 @@ func (s *Store) reindexGenericStore(ctx context.Context, store string, schema *p
 			if err != nil {
 				return err
 			}
-			if err := s.upsertGenericRecord(txCtx, tx, store, primary, row.recordBlob); err != nil {
-				return err
+			if rewriteRecords {
+				if err := s.upsertGenericRecord(txCtx, tx, store, primary, row.recordBlob); err != nil {
+					return err
+				}
 			}
 			for _, uniqueRow := range uniqueRows {
 				if err := s.insertGenericUniqueIndexRow(txCtx, tx, store, uniqueRow); err != nil {
@@ -549,6 +572,13 @@ func (s *Store) reindexGenericStore(ctx context.Context, store string, schema *p
 		}
 		return nil
 	})
+}
+
+func genericPrimaryKeyStorageMatches(existing, next *storeMeta) bool {
+	if existing == nil || next == nil {
+		return false
+	}
+	return existing.pkCol == next.pkCol && columnType(existing, existing.pkCol) == columnType(next, next.pkCol)
 }
 
 func (s *Store) addGeneric(ctx context.Context, store string, m *storeMeta, record *proto.Record) error {
