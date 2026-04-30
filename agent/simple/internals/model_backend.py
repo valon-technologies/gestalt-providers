@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from gestalt import telemetry
 from anthropic import Anthropic
 from openai import OpenAI
 
@@ -107,7 +108,12 @@ class ModelBackend:
             create_options["tools"] = tools
         create_options.update(request_options)
 
-        response = client.chat.completions.create(**create_options)
+        with telemetry.model_operation(
+            provider_name="openai", request_model=model, request_options=create_options
+        ) as operation:
+            response = client.chat.completions.create(**create_options)
+            operation.set_response_metadata(response, finish_reasons=_openai_finish_reasons(response))
+            telemetry.record_openai_usage(operation, response)
         choice = response.choices[0]
         message = choice.message
         tool_calls = self._parse_openai_tool_calls(message.tool_calls or [])
@@ -139,7 +145,12 @@ class ModelBackend:
             create_options["tools"] = response_tools
         create_options.update(self._request_options_for_openai_responses(request_options))
 
-        response = client.responses.create(**create_options)
+        with telemetry.model_operation(
+            provider_name="openai", request_model=model, request_options=create_options
+        ) as operation:
+            response = client.responses.create(**create_options)
+            operation.set_response_metadata(response)
+            telemetry.record_openai_usage(operation, response)
         assistant_message, output_text, tool_calls = self._openai_response_to_step_parts(response)
         return BackendStep(assistant_message=assistant_message, output_text=output_text, tool_calls=tool_calls)
 
@@ -158,10 +169,11 @@ class ModelBackend:
         client = Anthropic(**self._anthropic_client_options(request_options, timeout))
         system_prompt, anthropic_messages = self._messages_for_anthropic(messages)
 
+        positive_max_tokens = self._positive_int(max_tokens, field_name="max_tokens")
         create_options: dict[str, Any] = {
             "model": model,
             "messages": anthropic_messages,
-            "max_tokens": self._positive_int(max_tokens, field_name="max_tokens"),
+            "max_tokens": positive_max_tokens,
             "timeout": timeout,
         }
         if system_prompt:
@@ -171,7 +183,15 @@ class ModelBackend:
             create_options["tools"] = anthropic_tools
         create_options.update(request_options)
 
-        response = client.messages.create(**create_options)
+        with telemetry.model_operation(
+            provider_name="anthropic",
+            request_model=model,
+            request_options=create_options,
+            request_attrs={"gen_ai.request.max_tokens": positive_max_tokens},
+        ) as operation:
+            response = client.messages.create(**create_options)
+            operation.set_response_metadata(response, finish_reasons=_anthropic_finish_reasons(response))
+            telemetry.record_anthropic_usage(operation, response)
         assistant_message, output_text, tool_calls = self._anthropic_response_to_step_parts(response.content)
         return BackendStep(assistant_message=assistant_message, output_text=output_text, tool_calls=tool_calls)
 
@@ -703,3 +723,17 @@ class ModelBackend:
         if block_type == "tool_use":
             content_block["input"] = self._block_value(block, "input") or {}
         return content_block
+
+
+def _openai_finish_reasons(response: Any) -> list[str]:
+    reasons: list[str] = []
+    for choice in getattr(response, "choices", []) or []:
+        reason = str(getattr(choice, "finish_reason", "") or "").strip()
+        if reason:
+            reasons.append(reason)
+    return reasons
+
+
+def _anthropic_finish_reasons(response: Any) -> list[str]:
+    reason = str(getattr(response, "stop_reason", "") or "").strip()
+    return [reason] if reason else []

@@ -9,6 +9,7 @@ from typing import Any, Callable, cast
 
 import gestalt
 import grpc
+from gestalt import telemetry
 from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
@@ -211,7 +212,16 @@ class SimpleAgentOrchestrator:
             if not claimed:
                 return
             heartbeat_stop, heartbeat = self._start_lease_heartbeat(turn_id)
-            self._run_turn_loop(turn_id)
+            with telemetry.agent_invocation(
+                agent_name=self._config.name,
+                session_id=checkpoint.session_id,
+                turn_id=turn_id,
+                model=checkpoint.model,
+            ) as operation:
+                self._run_turn_loop(turn_id)
+                completed = self._store.get_turn(turn_id)
+                if completed is not None and completed.status == agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
+                    operation.mark_error("agent_turn_failed", completed.status_message)
         finally:
             if heartbeat_stop is not None:
                 heartbeat_stop.set()
@@ -491,15 +501,20 @@ class SimpleAgentOrchestrator:
             )
 
         if resolved_tool_id == TOOL_SEARCH_TOOL_ID:
-            with gestalt.AgentHost() as host:
-                body = _search_tools_for_model(
-                    host=host,
-                    prepared=prepared,
-                    tool_call_arguments=arguments,
-                    tool_specs=tool_specs,
-                    function_name_to_tool_id=function_name_to_tool_id,
-                    loaded_tool_ids=loaded_tool_ids,
-                )
+            with telemetry.tool_execution(
+                tool_name=TOOL_SEARCH_FUNCTION_NAME,
+                tool_call_id=tool_call_id,
+                tool_type=telemetry.GENAI_TOOL_TYPE_DATASTORE,
+            ):
+                with gestalt.AgentHost() as host:
+                    body = _search_tools_for_model(
+                        host=host,
+                        prepared=prepared,
+                        tool_call_arguments=arguments,
+                        tool_specs=tool_specs,
+                        function_name_to_tool_id=function_name_to_tool_id,
+                        loaded_tool_ids=loaded_tool_ids,
+                    )
             result = {"status": 200, "body": body, "tool_id": resolved_tool_id}
             updated = replace(
                 inflight,
@@ -527,15 +542,16 @@ class SimpleAgentOrchestrator:
                 checkpoint=replace(updated, phase=PHASE_TOOL_RESULT_RECORDED), result=result
             )
 
-        with gestalt.AgentHost() as host:
-            tool_response = host.execute_tool(
-                _execute_tool_request(
-                    checkpoint=checkpoint,
-                    tool_call_id=tool_call_id,
-                    resolved_tool_id=resolved_tool_id,
-                    execution_arguments=execution_arguments,
+        with telemetry.tool_execution(tool_name=resolved_tool_id, tool_call_id=tool_call_id):
+            with gestalt.AgentHost() as host:
+                tool_response = host.execute_tool(
+                    _execute_tool_request(
+                        checkpoint=checkpoint,
+                        tool_call_id=tool_call_id,
+                        resolved_tool_id=resolved_tool_id,
+                        execution_arguments=execution_arguments,
+                    )
                 )
-            )
         current = self._store.get_turn(checkpoint.turn_id)
         if current is not None and current.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
             return False

@@ -23,7 +23,7 @@ override-dependencies = [
 ]
 
 [tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", subdirectory = "sdk/python" }
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", subdirectory = "sdk/python", branch = "codex/otel-genai-host-telemetry" }
 
 [tool.gestalt]
 plugin = "provider"
