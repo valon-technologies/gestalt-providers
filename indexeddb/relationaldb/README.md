@@ -42,8 +42,9 @@ Optional configuration:
     to `5m`. Set `0` to disable idle-time recycling.
   - `ping_timeout`: Per-attempt timeout for connectivity checks. Defaults to
     `5s`. Set `0` to use the caller's context without an extra timeout.
-  - `retry_attempts`: Additional attempts for retryable connection setup and
-    read-path failures. Defaults to `2`.
+  - `retry_attempts`: Additional attempts for retryable connection setup,
+    read-path failures, and transient database lock/deadlock contention.
+    Defaults to `2`.
   - `retry_backoff`: Base backoff between retry attempts. Defaults to `200ms`.
 
 Examples:
