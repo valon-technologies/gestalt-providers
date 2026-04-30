@@ -81,9 +81,14 @@ func TestDecodeConfigNormalizesConnectionMode(t *testing.T) {
 			want: connectionModePodIP,
 		},
 		{
+			name: "service dns",
+			raw:  map[string]any{"connectionMode": "serviceDNS"},
+			want: connectionModeServiceDNS,
+		},
+		{
 			name: "in cluster alias",
 			raw:  map[string]any{"connectionMode": "in-cluster"},
-			want: connectionModePodIP,
+			want: connectionModeServiceDNS,
 		},
 	} {
 		tc := tc

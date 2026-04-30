@@ -352,6 +352,60 @@ func TestRuntimeProviderContractSupportsPodIPConnectionMode(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderContractSupportsServiceDNSConnectionMode(t *testing.T) {
+	t.Parallel()
+
+	pluginTarget := startPluginLifecycleServer(t)
+	fake := &fakeSandboxRuntime{
+		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+	}
+	client := startRuntimeProviderServer(t, &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			ConnectionMode:      connectionModeServiceDNS,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*session{},
+	})
+
+	ctx := context.Background()
+	session, err := client.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "simple-agent",
+		Template:   "agent-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	hosted, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
+		SessionId:  session.GetId(),
+		PluginName: "simple-agent",
+		Command:    "./plugin",
+	})
+	if err != nil {
+		t.Fatalf("StartPlugin: %v", err)
+	}
+	if got, want := hosted.GetDialTarget(), pluginTarget; got != want {
+		t.Fatalf("StartPlugin dial target = %q, want %q", got, want)
+	}
+
+	fake.mu.Lock()
+	forwardPorts := slices.Clone(fake.forwardPorts)
+	serviceDNSTargets := slices.Clone(fake.serviceDNSTargets)
+	fake.mu.Unlock()
+	if len(forwardPorts) != 0 {
+		t.Fatalf("runtime ForwardPort calls = %#v, want none", forwardPorts)
+	}
+	if !slices.Equal(serviceDNSTargets, []int{50051}) {
+		t.Fatalf("runtime ServiceDNSDialTarget calls = %#v, want [50051]", serviceDNSTargets)
+	}
+}
+
 func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) {
 	t.Parallel()
 
@@ -761,6 +815,7 @@ type fakeSandboxRuntime struct {
 	execCalls               []execCall
 	forwardPorts            []int
 	podIPTargets            []int
+	serviceDNSTargets       []int
 	stopped                 []sandboxHandle
 	tunnel                  tunnel
 	hostnamePolicies        []hostnamePolicyCall
@@ -776,6 +831,7 @@ type fakeSandboxRuntime struct {
 	execErrors        []error
 	forwardPortErr    error
 	podIPDialErr      error
+	serviceDNSDialErr error
 }
 
 type execCall struct {
@@ -890,6 +946,16 @@ func (f *fakeSandboxRuntime) PodIPDialTarget(_ context.Context, _ sandboxHandle,
 		return nil, f.podIPDialErr
 	}
 	f.podIPTargets = append(f.podIPTargets, remotePort)
+	return f.tunnel, nil
+}
+
+func (f *fakeSandboxRuntime) ServiceDNSDialTarget(_ context.Context, _ sandboxHandle, remotePort int) (tunnel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.serviceDNSDialErr != nil {
+		return nil, f.serviceDNSDialErr
+	}
+	f.serviceDNSTargets = append(f.serviceDNSTargets, remotePort)
 	return f.tunnel, nil
 }
 
