@@ -55,7 +55,6 @@ def workflow_agent_target(summary: dict[str, Any]) -> Any:
             agent_pb2.AgentMessage(role="system", text=agent_system_prompt()),
         ],
         tool_refs=agent_tool_refs(),
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH,
     )
     agent.metadata.CopyFrom(agent_session_metadata(summary))
     if config.agent_provider_options:

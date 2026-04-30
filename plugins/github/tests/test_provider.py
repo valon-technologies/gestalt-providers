@@ -377,9 +377,6 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
-        self.assertEqual(
-            agent.tool_source, agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
-        )
         metadata = json_format.MessageToDict(agent.metadata)
         self.assertEqual(metadata["github"]["installation_id"], 99)
         self.assertEqual(metadata["github"]["repository"], "acme/widgets")
