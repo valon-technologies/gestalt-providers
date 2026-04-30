@@ -6,28 +6,20 @@ primitive for persistence and the workflow host socket for plugin callbacks.
 ## Configuration
 
 ```yaml
+apiVersion: gestaltd.config/v4
+
 providers:
   indexeddb:
-    workflow_state:
-      source:
-        path: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
+    main-db:
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.16/provider-release.yaml
       config:
         dsn: "file:/var/lib/gestalt/workflow.db?_pragma=journal_mode(WAL)"
 
   workflow:
     local:
-      source: github.com/valon-technologies/gestalt-providers/workflow/indexeddb
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.24/provider-release.yaml
       indexeddb:
-        provider: workflow_state
-        db: workflow
-        objectStores:
-          - schedules
-          - event_triggers
-          - runs
-          - idempotency
-          - execution_refs
-          - workflow_keys
-          - workflow_signals
+        provider: main-db
       config:
         pollInterval: 1s
 ```
@@ -44,16 +36,6 @@ providers, and workflow host services are ready.
 - Gestalt host support for `ProviderLifecycle.StartProvider`
 - `GESTALT_INDEXEDDB_SOCKET` must point at an IndexedDB provider socket
 - `GESTALT_WORKFLOW_HOST_SOCKET` must point at the workflow host socket
-
-## Persisted Stores
-
-- `schedules`
-- `event_triggers`
-- `runs`
-- `idempotency`
-- `execution_refs`
-- `workflow_keys`
-- `workflow_signals`
 
 ## v1 Behavior
 

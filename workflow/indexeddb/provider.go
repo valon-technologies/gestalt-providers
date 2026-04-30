@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.23"
+	providerVersion           = "0.0.1-alpha.24"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -2284,7 +2284,6 @@ func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
 			{Name: "provider_name", Type: columnTypeString, NotNull: true},
 			{Name: "target_json", Type: columnTypeString},
-			{Name: "target_fingerprint", Type: columnTypeString},
 			{Name: "subject_id", Type: columnTypeString, NotNull: true},
 			{Name: "subject_kind", Type: columnTypeString},
 			{Name: "display_name", Type: columnTypeString},
