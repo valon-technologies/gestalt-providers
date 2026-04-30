@@ -528,6 +528,41 @@ func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 	}
 }
 
+func TestCountWithoutRangeDoesNotMaterializeRows(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+	if _, err := s.Add(ctx, &proto.RecordRequest{
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
+	}); err != nil {
+		t.Fatalf("Add record: %v", err)
+	}
+	if err := s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx,
+			s.q("UPDATE "+quoteTableName(s.dialect, s.genericRecordsTable())+
+				" SET "+quoteIdent(s.dialect, "pk_bytes")+" = ?"+
+				" WHERE "+quoteIdent(s.dialect, "store_name")+" = ?"),
+			[]byte("not-a-proto-key"),
+			"widgets",
+		)
+		return err
+	}); err != nil {
+		t.Fatalf("corrupt primary key bytes: %v", err)
+	}
+
+	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if got := count.GetCount(); got != 1 {
+		t.Fatalf("Count = %d, want 1", got)
+	}
+}
+
 func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

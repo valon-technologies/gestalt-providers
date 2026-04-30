@@ -241,6 +241,19 @@ func (s *Store) loadAllGenericRecords(ctx context.Context, store string) ([]gene
 	return out, nil
 }
 
+func (s *Store) countGenericRecords(ctx context.Context, store string) (int64, error) {
+	var count int64
+	if err := s.scanOne(ctx,
+		"SELECT COUNT(*) FROM "+quoteTableName(s.dialect, s.genericRecordsTable())+
+			" WHERE "+quoteIdent(s.dialect, "store_name")+" = ?",
+		[]any{store},
+		&count,
+	); err != nil {
+		return 0, status.Errorf(codes.Internal, "count records: %v", err)
+	}
+	return count, nil
+}
+
 func (s *Store) loadGenericIndexRows(ctx context.Context, table, store, index string) ([]genericIndexRow, error) {
 	rows, err := s.query(ctx,
 		"SELECT "+quoteIdent(s.dialect, "index_name")+", "+quoteIdent(s.dialect, "index_key_hash")+", "+quoteIdent(s.dialect, "index_key_bytes")+", "+
