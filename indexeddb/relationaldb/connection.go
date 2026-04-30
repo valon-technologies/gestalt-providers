@@ -8,6 +8,10 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	mysql "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 const (
@@ -184,6 +188,9 @@ func isRetryableConnectionError(err error) bool {
 	if errors.Is(err, io.EOF) {
 		return true
 	}
+	if isRetryableDatabaseContentionError(err) {
+		return true
+	}
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -209,10 +216,46 @@ func isRetryableConnectionError(err error) bool {
 		"i/o timeout",
 		"handshake failed",
 		"dial tcp",
+		"lock wait timeout exceeded",
+		"deadlock found",
+		"deadlock detected",
+		"database is locked",
+		"database table is locked",
+		"lock request time out period exceeded",
+		"could not serialize access",
+		"try restarting transaction",
 	} {
 		if strings.Contains(message, needle) {
 			return true
 		}
 	}
+	return false
+}
+
+func isRetryableDatabaseContentionError(err error) bool {
+	var myErr *mysql.MySQLError
+	if errors.As(err, &myErr) {
+		switch myErr.Number {
+		case 1205, 1213:
+			return true
+		}
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", "40P01", "55P03":
+			return true
+		}
+	}
+
+	var msErr mssql.Error
+	if errors.As(err, &msErr) {
+		switch msErr.Number {
+		case 1205, 1222, 3960:
+			return true
+		}
+	}
+
 	return false
 }

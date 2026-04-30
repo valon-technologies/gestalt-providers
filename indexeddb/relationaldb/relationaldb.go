@@ -170,6 +170,40 @@ func (s *Store) loadMetadata(ctx context.Context) error {
 	return nil
 }
 
+func (s *Store) refreshStoreMetadataLocked(ctx context.Context, storeName string) error {
+	var schemaJSON string
+	err := s.scanOne(ctx,
+		"SELECT "+quoteIdent(s.dialect, "schema_json")+
+			" FROM "+quoteTableName(s.dialect, s.metadataTable())+
+			" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
+		[]any{s.metadataStoreKey(storeName)},
+		&schemaJSON,
+	)
+	if err == sql.ErrNoRows {
+		delete(s.meta, storeName)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("relationaldb: refresh metadata for %q: %w", storeName, err)
+	}
+
+	var stored storedSchema
+	if err := decodeStoredSchema([]byte(schemaJSON), &stored); err != nil {
+		delete(s.meta, storeName)
+		return nil
+	}
+	s.meta[storeName] = stored.toMeta(storeName)
+	return nil
+}
+
+func (s *Store) refreshedStoreMetadataMatchesLocked(ctx context.Context, storeName string, schema *proto.ObjectStoreSchema) bool {
+	if err := s.refreshStoreMetadataLocked(ctx, storeName); err != nil {
+		return false
+	}
+	existing, ok := s.meta[storeName]
+	return ok && genericStoreSchemaMatches(existing, schema)
+}
+
 func (s *Store) currentMetadataStoreName(key string) (string, bool) {
 	if !s.usesNamespacedMetadata() {
 		return key, true
@@ -453,21 +487,33 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 	if err := s.ensureGenericTables(ctx); err != nil {
 		return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
 	}
+	if err := s.refreshStoreMetadataLocked(ctx, req.Name); err != nil {
+		return nil, status.Errorf(codes.Internal, "refresh metadata: %v", err)
+	}
 
 	if existing, ok := s.meta[req.Name]; ok {
 		if genericStoreSchemaMatches(existing, schema) {
 			return &emptypb.Empty{}, nil
 		}
 		if err := s.reindexGenericStore(ctx, req.Name, schema); err != nil {
+			if isRetryableConnectionError(err) && s.refreshedStoreMetadataMatchesLocked(ctx, req.Name, schema) {
+				return &emptypb.Empty{}, nil
+			}
 			return nil, err
 		}
 		if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
+			if isRetryableConnectionError(err) && s.refreshedStoreMetadataMatchesLocked(ctx, req.Name, schema) {
+				return &emptypb.Empty{}, nil
+			}
 			return nil, err
 		}
 		return &emptypb.Empty{}, nil
 	}
 
 	if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
+		if isRetryableConnectionError(err) && s.refreshedStoreMetadataMatchesLocked(ctx, req.Name, schema) {
+			return &emptypb.Empty{}, nil
+		}
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

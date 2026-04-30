@@ -579,6 +579,89 @@ func TestCreateObjectStoreReindexesWithoutClearingRecordsWhenPrimaryKeyUnchanged
 	}
 }
 
+func TestCreateObjectStoreRefreshesExternalMetadataBeforeReindex(t *testing.T) {
+	ctx := context.Background()
+	dsn := "file:" + filepath.Join(t.TempDir(), "metadata-refresh.sqlite")
+	first := testStoreWithDSN(t, dsn)
+
+	initialSchema := widgetsSchema()
+	initialSchema.Indexes = nil
+	if _, err := first.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: initialSchema,
+	}); err != nil {
+		t.Fatalf("CreateObjectStore initial: %v", err)
+	}
+	if _, err := first.Add(ctx, &proto.RecordRequest{
+		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
+	}); err != nil {
+		t.Fatalf("Add record: %v", err)
+	}
+
+	second := testStoreWithDSN(t, dsn)
+	if _, err := first.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore upgraded indexes: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		table string
+	}{
+		{name: "prevent_widget_index_delete", table: first.genericIndexTable()},
+		{name: "prevent_widget_unique_index_delete", table: first.genericUniqueIndexTable()},
+	} {
+		trigger := fmt.Sprintf(
+			"CREATE TRIGGER %s BEFORE DELETE ON %s WHEN OLD.%s = 'widgets' BEGIN SELECT RAISE(ABORT, 'index rows must not be cleared'); END",
+			tc.name,
+			quoteTableName(first.dialect, tc.table),
+			quoteIdent(first.dialect, "store_name"),
+		)
+		if _, err := first.exec(ctx, trigger); err != nil {
+			t.Fatalf("create index delete guard trigger %s: %v", tc.name, err)
+		}
+	}
+
+	if _, err := second.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore refreshed external metadata: %v", err)
+	}
+
+	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
+	idxResp, err := second.IndexGet(ctx, &proto.IndexQueryRequest{
+		Store: "widgets", Index: "by_code", Values: vals,
+	})
+	if err != nil {
+		t.Fatalf("IndexGet: %v", err)
+	}
+	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "w1" {
+		t.Fatalf("IndexGet id: got %q, want w1", got)
+	}
+}
+
+func TestWithRetryRetriesSchemaContentionErrors(t *testing.T) {
+	attempts := 0
+	retryAttempts := 1
+	retryBackoff := time.Duration(0)
+	err := withRetry(context.Background(), connectionOptions{
+		RetryAttempts: &retryAttempts,
+		RetryBackoff:  &retryBackoff,
+	}, func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return status.Errorf(codes.Internal, "clear index rows: Error 1205 (HY000): Lock wait timeout exceeded; try restarting transaction")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withRetry: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+}
+
 func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 	ctx := context.Background()
 	dsn := "file:" + filepath.Join(t.TempDir(), "namespaced-metadata.sqlite")
