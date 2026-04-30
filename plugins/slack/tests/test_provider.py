@@ -343,6 +343,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         bot_connection = connections["bot"]
         self.assertEqual(bot_connection["mode"], "platform")
+        self.assertEqual(bot_connection["exposure"], "internal")
         self.assertEqual(bot_connection["auth"], {"type": "bearer"})
         self.assertNotIn("instance" + "Selector", json.dumps(manifest))
 
@@ -369,7 +370,7 @@ class SlackProviderTests(unittest.TestCase):
             operation["connectionSelector"],
             {
                 "parameter": "actor",
-                "default": "bot",
+                "default": "user",
                 "values": {"bot": "bot", "user": "default"},
             },
         )

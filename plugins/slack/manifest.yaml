@@ -75,7 +75,7 @@ spec:
         path: /api/chat.postMessage
         connectionSelector:
           parameter: actor
-          default: bot
+          default: user
           values:
             bot: bot
             user: default
@@ -588,5 +588,6 @@ spec:
     bot:
       displayName: Bot
       mode: platform
+      exposure: internal
       auth:
         type: bearer

@@ -18,7 +18,8 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 Slack Events API agent replies and declarative REST operations that run as the
 bot use the app's bot token. Configure it as both a provider secret-backed value
-for event helper code and a deployment-owned `bot` connection for REST calls:
+for event helper code and an internal deployment-owned `bot` connection for
+runtime-only REST calls:
 
 ```yaml
 plugins:
@@ -32,6 +33,7 @@ plugins:
     connections:
       bot:
         mode: platform
+        exposure: internal
         auth:
           type: bearer
           token:
@@ -59,8 +61,10 @@ reactions, setting channel topics, inviting users, creating canvases, building
 thread context, and reading Slack file or image contents.
 
 Authenticates user operations with Slack OAuth 2.0 (user scope). Operations with
-`actor=bot` and fixed bot operations use the deployment-owned `bot` bearer
-connection instead of prompting each user to connect the bot.
+fixed bot behavior use the internal deployment-owned `bot` bearer connection.
+Public REST and MCP callers use the user OAuth connection by default; hidden
+selector parameters such as `actor` are runtime-only and are not part of the
+public invocation contract.
 
 The requested scopes cover public channels, private channels, direct messages,
 and multi-person direct messages. That matches the provider's current
