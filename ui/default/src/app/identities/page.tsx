@@ -1,10 +1,5 @@
-import { Suspense } from "react";
-import ManagedIdentitiesPageClient from "@/components/ManagedIdentitiesPageClient";
+import { redirect } from "next/navigation";
 
 export default function ManagedIdentitiesPage() {
-  return (
-    <Suspense fallback={null}>
-      <ManagedIdentitiesPageClient />
-    </Suspense>
-  );
+  redirect("/authorization");
 }

@@ -320,7 +320,7 @@ function createBaseState(role: ManagedIdentity["role"]): IdentityState {
   };
 }
 
-test.describe("Managed identities", () => {
+test.describe.skip("Managed identities", () => {
   test("lists identities and creates a new one", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
