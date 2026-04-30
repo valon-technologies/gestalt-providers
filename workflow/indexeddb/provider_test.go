@@ -1376,7 +1376,7 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
 			Id:        "agent-ref",
-			Target:    protoAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
+			Target:    protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder"),
 			SubjectId: "user:123",
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
@@ -1395,6 +1395,20 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	}
 	if ref.GetTarget().GetPlugin() != nil {
 		t.Fatalf("agent target included plugin fields: %#v", ref.GetTarget())
+	}
+	delivery := ref.GetTarget().GetAgent().GetOutputDelivery()
+	if delivery.GetTarget().GetPluginName() != "slack" || delivery.GetTarget().GetOperation() != "events.reply" {
+		t.Fatalf("output delivery target = %#v", delivery.GetTarget())
+	}
+	if delivery.GetCredentialMode() != "none" {
+		t.Fatalf("output delivery credential mode = %q, want none", delivery.GetCredentialMode())
+	}
+	if len(delivery.GetInputBindings()) != 2 ||
+		delivery.GetInputBindings()[0].GetInputField() != "text" ||
+		delivery.GetInputBindings()[0].GetValue().GetAgentOutput() != "text" ||
+		delivery.GetInputBindings()[1].GetInputField() != "reply_ref" ||
+		delivery.GetInputBindings()[1].GetValue().GetSignalPayload() != "reply_ref" {
+		t.Fatalf("output delivery bindings = %#v", delivery.GetInputBindings())
 	}
 
 	got, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "agent-ref"})
@@ -1740,6 +1754,73 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	}
 	if len(runs.GetRuns()) != 1 {
 		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.GetRuns()))
+	}
+}
+
+func TestProviderPublishEventAgentTargetExecutionReferenceIncludesOutputDelivery(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	provider.now = func() time.Time {
+		return time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	}
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId: "github-agent-webhook",
+		Match:     &proto.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
+		Target:    protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "respond to the GitHub event"),
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger(agent): %v", err)
+	}
+
+	publishedBy := &proto.WorkflowActor{
+		SubjectId:   "workload:github_app_installation:127579767:repo:valon-technologies/gestalt",
+		SubjectKind: "workload",
+		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
+		AuthSource:  "github_app_webhook",
+	}
+	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		PluginName:  "agent:managed",
+		PublishedBy: publishedBy,
+		Event:       githubWebhookWorkflowEvent(t),
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs.GetRuns()) != 1 {
+		t.Fatalf("runs len = %d, want 1", len(runs.GetRuns()))
+	}
+	ref, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: runs.GetRuns()[0].GetExecutionRef()})
+	if err != nil {
+		t.Fatalf("GetExecutionReference: %v", err)
+	}
+	got := map[string]map[string]bool{}
+	for _, permission := range ref.GetPermissions() {
+		ops := got[permission.GetPlugin()]
+		if ops == nil {
+			ops = map[string]bool{}
+			got[permission.GetPlugin()] = ops
+		}
+		for _, operation := range permission.GetOperations() {
+			ops[operation] = true
+		}
+	}
+	if !got["slack"]["events.reply"] {
+		t.Fatalf("permissions = %#v, missing slack/events.reply output delivery permission", ref.GetPermissions())
+	}
+	if !got["slack"]["chat.postMessage"] {
+		t.Fatalf("permissions = %#v, missing slack/chat.postMessage tool permission", ref.GetPermissions())
 	}
 }
 
@@ -2579,6 +2660,32 @@ func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTa
 			{Plugin: "linear"},
 		},
 	})
+}
+
+func protoAgentTargetWithOutputDelivery(providerName, model, prompt string) *proto.BoundWorkflowTarget {
+	target := protoAgentTarget(providerName, model, prompt)
+	target.GetAgent().OutputDelivery = &proto.WorkflowOutputDelivery{
+		Target: &proto.BoundWorkflowPluginTarget{
+			PluginName: "slack",
+			Operation:  "events.reply",
+		},
+		CredentialMode: "none",
+		InputBindings: []*proto.WorkflowOutputBinding{
+			{
+				InputField: "text",
+				Value: &proto.WorkflowOutputValueSource{
+					Kind: &proto.WorkflowOutputValueSource_AgentOutput{AgentOutput: "text"},
+				},
+			},
+			{
+				InputField: "reply_ref",
+				Value: &proto.WorkflowOutputValueSource{
+					Kind: &proto.WorkflowOutputValueSource_SignalPayload{SignalPayload: "reply_ref"},
+				},
+			},
+		},
+	}
+	return target
 }
 
 func protoAgentTargetFromMessage(agent *proto.BoundWorkflowAgentTarget) *proto.BoundWorkflowTarget {

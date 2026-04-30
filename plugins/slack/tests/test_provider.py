@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import pathlib
@@ -7,6 +8,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from email.message import Message
 from http import HTTPStatus
 from typing import Any, cast
@@ -28,7 +30,6 @@ workflow_pb2: Any = _workflow_pb2
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parents[1]
 BASE_EVENT_TOOL_REFS = [
     ("*", ""),
-    ("slack", "events.reply"),
     ("slack", "events.setStatus"),
     ("slack", "events.deleteStatus"),
     ("slack", "events.addReaction"),
@@ -39,9 +40,6 @@ ASSISTANT_EVENT_TOOL_REFS = [
     ("slack", "events.clearAssistantStatus"),
     ("slack", "events.setThreadTitle"),
     ("slack", "events.setSuggestedPrompts"),
-    ("slack", "events.startStream"),
-    ("slack", "events.appendStream"),
-    ("slack", "events.stopStream"),
 ]
 WORKFLOW_EVENT_TOOL_REFS = [
     ("slack", "interactions.request"),
@@ -105,18 +103,84 @@ class FakeBoundWorkflowAgentTarget:
         model: str = "",
         prompt: str = "",
         messages: list[Any] | None = None,
-        tool_source: int = 0,
         tool_refs: list[Any] | None = None,
+        output_delivery: Any = None,
         **_kwargs: Any,
     ) -> None:
         self.provider_name = provider_name
         self.model = model
         self.prompt = prompt
         self.messages = messages or []
-        self.tool_source = tool_source
         self.tool_refs = tool_refs or []
+        self.output_delivery = output_delivery
         self.metadata = new_struct()
         self.provider_options = new_struct()
+
+
+class FakeBoundWorkflowPluginTarget:
+    def __init__(
+        self,
+        plugin_name: str = "",
+        operation: str = "",
+        connection: str = "",
+        instance: str = "",
+        **_kwargs: Any,
+    ) -> None:
+        self.plugin_name = plugin_name
+        self.operation = operation
+        self.connection = connection
+        self.instance = instance
+        self.input = new_struct()
+
+
+class FakeWorkflowOutputValueSource:
+    def __init__(
+        self,
+        agent_output: str = "",
+        signal_payload: str = "",
+        signal_metadata: str = "",
+        literal: Any = None,
+        **_kwargs: Any,
+    ) -> None:
+        self.agent_output = agent_output
+        self.signal_payload = signal_payload
+        self.signal_metadata = signal_metadata
+        self.literal = literal
+
+    def WhichOneof(self, _name: str) -> str | None:
+        if self.agent_output:
+            return "agent_output"
+        if self.signal_payload:
+            return "signal_payload"
+        if self.signal_metadata:
+            return "signal_metadata"
+        if self.literal is not None:
+            return "literal"
+        return None
+
+
+class FakeWorkflowOutputBinding:
+    def __init__(
+        self,
+        input_field: str = "",
+        value: Any = None,
+        **_kwargs: Any,
+    ) -> None:
+        self.input_field = input_field
+        self.value = value
+
+
+class FakeWorkflowOutputDelivery:
+    def __init__(
+        self,
+        target: Any = None,
+        input_bindings: list[Any] | None = None,
+        credential_mode: str = "",
+        **_kwargs: Any,
+    ) -> None:
+        self.target = target
+        self.input_bindings = input_bindings or []
+        self.credential_mode = credential_mode
 
 
 class FakeBoundWorkflowTarget:
@@ -148,14 +212,20 @@ class FakeWorkflowPb2:
     BoundWorkflowRun = FakeBoundWorkflowRun
     ManagedWorkflowRunSignal = FakeManagedWorkflowRunSignal
     BoundWorkflowAgentTarget = FakeBoundWorkflowAgentTarget
+    BoundWorkflowPluginTarget = FakeBoundWorkflowPluginTarget
     BoundWorkflowTarget = FakeBoundWorkflowTarget
+    WorkflowOutputBinding = FakeWorkflowOutputBinding
+    WorkflowOutputDelivery = FakeWorkflowOutputDelivery
+    WorkflowOutputValueSource = FakeWorkflowOutputValueSource
     WorkflowManagerSignalOrStartRunRequest = (
         FakeWorkflowManagerSignalOrStartRunRequest
     )
 
 
 def workflow_pb2_with_signal_or_start_contract() -> Any:
-    if hasattr(workflow_pb2, "WorkflowManagerSignalOrStartRunRequest"):
+    if hasattr(workflow_pb2, "WorkflowManagerSignalOrStartRunRequest") and hasattr(
+        workflow_pb2, "WorkflowOutputDelivery"
+    ):
         return workflow_pb2
     return FakeWorkflowPb2
 
@@ -204,6 +274,18 @@ def authorization_header(request: urllib.request.Request) -> str | None:
 
 def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
     return [(str(ref.plugin), str(ref.operation)) for ref in refs]
+
+
+def output_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
+    out: dict[str, tuple[str | None, Any]] = {}
+    for binding in delivery.input_bindings:
+        value = binding.value
+        kind = value.WhichOneof("kind") if hasattr(value, "WhichOneof") else None
+        out[str(binding.input_field)] = (
+            kind,
+            getattr(value, kind, None) if kind else None,
+        )
+    return out
 
 
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
@@ -397,18 +479,6 @@ class SlackProviderTests(unittest.TestCase):
             self.assertEqual(operation["connection"], "bot")
             self.assertNotIn("connectionSelector", operation)
             self.assertNotIn("actor", _manifest_parameter_names(operation))
-
-    def test_agent_tool_source_native_search_handles_new_and_legacy_sdks(self) -> None:
-        class NativeAgentPB:
-            AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH = 7
-
-        class LegacyAgentPB:
-            AGENT_TOOL_SOURCE_MODE_EXPLICIT = 1
-
-        with mock.patch("internals.agent.agent_pb2", NativeAgentPB):
-            self.assertEqual(provider_module._agent_tool_source_native_search(), 7)
-        with mock.patch("internals.agent.agent_pb2", LegacyAgentPB):
-            self.assertEqual(provider_module._agent_tool_source_native_search(), 1)
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
         def fake_urlopen(
@@ -641,17 +711,32 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIn("final workflow signal batch", agent_target.prompt)
         self.assertEqual(len(agent_target.messages), 1)
         self.assertEqual(
-            agent_target.tool_source, provider_module._agent_tool_source_native_search()
-        )
-        self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             BASE_EVENT_TOOL_REFS + WORKFLOW_EVENT_TOOL_REFS,
         )
-        self.assertIn("slack.events.reply", agent_target.messages[0].text)
-        self.assertIn("text set to the complete", agent_target.messages[0].text)
-        self.assertIn("reply_ref set exactly", agent_target.messages[0].text)
+        self.assertEqual(
+            agent_target.output_delivery.target.plugin_name,
+            "slack",
+        )
+        self.assertEqual(
+            agent_target.output_delivery.target.operation,
+            "events.reply",
+        )
+        self.assertEqual(agent_target.output_delivery.credential_mode, "none")
+        self.assertEqual(
+            output_delivery_bindings(agent_target.output_delivery),
+            {
+                "text": ("agent_output", "text"),
+                "reply_ref": ("signal_payload", "reply_ref"),
+            },
+        )
+        self.assertNotIn("slack.events.reply", agent_target.messages[0].text)
+        self.assertIn("final assistant answer", agent_target.messages[0].text)
         self.assertIn("slack.events.setStatus", agent_target.messages[0].text)
         self.assertIn("slack.interactions.request", agent_target.messages[0].text)
+        self.assertNotIn("slack.events.startStream", agent_target.messages[0].text)
+        self.assertNotIn("slack.events.appendStream", agent_target.messages[0].text)
+        self.assertNotIn("slack.events.stopStream", agent_target.messages[0].text)
         self.assertIn(
             "slack.conversations.getThreadContext", agent_target.messages[0].text
         )
@@ -690,12 +775,8 @@ class SlackProviderTests(unittest.TestCase):
         )
         reply_ref = signal_payload["reply_ref"]
         self.assertIn(f"reply_ref: {reply_ref}", signal_payload["user_prompt"])
-        self.assertIn("Final reply tool:", signal_payload["user_prompt"])
-        self.assertIn("operation: slack.events.reply", signal_payload["user_prompt"])
-        self.assertIn(
-            "text: <complete Slack message body to post>",
-            signal_payload["user_prompt"],
-        )
+        self.assertNotIn("Final reply tool:", signal_payload["user_prompt"])
+        self.assertNotIn("operation: slack.events.reply", signal_payload["user_prompt"])
         verified_ref = provider_module._verify_reply_ref(reply_ref, "user:gestalt-123")
         self.assertEqual(verified_ref.team_id, "T123")
         self.assertEqual(verified_ref.channel_id, "C789")
@@ -1107,6 +1188,12 @@ class SlackProviderTests(unittest.TestCase):
         )
         reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
         captured: dict[str, Any] = {}
+        idempotency_key = "workflow:local:run-123:output:signal-batch-abc"
+        expected_client_msg_id = str(
+            uuid.UUID(
+                hex=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
+            )
+        )
 
         def fake_urlopen(
             request: urllib.request.Request, timeout: float = 30
@@ -1127,8 +1214,18 @@ class SlackProviderTests(unittest.TestCase):
                 provider_module.SlackEventReplyInput(
                     reply_ref=reply_ref, text="Here is the answer"
                 ),
-                gestalt.Request(
-                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                cast(
+                    Any,
+                    type(
+                        "RequestWithIdempotencyKey",
+                        (),
+                        {
+                            "subject": gestalt.Subject(
+                                id="user:gestalt-123", kind="user"
+                            ),
+                            "idempotency_key": idempotency_key,
+                        },
+                    )(),
                 ),
             )
 
@@ -1138,6 +1235,7 @@ class SlackProviderTests(unittest.TestCase):
                 "channel": "C789",
                 "text": "Here is the answer",
                 "thread_ts": "1712161829.000300",
+                "client_msg_id": expected_client_msg_id,
             },
         )
         self.assertEqual(
@@ -1296,12 +1394,8 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_payload["slack"]["action_value"], "approved")
         self.assertEqual(signal_payload["slack"]["trigger_id"], "1337.abcdef")
         self.assertIn("reply_ref: ", signal_payload["user_prompt"])
-        self.assertIn("Final reply tool:", signal_payload["user_prompt"])
-        self.assertIn("operation: slack.events.reply", signal_payload["user_prompt"])
-        self.assertIn(
-            "text: <complete Slack message body to post>",
-            signal_payload["user_prompt"],
-        )
+        self.assertNotIn("Final reply tool:", signal_payload["user_prompt"])
+        self.assertNotIn("operation: slack.events.reply", signal_payload["user_prompt"])
         self.assertNotIn("Native assistant status tool:", signal_payload["user_prompt"])
 
         provider_module.configure(
@@ -1787,7 +1881,6 @@ class SlackProviderTests(unittest.TestCase):
             tool_ref_pairs(agent_target.tool_refs),
             [
                 ("*", ""),
-                ("supportSlackbot", "events.reply"),
                 ("supportSlackbot", "events.setStatus"),
                 ("supportSlackbot", "events.deleteStatus"),
                 ("supportSlackbot", "events.addReaction"),
@@ -1795,7 +1888,19 @@ class SlackProviderTests(unittest.TestCase):
                 ("supportSlackbot", "interactions.request"),
             ],
         )
-        self.assertIn("supportSlackbot.events.reply", agent_target.messages[0].text)
+        self.assertEqual(
+            agent_target.output_delivery.target.plugin_name,
+            "supportSlackbot",
+        )
+        self.assertEqual(
+            agent_target.output_delivery.target.operation,
+            "events.reply",
+        )
+        self.assertEqual(agent_target.output_delivery.credential_mode, "none")
+        self.assertNotIn("supportSlackbot.events.reply", agent_target.messages[0].text)
+        self.assertNotIn(
+            "supportSlackbot.events.startStream", agent_target.messages[0].text
+        )
         self.assertIn(
             "supportSlackbot.conversations.getThreadContext",
             agent_target.messages[0].text,
