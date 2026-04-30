@@ -1758,7 +1758,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	}
 }
 
-func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
+func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
@@ -1774,6 +1774,10 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 		target *proto.BoundWorkflowTarget
 	}{
 		{
+			name:   "missing provider",
+			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{}),
+		},
+		{
 			name:   "empty prompt",
 			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{ProviderName: "managed"}),
 		},
@@ -1783,14 +1787,6 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				ProviderName:   "managed",
 				Prompt:         "send a Slack reminder",
 				TimeoutSeconds: -1,
-			}),
-		},
-		{
-			name: "empty tool plugin",
-			target: protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
-				ProviderName: "managed",
-				Prompt:       "send a Slack reminder",
-				ToolRefs:     []*proto.AgentToolRef{{Operation: "chat.postMessage"}},
 			}),
 		},
 	}
@@ -1805,6 +1801,33 @@ func TestProviderRejectsInvalidAgentTargets(t *testing.T) {
 				t.Fatal("UpsertSchedule succeeded, want error")
 			}
 		})
+	}
+
+	target := protoAgentTargetFromMessage(&proto.BoundWorkflowAgentTarget{
+		ProviderName: " managed ",
+		Prompt:       "send a Slack reminder",
+		ToolRefs: []*proto.AgentToolRef{
+			{Operation: "chat.postMessage"},
+		},
+	})
+	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId: "host-validated-agent",
+		Cron:       "* * * * *",
+		Timezone:   "UTC",
+		Target:     target,
+	})
+	if err != nil {
+		t.Fatalf("UpsertSchedule(agent payload host validation): %v", err)
+	}
+	agent := schedule.GetTarget().GetAgent()
+	if agent == nil {
+		t.Fatalf("schedule target = %#v, want agent target", schedule.GetTarget())
+	}
+	if agent.GetProviderName() != "managed" {
+		t.Fatalf("agent provider_name = %q, want trimmed provider", agent.GetProviderName())
+	}
+	if got := agent.GetToolRefs()[0].GetPlugin(); got != "" {
+		t.Fatalf("agent tool plugin = %q, want tool validation left to host", got)
 	}
 }
 

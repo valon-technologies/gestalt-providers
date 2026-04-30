@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.26"
+	providerVersion           = "0.0.1-alpha.27"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -2403,11 +2403,12 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 		if agentProvider == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
 		}
-		normalized := &proto.BoundWorkflowTarget{
-			Kind: &proto.BoundWorkflowTarget_Agent{Agent: cloneAgentTarget(agentTarget)},
-		}
-		if err := normalizeAgentTarget(normalized.GetAgent(), agentProvider); err != nil {
+		agent := cloneAgentTarget(agentTarget)
+		if err := normalizeAgentTarget(agent, agentProvider); err != nil {
 			return scopedTarget{}, err
+		}
+		normalized := &proto.BoundWorkflowTarget{
+			Kind: &proto.BoundWorkflowTarget_Agent{Agent: agent},
 		}
 		return scopedTarget{
 			OwnerKey: "agent:" + agentProvider,
@@ -2467,20 +2468,6 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 	}
 	if target.GetTimeoutSeconds() < 0 {
 		return errors.New("target.agent.timeout_seconds must not be negative")
-	}
-	for i, ref := range target.GetToolRefs() {
-		if ref == nil {
-			return fmt.Errorf("target.agent.tool_refs[%d] is required", i)
-		}
-		ref.Plugin = strings.TrimSpace(ref.GetPlugin())
-		ref.Operation = strings.TrimSpace(ref.GetOperation())
-		ref.Connection = strings.TrimSpace(ref.GetConnection())
-		ref.Instance = strings.TrimSpace(ref.GetInstance())
-		ref.Title = strings.TrimSpace(ref.GetTitle())
-		ref.Description = strings.TrimSpace(ref.GetDescription())
-		if ref.GetPlugin() == "" {
-			return fmt.Errorf("target.agent.tool_refs[%d].plugin is required", i)
-		}
 	}
 	return nil
 }
