@@ -924,6 +924,88 @@ func TestProviderSignalRunConcurrentSignalsUseUniqueSequences(t *testing.T) {
 	}
 }
 
+func TestProviderSignalRunBackfillsSequenceCounterForLegacyRun(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "legacy-signal-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   now,
+	}
+	if err := provider.runStore.Add(ctx, run.toRecord()); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	legacySignal := protoWorkflowSignal(t, "legacy-signal-7", "legacy-event-7", "legacy event")
+	legacySignal.Sequence = 7
+	legacySignal.CreatedAt = timestamppb.New(now)
+	if err := provider.signalStore.Add(ctx, workflowSignalRecord{
+		ID:             legacySignal.GetId(),
+		RunID:          run.ID,
+		State:          signalStateDelivered,
+		Signal:         legacySignal,
+		IdempotencyKey: legacySignal.GetIdempotencyKey(),
+		Sequence:       legacySignal.GetSequence(),
+		CreatedAt:      now,
+	}.toRecord()); err != nil {
+		t.Fatalf("seed signal: %v", err)
+	}
+
+	explicit := protoWorkflowSignal(t, "explicit-signal-3", "legacy-event-3", "explicit event")
+	explicit.Sequence = 3
+	explicitResp, err := provider.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+		RunId:  run.ID,
+		Signal: explicit,
+	})
+	if err != nil {
+		t.Fatalf("SignalRun(explicit): %v", err)
+	}
+	if got := explicitResp.GetSignal().GetSequence(); got != 3 {
+		t.Fatalf("explicit signal sequence = %d, want 3", got)
+	}
+	stored, found, err := loadRunRecord(ctx, provider.runStore, "", run.ID)
+	if err != nil {
+		t.Fatalf("loadRunRecord(after explicit): %v", err)
+	}
+	if !found {
+		t.Fatalf("run %q not found after explicit", run.ID)
+	}
+	if got := stored.NextSignalSequence; got != 8 {
+		t.Fatalf("next_signal_sequence after explicit = %d, want 8", got)
+	}
+
+	resp, err := provider.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+		RunId:  run.ID,
+		Signal: protoWorkflowSignal(t, "", "legacy-event-8", "new event"),
+	})
+	if err != nil {
+		t.Fatalf("SignalRun: %v", err)
+	}
+	if got := resp.GetSignal().GetSequence(); got != 8 {
+		t.Fatalf("signal sequence = %d, want 8", got)
+	}
+	stored, found, err = loadRunRecord(ctx, provider.runStore, "", run.ID)
+	if err != nil {
+		t.Fatalf("loadRunRecord: %v", err)
+	}
+	if !found {
+		t.Fatalf("run %q not found", run.ID)
+	}
+	if got := stored.NextSignalSequence; got != 9 {
+		t.Fatalf("next_signal_sequence = %d, want 9", got)
+	}
+}
+
 func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
