@@ -476,13 +476,9 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 	defer s.mu.Unlock()
 
 	schema := req.GetSchema()
-	if err := s.ensureGenericTables(ctx); err != nil {
-		return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
-	}
 	if err := s.refreshStoreMetadataLocked(ctx, req.Name); err != nil {
 		return nil, status.Errorf(codes.Internal, "refresh metadata: %v", err)
 	}
-
 	if existing, ok := s.meta[req.Name]; ok {
 		if genericStoreSchemaMatches(existing, schema) {
 			return &emptypb.Empty{}, nil
@@ -490,6 +486,9 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 		return nil, status.Errorf(codes.FailedPrecondition, "object store %q schema does not match; automatic schema upgrades are disabled, run an explicit migration before deploying this provider version", req.Name)
 	}
 
+	if err := s.ensureGenericTables(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
+	}
 	if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
 		return nil, err
 	}
@@ -689,6 +688,13 @@ func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
+	}
+	if req.Range == nil {
+		count, err := s.countGenericRecords(ctx, req.Store)
+		if err != nil {
+			return nil, err
+		}
+		return &proto.CountResponse{Count: count}, nil
 	}
 	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
 	if err != nil {
