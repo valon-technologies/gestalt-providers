@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.30"
+	providerVersion           = "0.0.1-alpha.31"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -330,22 +330,22 @@ func (p *Provider) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	p.workerMu.Lock()
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
+		p.mu.Unlock()
+		p.workerMu.Unlock()
 		return err
 	}
 	if p.pollCancel != nil {
+		p.mu.Unlock()
+		p.workerMu.Unlock()
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := recoverStaleRunningRuns(ctx, state.runStore, state.workflowKeyStore, state.signalStore, p.clock().UTC()); err != nil {
-		return fmt.Errorf("indexeddb workflow: recover stale workflow runs: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
+		p.mu.Unlock()
+		p.workerMu.Unlock()
 		return err
 	}
 
@@ -353,12 +353,26 @@ func (p *Provider) Start(ctx context.Context) error {
 	p.pollDone = make(chan struct{})
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
+	wake := p.wake
+	pollInterval := p.cfg.PollInterval
+	recoveryNow := p.clock().UTC()
 	var wg sync.WaitGroup
-	wg.Add(defaultWorkerCount)
+	wg.Add(defaultWorkerCount + 1)
+	go func() {
+		defer wg.Done()
+		defer p.workerMu.Unlock()
+		if err := recoverStaleRunningRuns(loopCtx, state.runStore, state.workflowKeyStore, state.signalStore, recoveryNow); err != nil && loopCtx.Err() == nil {
+			slog.WarnContext(loopCtx, "indexeddb workflow: recover stale workflow runs failed", "error", err)
+			return
+		}
+		p.mu.Lock()
+		p.signalWorkerLocked("")
+		p.mu.Unlock()
+	}()
 	for range defaultWorkerCount {
 		go func() {
 			defer wg.Done()
-			p.pollLoop(loopCtx, p.cfg.PollInterval, p.wake)
+			p.pollLoop(loopCtx, pollInterval, wake)
 		}()
 	}
 	done := p.pollDone
@@ -367,6 +381,7 @@ func (p *Provider) Start(ctx context.Context) error {
 		close(done)
 	}()
 	p.signalWorkerLocked("")
+	p.mu.Unlock()
 	return nil
 }
 
