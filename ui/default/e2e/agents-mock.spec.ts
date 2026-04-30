@@ -112,7 +112,7 @@ test.describe("Agents", () => {
     await page.getByRole("textbox", { name: "Provider", exact: true }).fill("simple");
     await page.getByRole("textbox", { name: "Model", exact: true }).fill("fast");
     await page.getByLabel("User message").fill("Summarize the latest open PRs.");
-    await page.getByLabel("Tools").selectOption("explicit");
+    await page.getByLabel("Tools", { exact: true }).selectOption("explicit");
     await page.getByLabel("Plugin").selectOption("github");
     await page.getByLabel("Operation").selectOption("pull_requests.list");
     await page.getByRole("button", { name: "Start run" }).click();
@@ -123,7 +123,7 @@ test.describe("Agents", () => {
     expect(createBody?.toolSource).toBe("explicit");
     expect(createBody?.toolRefs).toEqual([
       {
-        pluginName: "github",
+        plugin: "github",
         operation: "pull_requests.list",
       },
     ]);
