@@ -23,7 +23,8 @@ properties:
     enum:
       - portForward
       - podIP
-    description: How gestaltd connects back to the hosted plugin. Use podIP only when gestaltd runs inside the same cluster/network as the sandbox pod.
+      - serviceDNS
+    description: How gestaltd connects back to the hosted plugin. Use serviceDNS when gestaltd runs inside the same cluster/network as the sandbox service.
   sandboxReadyTimeout:
     type: string
     description: Go duration to wait for Sandbox readiness.

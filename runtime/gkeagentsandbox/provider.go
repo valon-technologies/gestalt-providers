@@ -457,6 +457,8 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 
 func openPluginTunnel(ctx context.Context, runtime sandboxRuntime, handle sandboxHandle, cfg Config) (tunnel, error) {
 	switch cfg.ConnectionMode {
+	case connectionModeServiceDNS:
+		return runtime.ServiceDNSDialTarget(ctx, handle, cfg.PluginPort)
 	case connectionModePodIP:
 		return runtime.PodIPDialTarget(ctx, handle, cfg.PluginPort)
 	default:

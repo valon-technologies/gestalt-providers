@@ -40,6 +40,7 @@ type sandboxRuntime interface {
 	Exec(context.Context, sandboxHandle, []string, io.Reader) error
 	ForwardPort(context.Context, sandboxHandle, int) (tunnel, error)
 	PodIPDialTarget(context.Context, sandboxHandle, int) (tunnel, error)
+	ServiceDNSDialTarget(context.Context, sandboxHandle, int) (tunnel, error)
 	EnsureHostnameEgressPolicy(context.Context, sandboxHandle, hostnameEgressConfig) (string, error)
 	DeleteHostnameEgressPolicy(context.Context, sandboxHandle, string) error
 	Close() error
@@ -512,6 +513,18 @@ func (r *kubernetesSandboxRuntime) PodIPDialTarget(ctx context.Context, handle s
 		return nil, fmt.Errorf("sandbox pod %s/%s does not have a pod IP", handle.Namespace, podName)
 	}
 	return staticTunnel{target: tcpDialTarget(podIP, remotePort)}, nil
+}
+
+func (r *kubernetesSandboxRuntime) ServiceDNSDialTarget(ctx context.Context, handle sandboxHandle, remotePort int) (tunnel, error) {
+	serviceName := strings.TrimSpace(handle.SandboxName)
+	if serviceName == "" {
+		return nil, fmt.Errorf("sandbox name is not available")
+	}
+	if _, err := r.core.CoreV1().Services(handle.Namespace).Get(ctx, serviceName, metav1.GetOptions{}); err != nil {
+		return nil, fmt.Errorf("get sandbox service %s/%s: %w", handle.Namespace, serviceName, err)
+	}
+	host := serviceName + "." + handle.Namespace + ".svc.cluster.local"
+	return staticTunnel{target: tcpDialTarget(host, remotePort)}, nil
 }
 
 func (r *kubernetesSandboxRuntime) Close() error {

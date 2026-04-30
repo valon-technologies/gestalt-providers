@@ -222,6 +222,36 @@ func TestRuntimeContractPodIPDialTargetUsesSandboxPodIP(t *testing.T) {
 	}
 }
 
+func TestRuntimeContractServiceDNSDialTargetUsesSandboxService(t *testing.T) {
+	t.Parallel()
+
+	runtime := &kubernetesSandboxRuntime{
+		core: k8sfake.NewSimpleClientset(&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "sandbox-service",
+				Namespace: "runtime-system",
+			},
+			Spec: corev1.ServiceSpec{
+				ClusterIP: corev1.ClusterIPNone,
+			},
+		}),
+	}
+
+	tunnel, err := runtime.ServiceDNSDialTarget(context.Background(), sandboxHandle{
+		Namespace:   "runtime-system",
+		SandboxName: "sandbox-service",
+	}, 50051)
+	if err != nil {
+		t.Fatalf("ServiceDNSDialTarget: %v", err)
+	}
+	if got, want := tunnel.DialTarget(), "tcp://sandbox-service.runtime-system.svc.cluster.local:50051"; got != want {
+		t.Fatalf("DialTarget = %q, want %q", got, want)
+	}
+	if err := tunnel.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func assertPolicyRule(t *testing.T, rule networkingv1.NetworkPolicyEgressRule, wantCIDRs []string, wantPort int32, wantProtocol corev1.Protocol) {
 	t.Helper()
 

@@ -17,7 +17,7 @@ unit of isolation is a Kubernetes sandbox pod. The provider maps one Gestalt
 runtime session to one Agent Sandbox `SandboxClaim` or direct `Sandbox`, starts
 the plugin process already present in the runtime image, and returns a
 `tcp://...` dial target through either Kubernetes port-forwarding or direct
-pod-IP networking for in-cluster `gestaltd` deployments.
+sandbox service or pod networking for in-cluster `gestaltd` deployments.
 
 It is not a Modal-equivalent hosted process API. The runtime image or template
 must contain the tools required to launch the plugin process.
@@ -154,9 +154,13 @@ not expect the container entrypoint to start the plugin by itself.
 from a Kubernetes port-forward. This is suitable for local development and
 out-of-cluster `gestaltd` processes with Kubernetes API access.
 
-`connectionMode: podIP` returns the sandbox pod IP directly. Use this only when
-`gestaltd` runs inside the same cluster or otherwise has routed access to pod
-CIDRs. This avoids Kubernetes port-forward behavior on GKE Agent Sandbox pods.
+`connectionMode: serviceDNS` returns the headless sandbox Service DNS name.
+Use this when `gestaltd` runs inside the same cluster or otherwise has routed
+access to Kubernetes service DNS. This avoids Kubernetes port-forward behavior
+on GKE Agent Sandbox pods without pinning the connection to one pod IP.
+
+`connectionMode: podIP` returns the sandbox pod IP directly. It is mainly a
+diagnostic fallback for clusters where service DNS is not available.
 
 ## Egress
 

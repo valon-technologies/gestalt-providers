@@ -27,6 +27,7 @@ const (
 
 	connectionModePortForward = "portForward"
 	connectionModePodIP       = "podIP"
+	connectionModeServiceDNS  = "serviceDNS"
 )
 
 type Config struct {
@@ -180,9 +181,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("gke agent sandbox runtime pluginPort must be between 1 and 65535")
 	}
 	switch c.ConnectionMode {
-	case connectionModePortForward, connectionModePodIP:
+	case connectionModePortForward, connectionModePodIP, connectionModeServiceDNS:
 	default:
-		return fmt.Errorf("gke agent sandbox runtime connectionMode must be %q or %q", connectionModePortForward, connectionModePodIP)
+		return fmt.Errorf("gke agent sandbox runtime connectionMode must be %q, %q, or %q", connectionModePortForward, connectionModePodIP, connectionModeServiceDNS)
 	}
 	if c.SandboxReadyTimeout < 0 {
 		return fmt.Errorf("gke agent sandbox runtime sandboxReadyTimeout must be non-negative")
@@ -250,8 +251,10 @@ func normalizeConnectionMode(value string) string {
 		return ""
 	case "portforward":
 		return connectionModePortForward
-	case "podip", "incluster":
+	case "podip":
 		return connectionModePodIP
+	case "servicedns", "service", "headlessservice", "incluster":
+		return connectionModeServiceDNS
 	default:
 		return strings.TrimSpace(value)
 	}
