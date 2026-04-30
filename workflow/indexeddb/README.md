@@ -17,7 +17,7 @@ providers:
 
   workflow:
     local:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.32/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.34/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
@@ -41,7 +41,7 @@ providers, and workflow host services are ready.
 
 - single-process worker execution
 - pending-only cancellation
-- startup marks stale `running` runs as `failed`
+- startup recovers stale `running` runs without blocking provider readiness
 - missed cron ticks collapse to one run
 - `PublishEvent` enqueues runs for matching event triggers
 - `SignalOrStartRun` keeps one active run per workflow key and appends durable
