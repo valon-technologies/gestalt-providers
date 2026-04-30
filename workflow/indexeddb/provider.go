@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -38,7 +39,7 @@ const (
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
-	maxSignalAddRetries       = 16
+	maxSignalAddRetries       = 4096
 
 	storeSchedules     = "schedules"
 	storeEventTriggers = "event_triggers"
@@ -80,8 +81,7 @@ type config struct {
 type Provider struct {
 	proto.UnimplementedWorkflowProviderServer
 
-	mu    sync.RWMutex
-	locks keyedLocks
+	mu sync.RWMutex
 	// workerMu serializes scheduler and worker claim work without blocking
 	// foreground enqueue calls on the provider lifecycle lock.
 	workerMu sync.Mutex
@@ -104,45 +104,6 @@ type Provider struct {
 	wake              chan string
 
 	now func() time.Time
-}
-
-type keyedLocks struct {
-	mu    sync.Mutex
-	locks map[string]*keyedLock
-}
-
-type keyedLock struct {
-	mu   sync.Mutex
-	refs int
-}
-
-func (l *keyedLocks) lock(key string) func() {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		key = "__default__"
-	}
-	l.mu.Lock()
-	if l.locks == nil {
-		l.locks = make(map[string]*keyedLock)
-	}
-	entry := l.locks[key]
-	if entry == nil {
-		entry = &keyedLock{}
-		l.locks[key] = entry
-	}
-	entry.refs++
-	l.mu.Unlock()
-
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
-		l.mu.Lock()
-		entry.refs--
-		if entry.refs == 0 {
-			delete(l.locks, key)
-		}
-		l.mu.Unlock()
-	}
 }
 
 type workflowScheduleRecord struct {
@@ -188,6 +149,7 @@ type workflowRunRecord struct {
 	CreatedBy             *proto.WorkflowActor
 	ExecutionRef          string
 	WorkflowKey           string
+	NextSignalSequence    int64
 }
 
 type workflowIdempotencyRecord struct {
@@ -530,14 +492,15 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		}
 	}
 	run := workflowRunRecord{
-		ID:           runID,
-		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:       cloneTarget(target.Target),
-		TriggerKind:  triggerKindManual,
-		CreatedAt:    now,
-		CreatedBy:    actor,
-		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-		WorkflowKey:  workflowKey,
+		ID:                 runID,
+		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:             cloneTarget(target.Target),
+		TriggerKind:        triggerKindManual,
+		CreatedAt:          now,
+		CreatedBy:          actor,
+		ExecutionRef:       strings.TrimSpace(req.GetExecutionRef()),
+		WorkflowKey:        workflowKey,
+		NextSignalSequence: 1,
 	}
 	if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 		if key != "" && errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -706,9 +669,6 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	unlockRun := p.locks.lock("run:" + runID)
-	defer unlockRun()
-
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	state, err := p.requireConfiguredLocked()
@@ -747,7 +707,7 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 					return resp, nil
 				}
 				if conflict.RetrySequence {
-					if err := waitIndexedDBRetry(ctx, attempt); err != nil {
+					if err := yieldIndexedDBRetry(ctx); err != nil {
 						return nil, status.FromContextError(err).Err()
 					}
 					continue
@@ -755,7 +715,7 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 				return nil, status.Errorf(codes.AlreadyExists, "workflow signal %q already exists", conflict.SignalID)
 			}
 			if indexedDBRetryableConflict(err) {
-				if err := waitIndexedDBRetry(ctx, attempt); err != nil {
+				if err := yieldIndexedDBRetry(ctx); err != nil {
 					return nil, status.FromContextError(err).Err()
 				}
 				continue
@@ -764,7 +724,7 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 		}
 		if err := tx.Commit(ctx); err != nil {
 			if indexedDBRetryableConflict(err) {
-				if err := waitIndexedDBRetry(ctx, attempt); err != nil {
+				if err := yieldIndexedDBRetry(ctx); err != nil {
 					return nil, status.FromContextError(err).Err()
 				}
 				continue
@@ -800,9 +760,6 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-
-	unlockWorkflow := p.locks.lock("workflow:" + workflowKey)
-	defer unlockWorkflow()
 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -845,7 +802,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 					}
 				}
 				if conflict.RetrySequence {
-					if err := waitIndexedDBRetry(ctx, attempt); err != nil {
+					if err := yieldIndexedDBRetry(ctx); err != nil {
 						return nil, status.FromContextError(err).Err()
 					}
 					continue
@@ -853,7 +810,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 				return nil, status.Errorf(codes.AlreadyExists, "workflow signal %q already exists", conflict.SignalID)
 			}
 			if indexedDBRetryableConflict(err) {
-				if err := waitIndexedDBRetry(ctx, attempt); err != nil {
+				if err := yieldIndexedDBRetry(ctx); err != nil {
 					return nil, status.FromContextError(err).Err()
 				}
 				continue
@@ -862,7 +819,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 		}
 		if err := tx.Commit(ctx); err != nil {
 			if indexedDBRetryableConflict(err) {
-				if err := waitIndexedDBRetry(ctx, attempt); err != nil {
+				if err := yieldIndexedDBRetry(ctx); err != nil {
 					return nil, status.FromContextError(err).Err()
 				}
 				continue
@@ -1326,6 +1283,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			CreatedAt:             now,
 			CreatedBy:             createdBy,
 			ExecutionRef:          executionRef,
+			NextSignalSequence:    1,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -1371,8 +1329,18 @@ func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWork
 	if existing, found, err := loadExecutionReferenceRecord(ctx, state.executionRefStore, record.ID); err != nil {
 		p.mu.RUnlock()
 		return nil, status.Errorf(codes.Internal, "load execution reference: %v", err)
-	} else if found && !existing.CreatedAt.IsZero() {
-		record.CreatedAt = existing.CreatedAt
+	} else if found {
+		if !existing.CreatedAt.IsZero() {
+			record.CreatedAt = existing.CreatedAt
+		}
+		if executionReferenceRecordsEqual(existing, record) {
+			resp, err := existing.toProto()
+			p.mu.RUnlock()
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
+			}
+			return resp, nil
+		}
 	}
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = p.clock().UTC()
@@ -1488,7 +1456,7 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 			return resp, existing.SignalID, err
 		}
 	}
-	return enqueueSignalInTransaction(ctx, stores.idempotencyStore, stores.signalStore, run, signal, false)
+	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, signal, false)
 }
 
 func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, now time.Time) (*proto.SignalWorkflowRunResponse, string, error) {
@@ -1517,14 +1485,15 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 	if !active {
 		startedRun = true
 		run = workflowRunRecord{
-			ID:           uuid.NewString(),
-			Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-			Target:       cloneTarget(target.Target),
-			TriggerKind:  triggerKindManual,
-			CreatedAt:    now,
-			CreatedBy:    cloneActor(req.GetCreatedBy()),
-			ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-			WorkflowKey:  workflowKey,
+			ID:                 uuid.NewString(),
+			Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+			Target:             cloneTarget(target.Target),
+			TriggerKind:        triggerKindManual,
+			CreatedAt:          now,
+			CreatedBy:          cloneActor(req.GetCreatedBy()),
+			ExecutionRef:       strings.TrimSpace(req.GetExecutionRef()),
+			WorkflowKey:        workflowKey,
+			NextSignalSequence: 1,
 		}
 		if err := stores.runStore.Add(ctx, run.toRecord()); err != nil {
 			if indexedDBRetryableConflict(err) {
@@ -1542,22 +1511,32 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 	// The existing keyed run owns the execution ref and target. Later signals
 	// deliberately do not replace that context, even if the caller's current
 	// config would build a different target.
-	return enqueueSignalInTransaction(ctx, stores.idempotencyStore, stores.signalStore, run, signal, startedRun)
+	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, signal, startedRun)
 }
 
-func enqueueSignalInTransaction(ctx context.Context, idempotencyStore recordPutter, signalStore *gestalt.TransactionObjectStore, run workflowRunRecord, signal *proto.WorkflowSignal, startedRun bool) (*proto.SignalWorkflowRunResponse, string, error) {
+func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idempotencyStore recordPutter, signalStore *gestalt.TransactionObjectStore, run workflowRunRecord, signal *proto.WorkflowSignal, startedRun bool) (*proto.SignalWorkflowRunResponse, string, error) {
 	signal = cloneSignal(signal)
 	if strings.TrimSpace(signal.GetId()) == "" {
 		signal.Id = workflowSignalID(run, signal)
 	}
 	assignSequence := signal.GetSequence() == 0
+	advanceSequence := false
 
-	if assignSequence {
+	if run.NextSignalSequence <= 0 {
 		next, err := nextSignalSequenceInTransaction(ctx, signalStore, run.ID)
 		if err != nil {
 			return nil, signal.GetId(), status.Errorf(codes.Internal, "assign signal sequence: %v", err)
 		}
-		signal.Sequence = next
+		run.NextSignalSequence = next
+		advanceSequence = true
+	}
+	if assignSequence {
+		signal.Sequence = run.NextSignalSequence
+		run.NextSignalSequence++
+		advanceSequence = true
+	} else if signal.GetSequence() >= run.NextSignalSequence {
+		run.NextSignalSequence = signal.GetSequence() + 1
+		advanceSequence = true
 	}
 
 	record := workflowSignalRecord{
@@ -1582,6 +1561,11 @@ func enqueueSignalInTransaction(ctx context.Context, idempotencyStore recordPutt
 			}
 		}
 		return nil, record.ID, status.Errorf(codes.Internal, "store signal: %v", err)
+	}
+	if advanceSequence {
+		if err := runStore.Put(ctx, run.toRecord()); err != nil {
+			return nil, record.ID, status.Errorf(codes.Internal, "advance signal sequence: %v", err)
+		}
 	}
 
 	if key := strings.TrimSpace(record.IdempotencyKey); key != "" {
@@ -1839,6 +1823,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			CreatedAt:           now,
 			CreatedBy:           cloneActor(schedule.CreatedBy),
 			ExecutionRef:        schedule.ExecutionRef,
+			NextSignalSequence:  1,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if !errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -1934,42 +1919,67 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		Signals:      signalProtos(claimedSignals),
 	})
 
+	for attempt := 0; attempt < maxSignalAddRetries; attempt++ {
+		if err := p.completeRunAfterInvoke(ctx, pending, claimedSignals, resp, invokeErr); err != nil {
+			if indexedDBRetryableConflict(err) {
+				if err := yieldIndexedDBRetry(ctx); err != nil {
+					return true, err
+				}
+				continue
+			}
+			return true, err
+		}
+		return true, nil
+	}
+	return true, status.Errorf(codes.Aborted, "could not complete workflow run %q after %d attempts", pending.ID, maxSignalAddRetries)
+}
+
+func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowRunRecord, claimedSignals []workflowSignalRecord, resp *proto.InvokeWorkflowOperationResponse, invokeErr error) error {
 	p.workerMu.Lock()
 	defer p.workerMu.Unlock()
 
-	unlockRun := p.locks.lock("run:" + pending.ID)
-	defer unlockRun()
-
-	if pending.WorkflowKey != "" {
-		unlockWorkflow := p.locks.lock("workflow:" + pending.WorkflowKey)
-		defer unlockWorkflow()
-	}
-
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	state, err = p.requireConfiguredLocked()
+	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		return true, err
+		return err
 	}
-	current, found, err := loadRunRecord(ctx, state.runStore, pending.ownerKey(), pending.ID)
+	tx, stores, err := state.runCompletionTransaction(ctx)
 	if err != nil {
-		return true, err
+		return err
 	}
-	if !found {
-		return true, nil
-	}
-
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Abort(ctx)
+		}
+	}()
 	completedAt := p.clock().UTC()
+	if err := completeRunInTransaction(ctx, stores, pending, claimedSignals, resp, invokeErr, completedAt); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionTxStores, pending workflowRunRecord, claimedSignals []workflowSignalRecord, resp *proto.InvokeWorkflowOperationResponse, invokeErr error, completedAt time.Time) error {
+	current, found, err := loadRunRecordTx(ctx, stores.runStore, pending.ownerKey(), pending.ID)
+	if err != nil || !found {
+		return err
+	}
 	current.CompletedAt = &completedAt
 	if invokeErr != nil {
 		current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 		current.StatusMessage = invokeErr.Error()
-		if err := markRunSignalsFailed(ctx, state.signalStore, current.ID, claimedSignals, completedAt, invokeErr.Error()); err != nil {
-			return true, err
+		if err := markRunSignalsFailedTx(ctx, stores.signalStore, current.ID, claimedSignals, completedAt, invokeErr.Error()); err != nil {
+			return err
 		}
 		if current.WorkflowKey != "" {
-			if err := deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
-				return true, err
+			if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+				return err
 			}
 		}
 	} else {
@@ -1977,19 +1987,21 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		if resp.GetStatus() >= http.StatusBadRequest {
 			current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 			current.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.GetStatus())
-			if err := markRunSignalsFailed(ctx, state.signalStore, current.ID, claimedSignals, completedAt, current.StatusMessage); err != nil {
-				return true, err
+			if err := markRunSignalsFailedTx(ctx, stores.signalStore, current.ID, claimedSignals, completedAt, current.StatusMessage); err != nil {
+				return err
 			}
 			if current.WorkflowKey != "" {
-				if err := deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
-					return true, err
+				if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+					return err
 				}
 			}
 		} else {
-			_ = markSignalsDelivered(ctx, state.signalStore, claimedSignals, completedAt)
-			hasPending, err := hasPendingSignals(ctx, state.signalStore, current.ID)
+			if err := markSignalsDeliveredTx(ctx, stores.signalStore, claimedSignals, completedAt); err != nil {
+				return err
+			}
+			hasPending, err := hasPendingSignalsTx(ctx, stores.signalStore, current.ID)
 			if err != nil {
-				return true, err
+				return err
 			}
 			if current.WorkflowKey != "" && hasPending {
 				current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
@@ -1997,16 +2009,15 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 			} else {
 				current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
 				if current.WorkflowKey != "" {
-					_ = deleteWorkflowKeyRecordForRun(ctx, state.workflowKeyStore, current.WorkflowKey, current.ID)
+					if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+						return err
+					}
 				}
 			}
 			current.StatusMessage = ""
 		}
 	}
-	if err := state.runStore.Put(ctx, current.toRecord()); err != nil {
-		return true, err
-	}
-	return true, nil
+	return stores.runStore.Put(ctx, current.toRecord())
 }
 
 func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
@@ -2149,6 +2160,28 @@ func (s *configuredState) signalTransaction(ctx context.Context) (*gestalt.Trans
 	return tx, workflowSignalTxStores{
 		runStore:         tx.ObjectStore(storeRuns),
 		idempotencyStore: tx.ObjectStore(storeIdempotency),
+		signalStore:      tx.ObjectStore(storeSignals),
+	}, nil
+}
+
+type workflowRunCompletionTxStores struct {
+	runStore         *gestalt.TransactionObjectStore
+	workflowKeyStore *gestalt.TransactionObjectStore
+	signalStore      *gestalt.TransactionObjectStore
+}
+
+func (s *configuredState) runCompletionTransaction(ctx context.Context) (*gestalt.Transaction, workflowRunCompletionTxStores, error) {
+	tx, err := s.db.Transaction(ctx, []string{
+		storeRuns,
+		storeWorkflowKeys,
+		storeSignals,
+	}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
+	if err != nil {
+		return nil, workflowRunCompletionTxStores{}, err
+	}
+	return tx, workflowRunCompletionTxStores{
+		runStore:         tx.ObjectStore(storeRuns),
+		workflowKeyStore: tx.ObjectStore(storeWorkflowKeys),
 		signalStore:      tx.ObjectStore(storeSignals),
 	}, nil
 }
@@ -2625,6 +2658,18 @@ func hasPendingSignals(ctx context.Context, store *gestalt.ObjectStoreClient, ru
 	return hasSignalsInState(ctx, store, runID, signalStatePending)
 }
 
+func hasPendingSignalsTx(ctx context.Context, store *gestalt.TransactionObjectStore, runID string) (bool, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return false, nil
+	}
+	count, err := store.Index("by_run_state").Count(ctx, nil, runID, signalStatePending)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func hasSignalsInState(ctx context.Context, store *gestalt.ObjectStoreClient, runID, state string) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
@@ -2695,7 +2740,66 @@ func markSignalsDelivered(ctx context.Context, store *gestalt.ObjectStoreClient,
 	return nil
 }
 
+func markSignalsDeliveredTx(ctx context.Context, store *gestalt.TransactionObjectStore, records []workflowSignalRecord, deliveredAt time.Time) error {
+	for _, record := range records {
+		record.State = signalStateDelivered
+		record.DeliveredAt = &deliveredAt
+		record.StatusMessage = ""
+		if err := store.Put(ctx, record.toRecord()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func markSignalsFailed(ctx context.Context, store *gestalt.ObjectStoreClient, records []workflowSignalRecord, failedAt time.Time, message string) error {
+	for _, record := range records {
+		record.State = signalStateFailed
+		record.FailedAt = &failedAt
+		record.StatusMessage = strings.TrimSpace(message)
+		if err := store.Put(ctx, record.toRecord()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func markRunSignalsFailedTx(ctx context.Context, store *gestalt.TransactionObjectStore, runID string, claimed []workflowSignalRecord, failedAt time.Time, message string) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" && len(claimed) > 0 {
+		runID = strings.TrimSpace(claimed[0].RunID)
+	}
+	if runID == "" {
+		return nil
+	}
+	recordsByID := make(map[string]workflowSignalRecord)
+	for _, record := range claimed {
+		if record.ID != "" {
+			recordsByID[record.ID] = record
+		}
+	}
+	for _, state := range []string{signalStatePending, signalStateClaimed} {
+		records, err := listSignalRecordsTx(ctx, store, runID, state)
+		if err != nil {
+			return err
+		}
+		for _, record := range records {
+			if record.ID != "" {
+				recordsByID[record.ID] = record
+			}
+		}
+	}
+	if len(recordsByID) == 0 {
+		return nil
+	}
+	records := make([]workflowSignalRecord, 0, len(recordsByID))
+	for _, record := range recordsByID {
+		records = append(records, record)
+	}
+	return markSignalsFailedTx(ctx, store, records, failedAt, message)
+}
+
+func markSignalsFailedTx(ctx context.Context, store *gestalt.TransactionObjectStore, records []workflowSignalRecord, failedAt time.Time, message string) error {
 	for _, record := range records {
 		record.State = signalStateFailed
 		record.FailedAt = &failedAt
@@ -2789,7 +2893,21 @@ func deleteWorkflowKeyRecordForRun(ctx context.Context, store interface {
 	recordGetter
 	recordDeleter
 }, workflowKey, runID string) error {
+	if txStore, ok := store.(*gestalt.TransactionObjectStore); ok {
+		return deleteWorkflowKeyRecordForRunTx(ctx, txStore, workflowKey, runID)
+	}
 	key, found, err := loadWorkflowKeyRecord(ctx, store, workflowKey)
+	if err != nil || !found {
+		return err
+	}
+	if key.RunID != strings.TrimSpace(runID) {
+		return nil
+	}
+	return deleteWorkflowKeyRecord(ctx, store, workflowKey)
+}
+
+func deleteWorkflowKeyRecordForRunTx(ctx context.Context, store *gestalt.TransactionObjectStore, workflowKey, runID string) error {
+	key, found, err := loadWorkflowKeyRecordTx(ctx, store, workflowKey)
 	if err != nil || !found {
 		return err
 	}
@@ -2845,6 +2963,53 @@ func loadSignalRecordTx(ctx context.Context, store *gestalt.TransactionObjectSto
 }
 
 func listSignalRecords(ctx context.Context, store *gestalt.ObjectStoreClient, runID, state string) ([]workflowSignalRecord, error) {
+	runID = strings.TrimSpace(runID)
+	state = strings.TrimSpace(state)
+	var (
+		records []gestalt.Record
+		err     error
+	)
+	switch {
+	case runID != "" && state != "":
+		records, err = store.Index("by_run_state").GetAll(ctx, nil, runID, state)
+	case runID != "":
+		records, err = store.Index("by_run").GetAll(ctx, nil, runID)
+	default:
+		records, err = store.GetAll(ctx, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]workflowSignalRecord, 0, len(records))
+	for _, record := range records {
+		signal, err := signalRecordFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		if runID != "" && signal.RunID != runID {
+			continue
+		}
+		if state != "" && signal.State != state {
+			continue
+		}
+		out = append(out, signal)
+	}
+	slices.SortFunc(out, func(a, b workflowSignalRecord) int {
+		if a.Sequence != b.Sequence {
+			if a.Sequence < b.Sequence {
+				return -1
+			}
+			return 1
+		}
+		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
+}
+
+func listSignalRecordsTx(ctx context.Context, store *gestalt.TransactionObjectStore, runID, state string) ([]workflowSignalRecord, error) {
 	runID = strings.TrimSpace(runID)
 	state = strings.TrimSpace(state)
 	var (
@@ -3019,17 +3184,12 @@ func indexedDBRetryableConflict(err error) bool {
 	return status.Code(err) == codes.Internal && strings.Contains(err.Error(), "database is locked")
 }
 
-func waitIndexedDBRetry(ctx context.Context, attempt int) error {
-	delay := time.Duration(attempt+1) * 2 * time.Millisecond
-	if delay > 20*time.Millisecond {
-		delay = 20 * time.Millisecond
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
+func yieldIndexedDBRetry(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-timer.C:
+	default:
+		runtime.Gosched()
 		return nil
 	}
 }
@@ -4025,6 +4185,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"created_by":               actorToMap(r.CreatedBy),
 		"execution_ref":            r.ExecutionRef,
 		"workflow_key":             r.WorkflowKey,
+		"next_signal_sequence":     r.NextSignalSequence,
 	}
 	if r.TriggerScheduledFor != nil {
 		record["trigger_scheduled_for"] = r.TriggerScheduledFor.UTC()
@@ -4064,6 +4225,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		CreatedBy:             actorFromAny(value["created_by"]),
 		ExecutionRef:          stringField(value, "execution_ref"),
 		WorkflowKey:           stringField(value, "workflow_key"),
+		NextSignalSequence:    intField(value, "next_signal_sequence"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -4362,6 +4524,26 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		CreatedAt:           timestamppb.New(r.CreatedAt),
 		RevokedAt:           timeToProto(r.RevokedAt),
 	}, nil
+}
+
+func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord) bool {
+	if left.ID != right.ID ||
+		left.ProviderName != right.ProviderName ||
+		targetJSON(left.Target) != targetJSON(right.Target) ||
+		left.SubjectID != right.SubjectID ||
+		left.SubjectKind != right.SubjectKind ||
+		left.DisplayName != right.DisplayName ||
+		left.AuthSource != right.AuthSource ||
+		left.CredentialSubjectID != right.CredentialSubjectID ||
+		left.PermissionsJSON != right.PermissionsJSON ||
+		left.CallerPluginName != right.CallerPluginName ||
+		!left.CreatedAt.Equal(right.CreatedAt) {
+		return false
+	}
+	if (left.RevokedAt == nil) != (right.RevokedAt == nil) {
+		return false
+	}
+	return left.RevokedAt == nil || left.RevokedAt.Equal(*right.RevokedAt)
 }
 
 func executionReferencePermissionsJSON(values []*proto.WorkflowAccessPermission) (string, error) {
