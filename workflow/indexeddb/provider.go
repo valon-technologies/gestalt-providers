@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.27"
+	providerVersion           = "0.0.1-alpha.28"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
