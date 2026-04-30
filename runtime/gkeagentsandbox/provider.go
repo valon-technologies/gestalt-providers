@@ -410,7 +410,8 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	if err := runtime.Exec(execCtx, handle, []string{"sh", "-c", launchScript}, nil); err != nil {
 		return nil, status.Errorf(codes.Internal, "start plugin process in gke agent sandbox: %v", err)
 	}
-	if err := sleepContext(execCtx, 1*time.Second); err != nil {
+	settleDelay := pluginSocketProxySettleDelay(cfg.ExecTimeout)
+	if err := sleepContext(execCtx, settleDelay); err != nil {
 		return nil, status.Errorf(codes.DeadlineExceeded, "wait for plugin socket proxy startup: %v", err)
 	}
 
@@ -453,6 +454,18 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		PluginName: plugin.name,
 		DialTarget: tunnel.DialTarget(),
 	}, nil
+}
+
+func pluginSocketProxySettleDelay(execTimeout time.Duration) time.Duration {
+	const defaultSettleDelay = 5 * time.Second
+	if execTimeout <= 0 || execTimeout >= 2*defaultSettleDelay {
+		return defaultSettleDelay
+	}
+	delay := execTimeout / 2
+	if delay < 100*time.Millisecond {
+		return 100 * time.Millisecond
+	}
+	return delay
 }
 
 func (p *Provider) Close() error {
