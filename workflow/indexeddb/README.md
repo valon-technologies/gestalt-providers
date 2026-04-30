@@ -17,7 +17,7 @@ providers:
 
   workflow:
     local:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.31/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.32/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
