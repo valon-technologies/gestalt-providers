@@ -414,9 +414,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		return nil, status.Errorf(codes.DeadlineExceeded, "wait for in-sandbox plugin socket proxy: %v", err)
 	}
 
-	tunnel, err := runtime.ForwardPort(ctx, handle, cfg.PluginPort)
+	tunnel, err := openPluginTunnel(ctx, runtime, handle, cfg)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "open plugin gRPC tunnel: %v", err)
+		return nil, status.Errorf(codes.Internal, "open plugin gRPC connection: %v", err)
 	}
 	readyCtx, readyCancel := context.WithTimeout(ctx, cfg.PluginReadyTimeout)
 	defer readyCancel()
@@ -453,6 +453,15 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		PluginName: plugin.name,
 		DialTarget: tunnel.DialTarget(),
 	}, nil
+}
+
+func openPluginTunnel(ctx context.Context, runtime sandboxRuntime, handle sandboxHandle, cfg Config) (tunnel, error) {
+	switch cfg.ConnectionMode {
+	case connectionModePodIP:
+		return runtime.PodIPDialTarget(ctx, handle, cfg.PluginPort)
+	default:
+		return runtime.ForwardPort(ctx, handle, cfg.PluginPort)
+	}
 }
 
 func waitForSocketProxyReady(ctx context.Context, runtime sandboxRuntime, handle sandboxHandle, port int, socketPath string) error {

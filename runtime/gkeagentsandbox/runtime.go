@@ -39,6 +39,7 @@ type sandboxRuntime interface {
 	Stop(context.Context, sandboxHandle) error
 	Exec(context.Context, sandboxHandle, []string, io.Reader) error
 	ForwardPort(context.Context, sandboxHandle, int) (tunnel, error)
+	PodIPDialTarget(context.Context, sandboxHandle, int) (tunnel, error)
 	EnsureHostnameEgressPolicy(context.Context, sandboxHandle, hostnameEgressConfig) (string, error)
 	DeleteHostnameEgressPolicy(context.Context, sandboxHandle, string) error
 	Close() error
@@ -65,6 +66,7 @@ type sandboxHandle struct {
 	ClaimName   string
 	SandboxName string
 	PodName     string
+	PodIP       string
 	Ready       bool
 }
 
@@ -496,6 +498,22 @@ func (r *kubernetesSandboxRuntime) ForwardPort(ctx context.Context, handle sandb
 	}, nil
 }
 
+func (r *kubernetesSandboxRuntime) PodIPDialTarget(ctx context.Context, handle sandboxHandle, remotePort int) (tunnel, error) {
+	podName := strings.TrimSpace(handle.PodName)
+	if podName == "" {
+		return nil, fmt.Errorf("sandbox pod name is not available")
+	}
+	pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get sandbox pod %s/%s: %w", handle.Namespace, podName, err)
+	}
+	podIP := strings.TrimSpace(pod.Status.PodIP)
+	if podIP == "" {
+		return nil, fmt.Errorf("sandbox pod %s/%s does not have a pod IP", handle.Namespace, podName)
+	}
+	return staticTunnel{target: tcpDialTarget(podIP, remotePort)}, nil
+}
+
 func (r *kubernetesSandboxRuntime) Close() error {
 	return nil
 }
@@ -600,6 +618,12 @@ func (r *kubernetesSandboxRuntime) refreshSandbox(ctx context.Context, handle sa
 			return sandboxHandle{}, err
 		}
 		handle.PodName = podName
+	}
+	if handle.PodName != "" {
+		pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, handle.PodName, metav1.GetOptions{})
+		if err == nil && pod.DeletionTimestamp == nil {
+			handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
+		}
 	}
 	return handle, nil
 }
@@ -966,6 +990,10 @@ type portForwardTunnel struct {
 	once   sync.Once
 }
 
+type staticTunnel struct {
+	target string
+}
+
 func (t *portForwardTunnel) DialTarget() string {
 	if t == nil {
 		return ""
@@ -989,4 +1017,12 @@ func (t *portForwardTunnel) Close() error {
 	case <-time.After(2 * time.Second):
 		return nil
 	}
+}
+
+func (t staticTunnel) DialTarget() string {
+	return t.target
+}
+
+func (staticTunnel) Close() error {
+	return nil
 }

@@ -18,6 +18,12 @@ properties:
     minimum: 1
     maximum: 65535
     description: TCP port exposed by the hosted plugin gRPC server inside the sandbox.
+  connectionMode:
+    type: string
+    enum:
+      - portForward
+      - podIP
+    description: How gestaltd connects back to the hosted plugin. Use podIP only when gestaltd runs inside the same cluster/network as the sandbox pod.
   sandboxReadyTimeout:
     type: string
     description: Go duration to wait for Sandbox readiness.

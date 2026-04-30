@@ -56,3 +56,47 @@ func TestDecodeConfigAcceptsDurationStringsAndLockedDurationNumbers(t *testing.T
 		})
 	}
 }
+
+func TestDecodeConfigNormalizesConnectionMode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		raw  map[string]any
+		want string
+	}{
+		{
+			name: "default",
+			raw:  map[string]any{},
+			want: connectionModePortForward,
+		},
+		{
+			name: "port forward alias",
+			raw:  map[string]any{"connectionMode": "port-forward"},
+			want: connectionModePortForward,
+		},
+		{
+			name: "pod ip",
+			raw:  map[string]any{"connectionMode": "podIP"},
+			want: connectionModePodIP,
+		},
+		{
+			name: "in cluster alias",
+			raw:  map[string]any{"connectionMode": "in-cluster"},
+			want: connectionModePodIP,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := decodeConfig(tc.raw)
+			if err != nil {
+				t.Fatalf("decodeConfig: %v", err)
+			}
+			if got := cfg.ConnectionMode; got != tc.want {
+				t.Fatalf("ConnectionMode = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
