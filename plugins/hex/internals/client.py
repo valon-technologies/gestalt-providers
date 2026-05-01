@@ -1,17 +1,48 @@
+from __future__ import annotations
+
 import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, Final, Protocol, TypeAlias
 from urllib.parse import quote, urlencode
 
-HEX_API_BASE = "https://app.hex.tech/api/v1"
-HEX_API_VERSION = "1.0.0"
-USER_AGENT = "gestalt-hex-plugin/0.0.1a1"
+JsonObject: TypeAlias = dict[str, Any]
+JsonPayload: TypeAlias = Mapping[str, Any]
+JsonQuery: TypeAlias = Mapping[str, Any]
+
+HEX_API_BASE: Final = "https://app.hex.tech/api/v1"
+HEX_API_VERSION: Final = "1.0.0"
+USER_AGENT: Final = "gestalt-hex-plugin/0.0.1a1"
+REQUEST_TIMEOUT_SECONDS: Final = 30
+
+
+class HexAPIClient(Protocol):
+    def get_json(
+        self, path: str, token: str, query: JsonQuery | None = None
+    ) -> JsonObject: ...
+
+    def post_json(self, path: str, payload: JsonPayload, token: str) -> JsonObject: ...
+
+
+@dataclass(frozen=True, slots=True)
+class UrllibHexAPIClient:
+    def get_json(
+        self, path: str, token: str, query: JsonQuery | None = None
+    ) -> JsonObject:
+        return request_json("GET", path, token, query=query)
+
+    def post_json(self, path: str, payload: JsonPayload, token: str) -> JsonObject:
+        return request_json("POST", path, token, payload=payload)
+
+
+DEFAULT_HEX_CLIENT: Final[HexAPIClient] = UrllibHexAPIClient()
 
 
 class HexAPIError(RuntimeError):
-    def __init__(self, status: int, body: dict[str, Any]) -> None:
+    def __init__(self, status: int, body: JsonObject) -> None:
         self.status = status
         self.body = body
         super().__init__(_message_from_error_body(status, body))
@@ -30,13 +61,13 @@ def encode_path_component(value: str) -> str:
 
 
 def get_json(
-    path: str, token: str, query: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    return request_json("GET", path, token, query=query)
+    path: str, token: str, query: JsonQuery | None = None
+) -> JsonObject:
+    return DEFAULT_HEX_CLIENT.get_json(path, token, query)
 
 
-def post_json(path: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
-    return request_json("POST", path, token, payload=payload)
+def post_json(path: str, payload: JsonPayload, token: str) -> JsonObject:
+    return DEFAULT_HEX_CLIENT.post_json(path, payload, token)
 
 
 def request_json(
@@ -44,9 +75,9 @@ def request_json(
     path: str,
     token: str,
     *,
-    payload: dict[str, Any] | None = None,
-    query: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    payload: JsonPayload | None = None,
+    query: JsonQuery | None = None,
+) -> JsonObject:
     url = f"{hex_api_base()}/{path.lstrip('/')}"
     if query:
         encoded_query = urlencode(
@@ -65,7 +96,7 @@ def request_json(
     data = None
     if payload is not None:
         headers["Content-Type"] = "application/json"
-        data = json.dumps(payload).encode("utf-8")
+        data = json.dumps(dict(payload)).encode("utf-8")
 
     request = urllib.request.Request(
         url=url,
@@ -76,9 +107,11 @@ def request_json(
     return _request_json(request)
 
 
-def _request_json(request: urllib.request.Request) -> dict[str, Any]:
+def _request_json(request: urllib.request.Request) -> JsonObject:
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(
+            request, timeout=REQUEST_TIMEOUT_SECONDS
+        ) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
         error_body = _decode_error_body(exc.read(), exc.code)
@@ -97,7 +130,7 @@ def _request_json(request: urllib.request.Request) -> dict[str, Any]:
     return payload
 
 
-def _decode_error_body(body: bytes, status: int) -> dict[str, Any]:
+def _decode_error_body(body: bytes, status: int) -> JsonObject:
     text = body.decode("utf-8", errors="replace").strip()
     if not text:
         return {"error": f"hex API error (status {status})"}
@@ -118,7 +151,7 @@ def _decode_error_body(body: bytes, status: int) -> dict[str, Any]:
     return payload
 
 
-def _message_from_error_body(status: int, body: dict[str, Any]) -> str:
+def _message_from_error_body(status: int, body: JsonObject) -> str:
     error = body.get("error")
     if isinstance(error, str) and error:
         return error
