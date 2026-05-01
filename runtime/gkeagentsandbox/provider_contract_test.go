@@ -108,6 +108,16 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	if got, want := binding.GetRelay().GetDialTarget(), "https://gestaltd.example.internal/runtime/session/relay"; got != want {
 		t.Fatalf("BindHostService relay = %q, want %q", got, want)
 	}
+	const hostServiceEnv = "HOST_SERVICE_ENDPOINT"
+	if _, err := client.BindHostService(ctx, &proto.BindPluginRuntimeHostServiceRequest{
+		SessionId: session.GetId(),
+		EnvVar:    hostServiceEnv,
+		Relay: &proto.PluginRuntimeHostServiceRelay{
+			DialTarget: "tls://host-service-relay.gestalt.example:443",
+		},
+	}); err != nil {
+		t.Fatalf("BindHostService host service: %v", err)
+	}
 
 	hosted, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:  session.GetId(),
@@ -115,7 +125,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		Command:    "./plugin",
 		Args:       []string{"--serve", "space value"},
 		Env: map[string]string{
-			"CUSTOM": "value",
+			"CUSTOM":                  "value",
+			hostServiceEnv + "_TOKEN": "host-service-token",
 		},
 	})
 	if err != nil {
@@ -142,6 +153,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
 		"'GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock'",
 		"'GESTALT_CACHE_SOCKET=https://gestaltd.example.internal/runtime/session/relay'",
+		"'HOST_SERVICE_ENDPOINT=tls://host-service-relay.gestalt.example:443'",
+		"'HOST_SERVICE_ENDPOINT_TOKEN=host-service-token'",
 		"'CUSTOM=value'",
 		"'./plugin' '--serve' 'space value'",
 	} {
@@ -183,6 +196,32 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	}
 	if !fake.tunnel.(*fakeTunnel).Closed() {
 		t.Fatalf("plugin tunnel was not closed")
+	}
+}
+
+func TestRuntimeProviderContractRejectsInvalidRelayBindingEnv(t *testing.T) {
+	t.Parallel()
+
+	client := startRuntimeProviderServer(t, &Provider{
+		name: "gkeAgentSandbox",
+		sessions: map[string]*session{
+			"session-1": {
+				id:       "session-1",
+				state:    sessionStateReady,
+				bindings: map[string]hostServiceBinding{},
+			},
+		},
+	})
+
+	_, err := client.BindHostService(context.Background(), &proto.BindPluginRuntimeHostServiceRequest{
+		SessionId: "session-1",
+		EnvVar:    "NOT-A-SOCKET",
+		Relay: &proto.PluginRuntimeHostServiceRelay{
+			DialTarget: "tls://gestaltd.example.test:443",
+		},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("BindHostService code = %v, want InvalidArgument: %v", status.Code(err), err)
 	}
 }
 

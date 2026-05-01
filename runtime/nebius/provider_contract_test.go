@@ -55,7 +55,33 @@ func TestRuntimeProviderContractAcceptsAgentHostRelayBinding(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractRejectsUnknownRelayBinding(t *testing.T) {
+func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
+	t.Parallel()
+
+	const hostServiceEnv = "HOST_SERVICE_ENDPOINT"
+	if !isHostServiceEnvVar(hostServiceEnv) {
+		t.Fatalf("%s should be accepted as a relay host service env", hostServiceEnv)
+	}
+	env := buildPluginEnv(&proto.StartHostedPluginRequest{
+		Env: map[string]string{
+			"CUSTOM": "value",
+		},
+	}, map[string]string{
+		hostServiceEnv: "tls://host-service-relay.gestalt.example:443",
+	}, "tcp://127.0.0.1:50051")
+
+	if got, want := env[hostServiceEnv], "tls://host-service-relay.gestalt.example:443"; got != want {
+		t.Fatalf("host service socket env = %q, want %q", got, want)
+	}
+	if got, want := env[proto.EnvProviderSocket], "tcp://127.0.0.1:50051"; got != want {
+		t.Fatalf("provider socket env = %q, want %q", got, want)
+	}
+	if got, want := env["CUSTOM"], "value"; got != want {
+		t.Fatalf("custom env = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeProviderContractRejectsInvalidRelayBindingEnv(t *testing.T) {
 	t.Parallel()
 
 	provider := &Provider{
@@ -71,13 +97,13 @@ func TestRuntimeProviderContractRejectsUnknownRelayBinding(t *testing.T) {
 
 	_, err := client.BindHostService(context.Background(), &proto.BindPluginRuntimeHostServiceRequest{
 		SessionId: "session-1",
-		EnvVar:    "GESTALT_UNKNOWN_SOCKET",
+		EnvVar:    "NOT-A-SOCKET",
 		Relay: &proto.PluginRuntimeHostServiceRelay{
 			DialTarget: "tls://gestaltd.example.test:443",
 		},
 	})
-	if status.Code(err) != codes.Unimplemented {
-		t.Fatalf("BindHostService code = %v, want Unimplemented: %v", status.Code(err), err)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("BindHostService code = %v, want InvalidArgument: %v", status.Code(err), err)
 	}
 }
 
