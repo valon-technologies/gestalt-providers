@@ -7,6 +7,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping, Sequence
 from email.message import Message
 from http import HTTPStatus
 from typing import Any, cast
@@ -116,6 +117,97 @@ def github_request(
             auth_source="github_app_webhook",
         )
     )
+
+
+class RecordingGitHubClient(client_module.GitHubAPIClient):
+    def __init__(self) -> None:
+        self.tokens: list[tuple[int, tuple[str, ...], dict[str, str]]] = []
+        self.requests: list[tuple[str, str, str | None, dict[str, Any]]] = []
+        self.commit_message = ""
+        self.tree_entries: list[dict[str, Any]] = []
+
+    def installation_token(
+        self,
+        installation_id: int,
+        *,
+        repositories: Sequence[str] | None = None,
+        permissions: Mapping[str, str] | None = None,
+    ) -> str:
+        repositories_tuple = tuple(repositories or ())
+        permissions_dict = dict(permissions or {})
+        self.tokens.append((installation_id, repositories_tuple, permissions_dict))
+        permissions_key = ",".join(
+            f"{key}:{value}" for key, value in sorted(permissions_dict.items())
+        )
+        return f"token:{permissions_key}"
+
+    def github_json(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        self.requests.append((method, path, token, body))
+        if path == "/repos/acme/widgets/git/commits/base-commit":
+            return {"tree": {"sha": "base-tree"}}
+        if path == "/repos/acme/widgets/git/trees":
+            tree = body.get("tree")
+            self.tree_entries = tree if isinstance(tree, list) else []
+            return {"sha": "new-tree"}
+        if path == "/repos/acme/widgets/git/commits":
+            self.commit_message = str(body.get("message", ""))
+            return {"sha": "new-commit"}
+        if path == "/repos/acme/widgets/git/refs":
+            return {}
+        raise AssertionError(f"unexpected GitHub request {method} {path}")
+
+    def github_json_value(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> Any:
+        return self.github_json(method, path, token, payload)
+
+    def repository_default_branch(self, token: str, owner: str, repo: str) -> str:
+        return "main"
+
+    def get_branch_ref(
+        self, token: str, owner: str, repo: str, branch: str
+    ) -> dict[str, Any] | None:
+        if branch == "feature":
+            return None
+        if branch == "main":
+            return {"object": {"sha": "base-commit"}}
+        raise AssertionError(f"unexpected branch ref lookup {branch}")
+
+    def require_branch_ref(
+        self, token: str, owner: str, repo: str, branch: str, field_name: str
+    ) -> dict[str, Any]:
+        ref = self.get_branch_ref(token, owner, repo, branch)
+        if ref is None:
+            raise ValueError(f"{field_name} branch {branch!r} was not found")
+        return ref
+
+    def object_sha(self, ref: Mapping[str, Any], name: str) -> str:
+        obj = ref.get("object")
+        if not isinstance(obj, dict) or not isinstance(obj.get("sha"), str):
+            raise AssertionError(f"missing {name} sha")
+        return obj["sha"]
+
+    def bot_identity_or_none(self) -> GitHubBotIdentity | None:
+        return GitHubBotIdentity(
+            name="Example App Bot",
+            login="example-app[bot]",
+            user_id="12345678",
+            email="12345678+example-app[bot]@users.noreply.github.com",
+        )
+
+    def commit_url(self, owner: str, repo: str, sha: str) -> str:
+        return f"https://github.example/{owner}/{repo}/commit/{sha}"
 
 
 class GitHubProviderTests(unittest.TestCase):
@@ -238,6 +330,89 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertIn("coauthor name and email are required", response.body["error"])
         urlopen.assert_not_called()
+
+    def test_commit_files_uses_typed_github_client_interface(self) -> None:
+        recording_client = RecordingGitHubClient()
+        client: client_module.GitHubAPIClient = recording_client
+
+        commit = operations_module.commit_files(
+            operations_module.GitHubCommitRequest(
+                owner="acme",
+                repo="widgets",
+                message="Update README",
+                files=(
+                    operations_module.GitHubFileChange(
+                        path="/README.md", content="hello"
+                    ),
+                ),
+                branch="feature",
+                base_branch="main",
+                installation_id=99,
+                coauthors=(
+                    operations_module.GitHubCoAuthor(
+                        name="Ada", email="ada@example.com"
+                    ),
+                ),
+            ),
+            subject=github_request().subject,
+            pull_request_permissions=True,
+            client=client,
+        )
+
+        self.assertEqual(commit.commit_sha, "new-commit")
+        self.assertEqual(
+            commit.commit_url,
+            "https://github.example/acme/widgets/commit/new-commit",
+        )
+        self.assertEqual(commit.files_changed, 1)
+        self.assertEqual(
+            recording_client.tokens,
+            [
+                (
+                    99,
+                    ("widgets",),
+                    {"contents": "write", "pull_requests": "write"},
+                )
+            ],
+        )
+        self.assertEqual(
+            [request[1] for request in recording_client.requests],
+            [
+                "/repos/acme/widgets/git/commits/base-commit",
+                "/repos/acme/widgets/git/trees",
+                "/repos/acme/widgets/git/commits",
+                "/repos/acme/widgets/git/refs",
+            ],
+        )
+        self.assertEqual(
+            recording_client.tree_entries,
+            [
+                {
+                    "path": "README.md",
+                    "mode": "100644",
+                    "type": "blob",
+                    "content": "hello",
+                }
+            ],
+        )
+        self.assertIn(
+            "Co-authored-by: Ada <ada@example.com>",
+            recording_client.commit_message,
+        )
+        self.assertIn(
+            "Co-authored-by: Example App Bot "
+            "<12345678+example-app[bot]@users.noreply.github.com>",
+            recording_client.commit_message,
+        )
+        normalized = operations_module.normalize_file_changes(
+            (
+                operations_module.GitHubFileChange(
+                    path="/docs/guide.md", content="guide"
+                ),
+            )
+        )
+        self.assertIsInstance(normalized, tuple)
+        self.assertEqual(normalized[0].path, "docs/guide.md")
 
     def test_bot_identity_retries_user_lookup_after_partial_derivation(self) -> None:
         calls: list[str] = []

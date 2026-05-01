@@ -742,8 +742,10 @@ def _commit_request_from_input(input: CommitFilesInput) -> GitHubCommitRequest:
     )
 
 
-def _file_changes_from_input(files: list[FileChangeInput]) -> list[GitHubFileChange]:
-    return [
+def _file_changes_from_input(
+    files: list[FileChangeInput],
+) -> tuple[GitHubFileChange, ...]:
+    return tuple(
         GitHubFileChange(
             path=file.path,
             content=file.content,
@@ -752,14 +754,16 @@ def _file_changes_from_input(files: list[FileChangeInput]) -> list[GitHubFileCha
             executable=file.executable,
         )
         for file in files
-    ]
+    )
 
 
-def _coauthors_from_input(coauthors: list[CoAuthorInput]) -> list[GitHubCoAuthor]:
-    return [
+def _coauthors_from_input(
+    coauthors: list[CoAuthorInput],
+) -> tuple[GitHubCoAuthor, ...]:
+    return tuple(
         GitHubCoAuthor(name=coauthor.name, email=coauthor.email)
         for coauthor in coauthors
-    ]
+    )
 
 
 def _bad_request(message: str) -> gestalt.Response[dict[str, str]]:

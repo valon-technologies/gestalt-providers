@@ -6,8 +6,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Protocol, TypeAlias
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -24,20 +26,129 @@ from .constants import GITHUB_API_VERSION
 from .errors import GitHubAPIError, GitHubConfigError
 from .helpers import int_field, nested_str, str_field
 
+JsonObject: TypeAlias = dict[str, Any]
+JsonPayload: TypeAlias = Mapping[str, Any]
+GitHubPermissions: TypeAlias = Mapping[str, str]
+
+
+class GitHubAPIClient(Protocol):
+    """Runtime GitHub API contract used by bot operations."""
+
+    def installation_token(
+        self,
+        installation_id: int,
+        *,
+        repositories: Sequence[str] | None = None,
+        permissions: GitHubPermissions | None = None,
+    ) -> str: ...
+
+    def github_json(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        payload: JsonPayload | None = None,
+    ) -> JsonObject: ...
+
+    def github_json_value(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        payload: JsonPayload | None = None,
+    ) -> Any: ...
+
+    def repository_default_branch(self, token: str, owner: str, repo: str) -> str: ...
+
+    def get_branch_ref(
+        self, token: str, owner: str, repo: str, branch: str
+    ) -> JsonObject | None: ...
+
+    def require_branch_ref(
+        self, token: str, owner: str, repo: str, branch: str, field_name: str
+    ) -> JsonObject: ...
+
+    def object_sha(self, ref: Mapping[str, Any], name: str) -> str: ...
+
+    def bot_identity_or_none(self) -> GitHubBotIdentity | None: ...
+
+    def commit_url(self, owner: str, repo: str, sha: str) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubAppClient:
+    """Concrete GitHub App API client backed by this module's HTTP helpers."""
+
+    def installation_token(
+        self,
+        installation_id: int,
+        *,
+        repositories: Sequence[str] | None = None,
+        permissions: GitHubPermissions | None = None,
+    ) -> str:
+        return installation_token(
+            installation_id,
+            repositories=repositories,
+            permissions=permissions,
+        )
+
+    def github_json(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        payload: JsonPayload | None = None,
+    ) -> JsonObject:
+        return github_json(method, path, token, payload)
+
+    def github_json_value(
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        payload: JsonPayload | None = None,
+    ) -> Any:
+        return github_json_value(method, path, token, payload)
+
+    def repository_default_branch(self, token: str, owner: str, repo: str) -> str:
+        return repository_default_branch(token, owner, repo)
+
+    def get_branch_ref(
+        self, token: str, owner: str, repo: str, branch: str
+    ) -> JsonObject | None:
+        return get_branch_ref(token, owner, repo, branch)
+
+    def require_branch_ref(
+        self, token: str, owner: str, repo: str, branch: str, field_name: str
+    ) -> JsonObject:
+        return require_branch_ref(token, owner, repo, branch, field_name)
+
+    def object_sha(self, ref: Mapping[str, Any], name: str) -> str:
+        return object_sha(ref, name)
+
+    def bot_identity_or_none(self) -> GitHubBotIdentity | None:
+        return bot_identity_or_none()
+
+    def commit_url(self, owner: str, repo: str, sha: str) -> str:
+        return commit_url(owner, repo, sha)
+
+
+DEFAULT_GITHUB_CLIENT = GitHubAppClient()
+
 
 def installation_token(
     installation_id: int,
     *,
-    repositories: list[str] | None = None,
-    permissions: dict[str, str] | None = None,
+    repositories: Sequence[str] | None = None,
+    permissions: GitHubPermissions | None = None,
 ) -> str:
     if installation_id <= 0:
         raise ValueError("installation_id is required")
-    payload: dict[str, Any] = {}
+    payload: JsonObject = {}
     if repositories:
-        payload["repositories"] = repositories
+        payload["repositories"] = list(repositories)
     if permissions:
-        payload["permissions"] = permissions
+        payload["permissions"] = dict(permissions)
 
     response = github_json(
         "POST",
@@ -107,8 +218,8 @@ def github_json(
     method: str,
     path: str,
     token: str | None,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    payload: JsonPayload | None = None,
+) -> JsonObject:
     decoded = github_json_value(method, path, token, payload)
     if not isinstance(decoded, dict):
         raise GitHubAPIError(502, "GitHub API returned a non-object JSON response")
@@ -119,7 +230,7 @@ def github_json_value(
     method: str,
     path: str,
     token: str | None,
-    payload: dict[str, Any] | None = None,
+    payload: JsonPayload | None = None,
 ) -> Any:
     data = None
     headers = {
@@ -130,7 +241,7 @@ def github_json_value(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
+        data = json.dumps(dict(payload)).encode("utf-8")
         headers["Content-Type"] = "application/json"
 
     request = urllib.request.Request(
@@ -183,9 +294,7 @@ def repository_default_branch(token: str, owner: str, repo: str) -> str:
     return branch
 
 
-def get_branch_ref(
-    token: str, owner: str, repo: str, branch: str
-) -> dict[str, Any] | None:
+def get_branch_ref(token: str, owner: str, repo: str, branch: str) -> JsonObject | None:
     try:
         return github_json(
             "GET",
@@ -200,14 +309,14 @@ def get_branch_ref(
 
 def require_branch_ref(
     token: str, owner: str, repo: str, branch: str, field_name: str
-) -> dict[str, Any]:
+) -> JsonObject:
     ref = get_branch_ref(token, owner, repo, branch)
     if ref is None:
         raise ValueError(f"{field_name} branch {branch!r} was not found")
     return ref
 
 
-def object_sha(ref: dict[str, Any], name: str) -> str:
+def object_sha(ref: Mapping[str, Any], name: str) -> str:
     sha = nested_str(ref, "object", "sha")
     if not sha:
         raise GitHubAPIError(502, f"GitHub {name} response did not include object.sha")
