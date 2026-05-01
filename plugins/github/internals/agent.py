@@ -108,6 +108,11 @@ def agent_session_metadata(summary: dict[str, Any]) -> Any:
             "repository_owner",
             "repository_name",
             "number",
+            "pull_request_numbers",
+            "check_run_id",
+            "check_suite_id",
+            "workflow_run_id",
+            "delivery_id",
             "head_ref",
             "base_ref",
         )
@@ -141,6 +146,11 @@ def agent_user_prompt(agent_request: dict[str, Any], summary: dict[str, Any]) ->
     ]
     if "number" in summary:
         lines.append(f"number: {summary['number']}")
+    if "pull_request_numbers" in summary:
+        lines.append(f"pull_request_numbers: {summary['pull_request_numbers']}")
+    for key in ("check_run_id", "check_suite_id", "workflow_run_id"):
+        if key in summary:
+            lines.append(f"{key}: {summary[key]}")
     subject = agent_request.get("subject")
     if isinstance(subject, dict) and subject.get("html_url"):
         lines.append(f"url: {subject['html_url']}")
@@ -200,12 +210,35 @@ def _ref_prompt_lines(agent_request: dict[str, Any]) -> list[str]:
 def agent_session_ref(summary: dict[str, Any]) -> str:
     installation_id = summary.get("installation_id", "")
     repo = summary.get("repository", "")
+    event_ref = ci_event_session_ref(summary, installation_id, repo)
+    if event_ref:
+        return event_ref
     number = summary.get("number", "")
     if repo and number:
         return f"github:{installation_id}:{repo}:{number}"
     if repo:
         return f"github:{installation_id}:{repo}"
     return f"github:{installation_id}"
+
+
+def ci_event_session_ref(
+    summary: dict[str, Any], installation_id: Any, repo: Any
+) -> str:
+    if not repo:
+        return ""
+    event_type = str(summary.get("event_type", "")).strip()
+    if event_type not in ("check_run", "check_suite", "workflow_run"):
+        return ""
+    event_id = summary.get(f"{event_type}_id", "")
+    if event_id:
+        return f"github:{installation_id}:{repo}:{event_type}:{event_id}"
+    delivery_id = str(summary.get("delivery_id", "")).strip()
+    if delivery_id:
+        return f"github:{installation_id}:{repo}:{event_type}:{delivery_id}"
+    payload_sha256 = str(summary.get("payload_sha256", "")).strip()
+    if payload_sha256:
+        return f"github:{installation_id}:{repo}:{event_type}:payload:{payload_sha256}"
+    return f"github:{installation_id}:{repo}:{event_type}:unknown"
 
 
 def agent_turn_idempotency_key(payload: dict[str, Any], summary: dict[str, Any]) -> str:
