@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/granola
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.5
 displayName: Granola
 description: Read Granola meeting notes over REST and use the official Granola MCP server.
 iconFile: assets/icon.svg
@@ -18,14 +18,6 @@ spec:
       paginate: true
     get_note:
       alias: getNote
-  responseMapping:
-    pagination:
-      hasMore:
-        source: body
-        path: hasMore
-      cursor:
-        source: body
-        path: cursor
   connections:
     default:
       mode: user
