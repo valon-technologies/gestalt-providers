@@ -31,6 +31,10 @@ from .models import (
     SlackAgentConfig,
     SlackAgentEvent,
     SlackAgentRoute,
+    SlackAgentRouteMatch,
+    SlackAcknowledgementConfig,
+    SlackAssistantConfig,
+    SlackBotConfig,
     SlackCallbackType,
     SlackChannelType,
     SlackEventType,
@@ -38,6 +42,7 @@ from .models import (
     SlackInteractionActionStyle,
     SlackInteractionRef,
     SlackReplyRef,
+    SlackWorkflowConfig,
     WorkflowManagerFactory,
 )
 from .operations import (
@@ -64,6 +69,22 @@ struct_pb2: Any = _struct_pb2
 workflow_pb2: Any = _workflow_pb2
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "SlackAcknowledgementConfig",
+    "SlackAgentConfig",
+    "SlackAgentEvent",
+    "SlackAgentRoute",
+    "SlackAgentRouteMatch",
+    "SlackAssistantConfig",
+    "SlackBotConfig",
+    "SlackCallbackType",
+    "SlackChannelType",
+    "SlackEventType",
+    "SlackInteractionRef",
+    "SlackReplyRef",
+    "SlackWorkflowConfig",
+]
 
 SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
 SLACK_DEFAULT_CONNECTION = "default"
