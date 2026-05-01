@@ -62,6 +62,12 @@ class VercelProviderTests(unittest.TestCase):
             blob_module.VercelBlobConfigurationError,
             config_module.VercelBlobConfigurationError,
         )
+        self.assertFalse(hasattr(blob_module, "VercelBlobPutRequest"))
+        self.assertFalse(hasattr(blob_module, "VercelBlobGetRequest"))
+        self.assertFalse(hasattr(blob_module, "VercelBlobHeadRequest"))
+        self.assertFalse(hasattr(blob_module, "VercelBlobListRequest"))
+        self.assertFalse(hasattr(blob_module, "VercelBlobDeleteRequest"))
+        self.assertFalse(hasattr(blob_module, "VercelBlobCopyRequest"))
 
     def test_blob_put_requires_blob_token(self) -> None:
         result = provider_module.blob_put(
@@ -302,7 +308,7 @@ class VercelProviderTests(unittest.TestCase):
         ):
             result = blob_module.put_blob(
                 blob_module.VercelBlobConfig(token="blob_rw_x_store123_token"),
-                blob_module.VercelBlobPutRequest(
+                models_module.VercelBlobPutRequest(
                     pathname="roadmaps/newrez.json",
                     body='{"ok":true}',
                     body_base64="",
@@ -346,7 +352,7 @@ class VercelProviderTests(unittest.TestCase):
         ):
             result = blob_module.get_blob(
                 blob_module.VercelBlobConfig(token="blob_rw_x_store123_token"),
-                blob_module.VercelBlobGetRequest(
+                models_module.VercelBlobGetRequest(
                     url_or_path="roadmaps/newrez.json",
                     access=blob_module.VercelBlobAccess.PRIVATE,
                     if_none_match="",
@@ -381,7 +387,7 @@ class VercelProviderTests(unittest.TestCase):
         ):
             result = blob_module.delete_blobs(
                 blob_module.VercelBlobConfig(token="blob_rw_x_store123_token"),
-                blob_module.VercelBlobDeleteRequest(
+                models_module.VercelBlobDeleteRequest(
                     targets=("roadmaps/a.json", "roadmaps/b.json")
                 ),
             )

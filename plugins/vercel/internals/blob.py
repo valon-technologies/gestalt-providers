@@ -10,19 +10,16 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Final
 
-from .config import VercelBlobConfig as VercelBlobConfig
-from .config import VercelBlobConfigurationError as VercelBlobConfigurationError
-from .models import VercelBlobAccess as VercelBlobAccess
-from .models import VercelBlobCopyRequest as VercelBlobCopyRequest
-from .models import VercelBlobDeleteRequest as VercelBlobDeleteRequest
-from .models import VercelBlobGetRequest as VercelBlobGetRequest
-from .models import VercelBlobHeadRequest as VercelBlobHeadRequest
-from .models import VercelBlobListRequest as VercelBlobListRequest
-from .models import VercelBlobPutRequest as VercelBlobPutRequest
+from . import config as _config
+from . import models as _models
 
 DEFAULT_BLOB_API_URL: Final = "https://vercel.com/api/blob"
 DEFAULT_BLOB_API_VERSION: Final = "11"
 MAXIMUM_PATHNAME_LENGTH: Final = 950
+
+VercelBlobConfig = _config.VercelBlobConfig
+VercelBlobConfigurationError = _config.VercelBlobConfigurationError
+VercelBlobAccess = _models.VercelBlobAccess
 
 
 class VercelBlobAPIError(RuntimeError):
@@ -36,7 +33,9 @@ class VercelBlobClientError(RuntimeError):
     pass
 
 
-def put_blob(config: VercelBlobConfig, request: VercelBlobPutRequest) -> dict[str, Any]:
+def put_blob(
+    config: VercelBlobConfig, request: _models.VercelBlobPutRequest
+) -> dict[str, Any]:
     token = config.require_token()
     _validate_path(request.pathname)
     _validate_access(request.access)
@@ -62,7 +61,7 @@ def put_blob(config: VercelBlobConfig, request: VercelBlobPutRequest) -> dict[st
 
 def get_blob(
     config: VercelBlobConfig,
-    request: VercelBlobGetRequest,
+    request: _models.VercelBlobGetRequest,
 ) -> dict[str, Any]:
     token = config.require_token()
     _validate_access(request.access)
@@ -72,7 +71,9 @@ def get_blob(
         if store_id:
             target_url = _construct_blob_url(store_id, target_url, request.access)
         else:
-            head_request = VercelBlobHeadRequest(url_or_path=request.url_or_path)
+            head_request = _models.VercelBlobHeadRequest(
+                url_or_path=request.url_or_path
+            )
             target_url = head_blob(config, head_request)["data"]["blob"]["url"]
     download_url = _download_url(target_url)
     if not request.use_cache:
@@ -119,7 +120,7 @@ def get_blob(
 
 
 def head_blob(
-    config: VercelBlobConfig, request: VercelBlobHeadRequest
+    config: VercelBlobConfig, request: _models.VercelBlobHeadRequest
 ) -> dict[str, Any]:
     token = config.require_token()
     result = _request_json(
@@ -130,7 +131,7 @@ def head_blob(
 
 def list_blobs(
     config: VercelBlobConfig,
-    request: VercelBlobListRequest,
+    request: _models.VercelBlobListRequest,
 ) -> dict[str, Any]:
     token = config.require_token()
     params: dict[str, Any] = {}
@@ -154,7 +155,7 @@ def list_blobs(
 
 
 def delete_blobs(
-    config: VercelBlobConfig, request: VercelBlobDeleteRequest
+    config: VercelBlobConfig, request: _models.VercelBlobDeleteRequest
 ) -> dict[str, Any]:
     token = config.require_token()
     _request_json(
@@ -170,14 +171,16 @@ def delete_blobs(
 
 def copy_blob(
     config: VercelBlobConfig,
-    request: VercelBlobCopyRequest,
+    request: _models.VercelBlobCopyRequest,
 ) -> dict[str, Any]:
     token = config.require_token()
     _validate_path(request.destination_path)
     _validate_access(request.access)
     source_url = request.source_url_or_path
     if not _is_url(source_url):
-        head_request = VercelBlobHeadRequest(url_or_path=request.source_url_or_path)
+        head_request = _models.VercelBlobHeadRequest(
+            url_or_path=request.source_url_or_path
+        )
         source_url = head_blob(config, head_request)["data"]["blob"]["url"]
     headers = {
         "x-vercel-blob-access": request.access,
