@@ -135,7 +135,7 @@ func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
 		return "", fmt.Errorf("%w: %q", gestalt.ErrSecretNotFound, name)
 	}
 
-	data, ok := secret.Data["data"].(map[string]interface{})
+	data, ok := secret.Data["data"].(map[string]any)
 	if !ok {
 		return "", fmt.Errorf("%w: %q (no data in KV v2 response)", gestalt.ErrSecretNotFound, name)
 	}
@@ -146,3 +146,6 @@ func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
 	}
 	return value, nil
 }
+
+var _ gestalt.SecretsProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)

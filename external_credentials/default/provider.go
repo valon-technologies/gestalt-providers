@@ -160,3 +160,8 @@ func (p *Provider) configuredStore() (*store, error) {
 	}
 	return p.store, nil
 }
+
+var _ gestalt.ExternalCredentialProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
+var _ gestalt.HealthChecker = (*Provider)(nil)
+var _ gestalt.Closer = (*Provider)(nil)

@@ -8,8 +8,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,3 +107,8 @@ func newClient(cfg config) (*dynamodb.Client, error) {
 
 	return dynamodb.NewFromConfig(awsCfg, clientOpts...), nil
 }
+
+var _ gestalt.IndexedDBProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
+var _ gestalt.HealthChecker = (*Provider)(nil)
+var _ gestalt.Closer = (*Provider)(nil)

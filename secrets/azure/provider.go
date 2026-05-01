@@ -85,3 +85,6 @@ func (p *Provider) GetSecret(ctx context.Context, name string) (string, error) {
 	}
 	return *resp.Value, nil
 }
+
+var _ gestalt.SecretsProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)

@@ -384,5 +384,6 @@ func uniqueKeys(keys []string) []string {
 }
 
 var _ gestalt.CacheProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)

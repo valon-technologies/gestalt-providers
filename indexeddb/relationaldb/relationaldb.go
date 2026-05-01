@@ -1078,3 +1078,7 @@ func (s storedSchema) toMeta(name string) *storeMeta {
 	}
 	return m
 }
+
+var _ gestalt.IndexedDBProvider = (*Provider)(nil)
+var _ gestalt.HealthChecker = (*Provider)(nil)
+var _ gestalt.Closer = (*Provider)(nil)

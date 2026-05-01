@@ -267,6 +267,31 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 	return current, nil
 }
 
+func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeSessionsRequest) (*proto.ListPluginRuntimeSessionsResponse, error) {
+	p.mu.Lock()
+	sessionIDs := make([]string, 0, len(p.sessions))
+	for sessionID := range p.sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	p.mu.Unlock()
+	sortStrings(sessionIDs)
+
+	resp := &proto.ListPluginRuntimeSessionsResponse{
+		Sessions: make([]*proto.PluginRuntimeSession, 0, len(sessionIDs)),
+	}
+	for _, sessionID := range sessionIDs {
+		session, err := p.GetSession(ctx, &proto.GetPluginRuntimeSessionRequest{SessionId: sessionID})
+		if status.Code(err) == codes.NotFound {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		resp.Sessions = append(resp.Sessions, session)
+	}
+	return resp, nil
+}
+
 func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntimeSessionRequest) (*emptypb.Empty, error) {
 	sdk, cfg, err := p.configured()
 	if err != nil {
@@ -1028,3 +1053,8 @@ func sortStrings(values []string) {
 		}
 	}
 }
+
+var _ gestalt.PluginRuntimeProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
+var _ gestalt.HealthChecker = (*Provider)(nil)
+var _ gestalt.Closer = (*Provider)(nil)

@@ -37,6 +37,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af2bbc9e1add h1:8srPE3EApPCiTM/i4cMBSwzDzWw1K2RgrFAui0hWNu0=
 github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af2bbc9e1add/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429020718-1a8b090c4184 h1:haxvxqcXYvHFPp/eOUZsYOOLFAvBQ9hR7DGVof9isFc=
+github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429020718-1a8b090c4184/go.mod h1:0CUrcwguRar945Ek+jQkGyQUOgGFw975vPeQI9Z8VbU=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.39.0 h1:8yPrr/S0ND9QEfTfdP9V+SiwT4E0G7Y5MO7p85nis48=

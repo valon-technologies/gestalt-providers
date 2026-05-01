@@ -409,3 +409,8 @@ func (p *Provider) currentTime() time.Time {
 	}
 	return time.Now()
 }
+
+var _ gestalt.AuthenticationProvider = (*Provider)(nil)
+var _ gestalt.ExternalTokenValidator = (*Provider)(nil)
+var _ gestalt.SessionTTLProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)

@@ -1551,7 +1551,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 		active = false
 	}
 	if active && workflowRunTerminal(run.Status) {
-		if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, workflowKey, run.ID); err != nil {
+		if err := deleteWorkflowKeyRecordForRunTx(ctx, stores.workflowKeyStore, workflowKey, run.ID); err != nil {
 			return nil, "", status.Errorf(codes.Internal, "delete terminal workflow key: %v", err)
 		}
 		active = false
@@ -2163,7 +2163,7 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 			return err
 		}
 		if current.WorkflowKey != "" {
-			if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+			if err := deleteWorkflowKeyRecordForRunTx(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
 				return err
 			}
 		}
@@ -2176,7 +2176,7 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 				return err
 			}
 			if current.WorkflowKey != "" {
-				if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+				if err := deleteWorkflowKeyRecordForRunTx(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
 					return err
 				}
 			}
@@ -2194,7 +2194,7 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 			} else {
 				current.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
 				if current.WorkflowKey != "" {
-					if err := deleteWorkflowKeyRecordForRun(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
+					if err := deleteWorkflowKeyRecordForRunTx(ctx, stores.workflowKeyStore, current.WorkflowKey, current.ID); err != nil {
 						return err
 					}
 				}
@@ -2795,10 +2795,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore interface {
-	recordGetter
-	recordDeleter
-}, signalStore *gestalt.ObjectStoreClient, run workflowRunRecord, workflowKey string, now time.Time) error {
+func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore *gestalt.ObjectStoreClient, signalStore *gestalt.ObjectStoreClient, run workflowRunRecord, workflowKey string, now time.Time) error {
 	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 	run.CompletedAt = &now
 	run.StatusMessage = staleRunStatusMessage
@@ -2822,10 +2819,7 @@ func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKey
 	return markSignalsFailed(ctx, signalStore, signals, now, run.StatusMessage)
 }
 
-func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowKeyStore interface {
-	recordGetter
-	recordDeleter
-}, signalStore *gestalt.TransactionObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
+func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowKeyStore *gestalt.TransactionObjectStore, signalStore *gestalt.TransactionObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
 	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 	run.CompletedAt = &now
 	run.StatusMessage = staleRunStatusMessage
@@ -2833,7 +2827,7 @@ func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowK
 		return err
 	}
 	if key := firstNonEmpty(workflowKey, run.WorkflowKey); key != "" {
-		if err := deleteWorkflowKeyRecordForRun(ctx, workflowKeyStore, key, run.ID); err != nil {
+		if err := deleteWorkflowKeyRecordForRunTx(ctx, workflowKeyStore, key, run.ID); err != nil {
 			return err
 		}
 	}
@@ -3473,13 +3467,7 @@ func deleteWorkflowKeyRecord(ctx context.Context, store recordDeleter, workflowK
 	return nil
 }
 
-func deleteWorkflowKeyRecordForRun(ctx context.Context, store interface {
-	recordGetter
-	recordDeleter
-}, workflowKey, runID string) error {
-	if txStore, ok := store.(*gestalt.TransactionObjectStore); ok {
-		return deleteWorkflowKeyRecordForRunTx(ctx, txStore, workflowKey, runID)
-	}
+func deleteWorkflowKeyRecordForRun(ctx context.Context, store *gestalt.ObjectStoreClient, workflowKey, runID string) error {
 	key, found, err := loadWorkflowKeyRecord(ctx, store, workflowKey)
 	if err != nil || !found {
 		return err
@@ -5206,3 +5194,7 @@ func timeToProto(value *time.Time) *timestamppb.Timestamp {
 }
 
 var _ gestalt.WorkflowProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
+var _ gestalt.Starter = (*Provider)(nil)
+var _ gestalt.HealthChecker = (*Provider)(nil)
+var _ gestalt.Closer = (*Provider)(nil)
