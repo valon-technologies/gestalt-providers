@@ -44,7 +44,6 @@ vulture-ignore-names = [
   "configure",
   "metadata",
   "ListTools",
-  "SearchTools",
   "ExecuteTool",
   "do_POST",
   "log_message",

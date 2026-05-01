@@ -45,7 +45,6 @@ const {
   ListAgentProviderTurnEventsRequestSchema,
   ListAgentToolsResponseSchema,
   ListedAgentToolSchema,
-  SearchAgentToolsResponseSchema,
 } = agentPb;
 
 const activeHosts: FakeAgentHost[] = [];
@@ -215,7 +214,6 @@ describe("Cursor agent provider contract", () => {
     );
     const turn = await waitForTurn(provider, "turn-1", AgentExecutionStatus.SUCCEEDED);
     expect(turn.outputText).toBe("Forecast: sunny");
-    expect(host.searchRequests).toBe(0);
     expect(host.relayTokens).toContain("relay-token");
     expect(host.listRequests).toHaveLength(1);
     expect(host.executeRequests).toHaveLength(1);
@@ -294,7 +292,7 @@ describe("Cursor agent provider contract", () => {
       toolRefs: [{ plugin: "p", operation: "o" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
-      ["wrong source", { toolSource: AgentToolSourceMode.NATIVE_SEARCH }, "requires toolSource"],
+      ["wrong source", { toolSource: 999 as AgentToolSourceMode }, "requires toolSource"],
       ["missing grant", { toolGrant: "" }, "tool_grant is required"],
       ["missing refs", { toolRefs: [] }, "tool_refs are required"],
       ["wildcard ref", { toolRefs: [{ plugin: "p", operation: "*" }] }, "wildcard"],
@@ -535,7 +533,7 @@ describe("Cursor agent provider contract", () => {
     expect(existsSync(stateRoot)).toBe(false);
   });
 
-  test("handles ListTools paging errors and never uses SearchTools", async () => {
+  test("handles ListTools paging errors without invoking tools", async () => {
     const cases: Array<
       [string, Array<{ tools: ListedAgentTool[]; nextPageToken?: string }>, string]
     > = [
@@ -570,7 +568,6 @@ describe("Cursor agent provider contract", () => {
       );
       const turn = await waitForTurn(provider, `turn-${name}`, AgentExecutionStatus.FAILED);
       expect(turn.statusMessage).toContain(message);
-      expect(host.searchRequests).toBe(0);
       await host.close();
       activeHosts.pop();
     }
@@ -835,7 +832,6 @@ class FakeAgentHost {
   readonly listRequests: unknown[] = [];
   readonly executeRequests: ExecuteAgentToolRequest[] = [];
   readonly relayTokens: string[] = [];
-  searchRequests = 0;
 
   private constructor(
     readonly socketPath: string,
@@ -868,10 +864,6 @@ class FakeAgentHost {
                 tools: page.tools,
                 nextPageToken: page.nextPageToken ?? "",
               });
-            },
-            searchTools() {
-              host.searchRequests += 1;
-              return create(SearchAgentToolsResponseSchema, {});
             },
             executeTool(request: any) {
               host.executeRequests.push(request);

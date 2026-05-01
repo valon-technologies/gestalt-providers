@@ -267,7 +267,7 @@ Example agent-manager turn request for that session:
       "operation": "incidents.list"
     }
   ],
-  "toolSource": "native_search",
+  "toolSource": "mcp_catalog",
   "responseSchema": {
     "type": "object",
     "properties": {

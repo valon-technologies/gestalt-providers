@@ -2198,7 +2198,7 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 				return provider.runStore.Put(ctx, gestalt.Record{
 					"id":           "flat-json-run",
 					"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
-					"target_json":  `{"agent":{"providerName":"simple","prompt":"send a Slack reminder","toolSource":"AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH"}}`,
+					"target_json":  `{"agent":{"providerName":"simple","prompt":"send a Slack reminder","unknownField":true}}`,
 					"trigger_kind": triggerKindManual,
 					"created_at":   now,
 				})

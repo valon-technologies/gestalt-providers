@@ -43,7 +43,6 @@ vulture-ignore-names = [
   "configure",
   "metadata",
   "ListTools",
-  "SearchTools",
   "ExecuteTool",
   "handle_call_tool",
   "should_exit",

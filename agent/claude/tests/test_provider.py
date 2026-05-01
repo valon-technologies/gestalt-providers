@@ -42,12 +42,10 @@ _previous_agent_host_token: str | None = None
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.list_requests: list[dict[str, Any]] = []
-        self.search_requests: list[dict[str, Any]] = []
         self.execute_requests: list[dict[str, Any]] = []
 
     def reset(self) -> None:
         self.list_requests.clear()
-        self.search_requests.clear()
         self.execute_requests.clear()
 
     def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
@@ -83,11 +81,6 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             setattr(tool.ref, "plugin", "github")
             setattr(tool.ref, "operation", "pulls/list")
         return response
-
-    def SearchTools(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
-        self.search_requests.append({"query": request.query, "tool_grant": request.tool_grant})
-        return agent_pb2.SearchAgentToolsResponse()
 
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -231,7 +224,6 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertEqual([request["page_token"] for request in host.list_requests], [""])
         self.assertEqual(host.list_requests[0]["tool_grant"], "grant-claude")
-        self.assertEqual(host.search_requests, [])
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "sdk-1")
         self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
         self.assertEqual(host.execute_requests[0]["tool_grant"], "grant-claude")
@@ -266,7 +258,7 @@ class ClaudeProviderTests(unittest.TestCase):
         provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-validation"))
 
         bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
-        bad_source.tool_source = agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
+        bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
 
         missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", tool_grant="")
@@ -428,9 +420,7 @@ async def _list_tools_through_sdk_bridge(options: Any) -> tuple[dict[str, Any], 
 
     bridge = py_types.SimpleNamespace(sdk_mcp_servers={"gestalt": options.mcp_servers["gestalt"]["instance"]})
     handle_request = cast(Any, Query._handle_sdk_mcp_request)
-    first = await handle_request(
-        bridge, "gestalt", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-    )
+    first = await handle_request(bridge, "gestalt", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     second = await handle_request(
         bridge, "gestalt", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"cursor": "page-2"}}
     )

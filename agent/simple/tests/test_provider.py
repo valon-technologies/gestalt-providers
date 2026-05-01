@@ -410,7 +410,6 @@ def _set_status(status: Any, code: Any, message: str) -> None:
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
-        self.search_requests: list[dict[str, Any]] = []
         self.list_requests: list[dict[str, Any]] = []
         self.tools: list[Any] = []
         self.load_ref_tools: list[Any] = []
@@ -419,29 +418,6 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.tool_responses: list[Any] = []
         self.wait_until_released = threading.Event()
         self.pause_on_lookup = False
-
-    def SearchTools(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
-        search_request = {
-            "session_id": request.session_id,
-            "turn_id": request.turn_id,
-            "query": request.query,
-            "max_results": request.max_results,
-        }
-        if str(getattr(request, "tool_grant", "") or "").strip():
-            search_request["tool_grant"] = request.tool_grant
-        if _proto_message_has_field(request, "candidate_limit"):
-            search_request["candidate_limit"] = request.candidate_limit
-        if _proto_message_has_field(request, "load_refs"):
-            search_request["load_refs"] = [_tool_ref_to_dict(ref) for ref in request.load_refs]
-        self.search_requests.append(search_request)
-        tools = self.load_ref_tools if search_request.get("load_refs") else self.tools
-        response = agent_pb2.SearchAgentToolsResponse(tools=list(tools))
-        if _proto_message_has_field(response, "candidates") and search_request.get("candidate_limit", 0) > 0:
-            response.candidates.extend(self.candidates)
-        if _proto_message_has_field(response, "has_more"):
-            response.has_more = self.has_more and len(response.candidates) > 0
-        return response
 
     def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -555,12 +531,6 @@ def _proto_message_has_field(message: Any, field_name: str) -> bool:
     descriptor = getattr(message, "DESCRIPTOR", None)
     fields_by_name = getattr(descriptor, "fields_by_name", {})
     return field_name in fields_by_name
-
-
-def _supports_adaptive_tool_search() -> bool:
-    return _proto_message_has_field(
-        agent_pb2.SearchAgentToolsRequest(), "candidate_limit"
-    ) and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "candidates")
 
 
 def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
@@ -869,7 +839,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         assert _host_servicer is not None
         assert _indexeddb_servicer is not None
         _host_servicer.requests.clear()
-        _host_servicer.search_requests.clear()
         _host_servicer.list_requests.clear()
         _host_servicer.tools = [
             _fake_listed_tool(tool_id="lookup", mcp_name="person_lookup", description="historical figure records")
@@ -1759,7 +1728,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(_rpc_error_details(negative_turn_limit.exception), "limit must be non-negative")
 
         assert _host_servicer is not None
-        self.assertEqual(_host_servicer.search_requests, [])
         self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
         self.assertEqual(_host_servicer.list_requests[0]["tool_grant"], "grant-success")
         self.assertEqual(len(_host_servicer.requests), 2)
@@ -1796,10 +1764,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(first_request["messages"][0]["role"], "system")
         self.assertEqual(first_request["messages"][-1]["content"], "Who is Ada Lovelace?")
         self.assertEqual([tool["function"]["name"] for tool in first_request["tools"]], ["gestalt_search_tools"])
-        if not _supports_adaptive_tool_search():
-            properties = first_request["tools"][0]["function"]["parameters"]["properties"]
-            self.assertNotIn("candidate_limit", properties)
-            self.assertNotIn("load_refs", properties)
         self.assertEqual(second_request["messages"][-1]["role"], "tool")
         self.assertIn("person_lookup", second_request["messages"][-1]["content"])
         self.assertNotIn('"id"', second_request["messages"][-1]["content"])
@@ -1832,7 +1796,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(listed_events.events[6].data.fields["status"].number_value, 200)
         self.assertEqual([event.type for event in paged_events.events], ["tool.completed", "tool.started"])
 
-    @unittest.skipUnless(_supports_adaptive_tool_search(), "adaptive tool search proto fields are not available")
     def test_create_turn_searches_candidates_and_loads_refs(self) -> None:
         assert _host_servicer is not None
         _, provider_client = _configure_provider()
@@ -1926,7 +1889,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fetched = _wait_for_turn(provider_client, "turn-adaptive-search", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(fetched.output_text, "done")
-        self.assertEqual(_host_servicer.search_requests, [])
         self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
         first_tool_result = fake_llm.requests[1]["messages"][-1]["content"]
         second_tool_result = fake_llm.requests[2]["messages"][-1]["content"]
@@ -2150,7 +2112,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.output_text, "text-only response")
-        self.assertEqual(_host_servicer.search_requests, [])
         self.assertEqual(_host_servicer.requests, [])
 
     def test_create_turn_completes_over_tcp_runtime_socket(self) -> None:
@@ -2530,7 +2491,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(canceled.status_message, "user canceled")
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
-        self.assertEqual(_host_servicer.search_requests, [])
         self.assertEqual(len(_host_servicer.list_requests), 1)
         self.assertEqual(len(fake_llm.requests), 2)
         self.assertEqual(
@@ -2753,7 +2713,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
 
         assert _host_servicer is not None
-        self.assertEqual(_host_servicer.search_requests, [])
         self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
         self.assertEqual(
             _host_servicer.requests,

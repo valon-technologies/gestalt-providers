@@ -47,13 +47,11 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.mode = "normal"
         self.list_requests: list[dict[str, Any]] = []
-        self.search_requests: list[dict[str, Any]] = []
         self.execute_requests: list[dict[str, Any]] = []
 
     def reset(self) -> None:
         self.mode = "normal"
         self.list_requests.clear()
-        self.search_requests.clear()
         self.execute_requests.clear()
 
     def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
@@ -112,11 +110,6 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 input_schema='{"type":"object"}',
             )
         return response
-
-    def SearchTools(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
-        self.search_requests.append({"query": request.query, "tool_grant": request.tool_grant})
-        return agent_pb2.SearchAgentToolsResponse()
 
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -281,7 +274,6 @@ class CodexProviderTests(unittest.TestCase):
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["tool_grant"], "grant-codex")
-        self.assertEqual(host.search_requests, [])
 
     def test_enabled_tools_come_from_list_tools_not_tool_refs(self) -> None:
         _, provider_client = _configure_provider()
@@ -325,7 +317,7 @@ class CodexProviderTests(unittest.TestCase):
         provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-validation"))
 
         bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
-        bad_source.tool_source = agent_pb2.AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH
+        bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
 
         missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", tool_grant="")

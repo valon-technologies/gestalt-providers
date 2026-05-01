@@ -11,7 +11,7 @@ The first cut is intentionally small:
 - in-memory AgentProvider sessions and turns
 - one Codex MCP session per turn
 - no durable Codex thread store, resume, branching, or fork support
-- no provider-side `SearchTools` call
+- no provider-side search RPC call
 - no interactive approval prompts; `approvalPolicy` must be `never`
 - optional Codex surfaces such as apps, multi-agent tools, hooks, skills, and
   web search disabled in the generated per-turn config
