@@ -46,4 +46,6 @@ vulture-ignore-names = [
   "conversations_get_thread_context",
   "files_get",
   "redirect_request",
+  "Name",
+  "WorkflowRunStatus",
 ]

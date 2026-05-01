@@ -4,16 +4,14 @@ import copy
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-
-agent_pb2: Any = cast(Any, _agent_pb2)
+import gestalt
 
 TERMINAL_STATUSES = {
-    agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-    agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
-    agent_pb2.AGENT_EXECUTION_STATUS_CANCELED,
+    gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
+    gestalt.AGENT_EXECUTION_STATUS_FAILED,
+    gestalt.AGENT_EXECUTION_STATUS_CANCELED,
 }
 
 
@@ -109,7 +107,7 @@ class InMemoryRunStore:
                 provider_name=provider_name,
                 model=model,
                 client_ref=client_ref,
-                state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                state=gestalt.AGENT_SESSION_STATE_ACTIVE,
                 metadata=copy.deepcopy(metadata),
                 created_by=dict(created_by),
                 created_at=now,
@@ -200,7 +198,7 @@ class InMemoryRunStore:
                 idempotency_key=idempotency_key,
                 provider_name=provider_name,
                 model=model,
-                status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
+                status=gestalt.AGENT_EXECUTION_STATUS_RUNNING,
                 messages=copy.deepcopy(messages),
                 output_text="",
                 status_message="",
@@ -253,7 +251,7 @@ class InMemoryRunStore:
             turn = self._turns.get(turn_id.strip())
             if turn is None or turn.status in TERMINAL_STATUSES:
                 return copy.deepcopy(turn) if turn is not None else None
-            turn.status = agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+            turn.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
             turn.output_text = output_text
             turn.completed_at = _utcnow()
             self.append_event(
@@ -275,7 +273,7 @@ class InMemoryRunStore:
             turn = self._turns.get(turn_id.strip())
             if turn is None or turn.status in TERMINAL_STATUSES:
                 return copy.deepcopy(turn) if turn is not None else None
-            turn.status = agent_pb2.AGENT_EXECUTION_STATUS_FAILED
+            turn.status = gestalt.AGENT_EXECUTION_STATUS_FAILED
             turn.status_message = message
             turn.completed_at = _utcnow()
             self.append_event(
@@ -289,7 +287,7 @@ class InMemoryRunStore:
             if turn is None:
                 return None
             if turn.status not in TERMINAL_STATUSES:
-                turn.status = agent_pb2.AGENT_EXECUTION_STATUS_CANCELED
+                turn.status = gestalt.AGENT_EXECUTION_STATUS_CANCELED
                 turn.status_message = reason
                 turn.completed_at = _utcnow()
                 self.append_event(

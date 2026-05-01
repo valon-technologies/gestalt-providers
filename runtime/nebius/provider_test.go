@@ -22,24 +22,21 @@ func TestBeginPluginStartRejectsConcurrentLaunch(t *testing.T) {
 		},
 	}
 
-	bindings, image, err := provider.beginPluginStart("session-1")
+	image, err := provider.beginPluginStart("session-1")
 	if err != nil {
 		t.Fatalf("beginPluginStart first call: %v", err)
 	}
 	if image != "ghcr.io/example/runtime:latest" {
 		t.Fatalf("image = %q", image)
 	}
-	if got := bindings["GESTALT_AGENT_HOST_SOCKET"]; got != "tls://example.test:443" {
-		t.Fatalf("bindings env = %q", got)
-	}
 
-	_, _, err = provider.beginPluginStart("session-1")
+	_, err = provider.beginPluginStart("session-1")
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("beginPluginStart second call code = %v, want FailedPrecondition: %v", status.Code(err), err)
 	}
 
 	provider.clearPluginStart("session-1")
-	_, _, err = provider.beginPluginStart("session-1")
+	_, err = provider.beginPluginStart("session-1")
 	if err != nil {
 		t.Fatalf("beginPluginStart after clear: %v", err)
 	}

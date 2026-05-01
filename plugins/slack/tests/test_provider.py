@@ -232,7 +232,7 @@ class FakeWorkflowManagerPublishEventRequest:
         provider_name: str = "",
         **_kwargs: Any,
     ) -> None:
-        self.event = event
+        self.event = event or FakeWorkflowEvent()
         self.provider_name = provider_name
 
 
@@ -258,16 +258,6 @@ class FakeWorkflowPb2:
 def workflow_pb2_with_signal_or_start_contract() -> Any:
     if hasattr(workflow_pb2, "WorkflowManagerSignalOrStartRunRequest") and hasattr(
         workflow_pb2, "WorkflowOutputDelivery"
-    ):
-        return workflow_pb2
-    return FakeWorkflowPb2
-
-
-def workflow_pb2_with_publish_contract() -> Any:
-    if hasattr(workflow_pb2, "WorkflowManagerPublishEventRequest") and hasattr(
-        workflow_pb2, "WorkflowEvent"
-    ) and hasattr(
-        workflow_pb2.WorkflowManagerPublishEventRequest(), "provider_name"
     ):
         return workflow_pb2
     return FakeWorkflowPb2
@@ -743,9 +733,6 @@ class SlackProviderTests(unittest.TestCase):
         workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -944,9 +931,6 @@ class SlackProviderTests(unittest.TestCase):
 
         workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -1045,9 +1029,6 @@ class SlackProviderTests(unittest.TestCase):
 
         workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -1126,9 +1107,6 @@ class SlackProviderTests(unittest.TestCase):
 
         workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -1430,9 +1408,6 @@ class SlackProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -1481,9 +1456,6 @@ class SlackProviderTests(unittest.TestCase):
         )
         workflow_manager = FakeWorkflowManager()
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -1930,9 +1902,6 @@ class SlackProviderTests(unittest.TestCase):
         workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -2044,9 +2013,6 @@ class SlackProviderTests(unittest.TestCase):
 
         workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
-            ),
             mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
@@ -2222,11 +2188,11 @@ class SlackProviderTests(unittest.TestCase):
                 "files": [{"id": "F123", "name": "deploy.txt"}],
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_publish_contract()
-
         with (
             mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
             ),
             mock.patch.object(
                 gestalt.Request,
@@ -2372,7 +2338,6 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.addCleanup(provider_module.configure, "slack", {})
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_publish_contract()
         bot_payload = {
             "type": "event_callback",
             "team_id": "T123",
@@ -2412,7 +2377,9 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
             ),
             mock.patch.object(
                 gestalt.Request,
@@ -2481,11 +2448,11 @@ class SlackProviderTests(unittest.TestCase):
                 "ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_publish_contract()
-
         with (
             mock.patch.object(
-                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
             ),
             mock.patch.object(
                 gestalt.Request,

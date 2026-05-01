@@ -22,8 +22,6 @@ import (
 	"github.com/aws/smithy-go"
 	s3provider "github.com/valon-technologies/gestalt-providers/s3/s3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc"
 )
 
 const minIOImage = "minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -69,27 +67,38 @@ func newTestClient(t *testing.T) *gestalt.S3Client {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	socketPath := newSocketPath(t)
-	lis, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatalf("Listen(unix): %v", err)
-	}
-	t.Cleanup(func() {
-		_ = lis.Close()
-		_ = os.Remove(socketPath)
-	})
-
-	server := grpc.NewServer()
-	proto.RegisterS3Server(server, provider)
-	go func() { _ = server.Serve(lis) }()
-	t.Cleanup(server.GracefulStop)
-
+	serveCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	t.Setenv("GESTALT_PLUGIN_SOCKET", socketPath)
 	t.Setenv(gestalt.EnvS3Socket, socketPath)
+	errCh := make(chan error, 1)
+	go func() { errCh <- gestalt.ServeS3Provider(serveCtx, provider) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-errCh; err != nil {
+			t.Fatalf("ServeS3Provider: %v", err)
+		}
+	})
+	waitForSocket(t, socketPath)
+
 	client, err := gestalt.S3()
 	if err != nil {
 		t.Fatalf("gestalt.S3(): %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client
+}
+
+func waitForSocket(t *testing.T, socketPath string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(socketPath); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for socket %s", socketPath)
 }
 
 type s3BackendConfig struct {

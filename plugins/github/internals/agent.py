@@ -4,9 +4,8 @@ import hashlib
 import json
 from typing import Any
 
+import gestalt
 from google.protobuf import struct_pb2 as _struct_pb2
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
 
 from .config import GitHubWebhookPolicy, get_github_config
 from .constants import (
@@ -20,9 +19,7 @@ from .constants import (
 from .webhook import bounded_text
 from .workflow_dispatch import workflow_signal_data
 
-agent_pb2: Any = _agent_pb2
 struct_pb2: Any = _struct_pb2
-workflow_pb2: Any = _workflow_pb2
 
 
 def build_workflow_signal_or_start_request(
@@ -31,12 +28,12 @@ def build_workflow_signal_or_start_request(
     policy: GitHubWebhookPolicy | None = None,
 ) -> Any:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
-    request = workflow_pb2.WorkflowManagerSignalOrStartRunRequest(
+    request = gestalt.WorkflowManagerSignalOrStartRunRequest(
         provider_name=workflow_provider(policy),
         workflow_key=agent_session_ref(summary, policy),
         idempotency_key=idempotency_key,
         target=workflow_agent_target(summary, policy),
-        signal=workflow_pb2.WorkflowSignal(
+        signal=gestalt.WorkflowSignal(
             name=GITHUB_WORKFLOW_SIGNAL_NAME,
             idempotency_key=idempotency_key,
         ),
@@ -57,19 +54,19 @@ def workflow_agent_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
 ) -> Any:
     provider_options = agent_provider_options(policy)
-    agent = workflow_pb2.BoundWorkflowAgentTarget(
+    agent = gestalt.BoundWorkflowAgentTarget(
         provider_name=agent_provider(policy),
         model=agent_model(policy),
         prompt=workflow_agent_prompt(),
         messages=[
-            agent_pb2.AgentMessage(role="system", text=agent_system_prompt(policy)),
+            gestalt.AgentMessage(role="system", text=agent_system_prompt(policy)),
         ],
         tool_refs=agent_tool_refs(policy),
     )
     agent.metadata.CopyFrom(agent_session_metadata(summary, policy))
     if provider_options:
         agent.provider_options.CopyFrom(dict_to_struct(provider_options))
-    return workflow_pb2.BoundWorkflowTarget(agent=agent)
+    return gestalt.BoundWorkflowTarget(agent=agent)
 
 
 def workflow_signal_payload(
@@ -107,7 +104,7 @@ def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
         )
     )
     return [
-        agent_pb2.AgentToolRef(plugin="github", operation=operation)
+        gestalt.AgentToolRef(plugin="github", operation=operation)
         for operation in operations
     ]
 

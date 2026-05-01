@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import gestalt
 import grpc
@@ -10,11 +10,9 @@ from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from internals import SimpleAgentConfig, SimpleAgentOrchestrator, SimpleRunStore
 from internals.store import StoredSession
 
-agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
 logger = logging.getLogger(__name__)
@@ -90,7 +88,7 @@ class SimpleAgentRuntimeProvider(
         if limit < 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
         summary_only = bool(getattr(request, "summary_only", False))
-        return agent_pb2.ListAgentProviderSessionsResponse(
+        return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
                 _session_to_proto(session, summary_only=summary_only)
                 for session in store.list_sessions(
@@ -141,7 +139,7 @@ class SimpleAgentRuntimeProvider(
         if limit < 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
         summary_only = bool(getattr(request, "summary_only", False))
-        return agent_pb2.ListAgentProviderTurnsResponse(
+        return gestalt.ListAgentProviderTurnsResponse(
             turns=[
                 orchestrator.turn_to_proto(turn, summary_only=summary_only)
                 for turn in store.list_turns(
@@ -164,7 +162,7 @@ class SimpleAgentRuntimeProvider(
 
     def ListTurnEvents(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        return agent_pb2.ListAgentProviderTurnEventsResponse(
+        return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 _turn_event_to_proto(event)
                 for event in store.list_turn_events(
@@ -181,7 +179,7 @@ class SimpleAgentRuntimeProvider(
 
     def ListInteractions(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, _ = self._require_runtime(context)
-        return agent_pb2.ListAgentProviderInteractionsResponse(interactions=[])
+        return gestalt.ListAgentProviderInteractionsResponse(interactions=[])
 
     def ResolveInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, _ = self._require_runtime(context)
@@ -189,7 +187,7 @@ class SimpleAgentRuntimeProvider(
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, config = self._require_runtime(context)
-        return agent_pb2.AgentProviderCapabilities(
+        return gestalt.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
@@ -198,7 +196,7 @@ class SimpleAgentRuntimeProvider(
             resumable_turns=config.resume.enabled,
             reasoning_summaries=False,
             bounded_list_hydration=True,
-            supported_tool_sources=[agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
 
     def _require_runtime(
@@ -252,7 +250,7 @@ class SimpleAgentRuntimeProvider(
 
 
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
-    proto = agent_pb2.AgentSession(
+    proto = gestalt.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
         model=session.model,
@@ -263,7 +261,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         proto.metadata.CopyFrom(_dict_to_struct(session.metadata))
     if session.created_by:
         proto.created_by.CopyFrom(
-            agent_pb2.AgentActor(
+            gestalt.AgentActor(
                 subject_id=session.created_by.get("subject_id", ""),
                 subject_kind=session.created_by.get("subject_kind", ""),
                 display_name=session.created_by.get("display_name", ""),
@@ -278,7 +276,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
 
 
 def _turn_event_to_proto(event: Any) -> Any:
-    proto = agent_pb2.AgentTurnEvent(
+    proto = gestalt.AgentTurnEvent(
         id=event.event_id,
         turn_id=event.turn_id,
         seq=event.seq,

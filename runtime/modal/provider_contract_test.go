@@ -14,7 +14,6 @@ import (
 	modalclient "github.com/modal-labs/modal-client/go"
 	modalproto "github.com/modal-labs/modal-client/go/proto/modal_proto"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -23,96 +22,28 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestRuntimeProviderContractAcceptsAgentHostRelayBinding(t *testing.T) {
-	t.Parallel()
-
-	provider := &Provider{
-		name: "modal",
-		sessions: map[string]*session{
-			"session-1": {
-				id:       "session-1",
-				state:    sessionStateReady,
-				metadata: map[string]string{"provider_kind": "agent"},
-				bindings: map[string]string{},
-			},
-		},
-	}
-	client := startRuntimeProviderServer(t, provider)
-
-	resp, err := client.BindHostService(context.Background(), &proto.BindPluginRuntimeHostServiceRequest{
-		SessionId: "session-1",
-		EnvVar:    gestalt.EnvAgentHostSocket,
-		Relay: &proto.PluginRuntimeHostServiceRelay{
-			DialTarget: "tls://gestaltd.example.test:443",
-		},
-	})
-	if err != nil {
-		t.Fatalf("BindHostService: %v", err)
-	}
-	if got, want := resp.GetEnvVar(), gestalt.EnvAgentHostSocket; got != want {
-		t.Fatalf("BindHostService env = %q, want %q", got, want)
-	}
-	if got, want := resp.GetRelay().GetDialTarget(), "tls://gestaltd.example.test:443"; got != want {
-		t.Fatalf("BindHostService relay = %q, want %q", got, want)
-	}
-
-	provider.mu.Lock()
-	got := provider.sessions["session-1"].bindings[gestalt.EnvAgentHostSocket]
-	provider.mu.Unlock()
-	if got != "tls://gestaltd.example.test:443" {
-		t.Fatalf("stored binding = %q, want tls://gestaltd.example.test:443", got)
-	}
-}
-
 func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
 	t.Parallel()
 
-	const hostServiceEnv = "HOST_SERVICE_ENDPOINT"
+	const hostServiceEnv = gestalt.EnvAgentHostSocket
 	if !isHostServiceEnvVar(hostServiceEnv) {
 		t.Fatalf("%s should be accepted as a relay host service env", hostServiceEnv)
 	}
-	env := buildPluginEnv(&proto.StartHostedPluginRequest{
+	env := buildPluginEnv(gestalt.StartHostedPluginRequest{
 		Env: map[string]string{
-			"CUSTOM": "value",
+			"CUSTOM":       "value",
+			hostServiceEnv: "tls://host-service-relay.gestalt.example:443",
 		},
-	}, map[string]string{
-		hostServiceEnv: "tls://host-service-relay.gestalt.example:443",
 	}, "tcp://0.0.0.0:50051")
 
 	if got, want := env[hostServiceEnv], "tls://host-service-relay.gestalt.example:443"; got != want {
 		t.Fatalf("host service socket env = %q, want %q", got, want)
 	}
-	if got, want := env[proto.EnvProviderSocket], "tcp://0.0.0.0:50051"; got != want {
+	if got, want := env[envProviderSocket], "tcp://0.0.0.0:50051"; got != want {
 		t.Fatalf("provider socket env = %q, want %q", got, want)
 	}
 	if got, want := env["CUSTOM"], "value"; got != want {
 		t.Fatalf("custom env = %q, want %q", got, want)
-	}
-}
-
-func TestRuntimeProviderContractRejectsInvalidRelayBindingEnv(t *testing.T) {
-	t.Parallel()
-
-	provider := &Provider{
-		name: "modal",
-		sessions: map[string]*session{
-			"session-1": {
-				id:    "session-1",
-				state: sessionStateReady,
-			},
-		},
-	}
-	client := startRuntimeProviderServer(t, provider)
-
-	_, err := client.BindHostService(context.Background(), &proto.BindPluginRuntimeHostServiceRequest{
-		SessionId: "session-1",
-		EnvVar:    "NOT-A-SOCKET",
-		Relay: &proto.PluginRuntimeHostServiceRelay{
-			DialTarget: "tls://gestaltd.example.test:443",
-		},
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("BindHostService code = %v, want InvalidArgument: %v", status.Code(err), err)
 	}
 }
 
@@ -139,31 +70,24 @@ func TestRuntimeProviderContractListsSessionsWithLifecycle(t *testing.T) {
 	}
 	client := startRuntimeProviderServer(t, provider)
 
-	resp, err := client.ListSessions(context.Background(), &proto.ListPluginRuntimeSessionsRequest{})
+	sessions, err := client.ListSessions(context.Background())
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
-	sessions := resp.GetSessions()
 	if len(sessions) != 1 {
 		t.Fatalf("ListSessions len = %d, want 1", len(sessions))
 	}
 	session := sessions[0]
-	if got, want := session.GetId(), "session-1"; got != want {
+	if got, want := session.ID, "session-1"; got != want {
 		t.Fatalf("session id = %q, want %q", got, want)
 	}
-	if got, want := session.GetLifecycle().GetStartedAt().AsTime(), startedAt; !got.Equal(want) {
-		t.Fatalf("started_at = %s, want %s", got, want)
-	}
-	if got, want := session.GetLifecycle().GetRecommendedDrainAt().AsTime(), recommendedDrainAt; !got.Equal(want) {
-		t.Fatalf("recommended_drain_at = %s, want %s", got, want)
-	}
-	if got, want := session.GetLifecycle().GetExpiresAt().AsTime(), expiresAt; !got.Equal(want) {
-		t.Fatalf("expires_at = %s, want %s", got, want)
-	}
-	if got, want := session.GetStateReason(), "exited"; got != want {
+	assertTimePtrEqual(t, "started_at", session.Lifecycle.StartedAt, startedAt)
+	assertTimePtrEqual(t, "recommended_drain_at", session.Lifecycle.RecommendedDrainAt, recommendedDrainAt)
+	assertTimePtrEqual(t, "expires_at", session.Lifecycle.ExpiresAt, expiresAt)
+	if got, want := session.StateReason, "exited"; got != want {
 		t.Fatalf("state_reason = %q, want %q", got, want)
 	}
-	if got, want := session.GetStateMessage(), "plugin process exited with status 137"; got != want {
+	if got, want := session.StateMessage, "plugin process exited with status 137"; got != want {
 		t.Fatalf("state_message = %q, want %q", got, want)
 	}
 }
@@ -177,15 +101,15 @@ func TestRuntimeProviderContractStartSessionHasNoLifecycleBeforeSandbox(t *testi
 	provider.cfg = Config{App: "gestalt-test", Timeout: 5 * time.Minute}
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+	session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
 		PluginName: "agent",
 		Image:      "python:3.14-slim-bookworm",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	if session.GetLifecycle() != nil {
-		t.Fatalf("StartSession lifecycle = %#v, want nil before Modal sandbox creation", session.GetLifecycle())
+	if hasLifecycle(session.Lifecycle) {
+		t.Fatalf("StartSession lifecycle = %#v, want empty before Modal sandbox creation", session.Lifecycle)
 	}
 }
 
@@ -212,8 +136,8 @@ func TestRuntimeProviderContractResetSessionSandboxClearsLifecycle(t *testing.T)
 	provider.resetSessionSandbox("session-1", provider.sessions["session-1"].sandbox)
 
 	cloned := cloneSession(provider.sessions["session-1"])
-	if cloned.GetLifecycle() != nil {
-		t.Fatalf("lifecycle after reset = %#v, want nil", cloned.GetLifecycle())
+	if hasLifecycle(cloned.Lifecycle) {
+		t.Fatalf("lifecycle after reset = %#v, want empty", cloned.Lifecycle)
 	}
 	if provider.sessions["session-1"].sandbox != nil {
 		t.Fatal("sandbox after reset is still set")
@@ -237,29 +161,27 @@ func TestRuntimeProviderContractRestoresTaggedModalSandboxAcrossProviders(t *tes
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
-		SessionId: sessionID,
-	})
+	session, err := client.GetSession(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("GetSession restore: %v", err)
 	}
-	if got, want := session.GetId(), sessionID; got != want {
+	if got, want := session.ID, sessionID; got != want {
 		t.Fatalf("restored session id = %q, want %q", got, want)
 	}
-	if got, want := session.GetState(), sessionStateRunning; got != want {
+	if got, want := session.State, sessionStateRunning; got != want {
 		t.Fatalf("restored session state = %q, want %q", got, want)
 	}
-	if got, want := session.GetMetadata()["provider_name"], "agent-provider"; got != want {
+	if got, want := session.Metadata["provider_name"], "agent-provider"; got != want {
 		t.Fatalf("restored provider_name = %q, want %q", got, want)
 	}
-	if got, want := session.GetMetadata()["provider_kind"], "agent"; got != want {
+	if got, want := session.Metadata["provider_kind"], "agent"; got != want {
 		t.Fatalf("restored provider_kind = %q, want %q", got, want)
 	}
-	if got, want := session.GetStateReason(), "restored"; got != want {
+	if got, want := session.StateReason, "restored"; got != want {
 		t.Fatalf("restored state_reason = %q, want %q", got, want)
 	}
-	if !strings.Contains(session.GetStateMessage(), "plugin process handle is unavailable") {
-		t.Fatalf("restored state_message = %q, want process-handle limitation", session.GetStateMessage())
+	if !strings.Contains(session.StateMessage, "plugin process handle is unavailable") {
+		t.Fatalf("restored state_message = %q, want process-handle limitation", session.StateMessage)
 	}
 
 	provider.mu.Lock()
@@ -271,16 +193,14 @@ func TestRuntimeProviderContractRestoresTaggedModalSandboxAcrossProviders(t *tes
 
 	exitCode := 0
 	fakeModal.setPollCode("sb-restored", &exitCode)
-	session, err = client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
-		SessionId: sessionID,
-	})
+	session, err = client.GetSession(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("GetSession revalidate: %v", err)
 	}
-	if got, want := session.GetState(), sessionStateStopped; got != want {
+	if got, want := session.State, sessionStateStopped; got != want {
 		t.Fatalf("revalidated session state = %q, want %q", got, want)
 	}
-	if got, want := session.GetStateReason(), "exited"; got != want {
+	if got, want := session.StateReason, "exited"; got != want {
 		t.Fatalf("revalidated state_reason = %q, want %q", got, want)
 	}
 }
@@ -302,9 +222,7 @@ func TestRuntimeProviderContractStopsRestoredModalSandboxAcrossProviders(t *test
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	if _, err := client.StopSession(context.Background(), &proto.StopPluginRuntimeSessionRequest{
-		SessionId: sessionID,
-	}); err != nil {
+	if err := client.StopSession(context.Background(), sessionID); err != nil {
 		t.Fatalf("StopSession: %v", err)
 	}
 	if !fakeModal.isTerminated("sb-stop") {
@@ -312,7 +230,7 @@ func TestRuntimeProviderContractStopsRestoredModalSandboxAcrossProviders(t *test
 	}
 }
 
-func TestRuntimeProviderContractRestoredSessionCannotLaunchOrBind(t *testing.T) {
+func TestRuntimeProviderContractRestoredSessionCannotLaunch(t *testing.T) {
 	t.Parallel()
 
 	fakeModal := newFakeModalControlPlane()
@@ -329,24 +247,12 @@ func TestRuntimeProviderContractRestoredSessionCannotLaunchOrBind(t *testing.T) 
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	if _, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
-		SessionId: sessionID,
-	}); err != nil {
+	if _, err := client.GetSession(context.Background(), sessionID); err != nil {
 		t.Fatalf("GetSession restore: %v", err)
 	}
-	_, bindErr := client.BindHostService(context.Background(), &proto.BindPluginRuntimeHostServiceRequest{
-		SessionId: sessionID,
-		EnvVar:    gestalt.EnvAgentHostSocket,
-		Relay: &proto.PluginRuntimeHostServiceRelay{
-			DialTarget: "tls://gestaltd.example.test:443",
-		},
-	})
-	if status.Code(bindErr) != codes.FailedPrecondition {
-		t.Fatalf("BindHostService code = %v, want FailedPrecondition: %v", status.Code(bindErr), bindErr)
-	}
 
-	_, launchErr := client.StartPlugin(context.Background(), &proto.StartHostedPluginRequest{
-		SessionId:  sessionID,
+	_, launchErr := client.StartPlugin(context.Background(), gestalt.StartHostedPluginRequest{
+		SessionID:  sessionID,
 		PluginName: "agent-provider",
 		Command:    "/bin/true",
 	})
@@ -379,9 +285,7 @@ func TestRuntimeProviderContractDuplicateTaggedModalSandboxesFailClosed(t *testi
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	_, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
-		SessionId: sessionID,
-	})
+	_, err := client.GetSession(context.Background(), sessionID)
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("GetSession code = %v, want FailedPrecondition: %v", status.Code(err), err)
 	}
@@ -428,9 +332,7 @@ func TestRuntimeProviderContractRestoreTreatsSandboxGoneAfterListAsNotFound(t *t
 			provider := newFakeModalProvider(t, fakeModal)
 			client := startRuntimeProviderServer(t, provider)
 
-			_, err := client.GetSession(context.Background(), &proto.GetPluginRuntimeSessionRequest{
-				SessionId: sessionID,
-			})
+			_, err := client.GetSession(context.Background(), sessionID)
 			if status.Code(err) != codes.NotFound {
 				t.Fatalf("GetSession code = %v, want NotFound: %v", status.Code(err), err)
 			}
@@ -456,9 +358,7 @@ func TestRuntimeProviderContractStopRestoredIgnoresSandboxGoneAfterList(t *testi
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	if _, err := client.StopSession(context.Background(), &proto.StopPluginRuntimeSessionRequest{
-		SessionId: sessionID,
-	}); err != nil {
+	if err := client.StopSession(context.Background(), sessionID); err != nil {
 		t.Fatalf("StopSession: %v", err)
 	}
 }
@@ -476,8 +376,8 @@ func TestRuntimeProviderContractTagsModalSandboxBeforeTunnelLookup(t *testing.T)
 		metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
 		bindings: map[string]string{},
 	}
-	req := &proto.StartHostedPluginRequest{
-		SessionId:  sessionID,
+	req := gestalt.StartHostedPluginRequest{
+		SessionID:  sessionID,
 		PluginName: "agent-provider",
 	}
 	logs := newSessionLogSink(sessionID, &provider.sessions[sessionID].logSeq, nil)
@@ -542,11 +442,11 @@ func TestRuntimeProviderContractUsesDockerConfigImagePullAuthForPrivateRegistry(
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+	session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
 		PluginName: "agent-provider",
 		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
-		ImagePullAuth: &proto.PluginRuntimeImagePullAuth{
-			DockerConfigJson: `{"auths":{"ghcr.io":{"username":" ghcr-user ","password":" ghcr-token "}}}`,
+		ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+			DockerConfigJSON: `{"auths":{"ghcr.io":{"username":" ghcr-user ","password":" ghcr-token "}}}`,
 		},
 		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
 	})
@@ -555,10 +455,10 @@ func TestRuntimeProviderContractUsesDockerConfigImagePullAuthForPrivateRegistry(
 	}
 
 	var logSeq uint64
-	sandbox, tunnel, err := provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, &proto.StartHostedPluginRequest{
-		SessionId:  session.GetId(),
+	sandbox, tunnel, err := provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedPluginRequest{
+		SessionID:  session.ID,
 		PluginName: "agent-provider",
-	}, newSessionLogSink(session.GetId(), &logSeq, nil))
+	}, newSessionLogSink(session.ID, &logSeq, nil))
 	if err != nil {
 		t.Fatalf("ensureSessionSandbox: %v", err)
 	}
@@ -607,11 +507,11 @@ func TestRuntimeProviderContractUsesDockerConfigAuthFieldForPrivateRegistry(t *t
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+	session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
 		PluginName: "agent-provider",
 		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
-		ImagePullAuth: &proto.PluginRuntimeImagePullAuth{
-			DockerConfigJson: `{"auths":{"ghcr.io":{"auth":"Z2hjci11c2VyOmdoY3ItdG9rZW4="}}}`,
+		ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+			DockerConfigJSON: `{"auths":{"ghcr.io":{"auth":"Z2hjci11c2VyOmdoY3ItdG9rZW4="}}}`,
 		},
 		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
 	})
@@ -620,10 +520,10 @@ func TestRuntimeProviderContractUsesDockerConfigAuthFieldForPrivateRegistry(t *t
 	}
 
 	var logSeq uint64
-	_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, &proto.StartHostedPluginRequest{
-		SessionId:  session.GetId(),
+	_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedPluginRequest{
+		SessionID:  session.ID,
 		PluginName: "agent-provider",
-	}, newSessionLogSink(session.GetId(), &logSeq, nil))
+	}, newSessionLogSink(session.ID, &logSeq, nil))
 	if err != nil {
 		t.Fatalf("ensureSessionSandbox: %v", err)
 	}
@@ -678,11 +578,11 @@ func TestRuntimeProviderContractUsesDockerHubImagePullAuth(t *testing.T) {
 			provider := newFakeModalProvider(t, fakeModal)
 			client := startRuntimeProviderServer(t, provider)
 
-			session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+			session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
 				PluginName: "agent-provider",
 				Image:      tc.image,
-				ImagePullAuth: &proto.PluginRuntimeImagePullAuth{
-					DockerConfigJson: tc.dockerConfigJSON,
+				ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+					DockerConfigJSON: tc.dockerConfigJSON,
 				},
 			})
 			if err != nil {
@@ -690,10 +590,10 @@ func TestRuntimeProviderContractUsesDockerHubImagePullAuth(t *testing.T) {
 			}
 
 			var logSeq uint64
-			_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, &proto.StartHostedPluginRequest{
-				SessionId:  session.GetId(),
+			_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedPluginRequest{
+				SessionID:  session.ID,
 				PluginName: "agent-provider",
-			}, newSessionLogSink(session.GetId(), &logSeq, nil))
+			}, newSessionLogSink(session.ID, &logSeq, nil))
 			if err != nil {
 				t.Fatalf("ensureSessionSandbox: %v", err)
 			}
@@ -717,40 +617,40 @@ func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
 
 	cases := []struct {
 		name string
-		auth *proto.PluginRuntimeImagePullAuth
+		auth *gestalt.PluginRuntimeImagePullAuth
 	}{
 		{
 			name: "blank Docker config JSON",
-			auth: &proto.PluginRuntimeImagePullAuth{},
+			auth: &gestalt.PluginRuntimeImagePullAuth{},
 		},
 		{
 			name: "invalid Docker config JSON",
-			auth: &proto.PluginRuntimeImagePullAuth{
-				DockerConfigJson: `{`,
+			auth: &gestalt.PluginRuntimeImagePullAuth{
+				DockerConfigJSON: `{`,
 			},
 		},
 		{
 			name: "missing auths",
-			auth: &proto.PluginRuntimeImagePullAuth{
-				DockerConfigJson: `{}`,
+			auth: &gestalt.PluginRuntimeImagePullAuth{
+				DockerConfigJSON: `{}`,
 			},
 		},
 		{
 			name: "missing registry entry",
-			auth: &proto.PluginRuntimeImagePullAuth{
-				DockerConfigJson: `{"auths":{"index.docker.io/v1":{"username":"docker-user","password":"docker-token"}}}`,
+			auth: &gestalt.PluginRuntimeImagePullAuth{
+				DockerConfigJSON: `{"auths":{"index.docker.io/v1":{"username":"docker-user","password":"docker-token"}}}`,
 			},
 		},
 		{
 			name: "missing password",
-			auth: &proto.PluginRuntimeImagePullAuth{
-				DockerConfigJson: `{"auths":{"ghcr.io":{"username":"ghcr-user"}}}`,
+			auth: &gestalt.PluginRuntimeImagePullAuth{
+				DockerConfigJSON: `{"auths":{"ghcr.io":{"username":"ghcr-user"}}}`,
 			},
 		},
 		{
 			name: "identity token only",
-			auth: &proto.PluginRuntimeImagePullAuth{
-				DockerConfigJson: `{"auths":{"ghcr.io":{"identitytoken":"token"}}}`,
+			auth: &gestalt.PluginRuntimeImagePullAuth{
+				DockerConfigJSON: `{"auths":{"ghcr.io":{"identitytoken":"token"}}}`,
 			},
 		},
 	}
@@ -765,7 +665,7 @@ func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
 			provider.cfg = Config{App: "gestalt-test", Timeout: 5 * time.Minute}
 			client := startRuntimeProviderServer(t, provider)
 
-			_, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+			_, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
 				PluginName:    "agent-provider",
 				Image:         "ghcr.io/valon-technologies/agent-simple-runtime:latest",
 				ImagePullAuth: tc.auth,
@@ -787,12 +687,13 @@ func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
 func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *testing.T) {
 	t.Parallel()
 
-	params, err := buildSandboxCreateParams(context.Background(), Config{}, &proto.StartHostedPluginRequest{
+	params, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedPluginRequest{
 		PluginName:   "agent-provider",
 		AllowedHosts: []string{"agent-relay.gestalt.example"},
-	}, "session-1", map[string]string{
-		gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
-	})
+		Env: map[string]string{
+			gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
+		},
+	}, "session-1")
 	if err != nil {
 		t.Fatalf("buildSandboxCreateParams: %v", err)
 	}
@@ -804,12 +705,13 @@ func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *te
 func TestRuntimeProviderContractNonRelayAllowedHostStillRequiresProxy(t *testing.T) {
 	t.Parallel()
 
-	_, err := buildSandboxCreateParams(context.Background(), Config{}, &proto.StartHostedPluginRequest{
+	_, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedPluginRequest{
 		PluginName:   "agent-provider",
 		AllowedHosts: []string{"api.github.com"},
-	}, "session-1", map[string]string{
-		gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
-	})
+		Env: map[string]string{
+			gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
+		},
+	}, "session-1")
 	if err == nil || !strings.Contains(err.Error(), "HTTP_PROXY or HTTPS_PROXY is required") {
 		t.Fatalf("buildSandboxCreateParams error = %v, want missing proxy precondition", err)
 	}
@@ -832,33 +734,23 @@ func TestNewProviderIDsAreBootUnique(t *testing.T) {
 	}
 }
 
-func startRuntimeProviderServer(t *testing.T, provider *Provider) proto.PluginRuntimeProviderClient {
-	t.Helper()
-	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer()
-	proto.RegisterPluginRuntimeProviderServer(server, provider)
-	go func() {
-		if err := server.Serve(listener); err != nil {
-			t.Logf("runtime provider server stopped: %v", err)
-		}
-	}()
+func hasLifecycle(lifecycle gestalt.PluginRuntimeSessionLifecycle) bool {
+	return lifecycle.StartedAt != nil || lifecycle.RecommendedDrainAt != nil || lifecycle.ExpiresAt != nil
+}
 
-	conn, err := grpc.NewClient(
-		"passthrough:///runtime-provider",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return listener.Dial()
-		}),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		t.Fatalf("connect runtime provider server: %v", err)
+func assertTimePtrEqual(t *testing.T, name string, got *time.Time, want time.Time) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s = nil, want %s", name, want)
 	}
-	t.Cleanup(func() {
-		_ = conn.Close()
-		server.Stop()
-		_ = listener.Close()
-	})
-	return proto.NewPluginRuntimeProviderClient(conn)
+	if !got.Equal(want) {
+		t.Fatalf("%s = %s, want %s", name, got, want)
+	}
+}
+
+func startRuntimeProviderServer(t *testing.T, provider *Provider) *Provider {
+	t.Helper()
+	return provider
 }
 
 type fakeModalControlPlane struct {

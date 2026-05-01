@@ -3,9 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createServer, type Http2Server } from "node:http2";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 
-import { create as createProto } from "@bufbuild/protobuf";
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { connectNodeAdapter, createGrpcTransport } from "@connectrpc/connect-node";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
@@ -18,6 +16,11 @@ import {
   type ExecuteAgentToolRequest,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
+import {
+  agentContractSchemas,
+  agentContractServices,
+  createAgentContractMessage,
+} from "@valon-technologies/gestalt/test/agent-contract";
 
 import {
   AGENT_HOST_RELAY_TOKEN_HEADER,
@@ -31,10 +34,11 @@ import { createCursorAgentProvider, type CursorAgentProvider } from "../src/prov
 import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import type { ToolEntry } from "../src/tools.ts";
 
-const agentPb = await importGestaltAgentProto();
 const {
   AgentHost: AgentHostService,
   AgentProvider: VendoredAgentProviderService,
+} = agentContractServices as Record<string, any>;
+const {
   CancelAgentProviderTurnRequestSchema,
   CreateAgentProviderSessionRequestSchema,
   CreateAgentProviderTurnRequestSchema,
@@ -45,12 +49,12 @@ const {
   ListAgentProviderTurnEventsRequestSchema,
   ListAgentToolsResponseSchema,
   ListedAgentToolSchema,
-} = agentPb;
+} = agentContractSchemas as Record<string, any>;
 
 const activeHosts: FakeAgentHost[] = [];
 
 function create<T = any>(schema: any, input: Record<string, unknown>): T {
-  return createProto(schema, input as any) as T;
+  return createAgentContractMessage<T>(schema, input);
 }
 
 afterEach(async () => {
@@ -948,12 +952,4 @@ async function closeHttp2(server: Http2Server): Promise<void> {
       resolveClose();
     });
   });
-}
-
-async function importGestaltAgentProto(): Promise<Record<string, any>> {
-  const packageDir = resolve(import.meta.dir, "../node_modules/@valon-technologies/gestalt");
-  if (!existsSync(join(packageDir, "package.json"))) {
-    throw new Error("install @valon-technologies/gestalt before running provider tests");
-  }
-  return await import(pathToFileURL(join(packageDir, "gen/v1/agent_pb.ts")).href);
 }

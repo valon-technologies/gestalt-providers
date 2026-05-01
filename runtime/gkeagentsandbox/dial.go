@@ -7,11 +7,12 @@ import (
 	"strings"
 	"time"
 
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+const providerLifecycleGetIdentityMethod = "/gestalt.provider.v1.ProviderLifecycle/GetProviderIdentity"
 
 func waitForPluginReady(ctx context.Context, dialTarget string) error {
 	network, address, err := parseLocalDialTarget(dialTarget)
@@ -29,9 +30,8 @@ func waitForPluginReady(ctx context.Context, dialTarget string) error {
 			}),
 		)
 		if err == nil {
-			client := proto.NewProviderLifecycleClient(conn)
 			callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_, rpcErr := client.GetProviderIdentity(callCtx, &emptypb.Empty{})
+			rpcErr := conn.Invoke(callCtx, providerLifecycleGetIdentityMethod, &emptypb.Empty{}, &emptypb.Empty{})
 			cancel()
 			_ = conn.Close()
 			if rpcErr == nil {

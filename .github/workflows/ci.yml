@@ -232,12 +232,13 @@ jobs:
       - name: Install Python
         if: matrix.plugin.has_python
         run: uv python install 3.13 3.14
-      - name: Prepare sibling Gestalt checkout for local Go replaces
-        if: matrix.plugin.has_go
+      - name: Prepare sibling Gestalt checkout for local SDK validation
+        if: matrix.plugin.has_go || matrix.plugin.has_python
         run: |
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
+          echo "GESTALT_CHECKOUT=$toolchain_dir" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           name: gestaltd

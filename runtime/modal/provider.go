@@ -19,13 +19,11 @@ import (
 
 	modalclient "github.com/modal-labs/modal-client/go"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,6 +51,11 @@ const (
 	modalSandboxTagProviderKind  = "gestalt_provider_kind"
 )
 
+const (
+	envProviderSocket                  = "GESTALT_PLUGIN_SOCKET"
+	providerLifecycleGetIdentityMethod = "/gestalt.provider.v1.ProviderLifecycle/GetProviderIdentity"
+)
+
 var sandboxNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 type Config struct {
@@ -70,8 +73,6 @@ type Config struct {
 }
 
 type Provider struct {
-	proto.UnimplementedPluginRuntimeProviderServer
-
 	name   string
 	client *modalclient.Client
 	cfg    Config
@@ -181,33 +182,32 @@ func (p *Provider) HealthCheck(context.Context) error {
 	return nil
 }
 
-func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRuntimeSupport, error) {
-	return &proto.PluginRuntimeSupport{
-		CanHostPlugins:    true,
-		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
-		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME,
+func (p *Provider) GetSupport(context.Context) (gestalt.PluginRuntimeSupport, error) {
+	return gestalt.PluginRuntimeSupport{
+		CanHostPlugins: true,
+		EgressMode:     gestalt.PluginRuntimeEgressModeHostname,
 	}, nil
 }
 
-func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
+func (p *Provider) StartSession(_ context.Context, req gestalt.StartPluginRuntimeSessionRequest) (gestalt.PluginRuntimeSession, error) {
 	_, _, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if strings.TrimSpace(req.GetImage()) == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the modal runtime", req.GetPluginName())
+	if strings.TrimSpace(req.Image) == "" {
+		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the modal runtime", req.PluginName)
 	}
-	imageRegistryCredentials, err := pluginRuntimeImagePullAuth(req.GetImage(), req.GetImagePullAuth())
+	imageRegistryCredentials, err := pluginRuntimeImagePullAuth(req.Image, req.ImagePullAuth)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.InvalidArgument, err.Error())
 	}
 	sessionID := p.newID("session")
 
 	session := &session{
 		id:                       sessionID,
 		state:                    sessionStateReady,
-		metadata:                 cloneStringMap(req.GetMetadata()),
-		image:                    strings.TrimSpace(req.GetImage()),
+		metadata:                 cloneStringMap(req.Metadata),
+		image:                    strings.TrimSpace(req.Image),
 		imageRegistryCredentials: imageRegistryCredentials,
 	}
 	if session.metadata == nil {
@@ -217,17 +217,17 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
-		return nil, status.Error(codes.FailedPrecondition, "modal runtime is closed")
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, "modal runtime is closed")
 	}
 	p.sessions[sessionID] = session
 	return cloneSession(session), nil
 }
 
-func pluginRuntimeImagePullAuth(image string, auth *proto.PluginRuntimeImagePullAuth) (*imageRegistryCredentials, error) {
+func pluginRuntimeImagePullAuth(image string, auth *gestalt.PluginRuntimeImagePullAuth) (*imageRegistryCredentials, error) {
 	if auth == nil {
 		return nil, nil
 	}
-	dockerConfigJSON := strings.TrimSpace(auth.GetDockerConfigJson())
+	dockerConfigJSON := strings.TrimSpace(auth.DockerConfigJSON)
 	if dockerConfigJSON == "" {
 		return nil, fmt.Errorf("image_pull_auth.docker_config_json is required when image_pull_auth is set")
 	}
@@ -329,8 +329,8 @@ func staticRegistryCredentials(auth dockerAuthConfig) (string, string, error) {
 	return username, password, nil
 }
 
-func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
-	sessionID := strings.TrimSpace(req.GetSessionId())
+func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.PluginRuntimeSession, error) {
+	sessionID = strings.TrimSpace(sessionID)
 	p.mu.Lock()
 	session, err := p.sessionLocked(sessionID)
 	if err == nil && session.restored {
@@ -353,7 +353,7 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 		session, err = p.sessionLocked(sessionID)
 		if err != nil {
 			p.mu.Unlock()
-			return nil, status.Error(codes.NotFound, err.Error())
+			return gestalt.PluginRuntimeSession{}, status.Error(codes.NotFound, err.Error())
 		}
 		if session.state != sessionStateStopped && session.state != sessionStateFailed {
 			session.state = sessionStateStopped
@@ -371,26 +371,26 @@ type modalSessionMatch struct {
 	tags    map[string]string
 }
 
-func (p *Provider) restoreSession(ctx context.Context, sessionID string) (*proto.PluginRuntimeSession, error) {
+func (p *Provider) restoreSession(ctx context.Context, sessionID string) (gestalt.PluginRuntimeSession, error) {
 	matches, err := p.findModalSessionSandboxes(ctx, sessionID)
 	if err != nil {
-		return nil, err
+		return gestalt.PluginRuntimeSession{}, err
 	}
 	if len(matches) == 0 {
 		p.forgetRestoredSession(sessionID)
-		return nil, status.Errorf(codes.NotFound, "plugin runtime session %q not found", strings.TrimSpace(sessionID))
+		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.NotFound, "plugin runtime session %q not found", strings.TrimSpace(sessionID))
 	}
 	if len(matches) > 1 {
-		return nil, status.Errorf(codes.FailedPrecondition, "multiple active modal sandboxes found for plugin runtime session %q", strings.TrimSpace(sessionID))
+		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.FailedPrecondition, "multiple active modal sandboxes found for plugin runtime session %q", strings.TrimSpace(sessionID))
 	}
 	match := matches[0]
 	code, err := match.sandbox.Poll(ctx)
 	if err != nil {
 		if isModalNotFound(err) {
 			p.forgetRestoredSession(sessionID)
-			return nil, status.Errorf(codes.NotFound, "plugin runtime session %q not found", strings.TrimSpace(sessionID))
+			return gestalt.PluginRuntimeSession{}, status.Errorf(codes.NotFound, "plugin runtime session %q not found", strings.TrimSpace(sessionID))
 		}
-		return nil, status.Errorf(codes.Unavailable, "poll restored modal sandbox: %v", err)
+		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.Unavailable, "poll restored modal sandbox: %v", err)
 	}
 	restored := restoredSessionFromModalSandbox(sessionID, match.sandbox, match.tags, code)
 
@@ -500,7 +500,7 @@ func (p *Provider) forgetRestoredSession(sessionID string) {
 	}
 }
 
-func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeSessionsRequest) (*proto.ListPluginRuntimeSessionsResponse, error) {
+func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSession, error) {
 	p.mu.Lock()
 	sessionIDs := make([]string, 0, len(p.sessions))
 	for sessionID := range p.sessions {
@@ -509,28 +509,26 @@ func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeS
 	p.mu.Unlock()
 	sort.Strings(sessionIDs)
 
-	resp := &proto.ListPluginRuntimeSessionsResponse{
-		Sessions: make([]*proto.PluginRuntimeSession, 0, len(sessionIDs)),
-	}
+	sessions := make([]gestalt.PluginRuntimeSession, 0, len(sessionIDs))
 	for _, sessionID := range sessionIDs {
-		session, err := p.GetSession(ctx, &proto.GetPluginRuntimeSessionRequest{SessionId: sessionID})
+		session, err := p.GetSession(ctx, sessionID)
 		if status.Code(err) == codes.NotFound {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		resp.Sessions = append(resp.Sessions, session)
+		sessions = append(sessions, session)
 	}
-	return resp, nil
+	return sessions, nil
 }
 
-func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntimeSessionRequest) (*emptypb.Empty, error) {
+func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
 	var sandbox *modalclient.Sandbox
 	var restored bool
 	var found bool
 
-	sessionID := strings.TrimSpace(req.GetSessionId())
+	sessionID = strings.TrimSpace(sessionID)
 	p.mu.Lock()
 	if session, ok := p.sessions[sessionID]; ok {
 		found = true
@@ -543,110 +541,69 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 
 	if sandbox != nil && !restored {
 		if _, err := sandbox.Terminate(ctx, nil); err != nil {
-			return nil, status.Errorf(codes.Internal, "terminate modal sandbox: %v", err)
+			return status.Errorf(codes.Internal, "terminate modal sandbox: %v", err)
 		}
-		return &emptypb.Empty{}, nil
+		return nil
 	}
 	if found && !restored {
-		return &emptypb.Empty{}, nil
+		return nil
 	}
 	if restored || !found {
 		if err := p.terminateRestoredSession(ctx, sessionID); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRuntimeHostServiceRequest) (*proto.PluginRuntimeHostServiceBinding, error) {
-	envVar, err := normalizeHostServiceEnvVar(req.GetEnvVar())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	relay := req.GetRelay()
-	dialTarget := ""
-	switch {
-	case relay != nil && strings.TrimSpace(relay.GetDialTarget()) != "":
-		dialTarget = strings.TrimSpace(relay.GetDialTarget())
-	default:
-		return nil, status.Error(codes.Unimplemented, "modal runtime requires relay.dial_target for host services")
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	session, err := p.sessionLocked(req.GetSessionId())
-	if err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
-	}
-	if session.restored {
-		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q was restored from Modal and cannot bind host services", req.GetSessionId())
-	}
-	if session.plugin != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
-	}
-	if session.bindings == nil {
-		session.bindings = map[string]string{}
-	}
-	session.bindings[envVar] = dialTarget
-
-	return &proto.PluginRuntimeHostServiceBinding{
-		Id:        p.newID("binding"),
-		SessionId: session.id,
-		EnvVar:    envVar,
-		Relay:     relay,
-	}, nil
-}
-
-func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPluginRequest) (*proto.HostedPlugin, error) {
-	if strings.TrimSpace(req.GetCommand()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin command is required")
+func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPluginRequest) (gestalt.HostedPlugin, error) {
+	if strings.TrimSpace(req.Command) == "" {
+		return gestalt.HostedPlugin{}, status.Error(codes.InvalidArgument, "plugin command is required")
 	}
 	client, cfg, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.HostedPlugin{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
 	p.mu.Lock()
-	session, err := p.sessionLocked(req.GetSessionId())
+	session, err := p.sessionLocked(req.SessionID)
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Error(codes.NotFound, err.Error())
+		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
 	}
 	if session.plugin != nil {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
+		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
 	}
 	if session.restored {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q was restored from Modal and cannot launch a plugin", req.GetSessionId())
+		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q was restored from Modal and cannot launch a plugin", req.SessionID)
 	}
-	bindings := cloneStringMap(session.bindings)
 	logs := newSessionLogSink(session.id, &session.logSeq, nil)
 	p.mu.Unlock()
-	logRuntimePhase(logs, "starting plugin %q", req.GetPluginName())
+	logRuntimePhase(logs, "starting plugin %q", req.PluginName)
 
 	sandbox, tunnel, err := p.ensureSessionSandbox(ctx, client, cfg, req, logs)
 	if err != nil {
-		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, err.Error(), time.Now())
-		return nil, err
+		logs.add(gestalt.RuntimeLogStreamRuntime, err.Error(), time.Now())
+		return gestalt.HostedPlugin{}, err
 	}
 	launchOK := false
 	defer func() {
 		if launchOK {
 			return
 		}
-		p.resetSessionSandbox(req.GetSessionId(), sandbox)
+		p.resetSessionSandbox(req.SessionID, sandbox)
 		_, _ = sandbox.Terminate(context.Background(), nil)
 	}()
 
-	command := req.GetCommand()
+	command := req.Command
 
-	env := buildPluginEnv(req, bindings, fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort))
+	env := buildPluginEnv(req, fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort))
 
-	execArgv := append([]string{command}, req.GetArgs()...)
+	execArgv := append([]string{command}, req.Args...)
 	startedAt := time.Now()
-	logRuntimePhase(logs, "plugin exec: starting command=%q args=%d", command, len(req.GetArgs()))
+	logRuntimePhase(logs, "plugin exec: starting command=%q args=%d", command, len(req.Args))
 	process, err := sandbox.Exec(ctx, execArgv, &modalclient.SandboxExecParams{
 		Stdout: modalclient.Pipe,
 		Stderr: modalclient.Pipe,
@@ -654,52 +611,52 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	})
 	if err != nil {
 		logRuntimePhase(logs, "plugin exec: failed after %s: %v", elapsed(startedAt), err)
-		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "start plugin process in modal sandbox: "+err.Error(), time.Now())
-		return nil, status.Errorf(codes.Internal, "start plugin process in modal sandbox: %v", err)
+		logs.add(gestalt.RuntimeLogStreamRuntime, "start plugin process in modal sandbox: "+err.Error(), time.Now())
+		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "start plugin process in modal sandbox: %v", err)
 	}
 	logRuntimePhase(logs, "plugin exec: process started in %s", elapsed(startedAt))
-	stdoutDone := logs.stream(process.Stdout, proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDOUT)
-	stderrDone := logs.stream(process.Stderr, proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDERR)
-	processDone := p.watchPluginProcess(req.GetSessionId(), logs, process)
+	stdoutDone := logs.stream(process.Stdout, gestalt.RuntimeLogStreamStdout)
+	stderrDone := logs.stream(process.Stderr, gestalt.RuntimeLogStreamStderr)
+	processDone := p.watchPluginProcess(req.SessionID, logs, process)
 
 	host, port := tunnel.TLSSocket()
 	startedAt = time.Now()
 	logRuntimePhase(logs, "plugin gRPC readiness: waiting target=%s", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	if err := waitForPluginReady(ctx, host, port); err != nil {
 		logRuntimePhase(logs, "plugin gRPC readiness: failed after %s: %v", elapsed(startedAt), err)
-		logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "wait for modal plugin gRPC endpoint: "+err.Error(), time.Now())
-		p.markSessionLaunchFailed(req.GetSessionId(), "readiness_failed", err.Error())
-		p.resetSessionSandbox(req.GetSessionId(), sandbox)
+		logs.add(gestalt.RuntimeLogStreamRuntime, "wait for modal plugin gRPC endpoint: "+err.Error(), time.Now())
+		p.markSessionLaunchFailed(req.SessionID, "readiness_failed", err.Error())
+		p.resetSessionSandbox(req.SessionID, sandbox)
 		_, _ = sandbox.Terminate(context.Background(), nil)
 		waitForLaunchDrain(processDone, stdoutDone, stderrDone, launchDrainTimeout)
 		launchOK = true
-		return nil, status.Errorf(codes.DeadlineExceeded, "wait for modal plugin gRPC endpoint: %v", err)
+		return gestalt.HostedPlugin{}, status.Errorf(codes.DeadlineExceeded, "wait for modal plugin gRPC endpoint: %v", err)
 	}
 	logRuntimePhase(logs, "plugin gRPC readiness: ready in %s", elapsed(startedAt))
 
 	plugin := &plugin{
 		id:      p.newID("plugin"),
-		name:    req.GetPluginName(),
+		name:    req.PluginName,
 		process: process,
 	}
 
 	p.mu.Lock()
-	session, err = p.sessionLocked(req.GetSessionId())
+	session, err = p.sessionLocked(req.SessionID)
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Error(codes.NotFound, err.Error())
+		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
 	}
 	session.plugin = plugin
 	session.state = sessionStateRunning
 	session.stateReason = ""
 	session.stateMessage = ""
 	p.mu.Unlock()
-	logs.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, fmt.Sprintf("plugin %q became ready", req.GetPluginName()), time.Now())
+	logs.add(gestalt.RuntimeLogStreamRuntime, fmt.Sprintf("plugin %q became ready", req.PluginName), time.Now())
 	launchOK = true
 
-	return &proto.HostedPlugin{
-		Id:         plugin.id,
-		SessionId:  session.id,
+	return gestalt.HostedPlugin{
+		ID:         plugin.id,
+		SessionID:  session.id,
 		PluginName: plugin.name,
 		DialTarget: fmt.Sprintf("tls://%s", net.JoinHostPort(host, fmt.Sprintf("%d", port))),
 	}, nil
@@ -729,7 +686,7 @@ func (p *Provider) Close() error {
 	var errs []error
 	for _, id := range sessionIDs {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_, err := p.StopSession(stopCtx, &proto.StopPluginRuntimeSessionRequest{SessionId: id})
+		err := p.StopSession(stopCtx, id)
 		cancel()
 		errs = append(errs, err)
 	}
@@ -751,9 +708,9 @@ func (p *Provider) configured() (*modalclient.Client, Config, error) {
 	return p.client, p.cfg, nil
 }
 
-func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient.Client, cfg Config, req *proto.StartHostedPluginRequest, logs *sessionLogSink) (*modalclient.Sandbox, *modalclient.Tunnel, error) {
+func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient.Client, cfg Config, req gestalt.StartHostedPluginRequest, logs *sessionLogSink) (*modalclient.Sandbox, *modalclient.Tunnel, error) {
 	p.mu.Lock()
-	session, err := p.sessionLocked(req.GetSessionId())
+	session, err := p.sessionLocked(req.SessionID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, nil, status.Error(codes.NotFound, err.Error())
@@ -762,22 +719,21 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 		sandbox := session.sandbox
 		tunnel := session.tunnel
 		p.mu.Unlock()
-		logRuntimePhase(logs, "modal sandbox: reusing existing sandbox for session %q", req.GetSessionId())
+		logRuntimePhase(logs, "modal sandbox: reusing existing sandbox for session %q", req.SessionID)
 		return sandbox, tunnel, nil
 	}
 	imageRef := strings.TrimSpace(session.image)
 	sessionID := session.id
-	bindings := cloneStringMap(session.bindings)
 	metadata := cloneStringMap(session.metadata)
 	imageRegistryCredentials := cloneImageRegistryCredentials(session.imageRegistryCredentials)
 	p.mu.Unlock()
 
 	if imageRef == "" {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q is missing a runtime image", req.GetSessionId())
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q is missing a runtime image", req.SessionID)
 	}
 	startedAt := time.Now()
 	logRuntimePhase(logs, "modal sandbox egress: configuring")
-	createParams, err := buildSandboxCreateParams(ctx, cfg, req, sessionID, bindings)
+	createParams, err := buildSandboxCreateParams(ctx, cfg, req, sessionID)
 	if err != nil {
 		logRuntimePhase(logs, "modal sandbox egress: failed after %s: %v", elapsed(startedAt), err)
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "configure modal sandbox egress: %v", err)
@@ -836,7 +792,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	logRuntimePhase(logs, "modal sandbox tunnel lookup: completed in %s target=%s", elapsed(startedAt), net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 
 	p.mu.Lock()
-	session, err = p.sessionLocked(req.GetSessionId())
+	session, err = p.sessionLocked(req.SessionID)
 	if err != nil {
 		p.mu.Unlock()
 		_, _ = sandbox.Terminate(context.Background(), nil)
@@ -847,7 +803,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 		existingTunnel := session.tunnel
 		p.mu.Unlock()
 		_, _ = sandbox.Terminate(context.Background(), nil)
-		logRuntimePhase(logs, "modal sandbox: another sandbox was already registered for session %q", req.GetSessionId())
+		logRuntimePhase(logs, "modal sandbox: another sandbox was already registered for session %q", req.SessionID)
 		return existingSandbox, existingTunnel, nil
 	}
 	session.sandbox = sandbox
@@ -858,7 +814,7 @@ func (p *Provider) ensureSessionSandbox(ctx context.Context, client *modalclient
 	session.startedAt = sandboxStartedAt
 	session.expiresAt, session.recommendedDrainAt = modalSessionLifecycleDeadlines(session.startedAt, cfg)
 	p.mu.Unlock()
-	logRuntimePhase(logs, "modal sandbox: registered for session %q", req.GetSessionId())
+	logRuntimePhase(logs, "modal sandbox: registered for session %q", req.SessionID)
 	return sandbox, tunnel, nil
 }
 
@@ -882,7 +838,7 @@ func imageFromRegistryParams(ctx context.Context, client *modalclient.Client, cf
 	return &modalclient.ImageFromRegistryParams{Secret: secret}, nil
 }
 
-func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartHostedPluginRequest, sessionID string, bindings map[string]string) (*modalclient.SandboxCreateParams, error) {
+func buildSandboxCreateParams(ctx context.Context, cfg Config, req gestalt.StartHostedPluginRequest, sessionID string) (*modalclient.SandboxCreateParams, error) {
 	params := &modalclient.SandboxCreateParams{
 		CPU:            cfg.CPU,
 		MemoryMiB:      cfg.MemoryMiB,
@@ -892,12 +848,12 @@ func buildSandboxCreateParams(ctx context.Context, cfg Config, req *proto.StartH
 		Cloud:          cfg.Cloud,
 		Regions:        slicesOrNil(cfg.Regions),
 		H2Ports:        []int{pluginGRPCPort},
-		Name:           sandboxName(req.GetPluginName(), sessionID),
+		Name:           sandboxName(req.PluginName, sessionID),
 	}
-	if !requiresHostnameProxy(req, req.GetEnv(), bindings) {
+	if !requiresHostnameProxy(req, req.Env) {
 		return params, nil
 	}
-	cidrs, err := egressProxyCIDRAllowlist(ctx, req.GetEnv())
+	cidrs, err := egressProxyCIDRAllowlist(ctx, req.Env)
 	if err != nil {
 		return nil, err
 	}
@@ -952,11 +908,8 @@ func egressProxyCIDRAllowlist(ctx context.Context, env map[string]string) ([]str
 	return cidrs, nil
 }
 
-func requiresHostnameProxy(req *proto.StartHostedPluginRequest, env map[string]string, bindings map[string]string) bool {
-	if req == nil {
-		return false
-	}
-	if strings.EqualFold(strings.TrimSpace(req.GetDefaultAction()), "deny") {
+func requiresHostnameProxy(req gestalt.StartHostedPluginRequest, env map[string]string) bool {
+	if strings.EqualFold(strings.TrimSpace(req.DefaultAction), "deny") {
 		return true
 	}
 	for _, proxyEnv := range []string{"HTTPS_PROXY", "HTTP_PROXY"} {
@@ -964,8 +917,8 @@ func requiresHostnameProxy(req *proto.StartHostedPluginRequest, env map[string]s
 			return true
 		}
 	}
-	relayHosts := relayHostnameSet(bindings)
-	for _, host := range req.GetAllowedHosts() {
+	relayHosts := relayHostnameSetFromEnv(env)
+	for _, host := range req.AllowedHosts {
 		if _, ok := relayHosts[normalizeHostname(host)]; !ok {
 			return true
 		}
@@ -973,9 +926,12 @@ func requiresHostnameProxy(req *proto.StartHostedPluginRequest, env map[string]s
 	return false
 }
 
-func relayHostnameSet(bindings map[string]string) map[string]struct{} {
-	hosts := make(map[string]struct{}, len(bindings))
-	for _, dialTarget := range bindings {
+func relayHostnameSetFromEnv(env map[string]string) map[string]struct{} {
+	hosts := make(map[string]struct{}, len(env))
+	for key, dialTarget := range env {
+		if !isHostServiceSocketEnv(key) {
+			continue
+		}
 		host := hostnameFromDialTarget(dialTarget)
 		if host == "" {
 			continue
@@ -999,6 +955,10 @@ func hostnameFromDialTarget(raw string) string {
 
 func normalizeHostname(host string) string {
 	return strings.ToLower(strings.TrimSpace(host))
+}
+
+func isHostServiceSocketEnv(key string) bool {
+	return strings.HasSuffix(strings.TrimSpace(key), "_SOCKET")
 }
 
 func (p *Provider) resetSessionSandbox(sessionID string, sandbox *modalclient.Sandbox) {
@@ -1052,7 +1012,7 @@ func (p *Provider) watchPluginProcess(sessionID string, logs *sessionLogSink, pr
 			return
 		}
 		message := ""
-		stream := proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME
+		stream := gestalt.RuntimeLogStreamRuntime
 		if err != nil {
 			session.state = sessionStateFailed
 			session.stateReason = "wait_failed"
@@ -1277,12 +1237,12 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func cloneSession(session *session) *proto.PluginRuntimeSession {
+func cloneSession(session *session) gestalt.PluginRuntimeSession {
 	if session == nil {
-		return nil
+		return gestalt.PluginRuntimeSession{}
 	}
-	return &proto.PluginRuntimeSession{
-		Id:           session.id,
+	return gestalt.PluginRuntimeSession{
+		ID:           session.id,
 		State:        session.state,
 		Metadata:     cloneStringMap(session.metadata),
 		Lifecycle:    cloneSessionLifecycle(session),
@@ -1291,19 +1251,22 @@ func cloneSession(session *session) *proto.PluginRuntimeSession {
 	}
 }
 
-func cloneSessionLifecycle(session *session) *proto.PluginRuntimeSessionLifecycle {
+func cloneSessionLifecycle(session *session) gestalt.PluginRuntimeSessionLifecycle {
 	if session == nil || (session.startedAt.IsZero() && session.recommendedDrainAt == nil && session.expiresAt == nil) {
-		return nil
+		return gestalt.PluginRuntimeSessionLifecycle{}
 	}
-	lifecycle := &proto.PluginRuntimeSessionLifecycle{}
+	lifecycle := gestalt.PluginRuntimeSessionLifecycle{}
 	if !session.startedAt.IsZero() {
-		lifecycle.StartedAt = timestamppb.New(session.startedAt.UTC())
+		startedAt := session.startedAt.UTC()
+		lifecycle.StartedAt = &startedAt
 	}
 	if session.recommendedDrainAt != nil {
-		lifecycle.RecommendedDrainAt = timestamppb.New(session.recommendedDrainAt.UTC())
+		recommendedDrainAt := session.recommendedDrainAt.UTC()
+		lifecycle.RecommendedDrainAt = &recommendedDrainAt
 	}
 	if session.expiresAt != nil {
-		lifecycle.ExpiresAt = timestamppb.New(session.expiresAt.UTC())
+		expiresAt := session.expiresAt.UTC()
+		lifecycle.ExpiresAt = &expiresAt
 	}
 	return lifecycle
 }
@@ -1326,7 +1289,7 @@ func logRuntimePhase(logs *sessionLogSink, format string, args ...any) {
 		return
 	}
 	logs.add(
-		proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME,
+		gestalt.RuntimeLogStreamRuntime,
 		fmt.Sprintf(format, args...),
 		time.Now(),
 	)
@@ -1377,8 +1340,7 @@ func waitForPluginReady(ctx context.Context, host string, port int) error {
 	for {
 		conn, err := dialTLSPlugin(deadlineCtx, host, port)
 		if err == nil {
-			client := proto.NewProviderLifecycleClient(conn)
-			_, rpcErr := client.GetProviderIdentity(deadlineCtx, &emptypb.Empty{})
+			rpcErr := conn.Invoke(deadlineCtx, providerLifecycleGetIdentityMethod, &emptypb.Empty{}, &emptypb.Empty{})
 			_ = conn.Close()
 			if rpcErr == nil {
 				return nil
@@ -1441,15 +1403,12 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings map[string]string, providerSocket string) map[string]string {
-	env := cloneStringMap(req.GetEnv())
+func buildPluginEnv(req gestalt.StartHostedPluginRequest, providerSocket string) map[string]string {
+	env := cloneStringMap(req.Env)
 	if env == nil {
 		env = map[string]string{}
 	}
-	for key, value := range bindings {
-		env[key] = value
-	}
-	env[proto.EnvProviderSocket] = providerSocket
+	env[envProviderSocket] = providerSocket
 	return env
 }
 
