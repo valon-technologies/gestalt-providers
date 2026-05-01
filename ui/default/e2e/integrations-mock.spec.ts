@@ -2,24 +2,36 @@ import { test, expect, mockIntegrations, mockManualConnect, mockTokens } from ".
 import type { Integration } from "../src/lib/api";
 
 const OAUTH_INTEGRATION: Integration = {
-  name: "oauth-svc", displayName: "OAuth Service", description: "Example OAuth integration", authTypes: ["oauth"],
+  name: "oauth-svc",
+  displayName: "OAuth Service",
+  description: "Example OAuth integration",
+  connections: [{ name: "plugin", authTypes: ["oauth"] }],
 };
 
 const MANUAL_INTEGRATION: Integration = {
-  name: "manual-svc", displayName: "Manual Service", description: "Example manual integration", authTypes: ["manual"],
-  credentialFields: [{ name: "token", label: "API Token" }],
+  name: "manual-svc",
+  displayName: "Manual Service",
+  description: "Example manual integration",
+  connections: [{
+    name: "plugin",
+    authTypes: ["manual"],
+    credentialFields: [{ name: "token", label: "API Token" }],
+  }],
 };
 
 const MANUAL_WITH_LINKED_DESC: Integration = {
-  name: "linked-svc", displayName: "Linked Service", authTypes: ["manual"],
-  credentialFields: [{ name: "api_key", label: "API Key", description: "Find yours in [Account Settings](https://example.com/settings)" }],
+  name: "linked-svc",
+  displayName: "Linked Service",
+  connections: [{
+    name: "plugin",
+    authTypes: ["manual"],
+    credentialFields: [{ name: "api_key", label: "API Key", description: "Find yours in [Account Settings](https://example.com/settings)" }],
+  }],
 };
 
 const MULTI_CONNECTION_DUAL_AUTH_INTEGRATION: Integration = {
   name: "workspace-svc",
   displayName: "Workspace Service",
-  authTypes: ["oauth", "manual"],
-  credentialFields: [{ name: "api_token", label: "API Token" }],
   connections: [
     {
       name: "workspace",
@@ -37,8 +49,6 @@ const MULTI_CONNECTION_DUAL_AUTH_INTEGRATION: Integration = {
 const MULTI_CONNECTION_MULTI_OAUTH_INTEGRATION: Integration = {
   name: "team-svc",
   displayName: "Team Service",
-  authTypes: ["oauth", "manual"],
-  credentialFields: [{ name: "api_token", label: "API Token" }],
   connections: [
     {
       name: "workspace",
@@ -173,7 +183,6 @@ const USER_CONNECTION_ACTIONS_INTEGRATION: Integration = {
       actions: ["add_instance", "reconnect", "disconnect"],
       authTypes: ["manual"],
       credentialFields: [{ name: "token", label: "Workspace Token" }],
-      disconnectable: true,
       instances: [
         { name: "prod", connection: "workspace" },
         { name: "staging", connection: "workspace" },
@@ -218,7 +227,7 @@ const MOUNTED_UI_WITH_SETTINGS_INTEGRATION: Integration = {
   displayName: "Mounted UI With Settings",
   description: "Mounted UI with a connectable plugin entry",
   mountedPath: "/mounted-settings-ui",
-  authTypes: ["oauth"],
+  connections: [{ name: "plugin", authTypes: ["oauth"] }],
 };
 
 const sampleIntegrations: Integration[] = [
@@ -226,6 +235,31 @@ const sampleIntegrations: Integration[] = [
   MANUAL_INTEGRATION,
   { name: "another-svc", displayName: "Another Service" },
 ];
+
+function withConnectedConnection(
+  integration: Integration,
+  connectionName = integration.connections?.[0]?.name ?? "plugin",
+  instanceName = "default",
+): Integration {
+  return {
+    ...integration,
+    status: "ready",
+    credentialState: "connected",
+    healthState: "not_checked",
+    connections: integration.connections?.map((connection) =>
+      connection.name === connectionName
+        ? {
+            ...connection,
+            status: "ready",
+            credentialState: "connected",
+            healthState: "not_checked",
+            actions: ["add_instance", "disconnect"],
+            instances: [{ name: instanceName, connection: connectionName }],
+          }
+        : connection,
+    ),
+  };
+}
 
 const SVG_WITHOUT_XMLNS_INTEGRATION: Integration = {
   name: "svg-svc",
@@ -492,7 +526,7 @@ test.describe("Integrations", () => {
   }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [
-      { ...OAUTH_INTEGRATION, connected: true, instances: [{ name: "default" }] },
+      withConnectedConnection(OAUTH_INTEGRATION),
       MANUAL_INTEGRATION,
     ]);
 
@@ -507,7 +541,7 @@ test.describe("Integrations", () => {
     await page.getByRole("button", { name: "OAuth Service settings" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("default")).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Add Connection" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Add Instance" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Disconnect" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
@@ -552,7 +586,7 @@ test.describe("Integrations", () => {
   }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [
-      { ...OAUTH_INTEGRATION, connected: true, instances: [{ name: "default" }] },
+      withConnectedConnection(OAUTH_INTEGRATION),
     ]);
 
     await page.goto("/integrations");
@@ -569,7 +603,7 @@ test.describe("Integrations", () => {
     ).toBeVisible();
 
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog.getByRole("button", { name: "Add Connection" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Add Instance" })).toBeVisible();
   });
 
   test("disconnect calls API and refreshes list", async ({
@@ -579,8 +613,12 @@ test.describe("Integrations", () => {
     let disconnected = false;
     let disconnectURL: URL | undefined;
 
-    const connectedList = [{ ...OAUTH_INTEGRATION, connected: true, instances: [{ name: "prod", connection: "oauth" }] }];
-    const disconnectedList = [{ ...OAUTH_INTEGRATION, connected: false }];
+    const oauthConnectionIntegration: Integration = {
+      ...OAUTH_INTEGRATION,
+      connections: [{ name: "oauth", displayName: "OAuth", authTypes: ["oauth"] }],
+    };
+    const connectedList = [withConnectedConnection(oauthConnectionIntegration, "oauth", "prod")];
+    const disconnectedList = [oauthConnectionIntegration];
 
     await mockIntegrations(page, connectedList, {
       onDisconnect: (_name, url) => {
@@ -627,7 +665,7 @@ test.describe("Integrations", () => {
     let receivedCredential = "";
 
     const disconnectedList: Integration[] = [MANUAL_INTEGRATION];
-    const connectedList: Integration[] = [{ ...MANUAL_INTEGRATION, connected: true }];
+    const connectedList: Integration[] = [withConnectedConnection(MANUAL_INTEGRATION)];
 
     await mockIntegrations(page, disconnectedList);
     await mockManualConnect(page, {
@@ -831,13 +869,13 @@ test.describe("Integrations", () => {
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
-    await mockIntegrations(page, [{ ...MANUAL_INTEGRATION, connected: true, instances: [{ name: "default" }] }]);
+    await mockIntegrations(page, [withConnectedConnection(MANUAL_INTEGRATION)]);
 
     await page.goto("/integrations");
     await page.getByRole("button", { name: "Manual Service settings" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("default")).toBeVisible();
-    await dialog.getByRole("button", { name: "Add Connection" }).click();
+    await dialog.getByRole("button", { name: "Add Instance" }).click();
     await expect(dialog.getByLabel("Connection name")).toBeVisible();
     await dialog.getByLabel("Connection name").fill("second");
     await dialog.getByRole("button", { name: "Continue" }).click();
