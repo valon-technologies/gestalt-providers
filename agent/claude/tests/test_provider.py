@@ -187,7 +187,6 @@ class ClaudeProviderTests(unittest.TestCase):
         assert host is not None
         lifecycle, provider_client = _configure_provider()
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
-        self.assertFalse(capabilities.native_tool_search)
         self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "claude")
 

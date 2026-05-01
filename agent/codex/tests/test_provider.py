@@ -210,7 +210,6 @@ class CodexProviderTests(unittest.TestCase):
         self.assertFalse(capabilities.structured_output)
         self.assertFalse(capabilities.interactions)
         self.assertFalse(capabilities.resumable_turns)
-        self.assertFalse(capabilities.native_tool_search)
         self.assertTrue(capabilities.bounded_list_hydration)
         self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "codex")

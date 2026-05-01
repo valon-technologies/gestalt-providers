@@ -117,7 +117,6 @@ describe("Cursor agent provider contract", () => {
       expect(capabilities.streamingText).toBe(false);
       expect(capabilities.toolCalls).toBe(true);
       expect(capabilities.boundedListHydration).toBe(true);
-      expect(capabilities.nativeToolSearch).toBe(false);
       expect(capabilities.structuredOutput).toBe(false);
       expect(capabilities.interactions).toBe(false);
       expect(capabilities.resumableTurns).toBe(false);

@@ -239,7 +239,6 @@ class ClaudeCodeAgentProvider(
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
-            native_tool_search=False,
             bounded_list_hydration=True,
             supported_tool_sources=[agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
