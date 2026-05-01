@@ -4290,7 +4290,6 @@ func timePtr(value time.Time) *time.Time {
 }
 
 var workflowTargetJSON = protojson.MarshalOptions{EmitUnpopulated: false}
-var workflowTargetJSONUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
 
 func pluginTargetInput(target *proto.BoundWorkflowTarget) map[string]any {
 	if target == nil || target.GetPlugin() == nil {
@@ -4342,7 +4341,7 @@ func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflow
 		return nil, fmt.Errorf("%s %q missing target_json", recordKind, id)
 	}
 	target := &proto.BoundWorkflowTarget{}
-	if err := workflowTargetJSONUnmarshal.Unmarshal([]byte(value), target); err != nil {
+	if err := (protojson.UnmarshalOptions{}).Unmarshal([]byte(value), target); err != nil {
 		return nil, fmt.Errorf("%s %q invalid target_json: %w", recordKind, id, err)
 	}
 	target = cloneTarget(target)
