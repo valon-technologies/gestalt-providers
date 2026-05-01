@@ -1,0 +1,39 @@
+type: object
+additionalProperties: false
+properties:
+  defaultModel:
+    type: string
+    description: Optional Codex model. When empty, the provider omits `model` and lets Codex use its configured default.
+  codexCommand:
+    type: string
+    default: codex
+    description: Command used to start Codex MCP.
+  codexArgs:
+    type: array
+    description: Arguments passed to codexCommand.
+    items:
+      type: string
+    default:
+      - mcp-server
+  workingDirectory:
+    type: string
+  timeoutSeconds:
+    type: number
+    exclusiveMinimum: 0
+  systemPrompt:
+    type: string
+  approvalPolicy:
+    type: string
+    default: never
+    enum:
+      - never
+  sandbox:
+    type: string
+    default: read-only
+    enum:
+      - read-only
+      - workspace-write
+      - danger-full-access
+  openaiApiKey:
+    type: string
+    description: Optional OpenAI API key passed only to the Codex MCP server process. Required unless OPENAI_API_KEY is set.
