@@ -8,7 +8,7 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
 
-from .config import get_github_config
+from .config import GitHubWebhookPolicy, get_github_config
 from .constants import (
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
@@ -28,47 +28,61 @@ workflow_pb2: Any = _workflow_pb2
 def build_workflow_signal_or_start_request(
     payload: dict[str, Any],
     summary: dict[str, Any],
+    policy: GitHubWebhookPolicy | None = None,
 ) -> Any:
-    config = get_github_config()
+    idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
     request = workflow_pb2.WorkflowManagerSignalOrStartRunRequest(
-        provider_name=config.workflow_provider,
-        workflow_key=agent_session_ref(summary),
-        idempotency_key=agent_turn_idempotency_key(payload, summary),
-        target=workflow_agent_target(summary),
+        provider_name=workflow_provider(policy),
+        workflow_key=agent_session_ref(summary, policy),
+        idempotency_key=idempotency_key,
+        target=workflow_agent_target(summary, policy),
         signal=workflow_pb2.WorkflowSignal(
             name=GITHUB_WORKFLOW_SIGNAL_NAME,
-            idempotency_key=agent_turn_idempotency_key(payload, summary),
+            idempotency_key=idempotency_key,
         ),
     )
-    request.signal.payload.CopyFrom(workflow_signal_payload(payload, summary))
-    request.signal.metadata.CopyFrom(agent_turn_metadata(summary))
+    request.signal.payload.CopyFrom(workflow_signal_payload(payload, summary, policy))
+    request.signal.metadata.CopyFrom(agent_turn_metadata(summary, policy))
     return request
 
 
-def workflow_agent_target(summary: dict[str, Any]) -> Any:
+def workflow_provider(policy: GitHubWebhookPolicy | None) -> str:
     config = get_github_config()
+    if policy is not None and policy.workflow_provider:
+        return policy.workflow_provider
+    return config.workflow_provider
+
+
+def workflow_agent_target(
+    summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
+) -> Any:
+    provider_options = agent_provider_options(policy)
     agent = workflow_pb2.BoundWorkflowAgentTarget(
-        provider_name=config.agent_provider,
-        model=config.agent_model,
+        provider_name=agent_provider(policy),
+        model=agent_model(policy),
         prompt=workflow_agent_prompt(),
         messages=[
-            agent_pb2.AgentMessage(role="system", text=agent_system_prompt()),
+            agent_pb2.AgentMessage(role="system", text=agent_system_prompt(policy)),
         ],
-        tool_refs=agent_tool_refs(),
+        tool_refs=agent_tool_refs(policy),
     )
-    agent.metadata.CopyFrom(agent_session_metadata(summary))
-    if config.agent_provider_options:
-        agent.provider_options.CopyFrom(dict_to_struct(config.agent_provider_options))
+    agent.metadata.CopyFrom(agent_session_metadata(summary, policy))
+    if provider_options:
+        agent.provider_options.CopyFrom(dict_to_struct(provider_options))
     return workflow_pb2.BoundWorkflowTarget(agent=agent)
 
 
-def workflow_signal_payload(payload: dict[str, Any], summary: dict[str, Any]) -> Any:
-    data = workflow_signal_data(payload, summary)
+def workflow_signal_payload(
+    payload: dict[str, Any],
+    summary: dict[str, Any],
+    policy: GitHubWebhookPolicy | None = None,
+) -> Any:
+    data = workflow_signal_data(payload, summary, policy)
     agent_request = data.get("agent_request")
     if not isinstance(agent_request, dict):
         agent_request = {}
         data["agent_request"] = agent_request
-    agent_request["user_prompt"] = agent_user_prompt(agent_request, summary)
+    agent_request["user_prompt"] = agent_user_prompt(agent_request, summary, policy)
     return dict_to_struct(data)
 
 
@@ -82,24 +96,25 @@ def workflow_agent_prompt() -> str:
     )
 
 
-def agent_tool_refs() -> list[Any]:
+def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
+    operations = (
+        policy.allowed_operations
+        if policy is not None
+        else (
+            BOT_COMMIT_FILES_OPERATION,
+            BOT_OPEN_PULL_REQUEST_OPERATION,
+            BOT_CREATE_PULL_REQUEST_OPERATION,
+        )
+    )
     return [
-        agent_pb2.AgentToolRef(
-            plugin="github",
-            operation=BOT_COMMIT_FILES_OPERATION,
-        ),
-        agent_pb2.AgentToolRef(
-            plugin="github",
-            operation=BOT_OPEN_PULL_REQUEST_OPERATION,
-        ),
-        agent_pb2.AgentToolRef(
-            plugin="github",
-            operation=BOT_CREATE_PULL_REQUEST_OPERATION,
-        ),
+        agent_pb2.AgentToolRef(plugin="github", operation=operation)
+        for operation in operations
     ]
 
 
-def agent_session_metadata(summary: dict[str, Any]) -> Any:
+def agent_session_metadata(
+    summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
+) -> Any:
     metadata = {
         key: summary[key]
         for key in (
@@ -118,24 +133,60 @@ def agent_session_metadata(summary: dict[str, Any]) -> Any:
         )
         if key in summary
     }
-    metadata["session_ref"] = agent_session_ref(summary)
+    metadata["session_ref"] = agent_session_ref(summary, policy)
+    if policy is not None:
+        metadata["policy"] = policy_metadata(policy)
     return dict_to_struct({"github": metadata})
 
 
-def agent_turn_metadata(summary: dict[str, Any]) -> Any:
+def agent_turn_metadata(
+    summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
+) -> Any:
     metadata = dict(summary)
-    metadata["session_ref"] = agent_session_ref(summary)
+    metadata["session_ref"] = agent_session_ref(summary, policy)
+    if policy is not None:
+        metadata["policy"] = policy_metadata(policy)
     return dict_to_struct({"github": metadata})
 
 
-def agent_system_prompt() -> str:
+def agent_provider(policy: GitHubWebhookPolicy | None) -> str:
     config = get_github_config()
-    if not config.agent_system_prompt:
+    if policy is not None and policy.agent_provider:
+        return policy.agent_provider
+    return config.agent_provider
+
+
+def agent_model(policy: GitHubWebhookPolicy | None) -> str:
+    config = get_github_config()
+    if policy is not None and policy.agent_model:
+        return policy.agent_model
+    return config.agent_model
+
+
+def agent_provider_options(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
+    config = get_github_config()
+    if policy is not None and policy.agent_provider_options is not None:
+        return policy.agent_provider_options
+    return config.agent_provider_options
+
+
+def agent_system_prompt(policy: GitHubWebhookPolicy | None = None) -> str:
+    config = get_github_config()
+    prompt = ""
+    if policy is not None and policy.agent_system_prompt:
+        prompt = policy.agent_system_prompt
+    elif config.agent_system_prompt:
+        prompt = config.agent_system_prompt
+    if not prompt:
         return DEFAULT_AGENT_SYSTEM_PROMPT
-    return DEFAULT_AGENT_SYSTEM_PROMPT + "\n\n" + config.agent_system_prompt.strip()
+    return DEFAULT_AGENT_SYSTEM_PROMPT + "\n\n" + prompt.strip()
 
 
-def agent_user_prompt(agent_request: dict[str, Any], summary: dict[str, Any]) -> str:
+def agent_user_prompt(
+    agent_request: dict[str, Any],
+    summary: dict[str, Any],
+    policy: GitHubWebhookPolicy | None = None,
+) -> str:
     lines = [
         "GitHub App webhook:",
         f"installation_id: {summary.get('installation_id', '')}",
@@ -144,6 +195,13 @@ def agent_user_prompt(agent_request: dict[str, Any], summary: dict[str, Any]) ->
         f"action: {summary.get('action', '')}",
         f"sender: {summary.get('sender', '')}",
     ]
+    if policy is not None:
+        lines.append(f"policy_id: {policy.id}")
+        lines.append(f"policy_mode: {policy.action_mode}")
+        if policy.allowed_operations:
+            lines.append(
+                f"available_operations: {', '.join(policy.allowed_operations)}"
+            )
     if "number" in summary:
         lines.append(f"number: {summary['number']}")
     if "pull_request_numbers" in summary:
@@ -207,7 +265,16 @@ def _ref_prompt_lines(agent_request: dict[str, Any]) -> list[str]:
     return lines
 
 
-def agent_session_ref(summary: dict[str, Any]) -> str:
+def agent_session_ref(
+    summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
+) -> str:
+    ref = legacy_agent_session_ref(summary)
+    if policy is None:
+        return ref
+    return f"{ref}:policy:{policy.id}"
+
+
+def legacy_agent_session_ref(summary: dict[str, Any]) -> str:
     installation_id = summary.get("installation_id", "")
     repo = summary.get("repository", "")
     event_ref = ci_event_session_ref(summary, installation_id, repo)
@@ -241,14 +308,28 @@ def ci_event_session_ref(
     return f"github:{installation_id}:{repo}:{event_type}:unknown"
 
 
-def agent_turn_idempotency_key(payload: dict[str, Any], summary: dict[str, Any]) -> str:
+def agent_turn_idempotency_key(
+    payload: dict[str, Any],
+    summary: dict[str, Any],
+    policy: GitHubWebhookPolicy | None = None,
+) -> str:
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     repo = summary.get("repository", "")
     event_type = summary.get("event_type", "")
     action = summary.get("action", "")
+    if policy is not None:
+        return f"github:event:{repo}:policy:{policy.id}:{event_type}:{action}:{digest}"
     return f"github:event:{repo}:{event_type}:{action}:{digest}"
+
+
+def policy_metadata(policy: GitHubWebhookPolicy) -> dict[str, Any]:
+    return {
+        "id": policy.id,
+        "mode": policy.action_mode,
+        "tool_refs": list(policy.allowed_operations),
+    }
 
 
 def dict_to_struct(data: dict[str, Any]) -> Any:

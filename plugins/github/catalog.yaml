@@ -200,3 +200,135 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
+- id: bot.createIssueComment
+  method: POST
+  description: Create an issue or pull request conversation comment using a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue or pull request number
+    required: true
+  - name: body
+    type: string
+    description: Comment body
+    required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.getCheckRun
+  method: GET
+  description: Get a GitHub check run using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: check_run_id
+    type: integer
+    description: GitHub check run ID
+    required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.listCheckRunAnnotations
+  method: GET
+  description: List annotations for a GitHub check run using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: check_run_id
+    type: integer
+    description: GitHub check run ID
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.getWorkflowRun
+  method: GET
+  description: Get a GitHub Actions workflow run using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: run_id
+    type: integer
+    description: GitHub Actions workflow run ID
+    required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.listWorkflowRunJobs
+  method: GET
+  description: List jobs for a GitHub Actions workflow run using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: run_id
+    type: integer
+    description: GitHub Actions workflow run ID
+    required: true
+  - name: filter
+    type: string
+    description: GitHub jobs filter, either latest or all
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0

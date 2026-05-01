@@ -10,7 +10,12 @@ from internals.agent import build_workflow_signal_or_start_request
 from internals.config import configure_from_mapping, get_github_config
 from internals.constants import (
     BOT_COMMIT_FILES_OPERATION,
+    BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
+    BOT_GET_CHECK_RUN_OPERATION,
+    BOT_GET_WORKFLOW_RUN_OPERATION,
+    BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
+    BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     GITHUB_EVENT_OPERATION,
 )
@@ -18,15 +23,31 @@ from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubCon
 from internals.operations import (
     GitHubCoAuthor,
     GitHubCommitRequest,
+    GitHubCheckRunRequest,
+    GitHubCreateIssueCommentRequest,
     GitHubCreatePullRequestRequest,
     GitHubFileChange,
+    GitHubListCheckRunAnnotationsRequest,
+    GitHubListWorkflowRunJobsRequest,
     GitHubOpenPullRequestRequest,
+    GitHubWorkflowRunRequest,
+    check_run_annotation_summary,
+    check_run_summary,
     commit_files,
     commit_result_dict,
+    create_issue_comment,
     create_pull_request_with_files,
+    get_check_run,
+    get_workflow_run,
+    issue_comment_summary,
+    list_check_run_annotations,
+    list_workflow_run_jobs,
     open_pull_request,
     pull_request_summary,
+    workflow_run_job_summary,
+    workflow_run_summary,
 )
+from internals.policy import select_webhook_policy, webhook_event_type_for_policy
 from internals.webhook import (
     event_summary,
     installation_id_from_payload,
@@ -217,6 +238,83 @@ class CreatePullRequestInput(gestalt.Model):
     )
 
 
+class CreateIssueCommentInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    issue_number: int = gestalt.field(description="Issue or pull request number")
+    body: str = gestalt.field(description="Comment body")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class GetCheckRunInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    check_run_id: int = gestalt.field(description="GitHub check run ID")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class ListCheckRunAnnotationsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    check_run_id: int = gestalt.field(description="GitHub check run ID")
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class GetWorkflowRunInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    run_id: int = gestalt.field(description="GitHub Actions workflow run ID")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class ListWorkflowRunJobsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    run_id: int = gestalt.field(description="GitHub Actions workflow run ID")
+    filter: str = gestalt.field(
+        description="GitHub jobs filter, either latest or all",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     configure_from_mapping(config)
@@ -244,21 +342,42 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 def github_events_handle(
     input: dict[str, Any], req: gestalt.Request
 ) -> OperationResult:
-    ignored_reason = webhook_ignored_reason(input)
+    config = get_github_config()
+    explicit_policies = bool(config.webhook_policies)
+    event_type = webhook_event_type_for_policy(input) if explicit_policies else ""
+    ignored_reason = webhook_ignored_reason(
+        input,
+        event_type=event_type,
+        enforce_event_allowlist=(
+            not explicit_policies or config.webhook_events_configured
+        ),
+    )
     if ignored_reason:
         return {"ok": True, "ignored": ignored_reason}
 
-    return _signal_or_start_webhook_workflow(input, req)
+    installation_id = installation_id_from_payload(input)
+    summary = event_summary(input, installation_id, event_type=event_type)
+    policy = None
+    if explicit_policies:
+        policy = select_webhook_policy(config, input, summary)
+        if policy is None:
+            return {"ok": True, "ignored": "policy_not_matched"}
+
+    return _signal_or_start_webhook_workflow(input, req, summary=summary, policy=policy)
 
 
 def _signal_or_start_webhook_workflow(
-    input: dict[str, Any], req: gestalt.Request
+    input: dict[str, Any],
+    req: gestalt.Request,
+    *,
+    summary: dict[str, Any],
+    policy: Any,
 ) -> OperationResult:
-    installation_id = installation_id_from_payload(input)
-    summary = event_summary(input, installation_id)
     workflow_key = ""
     try:
-        workflow_request = build_workflow_signal_or_start_request(input, summary)
+        workflow_request = build_workflow_signal_or_start_request(
+            input, summary, policy
+        )
         workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
         logger.info(
             "dispatching GitHub webhook workflow",
@@ -267,6 +386,7 @@ def _signal_or_start_webhook_workflow(
                 "github_action": summary.get("action", ""),
                 "github_delivery_id": summary.get("delivery_id", ""),
                 "github_repository": summary.get("repository", ""),
+                "github_webhook_policy": getattr(policy, "id", ""),
                 "workflow_key": workflow_key,
                 "workflow_provider": workflow_request.provider_name,
             },
@@ -282,6 +402,7 @@ def _signal_or_start_webhook_workflow(
                 "github_action": summary.get("action", ""),
                 "github_delivery_id": summary.get("delivery_id", ""),
                 "github_repository": summary.get("repository", ""),
+                "github_webhook_policy": getattr(policy, "id", ""),
                 "workflow_key": workflow_key,
             },
         )
@@ -299,6 +420,7 @@ def _signal_or_start_webhook_workflow(
             "github_action": summary.get("action", ""),
             "github_delivery_id": summary.get("delivery_id", ""),
             "github_repository": summary.get("repository", ""),
+            "github_webhook_policy": getattr(policy, "id", ""),
             "workflow_key": workflow_key,
             "workflow_provider": str(
                 getattr(response, "provider_name", "")
@@ -428,6 +550,174 @@ def bot_create_pull_request(
         "data": {
             "commit": commit_result_dict(result.commit),
             "pull_request": pull_request_summary(result.pull_request),
+        }
+    }
+
+
+@plugin.operation(
+    id=BOT_CREATE_ISSUE_COMMENT_OPERATION,
+    method="POST",
+    description="Create an issue or pull request conversation comment using a GitHub App installation token",
+)
+def bot_create_issue_comment(
+    input: CreateIssueCommentInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        comment = create_issue_comment(
+            GitHubCreateIssueCommentRequest(
+                owner=input.owner,
+                repo=input.repo,
+                issue_number=input.issue_number,
+                body=input.body,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"comment": issue_comment_summary(comment)}}
+
+
+@plugin.operation(
+    id=BOT_GET_CHECK_RUN_OPERATION,
+    method="GET",
+    description="Get a GitHub check run using a GitHub App installation token",
+)
+def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> OperationResult:
+    try:
+        check_run = get_check_run(
+            GitHubCheckRunRequest(
+                owner=input.owner,
+                repo=input.repo,
+                check_run_id=input.check_run_id,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"check_run": check_run_summary(check_run)}}
+
+
+@plugin.operation(
+    id=BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
+    method="GET",
+    description="List annotations for a GitHub check run using a GitHub App installation token",
+)
+def bot_list_check_run_annotations(
+    input: ListCheckRunAnnotationsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        annotations = list_check_run_annotations(
+            GitHubListCheckRunAnnotationsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                check_run_id=input.check_run_id,
+                per_page=input.per_page,
+                page=input.page,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "count": len(annotations),
+            "annotations": [
+                check_run_annotation_summary(annotation) for annotation in annotations
+            ],
+        }
+    }
+
+
+@plugin.operation(
+    id=BOT_GET_WORKFLOW_RUN_OPERATION,
+    method="GET",
+    description="Get a GitHub Actions workflow run using a GitHub App installation token",
+)
+def bot_get_workflow_run(
+    input: GetWorkflowRunInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        workflow_run = get_workflow_run(
+            GitHubWorkflowRunRequest(
+                owner=input.owner,
+                repo=input.repo,
+                run_id=input.run_id,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"workflow_run": workflow_run_summary(workflow_run)}}
+
+
+@plugin.operation(
+    id=BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+    method="GET",
+    description="List jobs for a GitHub Actions workflow run using a GitHub App installation token",
+)
+def bot_list_workflow_run_jobs(
+    input: ListWorkflowRunJobsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        jobs = list_workflow_run_jobs(
+            GitHubListWorkflowRunJobsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                run_id=input.run_id,
+                filter=input.filter,
+                per_page=input.per_page,
+                page=input.page,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    raw_jobs = jobs.get("jobs")
+    if not isinstance(raw_jobs, list):
+        raw_jobs = []
+    return {
+        "data": {
+            "total_count": jobs.get("total_count", len(raw_jobs)),
+            "jobs": [
+                workflow_run_job_summary(job)
+                for job in raw_jobs
+                if isinstance(job, dict)
+            ],
         }
     }
 

@@ -4,7 +4,9 @@ import base64
 import binascii
 import datetime as dt
 import re
+import urllib.parse
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from typing import Any
 
 from .client import (
@@ -12,6 +14,7 @@ from .client import (
     commit_url,
     get_branch_ref,
     github_json,
+    github_json_value,
     installation_token,
     object_sha,
     repo_path,
@@ -25,6 +28,7 @@ from .constants import (
 from .errors import GitHubAPIError, GitHubAuthorizationError
 from .helpers import (
     int_field,
+    map_field,
     nested_str,
     optional_slug,
     require_branch_name,
@@ -102,6 +106,52 @@ class GitHubCreatePullRequestRequest:
     force: bool = False
     draft: bool = False
     maintainer_can_modify: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreateIssueCommentRequest:
+    owner: str
+    repo: str
+    issue_number: int
+    body: str
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCheckRunRequest:
+    owner: str
+    repo: str
+    check_run_id: int
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListCheckRunAnnotationsRequest:
+    owner: str
+    repo: str
+    check_run_id: int
+    per_page: int = 0
+    page: int = 0
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubWorkflowRunRequest:
+    owner: str
+    repo: str
+    run_id: int
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListWorkflowRunJobsRequest:
+    owner: str
+    repo: str
+    run_id: int
+    filter: str = ""
+    per_page: int = 0
+    page: int = 0
+    installation_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,6 +401,146 @@ def create_pull_request_on_github(
     return github_json("POST", repo_path(owner, repo, "pulls"), token, payload)
 
 
+def create_issue_comment(
+    request: GitHubCreateIssueCommentRequest, *, subject: Any
+) -> dict[str, Any]:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    issue_number = require_positive_int(request.issue_number, "issue_number")
+    body = require_text(request.body, "body")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    path = repo_path(owner, repo, "issues", str(issue_number), "comments")
+    return github_json_with_permission_fallback(
+        "POST",
+        path,
+        installation_id=installation_id,
+        repo=repo,
+        permission_options=(
+            {"issues": "write"},
+            {"pull_requests": "write"},
+        ),
+        payload={"body": body},
+    )
+
+
+def get_check_run(request: GitHubCheckRunRequest, *, subject: Any) -> dict[str, Any]:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    check_run_id = require_positive_int(request.check_run_id, "check_run_id")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "read"}
+    )
+    return github_json(
+        "GET",
+        repo_path(owner, repo, "check-runs", str(check_run_id)),
+        token,
+    )
+
+
+def list_check_run_annotations(
+    request: GitHubListCheckRunAnnotationsRequest, *, subject: Any
+) -> list[dict[str, Any]]:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    check_run_id = require_positive_int(request.check_run_id, "check_run_id")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "read"}
+    )
+    data = github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "check-runs", str(check_run_id), "annotations"),
+            pagination_params(per_page=request.per_page, page=request.page),
+        ),
+        token,
+    )
+    if not isinstance(data, list):
+        raise GitHubAPIError(
+            502, "GitHub check run annotations response was not a list"
+        )
+    return [item for item in data if isinstance(item, dict)]
+
+
+def get_workflow_run(
+    request: GitHubWorkflowRunRequest, *, subject: Any
+) -> dict[str, Any]:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    run_id = require_positive_int(request.run_id, "run_id")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = installation_token(
+        installation_id, repositories=[repo], permissions={"actions": "read"}
+    )
+    return github_json(
+        "GET",
+        repo_path(owner, repo, "actions", "runs", str(run_id)),
+        token,
+    )
+
+
+def list_workflow_run_jobs(
+    request: GitHubListWorkflowRunJobsRequest, *, subject: Any
+) -> dict[str, Any]:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    run_id = require_positive_int(request.run_id, "run_id")
+    filter_value = request.filter.strip()
+    if filter_value and filter_value not in {"latest", "all"}:
+        raise ValueError("filter must be either 'latest' or 'all'")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = installation_token(
+        installation_id, repositories=[repo], permissions={"actions": "read"}
+    )
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if filter_value:
+        params["filter"] = filter_value
+    return github_json(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "actions", "runs", str(run_id), "jobs"),
+            params,
+        ),
+        token,
+    )
+
+
+def github_json_with_permission_fallback(
+    method: str,
+    path: str,
+    *,
+    installation_id: int,
+    repo: str,
+    permission_options: tuple[dict[str, str], ...],
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    fallback_error: GitHubAPIError | None = None
+    for permissions in permission_options:
+        try:
+            token = installation_token(
+                installation_id, repositories=[repo], permissions=permissions
+            )
+            return github_json(method, path, token, payload)
+        except GitHubAPIError as err:
+            if err.status not in (HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND):
+                raise
+            fallback_error = err
+    if fallback_error is not None:
+        raise fallback_error
+    raise GitHubAPIError(502, "no GitHub permission option was configured")
+
+
 def tree_entry_for_file(
     token: str, *, owner: str, repo: str, change: GitHubFileChange
 ) -> dict[str, Any]:
@@ -538,6 +728,119 @@ def pull_request_summary(pull: dict[str, Any]) -> dict[str, Any]:
         "url": str_field(pull, "url"),
         "head": nested_str(pull, "head", "ref"),
         "base": nested_str(pull, "base", "ref"),
+    }
+
+
+def issue_comment_summary(comment: dict[str, Any]) -> dict[str, Any]:
+    user = map_field(comment, "user")
+    return _compact_dict(
+        {
+            "id": int_field(comment, "id"),
+            "node_id": str_field(comment, "node_id"),
+            "url": str_field(comment, "url"),
+            "html_url": str_field(comment, "html_url"),
+            "body": str_field(comment, "body"),
+            "user": _compact_dict({"login": str_field(user, "login")}),
+            "created_at": str_field(comment, "created_at"),
+            "updated_at": str_field(comment, "updated_at"),
+        }
+    )
+
+
+def check_run_summary(check_run: dict[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(check_run, "id"),
+            "name": str_field(check_run, "name"),
+            "status": str_field(check_run, "status"),
+            "conclusion": str_field(check_run, "conclusion"),
+            "html_url": str_field(check_run, "html_url"),
+            "details_url": str_field(check_run, "details_url"),
+            "head_sha": str_field(check_run, "head_sha"),
+            "external_id": str_field(check_run, "external_id"),
+            "started_at": str_field(check_run, "started_at"),
+            "completed_at": str_field(check_run, "completed_at"),
+        }
+    )
+
+
+def check_run_annotation_summary(annotation: dict[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "path": str_field(annotation, "path"),
+            "start_line": int_field(annotation, "start_line"),
+            "end_line": int_field(annotation, "end_line"),
+            "annotation_level": str_field(annotation, "annotation_level"),
+            "message": str_field(annotation, "message"),
+            "title": str_field(annotation, "title"),
+            "raw_details": str_field(annotation, "raw_details"),
+        }
+    )
+
+
+def workflow_run_summary(workflow_run: dict[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(workflow_run, "id"),
+            "name": str_field(workflow_run, "name"),
+            "status": str_field(workflow_run, "status"),
+            "conclusion": str_field(workflow_run, "conclusion"),
+            "html_url": str_field(workflow_run, "html_url"),
+            "run_number": int_field(workflow_run, "run_number"),
+            "event": str_field(workflow_run, "event"),
+            "head_branch": str_field(workflow_run, "head_branch"),
+            "head_sha": str_field(workflow_run, "head_sha"),
+            "created_at": str_field(workflow_run, "created_at"),
+            "updated_at": str_field(workflow_run, "updated_at"),
+        }
+    )
+
+
+def workflow_run_job_summary(job: dict[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(job, "id"),
+            "run_id": int_field(job, "run_id"),
+            "name": str_field(job, "name"),
+            "status": str_field(job, "status"),
+            "conclusion": str_field(job, "conclusion"),
+            "html_url": str_field(job, "html_url"),
+            "started_at": str_field(job, "started_at"),
+            "completed_at": str_field(job, "completed_at"),
+        }
+    )
+
+
+def pagination_params(*, per_page: int, page: int) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if per_page:
+        if per_page < 1 or per_page > 100:
+            raise ValueError("per_page must be between 1 and 100")
+        params["per_page"] = per_page
+    if page:
+        if page < 1:
+            raise ValueError("page must be greater than 0")
+        params["page"] = page
+    return params
+
+
+def path_with_query(path: str, params: dict[str, Any]) -> str:
+    if not params:
+        return path
+    return path + "?" + urllib.parse.urlencode(params)
+
+
+def require_positive_int(value: int, name: str) -> int:
+    if isinstance(value, bool) or int(value) <= 0:
+        raise ValueError(f"{name} is required")
+    return int(value)
+
+
+def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: nested
+        for key, nested in value.items()
+        if nested not in ("", 0, None, {}, [])
     }
 
 

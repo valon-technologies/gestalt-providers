@@ -29,7 +29,7 @@ workflow_pb2: Any = _workflow_pb2
 
 
 class FakeHTTPResponse:
-    def __init__(self, body: dict[str, Any] | None = None) -> None:
+    def __init__(self, body: Any = None) -> None:
         self._body = json.dumps(body or {}).encode("utf-8")
 
     def __enter__(self) -> FakeHTTPResponse:
@@ -487,6 +487,295 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertNotEqual(digest_fallback.workflow_key, "github:99:acme/widgets")
 
+    def test_explicit_policy_dispatches_failed_check_run_to_comment_tools(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "fallback"},
+                "webhookPolicies": [
+                    {
+                        "id": "failed-ci-comment",
+                        "match": {
+                            "events": ["check_run"],
+                            "actions": ["completed"],
+                            "statuses": ["completed"],
+                            "conclusions": ["failure"],
+                            "repositories": ["acme/widgets"],
+                            "branches": ["main"],
+                            "checkNames": ["Build Gestalt"],
+                        },
+                        "agent": {
+                            "provider": "simple",
+                            "model": "deep",
+                            "systemPrompt": "Investigate failed CI.",
+                        },
+                        "action": {"mode": "comment"},
+                    }
+                ],
+            },
+        )
+
+        request = self._workflow_signal_request(
+            {
+                "action": "completed",
+                "installation": {"id": 99},
+                "repository": {
+                    "full_name": "acme/widgets",
+                    "name": "widgets",
+                    "owner": {"login": "acme"},
+                },
+                "check_run": {
+                    "id": 123,
+                    "name": "Build Gestalt",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "html_url": "https://github.com/acme/widgets/runs/123",
+                    "details_url": "https://ci.example/runs/123",
+                    "head_sha": "abc123",
+                    "head_branch": "main",
+                    "pull_requests": [{"number": 7}],
+                },
+                "headers": {
+                    "X-GitHub-Event": "check_run",
+                    "X-GitHub-Delivery": "delivery-check-run",
+                },
+                "sender": {"login": "octocat"},
+            }
+        )
+
+        self.assertEqual(
+            request.workflow_key,
+            "github:99:acme/widgets:check_run:123:policy:failed-ci-comment",
+        )
+        self.assertIn(
+            ":policy:failed-ci-comment:",
+            request.idempotency_key,
+        )
+        agent = request.target.agent
+        self.assertEqual(agent.model, "deep")
+        self.assertEqual(
+            [tool.operation for tool in agent.tool_refs],
+            [
+                provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
+                provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
+                provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+                provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION,
+            ],
+        )
+        metadata = json_format.MessageToDict(agent.metadata)
+        self.assertEqual(metadata["github"]["policy"]["id"], "failed-ci-comment")
+        self.assertEqual(metadata["github"]["policy"]["mode"], "comment")
+
+        data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(request.signal.payload),
+        )
+        self.assertEqual(data["webhook_policy"]["id"], "failed-ci-comment")
+        self.assertEqual(data["check_run"]["name"], "Build Gestalt")
+        self.assertEqual(data["check_run"]["conclusion"], "failure")
+        self.assertEqual(data["check_run"]["pull_request_numbers"], [7])
+        self.assertEqual(data["agent_request"]["policy"]["mode"], "comment")
+        self.assertIn(
+            "policy_id: failed-ci-comment", data["agent_request"]["user_prompt"]
+        )
+
+    def test_explicit_policy_webhook_events_allowlist_semantics(self) -> None:
+        push_payload = {
+            "ref": "refs/heads/feature",
+            "after": "1" * 40,
+            "commits": [],
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "headers": {"X-GitHub-Event": "push"},
+            "sender": {"login": "octocat"},
+        }
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {"id": "push-observe", "match": {"events": ["push"]}}
+                ],
+            },
+        )
+        request = self._workflow_signal_request(push_payload)
+        self.assertEqual(
+            request.workflow_key,
+            "github:99:acme/widgets:policy:push-observe",
+        )
+
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "webhookEvents": ["pull_request"],
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {"id": "push-observe", "match": {"events": ["push"]}}
+                ],
+            },
+        )
+        with mock.patch.object(
+            gestalt.Request,
+            "workflow_manager",
+            side_effect=AssertionError("workflow manager should not be called"),
+            create=True,
+        ):
+            result = provider_module.github_events_handle(
+                push_payload, gestalt.Request()
+            )
+
+        self.assertEqual(result, {"ok": True, "ignored": "unsupported_event_type:push"})
+
+    def test_explicit_policy_no_match_is_ignored(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "failed-ci",
+                        "match": {
+                            "events": ["check_run"],
+                            "conclusions": ["failure"],
+                        },
+                    }
+                ],
+            },
+        )
+        with mock.patch.object(
+            gestalt.Request,
+            "workflow_manager",
+            side_effect=AssertionError("workflow manager should not be called"),
+            create=True,
+        ):
+            result = provider_module.github_events_handle(
+                {
+                    "action": "completed",
+                    "installation": {"id": 99},
+                    "repository": {"full_name": "acme/widgets"},
+                    "check_run": {
+                        "id": 123,
+                        "status": "completed",
+                        "conclusion": "success",
+                    },
+                    "headers": {"X-GitHub-Event": "check_run"},
+                    "sender": {"login": "octocat"},
+                },
+                gestalt.Request(),
+            )
+
+        self.assertEqual(result, {"ok": True, "ignored": "policy_not_matched"})
+
+    def test_policy_validation_and_allowed_operation_order(self) -> None:
+        for config, expected in (
+            (
+                {"webhookPolicies": [{"id": "bad id"}]},
+                "id must match",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {"id": "duplicate"},
+                        {"id": "duplicate"},
+                    ]
+                },
+                "duplicate webhook policy id",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "unknown-op",
+                            "action": {"allowedOperations": ["bot.nope"]},
+                        }
+                    ]
+                },
+                "unknown operation",
+            ),
+        ):
+            with self.subTest(expected=expected):
+                with self.assertRaisesRegex(ValueError, expected):
+                    provider_module.configure(
+                        "github",
+                        {
+                            "appId": "12345",
+                            "appPrivateKey": "unused-in-tests",
+                            "workflow": {"provider": "local"},
+                            **config,
+                        },
+                    )
+
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "empty-tools",
+                        "match": {"actions": ["opened"]},
+                        "action": {"allowedOperations": []},
+                    },
+                    {
+                        "id": "ordered-tools",
+                        "action": {
+                            "allowedOperations": [
+                                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
+                                provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                                provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                            ]
+                        },
+                    },
+                ],
+            },
+        )
+        empty = self._workflow_signal_request(
+            {
+                "action": "opened",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "pull_request": {"number": 7},
+                "headers": {"X-GitHub-Event": "pull_request"},
+                "sender": {"login": "octocat"},
+            }
+        )
+        self.assertEqual([tool.operation for tool in empty.target.agent.tool_refs], [])
+
+        ordered = self._workflow_signal_request(
+            {
+                "action": "closed",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "pull_request": {"number": 7},
+                "headers": {"X-GitHub-Event": "pull_request"},
+                "sender": {"login": "octocat"},
+            }
+        )
+        self.assertEqual(
+            [tool.operation for tool in ordered.target.agent.tool_refs],
+            [
+                provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
+            ],
+        )
+
     def _workflow_signal_request(self, payload: dict[str, Any]) -> Any:
         workflow_manager = FakeWorkflowManager()
         with (
@@ -899,6 +1188,206 @@ class GitHubProviderTests(unittest.TestCase):
             "https://github.com/acme/widgets/pull/42",
         )
 
+    def test_create_issue_comment_falls_back_to_pull_request_permission(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"issues": "write"}:
+                    raise http_error(request.full_url, HTTPStatus.FORBIDDEN)
+                self.assertEqual(body["permissions"], {"pull_requests": "write"})
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/issues/7/comments":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body, {"body": "Likely fix: update the snapshot."})
+                return FakeHTTPResponse(
+                    {
+                        "id": 123,
+                        "node_id": "IC_kw",
+                        "url": "https://api.github.com/repos/acme/widgets/issues/comments/123",
+                        "html_url": "https://github.com/acme/widgets/pull/7#issuecomment-123",
+                        "body": "Likely fix: update the snapshot.",
+                        "user": {"login": "example-app[bot]"},
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-01T00:00:00Z",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_create_issue_comment(
+                provider_module.CreateIssueCommentInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=7,
+                    body="Likely fix: update the snapshot.",
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["comment"]
+        self.assertEqual(data["id"], 123)
+        self.assertEqual(data["user"]["login"], "example-app[bot]")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"issues": "write"}, {"pull_requests": "write"}],
+        )
+
+    def test_ci_read_operations_use_github_shapes_and_pagination(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body))
+
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-token"})
+                if body["permissions"] == {"actions": "read"}:
+                    return FakeHTTPResponse({"token": "actions-token"})
+            if path == "/repos/acme/widgets/check-runs/123":
+                self.assertEqual(auth_header(request), "Bearer checks-token")
+                return FakeHTTPResponse(
+                    {
+                        "id": 123,
+                        "name": "Build Gestalt",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "html_url": "https://github.com/acme/widgets/runs/123",
+                        "details_url": "https://ci.example/runs/123",
+                        "head_sha": "abc123",
+                    }
+                )
+            if path == "/repos/acme/widgets/check-runs/123/annotations":
+                self.assertEqual(
+                    urllib.parse.urlparse(request.full_url).query,
+                    "per_page=2&page=3",
+                )
+                self.assertEqual(auth_header(request), "Bearer checks-token")
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "path": "README.md",
+                            "start_line": 4,
+                            "end_line": 4,
+                            "annotation_level": "failure",
+                            "message": "broken",
+                        }
+                    ]
+                )
+            if path == "/repos/acme/widgets/actions/runs/456":
+                self.assertEqual(auth_header(request), "Bearer actions-token")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": "CI",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "run_number": 12,
+                        "html_url": "https://github.com/acme/widgets/actions/runs/456",
+                    }
+                )
+            if path == "/repos/acme/widgets/actions/runs/456/jobs":
+                self.assertEqual(
+                    urllib.parse.urlparse(request.full_url).query,
+                    "per_page=5&page=1&filter=all",
+                )
+                self.assertEqual(auth_header(request), "Bearer actions-token")
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "jobs": [
+                            {
+                                "id": 789,
+                                "run_id": 456,
+                                "name": "test",
+                                "status": "completed",
+                                "conclusion": "failure",
+                                "html_url": "https://github.com/acme/widgets/actions/runs/456/job/789",
+                            }
+                        ],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            check_run = provider_module.bot_get_check_run(
+                provider_module.GetCheckRunInput(
+                    owner="acme", repo="widgets", check_run_id=123
+                ),
+                github_request(),
+            )
+            annotations = provider_module.bot_list_check_run_annotations(
+                provider_module.ListCheckRunAnnotationsInput(
+                    owner="acme",
+                    repo="widgets",
+                    check_run_id=123,
+                    per_page=2,
+                    page=3,
+                ),
+                github_request(),
+            )
+            workflow_run = provider_module.bot_get_workflow_run(
+                provider_module.GetWorkflowRunInput(
+                    owner="acme", repo="widgets", run_id=456
+                ),
+                github_request(),
+            )
+            jobs = provider_module.bot_list_workflow_run_jobs(
+                provider_module.ListWorkflowRunJobsInput(
+                    owner="acme",
+                    repo="widgets",
+                    run_id=456,
+                    filter="all",
+                    per_page=5,
+                    page=1,
+                ),
+                github_request(),
+            )
+
+        self.assertEqual(
+            cast(dict[str, Any], check_run)["data"]["check_run"]["id"], 123
+        )
+        self.assertEqual(
+            cast(dict[str, Any], annotations)["data"]["annotations"][0]["message"],
+            "broken",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], workflow_run)["data"]["workflow_run"]["name"], "CI"
+        )
+        self.assertEqual(cast(dict[str, Any], jobs)["data"]["jobs"][0]["id"], 789)
+        self.assertGreaterEqual(len(calls), 8)
+
     def test_commit_files_rejects_invalid_inputs_before_github_calls(self) -> None:
         with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_commit_files(
@@ -978,6 +1467,23 @@ class GitHubProviderTests(unittest.TestCase):
                     title="Update README",
                     head="feature",
                     base="main",
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("repository", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_create_issue_comment(
+                provider_module.CreateIssueCommentInput(
+                    owner="acme",
+                    repo="other",
+                    issue_number=7,
+                    body="Looks broken.",
                 ),
                 github_request(installation_id=99, repo="acme/widgets"),
             )

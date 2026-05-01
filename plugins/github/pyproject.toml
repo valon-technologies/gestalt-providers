@@ -31,4 +31,9 @@ vulture-ignore-names = [
   "bot_commit_files",
   "bot_open_pull_request",
   "bot_create_pull_request",
+  "bot_create_issue_comment",
+  "bot_get_check_run",
+  "bot_list_check_run_annotations",
+  "bot_get_workflow_run",
+  "bot_list_workflow_run_jobs",
 ]

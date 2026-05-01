@@ -45,7 +45,9 @@ def webhook_subject_from_payload(
     )
 
 
-def event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, Any]:
+def event_summary(
+    payload: dict[str, Any], installation_id: int, event_type: str = ""
+) -> dict[str, Any]:
     repository = map_field(payload, "repository")
     sender = map_field(payload, "sender")
     pull_request = map_field(payload, "pull_request")
@@ -54,7 +56,7 @@ def event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, An
     review = map_field(payload, "review")
     summary: dict[str, Any] = {
         "installation_id": installation_id,
-        "event_type": github_event_type(payload),
+        "event_type": event_type or github_event_type(payload),
         "action": str_field(payload, "action"),
         "repository": repository_full_name(payload),
         "repository_owner": nested_str(repository, "owner", "login"),
@@ -112,6 +114,16 @@ def _add_ci_event_summary(payload: dict[str, Any], summary: dict[str, Any]) -> N
     event_id = int_field(event_object, "id")
     if event_id > 0:
         summary[f"{event_type}_id"] = event_id
+    if str_field(event_object, "status"):
+        summary["status"] = str_field(event_object, "status")
+    if str_field(event_object, "conclusion"):
+        summary["conclusion"] = str_field(event_object, "conclusion")
+    if str_field(event_object, "name"):
+        summary["name"] = str_field(event_object, "name")
+    if str_field(event_object, "head_branch"):
+        summary["head_ref"] = str_field(event_object, "head_branch")
+    if str_field(event_object, "head_sha"):
+        summary["head_sha"] = str_field(event_object, "head_sha")
     pr_numbers = pull_request_numbers(event_object)
     if pr_numbers:
         summary["pull_request_numbers"] = pr_numbers
@@ -140,6 +152,14 @@ def github_delivery_id(payload: dict[str, Any]) -> str:
     headers = map_field(payload, "headers")
     for key, value in headers.items():
         if str(key).lower() == "x-github-delivery" and isinstance(value, str):
+            return value.strip()
+    return ""
+
+
+def github_event_header(payload: dict[str, Any]) -> str:
+    headers = map_field(payload, "headers")
+    for key, value in headers.items():
+        if str(key).lower() == "x-github-event" and isinstance(value, str):
             return value.strip()
     return ""
 
@@ -175,17 +195,22 @@ def repository_full_name(payload: dict[str, Any]) -> str:
     return ""
 
 
-def webhook_ignored_reason(payload: dict[str, Any]) -> str:
+def webhook_ignored_reason(
+    payload: dict[str, Any],
+    *,
+    event_type: str = "",
+    enforce_event_allowlist: bool = True,
+) -> str:
     if is_ping_event(payload):
         return "ping"
     if installation_id_from_payload(payload) <= 0:
         return "missing_installation"
 
-    event_type = github_event_type(payload)
+    event_type = event_type or github_event_type(payload)
     if not event_type:
         return "unknown_event_type"
     config = get_github_config()
-    if event_type not in config.webhook_events:
+    if enforce_event_allowlist and event_type not in config.webhook_events:
         return f"unsupported_event_type:{event_type}"
     if config.ignore_bot_sender:
         try:
