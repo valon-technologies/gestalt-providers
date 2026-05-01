@@ -136,7 +136,7 @@ export class CursorSDKRunner {
       active.agent = await this.createAgent(input, active.bridge, active.stateRoot);
       await this.raiseIfCanceled(active);
 
-      const prompt = messagesToPrompt(input.messages);
+      const prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
       active.run = await active.agent.send(prompt);
       await this.raiseIfCanceled(active);
 
@@ -262,8 +262,15 @@ function recordSDKMessage(
   }
 }
 
-function messagesToPrompt(messages: AgentMessage[]): string {
-  return messages
+function messagesToPrompt(messages: AgentMessage[], systemPrompt: string): string {
+  const sections: string[] = [];
+  const trimmedSystemPrompt = systemPrompt.trim();
+  if (trimmedSystemPrompt) {
+    sections.push(
+      `<system>\n${JSON.stringify({ role: "system", text: trimmedSystemPrompt })}\n</system>`,
+    );
+  }
+  sections.push(...messages
     .map((message, index) => {
       const role = (message.role || "user").trim() || "user";
       const payload = {
@@ -273,8 +280,8 @@ function messagesToPrompt(messages: AgentMessage[]): string {
         metadata: message.metadata ?? undefined,
       };
       return `<message index="${index + 1}" role="${escapeAttribute(role)}">\n${JSON.stringify(payload)}\n</message>`;
-    })
-    .join("\n\n");
+    }));
+  return sections.join("\n\n");
 }
 
 function escapeAttribute(value: string): string {

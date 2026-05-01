@@ -7,6 +7,7 @@ export const DEFAULT_TIMEOUT_SECONDS = 300;
 export type CursorAgentConfig = {
   defaultModel: string;
   timeoutSeconds: number;
+  systemPrompt: string;
   workingDirectory: string;
   cursorApiKey?: string;
   sandboxEnabled?: boolean;
@@ -22,6 +23,7 @@ export function parseCursorAgentConfig(raw: Record<string, unknown>): CursorAgen
   if (timeoutSeconds <= 0) {
     throw new Error("timeoutSeconds must be positive");
   }
+  const systemPrompt = optionalString(raw.systemPrompt, "systemPrompt") ?? "";
 
   const workingDirectory = resolve(
     stringValue(raw.workingDirectory, process.cwd(), "workingDirectory"),
@@ -40,6 +42,7 @@ export function parseCursorAgentConfig(raw: Record<string, unknown>): CursorAgen
   const config: CursorAgentConfig = {
     defaultModel,
     timeoutSeconds,
+    systemPrompt,
     workingDirectory,
   };
   const cursorApiKey = optionalString(raw.cursorApiKey, "cursorApiKey");

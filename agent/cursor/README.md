@@ -8,6 +8,7 @@ Configuration:
 
 - `defaultModel`: Cursor model id to use when the request does not specify one. Defaults to `composer-2`.
 - `timeoutSeconds`: maximum live Cursor run duration. Defaults to `300`.
+- `systemPrompt`: optional system prompt prepended to every Cursor turn.
 - `workingDirectory`: local workspace directory for Cursor. Defaults to the provider process working directory.
 - `cursorApiKey`: optional Cursor API key. If omitted, the Cursor SDK reads `CURSOR_API_KEY`.
 - `sandboxEnabled`: optional Cursor local sandbox flag.
