@@ -1,6 +1,7 @@
 import copy
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -293,9 +294,7 @@ class SimpleRunStore:
         if requested_ids:
             sessions = [self.get_session(session_id) for session_id in requested_ids]
         else:
-            sessions = [
-                _record_to_session(record) for record in self._sessions.get_all()
-            ]
+            sessions = [_record_to_session(record) for record in self._sessions.iter_records()]
         sessions = [session for session in sessions if session is not None]
         subject_id = subject_id.strip()
         if subject_id:
@@ -440,7 +439,8 @@ class SimpleRunStore:
         else:
             if not session_id.strip():
                 return []
-            turns = self.list_runs()
+            turns = [_record_to_run(record) for record in self._runs.iter_records()]
+            turns = [turn for turn in turns if turn is not None]
         session_id = session_id.strip()
         if session_id:
             turns = [run for run in turns if run.session_ref == session_id]
@@ -806,7 +806,7 @@ class SimpleRunStore:
             return None
 
     def list_runs(self) -> list[StoredRun]:
-        runs = [_record_to_run(record) for record in self._runs.get_all()]
+        runs = [_record_to_run(record) for record in self._runs.iter_records()]
         runs = [run for run in runs if run is not None]
         return sorted(runs, key=lambda run: (run.created_at, run.run_id), reverse=True)
 
@@ -817,7 +817,10 @@ class SimpleRunStore:
         return max(event.seq for event in existing) + 1
 
     def _persisted_turn_events(self, turn_id: str) -> list[StoredTurnEvent]:
-        events = [_record_to_turn_event(record) for record in self._events.get_all()]
+        events = [
+            _record_to_turn_event(record)
+            for record in self._events.iter_records(_turn_event_key_range(turn_id))
+        ]
         return [event for event in events if event is not None and event.turn_id == turn_id]
 
     def _append_turn_event_locked(
@@ -1203,7 +1206,7 @@ def _get_optional_record(store: Any, record_id: str) -> dict[str, Any] | None:
 
 
 def _persisted_turn_events_from_store(store: Any, turn_id: str) -> list[StoredTurnEvent]:
-    events = [_record_to_turn_event(record) for record in store.get_all()]
+    events = [_record_to_turn_event(record) for record in store.get_all(_turn_event_key_range(turn_id))]
     return [event for event in events if event is not None and event.turn_id == turn_id]
 
 
@@ -1236,6 +1239,11 @@ def _normalized_unique_ids(raw_ids: list[str] | None) -> list[str]:
         seen.add(value)
         out.append(value)
     return out
+
+
+def _turn_event_key_range(turn_id: str) -> Any:
+    prefix = f"{turn_id}:"
+    return gestalt.KeyRange(lower=prefix, upper=f"{prefix}\U0010ffff")
 
 
 def _coerce_string_dict(raw_value: Any) -> dict[str, str]:
@@ -1310,6 +1318,19 @@ class _RetryingObjectStore:
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return _call_with_busy_retry(lambda: self._store.get_all(key_range))
 
+    def iter_records(self, key_range: Any | None = None) -> Iterator[dict[str, Any]]:
+        open_cursor = getattr(self._store, "open_cursor", None)
+        if open_cursor is None:
+            yield from self.get_all(key_range)
+            return
+
+        cursor = _call_with_busy_retry(lambda: open_cursor(key_range))
+        try:
+            while cursor.continue_():
+                yield copy.deepcopy(cursor.value)
+        finally:
+            cursor.close()
+
 
 class _LazyObjectStore:
     def __init__(self, owner: SimpleRunStore, name: str) -> None:
@@ -1330,6 +1351,9 @@ class _LazyObjectStore:
 
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return self._resolve().get_all(key_range)
+
+    def iter_records(self, key_range: Any | None = None) -> Iterator[dict[str, Any]]:
+        return self._resolve().iter_records(key_range)
 
     def _resolve(self) -> _RetryingObjectStore:
         return self._owner._object_store(self._name)

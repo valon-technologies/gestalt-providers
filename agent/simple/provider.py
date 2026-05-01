@@ -41,7 +41,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.32",
+            version="0.0.1-alpha.33",
         )
 
     def warnings(self) -> list[str]:

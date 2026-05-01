@@ -58,6 +58,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         self._lock = threading.Lock()
         self._stores: dict[str, dict[str, Any]] = {}
         self._busy_failures: dict[tuple[str, str], int] = {}
+        self._operation_counts: dict[tuple[str, str], int] = {}
 
     def fail_next_busy(self, *, store: str, operation: str, count: int = 1) -> None:
         with self._lock:
@@ -67,8 +68,14 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         with self._lock:
             self._stores.clear()
             self._busy_failures.clear()
+            self._operation_counts.clear()
+
+    def operation_count(self, *, store: str, operation: str) -> int:
+        with self._lock:
+            return self._operation_counts.get((store, operation), 0)
 
     def _maybe_fail_busy(self, *, store: str, operation: str, context: grpc.ServicerContext) -> None:
+        self._operation_counts[(store, operation)] = self._operation_counts.get((store, operation), 0) + 1
         if not self._take_busy_failure(store=store, operation=operation):
             return
         context.abort(grpc.StatusCode.INTERNAL, _BUSY_DETAILS)
@@ -145,18 +152,74 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         with self._lock:
             self._maybe_fail_busy(store=request.store, operation="get_all", context=context)
             return datastore_pb2.RecordsResponse(
-                records=[_copy_record(record) for record in self._stores.get(request.store, {}).values()]
+                records=[
+                    _copy_record(record)
+                    for record in _records_for_request_range(self._stores.get(request.store, {}), request)
+                ]
             )
 
     def GetAllKeys(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
-            return datastore_pb2.KeysResponse(keys=list(self._stores.get(request.store, {}).keys()))
+            self._maybe_fail_busy(store=request.store, operation="get_all_keys", context=context)
+            return datastore_pb2.KeysResponse(
+                keys=[
+                    _record_id(record)
+                    for record in _records_for_request_range(self._stores.get(request.store, {}), request)
+                ]
+            )
 
     def Count(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
-            return datastore_pb2.CountResponse(count=len(self._stores.get(request.store, {})))
+            self._maybe_fail_busy(store=request.store, operation="count", context=context)
+            return datastore_pb2.CountResponse(
+                count=len(_records_for_request_range(self._stores.get(request.store, {}), request))
+            )
+
+    def OpenCursor(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
+        try:
+            first = next(request_iterator)
+        except StopIteration:
+            return
+        if first.WhichOneof("msg") != "open":
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "first cursor message must be open")
+        open_req = first.open
+        with self._lock:
+            self._maybe_fail_busy(store=open_req.store, operation="open_cursor", context=context)
+            records = _records_for_request_range(self._stores.get(open_req.store, {}), open_req)
+        yield datastore_pb2.CursorResponse(done=False)
+
+        cursor_index = -1
+        for message in request_iterator:
+            if message.WhichOneof("msg") != "command":
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "cursor command is required")
+            command = message.command
+            kind = command.WhichOneof("command")
+            if kind == "next":
+                cursor_index += 1
+            elif kind == "advance":
+                cursor_index += max(1, int(command.advance or 0))
+            elif kind == "continue_to_key":
+                target = _cursor_target_key(command.continue_to_key)
+                cursor_index += 1
+                while cursor_index < len(records) and _record_id(records[cursor_index]) < target:
+                    cursor_index += 1
+            elif kind == "close":
+                return
+            else:
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported cursor command")
+
+            if cursor_index >= len(records):
+                yield datastore_pb2.CursorResponse(done=True)
+                continue
+            record = records[cursor_index]
+            record_id = _record_id(record)
+            yield datastore_pb2.CursorResponse(
+                entry=datastore_pb2.CursorEntry(
+                    key=[datastore_pb2.KeyValue(scalar=datastore_pb2.TypedValue(string_value=record_id))],
+                    primary_key=record_id,
+                    record=_copy_record(record),
+                )
+            )
 
     def Transaction(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
         try:
@@ -249,15 +312,21 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         if kind == "get_all":
             return datastore_pb2.TransactionOperationResponse(
                 request_id=request_id,
-                records=datastore_pb2.RecordsResponse(records=[_copy_record(record) for record in store.values()]),
+                records=datastore_pb2.RecordsResponse(
+                    records=[_copy_record(record) for record in _records_for_request_range(store, request)]
+                ),
             )
         if kind == "get_all_keys":
             return datastore_pb2.TransactionOperationResponse(
-                request_id=request_id, keys=datastore_pb2.KeysResponse(keys=list(store.keys()))
+                request_id=request_id,
+                keys=datastore_pb2.KeysResponse(
+                    keys=[_record_id(record) for record in _records_for_request_range(store, request)]
+                ),
             )
         if kind == "count":
             return datastore_pb2.TransactionOperationResponse(
-                request_id=request_id, count=datastore_pb2.CountResponse(count=len(store))
+                request_id=request_id,
+                count=datastore_pb2.CountResponse(count=len(_records_for_request_range(store, request))),
             )
         return _transaction_error(
             request_id, grpc.StatusCode.INVALID_ARGUMENT, f"unsupported transaction operation {kind}"
@@ -281,6 +350,46 @@ def _record_id(record: Any) -> str:
     if not record_id:
         raise ValueError("record id is required")
     return record_id
+
+
+def _records_for_request_range(store: dict[str, Any], request: Any) -> list[Any]:
+    records = sorted(store.values(), key=_record_id)
+    if not _proto_message_has_field(request, "range") or not request.HasField("range"):
+        return records
+    key_range = request.range
+    return [record for record in records if _record_id_matches_range(_record_id(record), key_range)]
+
+
+def _record_id_matches_range(record_id: str, key_range: Any) -> bool:
+    if key_range.HasField("lower"):
+        lower = str(_typed_value_to_python(key_range.lower) or "")
+        if record_id < lower or (key_range.lower_open and record_id == lower):
+            return False
+    if key_range.HasField("upper"):
+        upper = str(_typed_value_to_python(key_range.upper) or "")
+        if record_id > upper or (key_range.upper_open and record_id == upper):
+            return False
+    return True
+
+
+def _typed_value_to_python(value: Any) -> Any:
+    kind = value.WhichOneof("kind")
+    if kind == "string_value":
+        return value.string_value
+    if kind == "int_value":
+        return int(value.int_value)
+    if kind == "float_value":
+        return float(value.float_value)
+    if kind == "bool_value":
+        return bool(value.bool_value)
+    return None
+
+
+def _cursor_target_key(target: Any) -> str:
+    key = list(getattr(target, "key", []))
+    if not key:
+        return ""
+    return str(_typed_value_to_python(key[0].scalar) or "")
 
 
 def _transaction_error(request_id: int, code: Any, message: str) -> Any:
@@ -854,6 +963,56 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 self.assertTrue(callbacks[1]())
         finally:
             first_resume_release.set()
+
+    def test_list_paths_stream_records_instead_of_get_all(self) -> None:
+        assert _indexeddb_servicer is not None
+
+        store = _direct_store()
+        self.addCleanup(store.close)
+        for suffix in ("a", "b"):
+            store.create_session(
+                session_id=f"session-stream-{suffix}",
+                idempotency_key=f"session-idem-stream-{suffix}",
+                provider_name="simple",
+                model="openai/fake-model",
+                client_ref="",
+                metadata={"large": "x" * 1024},
+                created_by={"subject_id": "user-123"},
+            )
+            store.begin_turn(
+                turn_id=f"turn-stream-{suffix}",
+                session_id=f"session-stream-{suffix}",
+                idempotency_key=f"idem-stream-{suffix}",
+                provider_name="simple",
+                model="openai/fake-model",
+                messages=[{"role": "user", "text": f"stream {suffix}"}],
+                created_by={"subject_id": "user-123"},
+                execution_ref="",
+                resume_seed=_resume_seed(messages=[{"role": "user", "text": f"stream {suffix}"}], provider_options={}),
+                start_event_source="simple",
+            )
+
+        sessions = store.list_sessions(subject_id="user-123", limit=1)
+        turns = store.list_turns("session-stream-a", subject_id="user-123")
+        events = store.list_turn_events(turn_id="turn-stream-a")
+
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual([turn.run_id for turn in turns], ["turn-stream-a"])
+        self.assertEqual([event.event_id for event in events], ["turn-stream-a:turn.started"])
+        self.assertGreater(
+            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_sessions", operation="open_cursor"), 0
+        )
+        self.assertGreater(_indexeddb_servicer.operation_count(store=_SIMPLE_RUN_STORE, operation="open_cursor"), 0)
+        self.assertGreater(
+            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_events", operation="open_cursor"), 0
+        )
+        self.assertEqual(
+            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_sessions", operation="get_all"), 0
+        )
+        self.assertEqual(_indexeddb_servicer.operation_count(store=_SIMPLE_RUN_STORE, operation="get_all"), 0)
+        self.assertEqual(
+            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_events", operation="get_all"), 0
+        )
 
     def test_configure_resumes_running_turn_from_atomic_checkpoint(self) -> None:
         fake_llm = _FakeOpenAIChatServer(
