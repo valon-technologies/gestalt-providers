@@ -350,6 +350,27 @@ class FakeWorkflowManager:
 
 
 class SlackProviderTests(unittest.TestCase):
+    def test_agent_module_reexports_model_interfaces(self) -> None:
+        import internals.agent as agent_module
+        import internals.models as models_module
+
+        for name in (
+            "SlackAcknowledgementConfig",
+            "SlackAgentConfig",
+            "SlackAgentEvent",
+            "SlackAgentRoute",
+            "SlackAgentRouteMatch",
+            "SlackAssistantConfig",
+            "SlackBotConfig",
+            "SlackCallbackType",
+            "SlackChannelType",
+            "SlackEventType",
+            "SlackInteractionRef",
+            "SlackReplyRef",
+            "SlackWorkflowConfig",
+        ):
+            self.assertIs(getattr(agent_module, name), getattr(models_module, name))
+
     def test_catalog_and_manifest_expose_native_assistant_contracts(self) -> None:
         catalog = yaml.safe_load((PLUGIN_DIR / "catalog.yaml").read_text())
         manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())

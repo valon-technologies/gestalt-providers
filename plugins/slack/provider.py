@@ -44,6 +44,12 @@ from internals.agent import (
     stop_slack_event_stream,
 )
 from internals.client import SlackAPIError, SlackClientError, is_slack_file_download_url
+from internals.models import (
+    SlackAgentEvent as SlackAgentEvent,
+    SlackAgentRoute as SlackAgentRoute,
+    SlackAgentRouteMatch as SlackAgentRouteMatch,
+    SlackReplyRef as SlackReplyRef,
+)
 from internals.operations import (
     find_user_mentions,
     get_file,
@@ -61,10 +67,6 @@ plugin = gestalt.Plugin("slack")
 
 SLACK_AUTH_TEST_URL = _agent.SLACK_AUTH_TEST_URL
 SLACK_DEFAULT_CONNECTION = _agent.SLACK_DEFAULT_CONNECTION
-SlackAgentEvent = _agent.SlackAgentEvent
-SlackAgentRoute = _agent.SlackAgentRoute
-SlackAgentRouteMatch = _agent.SlackAgentRouteMatch
-SlackReplyRef = _agent.SlackReplyRef
 _agent_session_ref = _agent._agent_session_ref
 _select_agent_route = _agent._select_agent_route
 _sign_reply_ref = _agent._sign_reply_ref
