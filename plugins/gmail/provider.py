@@ -8,6 +8,8 @@ import gestalt
 from internals.client import GmailAPIError, GmailClientError
 from internals.mime import MIMEParams
 from internals.operations import (
+    GmailForwardRequest,
+    GmailReplyRequest,
     create_draft,
     forward_message,
     reply_message,
@@ -193,11 +195,13 @@ def messages_reply(input: ReplyMessageInput, req: gestalt.Request) -> OperationR
     try:
         return reply_message(
             req.token,
-            message_id=input.message_id,
-            body=input.body,
-            cc=input.cc,
-            reply_all=input.reply_all,
-            html_body=input.html_body,
+            GmailReplyRequest(
+                message_id=input.message_id,
+                body=input.body,
+                cc=input.cc,
+                reply_all=input.reply_all,
+                html_body=input.html_body,
+            ),
         )
     except GmailAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)
@@ -223,10 +227,12 @@ def messages_forward(
     try:
         return forward_message(
             req.token,
-            message_id=input.message_id,
-            to=input.to,
-            additional_text=input.additional_text,
-            cc=input.cc,
+            GmailForwardRequest(
+                message_id=input.message_id,
+                to=input.to,
+                additional_text=input.additional_text,
+                cc=input.cc,
+            ),
         )
     except GmailAPIError as err:
         return gestalt.Response(status=err.status, body=err.body)

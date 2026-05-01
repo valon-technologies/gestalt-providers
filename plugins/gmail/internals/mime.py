@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import secrets
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,7 +82,7 @@ def decode_base64url(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + padding)
 
 
-def get_header(headers: list[dict[str, Any]], name: str) -> str:
+def get_header(headers: Sequence[Mapping[str, Any]], name: str) -> str:
     expected = name.lower()
     for header in headers:
         header_name = header.get("name")
@@ -129,7 +130,7 @@ def ensure_forward_prefix(subject: str) -> str:
 
 
 def extract_plain_text(
-    parts: list[dict[str, Any]], body_data: str, mime_type: str
+    parts: Sequence[Mapping[str, Any]], body_data: str, mime_type: str
 ) -> str:
     for part in parts:
         if part.get("mimeType") != "text/plain":
