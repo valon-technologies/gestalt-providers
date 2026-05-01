@@ -5,21 +5,18 @@ import binascii
 import datetime as dt
 import re
 import urllib.parse
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
 
 from .client import (
-    bot_identity_or_none,
-    commit_url,
-    get_branch_ref,
-    github_json,
-    github_json_value,
-    installation_token,
-    object_sha,
+    DEFAULT_GITHUB_CLIENT,
+    GitHubAPIClient,
+    GitHubPermissions,
+    JsonObject,
+    JsonPayload,
     repo_path,
-    repository_default_branch,
-    require_branch_ref,
 )
 from .constants import (
     GITHUB_INSTALLATION_SUBJECT_PREFIX,
@@ -58,11 +55,11 @@ class GitHubCommitRequest:
     owner: str
     repo: str
     message: str
-    files: list[GitHubFileChange]
+    files: tuple[GitHubFileChange, ...]
     branch: str = ""
     base_branch: str = ""
     installation_id: int = 0
-    coauthors: list[GitHubCoAuthor] = field(default_factory=list)
+    coauthors: tuple[GitHubCoAuthor, ...] = ()
     include_bot_coauthor: bool = True
     author_name: str = ""
     author_email: str = ""
@@ -92,12 +89,12 @@ class GitHubCreatePullRequestRequest:
     repo: str
     title: str
     message: str
-    files: list[GitHubFileChange]
+    files: tuple[GitHubFileChange, ...]
     body: str = ""
     branch: str = ""
     base: str = ""
     installation_id: int = 0
-    coauthors: list[GitHubCoAuthor] = field(default_factory=list)
+    coauthors: tuple[GitHubCoAuthor, ...] = ()
     include_bot_coauthor: bool = True
     author_name: str = ""
     author_email: str = ""
@@ -171,18 +168,30 @@ class CommitResult:
 @dataclass(frozen=True, slots=True)
 class CreatePullRequestResult:
     commit: CommitResult
-    pull_request: dict[str, Any]
+    pull_request: JsonObject
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubSubjectScope:
+    installation_id: int = 0
+    repository: str = ""
 
 
 def commit_files(
-    request: GitHubCommitRequest, *, subject: Any, pull_request_permissions: bool
+    request: GitHubCommitRequest,
+    *,
+    subject: Any,
+    pull_request_permissions: bool,
+    client: GitHubAPIClient | None = None,
 ) -> CommitResult:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     message = commit_message_with_coauthors(
         require_text(request.message, "message"),
         coauthors=request.coauthors,
         include_bot=request.include_bot_coauthor,
+        client=github,
     )
     files = normalize_file_changes(request.files)
     if not files:
@@ -205,24 +214,24 @@ def commit_files(
     permissions = {"contents": "write"}
     if pull_request_permissions:
         permissions["pull_requests"] = "write"
-    token = installation_token(
+    token = github.installation_token(
         installation_id, repositories=[repo], permissions=permissions
     )
 
     if not base_branch:
-        base_branch = repository_default_branch(token, owner, repo)
+        base_branch = github.repository_default_branch(token, owner, repo)
     if branch == base_branch and not request.allow_base_update:
         raise ValueError(
             "branch must differ from base_branch unless allow_base_update is true"
         )
 
-    branch_ref = get_branch_ref(token, owner, repo, branch)
+    branch_ref = github.get_branch_ref(token, owner, repo, branch)
     branch_created = branch_ref is None
-    parent_ref = branch_ref or require_branch_ref(
+    parent_ref = branch_ref or github.require_branch_ref(
         token, owner, repo, base_branch, "base_branch"
     )
-    parent_sha = object_sha(parent_ref, "parent ref")
-    parent_commit = github_json(
+    parent_sha = github.object_sha(parent_ref, "parent ref")
+    parent_commit = github.github_json(
         "GET",
         repo_path(owner, repo, "git", "commits", parent_sha),
         token,
@@ -232,10 +241,10 @@ def commit_files(
         raise GitHubAPIError(502, "GitHub commit response did not include tree.sha")
 
     tree_entries = [
-        tree_entry_for_file(token, owner=owner, repo=repo, change=change)
+        tree_entry_for_file(token, owner=owner, repo=repo, change=change, client=github)
         for change in files
     ]
-    tree = github_json(
+    tree = github.github_json(
         "POST",
         repo_path(owner, repo, "git", "trees"),
         token,
@@ -248,7 +257,7 @@ def commit_files(
     if not tree_sha:
         raise GitHubAPIError(502, "GitHub tree response did not include sha")
 
-    commit_payload: dict[str, Any] = {
+    commit_payload: JsonObject = {
         "message": message,
         "tree": tree_sha,
         "parents": [parent_sha],
@@ -260,7 +269,7 @@ def commit_files(
     if committer:
         commit_payload["committer"] = committer
 
-    commit = github_json(
+    commit = github.github_json(
         "POST",
         repo_path(owner, repo, "git", "commits"),
         token,
@@ -271,14 +280,14 @@ def commit_files(
         raise GitHubAPIError(502, "GitHub commit response did not include sha")
 
     if branch_created:
-        github_json(
+        github.github_json(
             "POST",
             repo_path(owner, repo, "git", "refs"),
             token,
             {"ref": f"refs/heads/{branch}", "sha": commit_sha},
         )
     else:
-        github_json(
+        github.github_json(
             "PATCH",
             repo_path(owner, repo, "git", "refs", "heads", branch, safe_last="/"),
             token,
@@ -292,7 +301,7 @@ def commit_files(
         base_branch=base_branch,
         installation_id=installation_id,
         commit_sha=commit_sha,
-        commit_url=commit_url(owner, repo, commit_sha),
+        commit_url=github.commit_url(owner, repo, commit_sha),
         tree_sha=tree_sha,
         branch_created=branch_created,
         files_changed=len(files),
@@ -300,8 +309,12 @@ def commit_files(
 
 
 def open_pull_request(
-    request: GitHubOpenPullRequestRequest, *, subject: Any
-) -> dict[str, Any]:
+    request: GitHubOpenPullRequestRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     title = require_text(request.title, "title")
@@ -311,7 +324,7 @@ def open_pull_request(
     installation_id = scoped_installation_id(
         subject, owner=owner, repo=repo, explicit=request.installation_id
     )
-    token = installation_token(
+    token = github.installation_token(
         installation_id,
         repositories=[repo],
         permissions={"pull_requests": "write"},
@@ -327,12 +340,17 @@ def open_pull_request(
         head_owner=head_owner,
         draft=request.draft,
         maintainer_can_modify=request.maintainer_can_modify,
+        client=github,
     )
 
 
 def create_pull_request_with_files(
-    request: GitHubCreatePullRequestRequest, *, subject: Any
+    request: GitHubCreatePullRequestRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
 ) -> CreatePullRequestResult:
+    github = github_client(client)
     commit = commit_files(
         GitHubCommitRequest(
             owner=request.owner,
@@ -353,8 +371,9 @@ def create_pull_request_with_files(
         ),
         subject=subject,
         pull_request_permissions=True,
+        client=github,
     )
-    token = installation_token(
+    token = github.installation_token(
         commit.installation_id,
         repositories=[commit.repo],
         permissions={"pull_requests": "write"},
@@ -370,6 +389,7 @@ def create_pull_request_with_files(
         head_owner="",
         draft=request.draft,
         maintainer_can_modify=request.maintainer_can_modify,
+        client=github,
     )
     return CreatePullRequestResult(commit=commit, pull_request=pull)
 
@@ -386,7 +406,9 @@ def create_pull_request_on_github(
     head_owner: str,
     draft: bool,
     maintainer_can_modify: bool,
-) -> dict[str, Any]:
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     normalized_head = head.strip()
     if head_owner.strip():
         normalized_head = f"{head_owner.strip()}:{normalized_head}"
@@ -398,12 +420,16 @@ def create_pull_request_on_github(
         "draft": bool(draft),
         "maintainer_can_modify": bool(maintainer_can_modify),
     }
-    return github_json("POST", repo_path(owner, repo, "pulls"), token, payload)
+    return github.github_json("POST", repo_path(owner, repo, "pulls"), token, payload)
 
 
 def create_issue_comment(
-    request: GitHubCreateIssueCommentRequest, *, subject: Any
-) -> dict[str, Any]:
+    request: GitHubCreateIssueCommentRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     issue_number = require_positive_int(request.issue_number, "issue_number")
@@ -422,20 +448,27 @@ def create_issue_comment(
             {"pull_requests": "write"},
         ),
         payload={"body": body},
+        client=github,
     )
 
 
-def get_check_run(request: GitHubCheckRunRequest, *, subject: Any) -> dict[str, Any]:
+def get_check_run(
+    request: GitHubCheckRunRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     check_run_id = require_positive_int(request.check_run_id, "check_run_id")
     installation_id = scoped_installation_id(
         subject, owner=owner, repo=repo, explicit=request.installation_id
     )
-    token = installation_token(
+    token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "read"}
     )
-    return github_json(
+    return github.github_json(
         "GET",
         repo_path(owner, repo, "check-runs", str(check_run_id)),
         token,
@@ -443,18 +476,22 @@ def get_check_run(request: GitHubCheckRunRequest, *, subject: Any) -> dict[str, 
 
 
 def list_check_run_annotations(
-    request: GitHubListCheckRunAnnotationsRequest, *, subject: Any
-) -> list[dict[str, Any]]:
+    request: GitHubListCheckRunAnnotationsRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     check_run_id = require_positive_int(request.check_run_id, "check_run_id")
     installation_id = scoped_installation_id(
         subject, owner=owner, repo=repo, explicit=request.installation_id
     )
-    token = installation_token(
+    token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "read"}
     )
-    data = github_json_value(
+    data = github.github_json_value(
         "GET",
         path_with_query(
             repo_path(owner, repo, "check-runs", str(check_run_id), "annotations"),
@@ -470,18 +507,22 @@ def list_check_run_annotations(
 
 
 def get_workflow_run(
-    request: GitHubWorkflowRunRequest, *, subject: Any
-) -> dict[str, Any]:
+    request: GitHubWorkflowRunRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     run_id = require_positive_int(request.run_id, "run_id")
     installation_id = scoped_installation_id(
         subject, owner=owner, repo=repo, explicit=request.installation_id
     )
-    token = installation_token(
+    token = github.installation_token(
         installation_id, repositories=[repo], permissions={"actions": "read"}
     )
-    return github_json(
+    return github.github_json(
         "GET",
         repo_path(owner, repo, "actions", "runs", str(run_id)),
         token,
@@ -489,8 +530,12 @@ def get_workflow_run(
 
 
 def list_workflow_run_jobs(
-    request: GitHubListWorkflowRunJobsRequest, *, subject: Any
-) -> dict[str, Any]:
+    request: GitHubListWorkflowRunJobsRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     run_id = require_positive_int(request.run_id, "run_id")
@@ -500,13 +545,13 @@ def list_workflow_run_jobs(
     installation_id = scoped_installation_id(
         subject, owner=owner, repo=repo, explicit=request.installation_id
     )
-    token = installation_token(
+    token = github.installation_token(
         installation_id, repositories=[repo], permissions={"actions": "read"}
     )
     params = pagination_params(per_page=request.per_page, page=request.page)
     if filter_value:
         params["filter"] = filter_value
-    return github_json(
+    return github.github_json(
         "GET",
         path_with_query(
             repo_path(owner, repo, "actions", "runs", str(run_id), "jobs"),
@@ -522,16 +567,18 @@ def github_json_with_permission_fallback(
     *,
     installation_id: int,
     repo: str,
-    permission_options: tuple[dict[str, str], ...],
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    permission_options: tuple[GitHubPermissions, ...],
+    payload: JsonPayload | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     fallback_error: GitHubAPIError | None = None
     for permissions in permission_options:
         try:
-            token = installation_token(
+            token = github.installation_token(
                 installation_id, repositories=[repo], permissions=permissions
             )
-            return github_json(method, path, token, payload)
+            return github.github_json(method, path, token, payload)
         except GitHubAPIError as err:
             if err.status not in (HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND):
                 raise
@@ -542,8 +589,14 @@ def github_json_with_permission_fallback(
 
 
 def tree_entry_for_file(
-    token: str, *, owner: str, repo: str, change: GitHubFileChange
-) -> dict[str, Any]:
+    token: str,
+    *,
+    owner: str,
+    repo: str,
+    change: GitHubFileChange,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
     mode = "100755" if change.executable else "100644"
     if change.delete:
         return {
@@ -557,7 +610,7 @@ def tree_entry_for_file(
             f"{change.path}: content and content_base64 are mutually exclusive"
         )
     if change.content_base64:
-        blob = github_json(
+        blob = github.github_json(
             "POST",
             repo_path(owner, repo, "git", "blobs"),
             token,
@@ -583,7 +636,9 @@ def tree_entry_for_file(
     }
 
 
-def normalize_file_changes(files: list[GitHubFileChange]) -> list[GitHubFileChange]:
+def normalize_file_changes(
+    files: Sequence[GitHubFileChange],
+) -> tuple[GitHubFileChange, ...]:
     normalized: list[GitHubFileChange] = []
     seen: set[str] = set()
     for item in files:
@@ -618,49 +673,55 @@ def normalize_file_changes(files: list[GitHubFileChange]) -> list[GitHubFileChan
                 executable=bool(item.executable),
             )
         )
-    return normalized
+    return tuple(normalized)
 
 
 def scoped_installation_id(
     subject: Any, *, owner: str, repo: str, explicit: int
 ) -> int:
-    subject_installation_id, subject_repo = github_scope_from_subject(subject)
-    if subject_installation_id <= 0:
+    scope = github_scope_from_subject(subject)
+    if scope.installation_id <= 0:
         raise GitHubAuthorizationError(
             "GitHub bot operations require a GitHub App installation service account subject"
         )
-    if explicit > 0 and explicit != subject_installation_id:
+    if explicit > 0 and explicit != scope.installation_id:
         raise GitHubAuthorizationError(
             "installation_id must match the caller's GitHub App installation subject"
         )
     requested_repo = f"{owner}/{repo}".lower()
-    if not subject_repo:
+    if not scope.repository:
         raise GitHubAuthorizationError(
             "GitHub bot operations require a repository-scoped webhook service account subject"
         )
-    if subject_repo.lower() != requested_repo:
+    if scope.repository.lower() != requested_repo:
         raise GitHubAuthorizationError(
             "repository must match the caller's GitHub App webhook subject"
         )
-    return explicit or subject_installation_id
+    return explicit or scope.installation_id
 
 
-def github_scope_from_subject(subject: Any) -> tuple[int, str]:
+def github_scope_from_subject(subject: Any) -> GitHubSubjectScope:
     if subject.kind != "service_account" or subject.auth_source != "github_app_webhook":
-        return 0, ""
+        return GitHubSubjectScope()
     if not subject.id.startswith(GITHUB_INSTALLATION_SUBJECT_PREFIX):
-        return 0, ""
+        return GitHubSubjectScope()
     value = subject.id.removeprefix(GITHUB_INSTALLATION_SUBJECT_PREFIX)
     installation_text, separator, repo = value.partition(
         GITHUB_REPOSITORY_SUBJECT_SEPARATOR
     )
     if installation_text.isdigit():
-        return int(installation_text), repo if separator else ""
-    return 0, ""
+        return GitHubSubjectScope(
+            installation_id=int(installation_text), repository=repo if separator else ""
+        )
+    return GitHubSubjectScope()
 
 
 def commit_message_with_coauthors(
-    message: str, *, coauthors: list[GitHubCoAuthor], include_bot: bool
+    message: str,
+    *,
+    coauthors: Sequence[GitHubCoAuthor],
+    include_bot: bool,
+    client: GitHubAPIClient | None = None,
 ) -> str:
     trailers: list[str] = []
     seen: set[tuple[str, str]] = set()
@@ -675,7 +736,7 @@ def commit_message_with_coauthors(
             trailers.append(f"Co-authored-by: {name} <{email}>")
 
     if include_bot:
-        bot = bot_coauthor()
+        bot = bot_coauthor(client=client)
         if bot is not None and bot not in seen:
             seen.add(bot)
             trailers.append(f"Co-authored-by: {bot[0]} <{bot[1]}>")
@@ -685,8 +746,8 @@ def commit_message_with_coauthors(
     return message.rstrip() + "\n\n" + "\n".join(trailers)
 
 
-def bot_coauthor() -> tuple[str, str] | None:
-    identity = bot_identity_or_none()
+def bot_coauthor(*, client: GitHubAPIClient | None = None) -> tuple[str, str] | None:
+    identity = github_client(client).bot_identity_or_none()
     if identity is None or not identity.name or not identity.email:
         return None
     return identity.name, identity.email
@@ -719,7 +780,7 @@ def commit_result_dict(commit: CommitResult) -> dict[str, Any]:
     }
 
 
-def pull_request_summary(pull: dict[str, Any]) -> dict[str, Any]:
+def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "number": int_field(pull, "number"),
         "title": str_field(pull, "title"),
@@ -731,7 +792,7 @@ def pull_request_summary(pull: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def issue_comment_summary(comment: dict[str, Any]) -> dict[str, Any]:
+def issue_comment_summary(comment: Mapping[str, Any]) -> dict[str, Any]:
     user = map_field(comment, "user")
     return _compact_dict(
         {
@@ -747,7 +808,7 @@ def issue_comment_summary(comment: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def check_run_summary(check_run: dict[str, Any]) -> dict[str, Any]:
+def check_run_summary(check_run: Mapping[str, Any]) -> dict[str, Any]:
     return _compact_dict(
         {
             "id": int_field(check_run, "id"),
@@ -764,7 +825,7 @@ def check_run_summary(check_run: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def check_run_annotation_summary(annotation: dict[str, Any]) -> dict[str, Any]:
+def check_run_annotation_summary(annotation: Mapping[str, Any]) -> dict[str, Any]:
     return _compact_dict(
         {
             "path": str_field(annotation, "path"),
@@ -778,7 +839,7 @@ def check_run_annotation_summary(annotation: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def workflow_run_summary(workflow_run: dict[str, Any]) -> dict[str, Any]:
+def workflow_run_summary(workflow_run: Mapping[str, Any]) -> dict[str, Any]:
     return _compact_dict(
         {
             "id": int_field(workflow_run, "id"),
@@ -796,7 +857,7 @@ def workflow_run_summary(workflow_run: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def workflow_run_job_summary(job: dict[str, Any]) -> dict[str, Any]:
+def workflow_run_job_summary(job: Mapping[str, Any]) -> dict[str, Any]:
     return _compact_dict(
         {
             "id": int_field(job, "id"),
@@ -824,7 +885,7 @@ def pagination_params(*, per_page: int, page: int) -> dict[str, Any]:
     return params
 
 
-def path_with_query(path: str, params: dict[str, Any]) -> str:
+def path_with_query(path: str, params: Mapping[str, Any]) -> str:
     if not params:
         return path
     return path + "?" + urllib.parse.urlencode(params)
@@ -834,6 +895,10 @@ def require_positive_int(value: int, name: str) -> int:
     if isinstance(value, bool) or int(value) <= 0:
         raise ValueError(f"{name} is required")
     return int(value)
+
+
+def github_client(client: GitHubAPIClient | None) -> GitHubAPIClient:
+    return client if client is not None else DEFAULT_GITHUB_CLIENT
 
 
 def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 
-def str_field(data: dict[str, Any], *path: str) -> str:
+def str_field(data: Mapping[str, Any], *path: str) -> str:
     if len(path) > 1:
         return nested_str(data, *path)
     value = data.get(path[0]) if path else ""
@@ -12,10 +13,10 @@ def str_field(data: dict[str, Any], *path: str) -> str:
     return ""
 
 
-def nested_str(data: dict[str, Any], *path: str) -> str:
+def nested_str(data: Mapping[str, Any], *path: str) -> str:
     value: Any = data
     for key in path:
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             return ""
         value = value.get(key)
     if isinstance(value, str):
@@ -23,7 +24,7 @@ def nested_str(data: dict[str, Any], *path: str) -> str:
     return ""
 
 
-def int_field(data: dict[str, Any], field_name: str) -> int:
+def int_field(data: Mapping[str, Any], field_name: str) -> int:
     value = data.get(field_name)
     if isinstance(value, bool):
         return 0
@@ -36,7 +37,7 @@ def int_field(data: dict[str, Any], field_name: str) -> int:
     return 0
 
 
-def map_field(data: dict[str, Any], field_name: str) -> dict[str, Any]:
+def map_field(data: Mapping[str, Any], field_name: str) -> dict[str, Any]:
     value = data.get(field_name)
     if isinstance(value, dict):
         return value
