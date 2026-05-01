@@ -1,14 +1,22 @@
-from http import HTTPStatus
+from __future__ import annotations
+
 from enum import StrEnum
+from http import HTTPStatus
 from typing import Any, TypeAlias, TypeVar
 
 import gestalt
 
 from internals.client import HexAPIError, HexClientError
 from internals.operations import (
+    CellRunRequest,
+    ContextVersionPublishRequest,
+    ContextVersionUpdateRequest,
     HexSortDirection,
     HexSuggestionSortBy,
     HexSuggestionStatus,
+    ProjectExportRequest,
+    ProjectRunDraftRequest,
+    SuggestionListRequest,
     create_context_version,
     export_project,
     get_suggestion,
@@ -139,8 +147,10 @@ def project_export(input: ProjectExportInput, req: gestalt.Request) -> Operation
     try:
         return export_project(
             req.token,
-            project_id=_require_trimmed_text(input.project_id, "project_id"),
-            version=_require_trimmed_text(input.version, "version"),
+            ProjectExportRequest(
+                project_id=_require_trimmed_text(input.project_id, "project_id"),
+                version=_require_trimmed_text(input.version, "version"),
+            ),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -187,8 +197,10 @@ def project_run_draft(
     try:
         return run_draft(
             req.token,
-            project_id=_require_trimmed_text(input.project_id, "project_id"),
-            use_cached_sql_results=input.use_cached_sql_results,
+            ProjectRunDraftRequest(
+                project_id=_require_trimmed_text(input.project_id, "project_id"),
+                use_cached_sql_results=input.use_cached_sql_results,
+            ),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -212,8 +224,10 @@ def cell_run(input: CellRunInput, req: gestalt.Request) -> OperationResult:
     try:
         return run_cell(
             req.token,
-            cell_id=_require_trimmed_text(input.cell_id, "cell_id"),
-            dry_run=input.dry_run,
+            CellRunRequest(
+                cell_id=_require_trimmed_text(input.cell_id, "cell_id"),
+                dry_run=input.dry_run,
+            ),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -241,14 +255,18 @@ def suggestions_list(
 
         return list_suggestions(
             req.token,
-            limit=input.limit,
-            after=input.after.strip() or None,
-            before=input.before.strip() or None,
-            sort_by=_normalize_str_enum(input.sort_by, "sort_by", HexSuggestionSortBy),
-            sort_direction=_normalize_str_enum(
-                input.sort_direction, "sort_direction", HexSortDirection
+            SuggestionListRequest(
+                limit=input.limit,
+                after=input.after.strip() or None,
+                before=input.before.strip() or None,
+                sort_by=_normalize_str_enum(
+                    input.sort_by, "sort_by", HexSuggestionSortBy
+                ),
+                sort_direction=_normalize_str_enum(
+                    input.sort_direction, "sort_direction", HexSortDirection
+                ),
+                status=_normalize_str_enum(input.status, "status", HexSuggestionStatus),
             ),
-            status=_normalize_str_enum(input.status, "status", HexSuggestionStatus),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -317,10 +335,12 @@ def context_version_update(
     try:
         return update_context_version(
             req.token,
-            context_version_id=_require_trimmed_text(
-                input.context_version_id, "context_version_id"
+            ContextVersionUpdateRequest(
+                context_version_id=_require_trimmed_text(
+                    input.context_version_id, "context_version_id"
+                ),
+                operation=input.operation,
             ),
-            operation=input.operation,
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -345,12 +365,14 @@ def context_version_publish(
     try:
         return publish_context_version(
             req.token,
-            context_version_id=_require_trimmed_text(
-                input.context_version_id, "context_version_id"
+            ContextVersionPublishRequest(
+                context_version_id=_require_trimmed_text(
+                    input.context_version_id, "context_version_id"
+                ),
+                update_latest_version=input.update_latest_version,
+                title=input.title.strip() or None,
+                description=input.description.strip() or None,
             ),
-            update_latest_version=input.update_latest_version,
-            title=input.title.strip() or None,
-            description=input.description.strip() or None,
         )
     except ValueError as err:
         return _bad_request(str(err))

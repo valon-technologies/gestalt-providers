@@ -3,6 +3,7 @@ import json
 import unittest
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from email.message import Message
 from http import HTTPStatus
 from typing import Any, cast
@@ -10,6 +11,7 @@ from unittest import mock
 
 import gestalt
 
+import internals.operations as operations_module
 import provider as provider_module
 
 
@@ -120,6 +122,42 @@ class HexProviderTests(unittest.TestCase):
                 provider_module.ProjectExportInput(project_id="proj-1", version="2"),
                 gestalt.Request(token="test-token"),
             )
+
+    def test_project_export_accepts_typed_client_boundary(self) -> None:
+        class FakeHexClient:
+            def __init__(self) -> None:
+                self.path = ""
+                self.payload: Mapping[str, Any] | None = None
+                self.token = ""
+
+            def get_json(
+                self,
+                path: str,
+                token: str,
+                query: Mapping[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                raise AssertionError("export_project should not issue GET requests")
+
+            def post_json(
+                self, path: str, payload: Mapping[str, Any], token: str
+            ) -> dict[str, Any]:
+                self.path = path
+                self.payload = payload
+                self.token = token
+                return {"ok": True}
+
+        client = FakeHexClient()
+
+        result = operations_module.export_project(
+            "test-token",
+            operations_module.ProjectExportRequest(project_id="proj-1", version="2"),
+            client=client,
+        )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(client.path, "/projects/export")
+        self.assertEqual(client.payload, {"projectId": "proj-1", "version": 2})
+        self.assertEqual(client.token, "test-token")
 
     def test_project_import_uses_cli_endpoint_contract(self) -> None:
         def fake_urlopen(
