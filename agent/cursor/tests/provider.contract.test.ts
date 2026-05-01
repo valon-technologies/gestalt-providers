@@ -151,7 +151,7 @@ describe("Cursor agent provider contract", () => {
     process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
     process.env[ENV_AGENT_HOST_SOCKET_TOKEN] = "relay-token";
 
-    const cursor = new FakeCursorAgentFactory(async (options) => {
+    const cursor = new FakeCursorAgentFactory(async (options, prompt) => {
       expect(options.model).toEqual({ id: "composer-2" });
       const gestaltServer = options.mcpServers?.gestalt;
       expect(gestaltServer?.type).toBe("http");
@@ -164,6 +164,8 @@ describe("Cursor agent provider contract", () => {
       expect(options.platform?.workspaceRef).toBe(process.cwd());
       expect(typeof options.platform?.stateRoot).toBe("string");
       expect(options.agents).toEqual({});
+      expect(prompt).toContain('"role":"system"');
+      expect(prompt).toContain("Be concise.");
 
       const result = await callFirstMcpTool(gestaltServer.url, {
         Authorization: gestaltServer.headers?.Authorization ?? "",
@@ -191,6 +193,7 @@ describe("Cursor agent provider contract", () => {
       ];
     });
     const provider = await configuredProvider({
+      config: { systemPrompt: "Be concise." },
       runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: cursor }),
     });
     const session = await provider.createSession(

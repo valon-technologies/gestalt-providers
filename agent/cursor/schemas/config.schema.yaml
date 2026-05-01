@@ -8,6 +8,9 @@ properties:
     type: number
     default: 300
     exclusiveMinimum: 0
+  systemPrompt:
+    type: string
+    description: Optional system prompt prepended to every Cursor turn.
   workingDirectory:
     type: string
   cursorApiKey:
