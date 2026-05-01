@@ -17,6 +17,7 @@ on:
       - 'cache/**'
       - 'secrets/**'
       - 'ui/**'
+      - 'provider-index.yaml'
   push:
     branches:
       - main
@@ -35,6 +36,7 @@ on:
       - 'cache/**'
       - 'secrets/**'
       - 'ui/**'
+      - 'provider-index.yaml'
 
 permissions:
   contents: read
@@ -44,6 +46,16 @@ env:
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:
+  validate-provider-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate provider index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/generate_provider_index.py --refresh-releases --check
+
   discover:
     runs-on: ubuntu-latest
     outputs:
