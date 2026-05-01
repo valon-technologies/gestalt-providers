@@ -162,6 +162,12 @@ jobs:
       - name: Validate Python plugin
         if: needs.metadata.outputs.source-language == 'python'
         run: python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
+      - name: Test TypeScript plugin
+        if: needs.metadata.outputs.source-language == 'typescript'
+        run: |
+          cd "${{ inputs.plugin-dir }}"
+          bun install --frozen-lockfile
+          bun run check
 
       # -- Native/generic package --
       - name: Package provider
@@ -169,7 +175,6 @@ jobs:
           if [ "${{ needs.metadata.outputs.root }}" = "ui" ]; then
             export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
           fi
-          export GESTALT_TYPESCRIPT_SDK_DIR="${GITHUB_WORKSPACE}/../gestalt/sdk/typescript"
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ needs.metadata.outputs.version }}"
       - name: Package Rust linux/amd64 artifact
@@ -187,7 +192,6 @@ jobs:
       - name: Package TypeScript linux/amd64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
-          export GESTALT_TYPESCRIPT_SDK_DIR="${GITHUB_WORKSPACE}/../gestalt/sdk/typescript"
           cd "${{ inputs.plugin-dir }}"
           gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform linux/amd64
       - uses: actions/upload-artifact@v4
@@ -239,8 +243,8 @@ jobs:
       - name: Package TypeScript linux/arm64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
-          export GESTALT_TYPESCRIPT_SDK_DIR="${GITHUB_WORKSPACE}/../gestalt/sdk/typescript"
           cd "${{ inputs.plugin-dir }}"
+          bun install --frozen-lockfile
           gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform linux/arm64
       - uses: actions/upload-artifact@v4
         with:
@@ -355,7 +359,7 @@ jobs:
 
   build-darwin-arm64:
     needs: metadata
-    if: ${{ needs.metadata.outputs.source-language == 'go' || needs.metadata.outputs.source-language == 'typescript' }}
+    if: ${{ needs.metadata.outputs.source-language == 'go' || (needs.metadata.outputs.source-language == 'typescript' && inputs.plugin-dir != 'agent/cursor') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -390,8 +394,8 @@ jobs:
       - name: Package TypeScript darwin/arm64 provider
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
-          export GESTALT_TYPESCRIPT_SDK_DIR="${GITHUB_WORKSPACE}/../gestalt/sdk/typescript"
           cd "${{ inputs.plugin-dir }}"
+          bun install --frozen-lockfile
           gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform darwin/arm64
       - uses: actions/upload-artifact@v4
         with:
@@ -401,7 +405,7 @@ jobs:
 
   build-darwin-amd64:
     needs: metadata
-    if: ${{ needs.metadata.outputs.source-language == 'go' || needs.metadata.outputs.source-language == 'typescript' }}
+    if: ${{ needs.metadata.outputs.source-language == 'go' || (needs.metadata.outputs.source-language == 'typescript' && inputs.plugin-dir != 'agent/cursor') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -436,8 +440,8 @@ jobs:
       - name: Package TypeScript darwin/amd64 provider
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
-          export GESTALT_TYPESCRIPT_SDK_DIR="${GITHUB_WORKSPACE}/../gestalt/sdk/typescript"
           cd "${{ inputs.plugin-dir }}"
+          bun install --frozen-lockfile
           gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform darwin/amd64
       - uses: actions/upload-artifact@v4
         with:
