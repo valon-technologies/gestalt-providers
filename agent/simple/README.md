@@ -9,7 +9,7 @@ It is intentionally narrow:
 - provider-owned IndexedDB persistence
 - explicit `CreateSession`, then asynchronous `CreateTurn` / `GetTurn` polling
 - direct OpenAI and Anthropic SDK backends
-- native Gestalt tool search through `AgentHost.SearchTools`
+- provider-owned tool discovery over the Gestalt MCP catalog
 
 It does not try to expose every vendor-specific agent feature. The goal is a
 small, usable provider that can drive common text-and-tools workflows now.
@@ -99,7 +99,7 @@ Notes:
 - Store names are internal and derived from the configured provider name. The simplest local setup is to omit `providers.agent.simple.indexeddb.objectStores` entirely so Gestalt can create the provider-owned IndexedDB stores on demand.
 - `CreateTurn` returns after the turn is persisted in `RUNNING`; the provider continues the model/tool loop in the background and callers should use `GetTurn`, `ListTurns`, or `ListTurnEvents` to observe terminal state. Startup recovery is backed by IndexedDB transactions.
 - If a restart finds a tool call that may already have executed, the provider marks the turn failed rather than replaying a possible side effect. Tool retries can be added once the host/tool invocation layer guarantees idempotency before the side effect.
-- The provider advertises native tool search. Each turn initially exposes a small `gestalt_search_tools` function; matching authorized integration tools are loaded lazily through `AgentHost.SearchTools` before the model invokes them.
+- The provider advertises `mcp_catalog`. Each turn initially exposes a small `gestalt_search_tools` function; matching authorized integration tools are loaded lazily through `AgentHost.ListTools` before the model invokes them.
 
 ## Telemetry
 

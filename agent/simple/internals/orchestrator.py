@@ -32,6 +32,8 @@ TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS = 3
 TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT = 10
 TOOL_SEARCH_MAX_RESULTS = 20
 TOOL_SEARCH_MAX_CANDIDATES = 20
+TOOL_LIST_DEFAULT_PAGE_SIZE = 100
+TOOL_LIST_MAX_PAGES = 100
 CHECKPOINT_SCHEMA_VERSION = 1
 PHASE_MODEL_NEXT = "model_next"
 PHASE_TOOL_READY = "tool_ready"
@@ -96,7 +98,7 @@ TOOL_SEARCH_TOOL_SPEC: dict[str, Any] = {
                             "connection": {"type": "string"},
                             "instance": {"type": "string"},
                         },
-                        "required": ["plugin", "operation"],
+                        "anyOf": [{"required": ["plugin", "operation"]}, {"required": ["system", "operation"]}],
                         "additionalProperties": False,
                     },
                 },
@@ -126,6 +128,15 @@ class SimpleAgentOrchestrator:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
         if len(list(request.messages)) == 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
+        if int(getattr(request, "tool_source", 0) or 0) != agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/simple requires toolSource mcp_catalog")
+        if not str(getattr(request, "tool_grant", "") or "").strip():
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_grant is required")
+        if len(list(getattr(request, "tools", []))) > 0:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
+            )
+        _validate_tool_refs(list(getattr(request, "tool_refs", [])), context)
 
         try:
             resolved_model = self._config.resolve_model(str(request.model or "").strip() or session_model)
@@ -213,10 +224,7 @@ class SimpleAgentOrchestrator:
                 return
             heartbeat_stop, heartbeat = self._start_lease_heartbeat(turn_id)
             with telemetry.agent_invocation(
-                agent_name=self._config.name,
-                session_id=checkpoint.session_id,
-                turn_id=turn_id,
-                model=checkpoint.model,
+                agent_name=self._config.name, session_id=checkpoint.session_id, turn_id=turn_id, model=checkpoint.model
             ) as operation:
                 self._run_turn_loop(turn_id)
                 completed = self._store.get_turn(turn_id)
@@ -477,10 +485,7 @@ class SimpleAgentOrchestrator:
             result = {"status": 400, "body": validation_error, "is_error": True, "tool_id": resolved_tool_id}
             try:
                 self._store.put_tool_result(
-                    turn_id=checkpoint.turn_id,
-                    tool_call_id=tool_call_id,
-                    result=result,
-                    lease_owner=self._worker_id,
+                    turn_id=checkpoint.turn_id, tool_call_id=tool_call_id, result=result, lease_owner=self._worker_id
                 )
             except RuntimeError:
                 return False
@@ -524,10 +529,7 @@ class SimpleAgentOrchestrator:
             )
             try:
                 self._store.put_tool_result(
-                    turn_id=checkpoint.turn_id,
-                    tool_call_id=tool_call_id,
-                    result=result,
-                    lease_owner=self._worker_id,
+                    turn_id=checkpoint.turn_id, tool_call_id=tool_call_id, result=result, lease_owner=self._worker_id
                 )
             except RuntimeError:
                 return False
@@ -801,54 +803,123 @@ def _search_tools_for_model(
     load_refs = _tool_search_load_refs(tool_call_arguments.get("load_refs"))
     if not query and not load_refs:
         query = _tool_search_query(prepared.messages)
-    request = agent_pb2.SearchAgentToolsRequest(
-        session_id=prepared.session_id,
-        turn_id=prepared.turn_id,
-        query=query,
-        tool_grant=prepared.tool_grant,
-    )
-    adaptive_supported = _proto_message_has_field(request, "candidate_limit")
-    load_refs_supported = _proto_message_has_field(request, "load_refs")
     candidate_limit = _tool_search_candidate_limit(
         tool_call_arguments.get("candidate_limit"), default=0 if load_refs else TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT
     )
-    request.max_results = _tool_search_max_results(
+    max_results = _tool_search_max_results(
         tool_call_arguments.get("max_results"),
         default=(
             0
             if load_refs
             else TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS
-            if adaptive_supported and candidate_limit > 0
+            if _tool_search_adaptive_supported() and candidate_limit > 0
             else TOOL_SEARCH_LEGACY_DEFAULT_MAX_RESULTS
         ),
         allow_zero=bool(load_refs),
     )
-    if adaptive_supported:
-        request.candidate_limit = candidate_limit
-    if load_refs:
-        if not load_refs_supported:
-            return json.dumps(
-                {
-                    "tools": [],
-                    "error": "This provider SDK does not support loading tool refs yet; search by query instead.",
-                },
-                separators=(",", ":"),
-            )
-        request.load_refs.extend(load_refs)
-    response = host.search_tools(request)
+    listed_tools, has_more = _list_matching_tools_for_model(
+        host=host,
+        prepared=prepared,
+        query=query,
+        load_refs=load_refs,
+        max_results=max_results,
+        candidate_limit=candidate_limit,
+    )
+    full_tools = listed_tools[: max_results if max_results > 0 else TOOL_SEARCH_MAX_RESULTS]
     available_tools = _register_resolved_tools(
-        response.tools,
-        tool_specs=tool_specs,
-        function_name_to_tool_id=function_name_to_tool_id,
-        loaded_tool_ids=loaded_tool_ids,
+        [], tool_specs=tool_specs, function_name_to_tool_id=function_name_to_tool_id, loaded_tool_ids=loaded_tool_ids
+    )
+    available_tools.extend(
+        _register_listed_tools(
+            full_tools,
+            tool_specs=tool_specs,
+            function_name_to_tool_id=function_name_to_tool_id,
+            loaded_tool_ids=loaded_tool_ids,
+        )
     )
     body: dict[str, Any] = {"tools": available_tools}
-    candidates = _tool_search_candidate_entries(getattr(response, "candidates", []))
+    candidates = _listed_tool_candidate_entries(listed_tools[len(full_tools) : len(full_tools) + candidate_limit])
     if candidates:
         body["candidates"] = candidates
-    if bool(getattr(response, "has_more", False)):
+    if has_more:
         body["has_more"] = True
     return json.dumps(body, separators=(",", ":"))
+
+
+def _list_matching_tools_for_model(
+    *, host: Any, prepared: PreparedTurn, query: str, load_refs: list[Any], max_results: int, candidate_limit: int
+) -> tuple[list[Any], bool]:
+    page_token = ""
+    seen_tokens: set[str] = set()
+    matched: list[Any] = []
+    desired_count = (max_results if max_results > 0 else TOOL_SEARCH_MAX_RESULTS) + candidate_limit
+    desired_count = max(1, min(desired_count, TOOL_SEARCH_MAX_RESULTS + TOOL_SEARCH_MAX_CANDIDATES))
+    pages = 0
+    while True:
+        pages += 1
+        if pages > TOOL_LIST_MAX_PAGES:
+            return matched, True
+        if page_token in seen_tokens:
+            return matched, True
+        seen_tokens.add(page_token)
+        response = host.list_tools(
+            agent_pb2.ListAgentToolsRequest(
+                session_id=prepared.session_id,
+                turn_id=prepared.turn_id,
+                page_size=TOOL_LIST_DEFAULT_PAGE_SIZE,
+                page_token=page_token,
+                tool_grant=prepared.tool_grant,
+            )
+        )
+        page_tools = list(response.tools)
+        next_page_token = str(getattr(response, "next_page_token", "") or "").strip()
+        for index, listed in enumerate(page_tools):
+            if not _listed_tool_matches(listed, query=query, load_refs=load_refs):
+                continue
+            matched.append(listed)
+            if len(matched) >= desired_count:
+                remaining_page_has_match = any(
+                    _listed_tool_matches(candidate, query=query, load_refs=load_refs)
+                    for candidate in page_tools[index + 1 :]
+                )
+                return matched, remaining_page_has_match or bool(next_page_token)
+        page_token = next_page_token
+        if not page_token:
+            return matched, False
+
+
+def _listed_tool_matches(listed: Any, *, query: str, load_refs: list[Any]) -> bool:
+    if load_refs:
+        return any(_listed_tool_ref_matches(getattr(listed, "ref", None), load_ref) for load_ref in load_refs)
+    query = query.strip().lower()
+    if not query:
+        return True
+    tokens = [token for token in re.split(r"[^a-z0-9_/-]+", query) if token]
+    if not tokens:
+        return True
+    ref = getattr(listed, "ref", None)
+    haystack = " ".join(
+        str(value or "").lower()
+        for value in (
+            getattr(listed, "mcp_name", ""),
+            getattr(listed, "title", ""),
+            getattr(listed, "description", ""),
+            getattr(ref, "system", ""),
+            getattr(ref, "plugin", ""),
+            getattr(ref, "operation", ""),
+        )
+    )
+    return all(token in haystack for token in tokens)
+
+
+def _listed_tool_ref_matches(ref: Any, load_ref: Any) -> bool:
+    if ref is None or load_ref is None:
+        return False
+    for field in ("system", "plugin", "operation", "connection", "instance"):
+        requested = str(getattr(load_ref, field, "") or "").strip()
+        if requested and requested != str(getattr(ref, field, "") or "").strip():
+            return False
+    return True
 
 
 def _tool_arguments_validation_error(
@@ -917,37 +988,35 @@ def _tool_search_load_refs(raw_value: Any) -> list[Any]:
     for item in raw_value:
         if not isinstance(item, dict):
             continue
+        system = str(item.get("system", "") or "").strip()
         plugin = str(item.get("plugin", "") or "").strip()
         operation = str(item.get("operation", "") or "").strip()
-        if not plugin or not operation:
+        if not operation or not (plugin or system):
             continue
         ref = agent_pb2.AgentToolRef(plugin=plugin, operation=operation)
-        _set_proto_string_field(ref, "system", item.get("system"))
+        _set_proto_string_field(ref, "system", system)
         _set_proto_string_field(ref, "connection", item.get("connection"))
         _set_proto_string_field(ref, "instance", item.get("instance"))
         refs.append(ref)
     return refs
 
 
-def _tool_search_candidate_entries(candidates: Any) -> list[dict[str, Any]]:
+def _listed_tool_candidate_entries(tools: Any) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for candidate in candidates:
-        ref = _tool_ref_to_dict(getattr(candidate, "ref", None))
+    for tool in tools:
+        ref = _tool_ref_to_dict(getattr(tool, "ref", None))
         if not ref:
             continue
         entry: dict[str, Any] = {"ref": ref}
-        candidate_id = str(getattr(candidate, "id", "") or "").strip()
-        if candidate_id:
-            entry["id"] = candidate_id
-        name = str(getattr(candidate, "name", "") or "").strip()
+        tool_id = str(getattr(tool, "id", "") or "").strip()
+        if tool_id:
+            entry["id"] = tool_id
+        name = str(getattr(tool, "mcp_name", "") or "").strip() or str(getattr(tool, "title", "") or "").strip()
         if name:
             entry["name"] = name
-        description = str(getattr(candidate, "description", "") or "").strip()
+        description = str(getattr(tool, "description", "") or "").strip()
         if description:
             entry["description"] = description
-        parameters = [str(param).strip() for param in getattr(candidate, "parameters", []) if str(param).strip()]
-        if parameters:
-            entry["parameters"] = parameters
         entries.append(entry)
     return entries
 
@@ -960,7 +1029,7 @@ def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
         value = str(getattr(ref, field, "") or "").strip()
         if value:
             out[field] = value
-    if not out.get("plugin") or not out.get("operation"):
+    if not out.get("operation") or not (out.get("plugin") or out.get("system")):
         return {}
     return out
 
@@ -1013,6 +1082,25 @@ def _set_proto_string_field(message: Any, field_name: str, raw_value: Any) -> No
 def _tool_search_query(messages: list[dict[str, Any]]) -> str:
     parts = [_message_content_text(message) for message in messages]
     return "\n".join(part for part in parts if part).strip()
+
+
+def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> None:
+    for index, ref in enumerate(tool_refs, start=1):
+        plugin = str(getattr(ref, "plugin", "") or "").strip()
+        system = str(getattr(ref, "system", "") or "").strip()
+        operation = str(getattr(ref, "operation", "") or "").strip()
+        connection = str(getattr(ref, "connection", "") or "").strip()
+        instance = str(getattr(ref, "instance", "") or "").strip()
+        if not operation:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].operation is required")
+        if "*" in {plugin, system, operation, connection, instance}:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "wildcard tool_refs are not supported")
+        if bool(plugin) == bool(system):
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}] must set exactly one of plugin or system"
+            )
+        if system and system != "workflow":
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported")
 
 
 def _build_initial_conversation(
@@ -1252,6 +1340,43 @@ def _register_resolved_tools(
         )
     return available_tools
 
+
+def _register_listed_tools(
+    tools: Any, *, tool_specs: list[dict[str, Any]], function_name_to_tool_id: dict[str, str], loaded_tool_ids: set[str]
+) -> list[dict[str, Any]]:
+    available_tools: list[dict[str, Any]] = []
+    for tool in tools:
+        tool_id = str(getattr(tool, "id", "") or "").strip()
+        if not tool_id:
+            continue
+        if tool_id in loaded_tool_ids:
+            function_name = _function_name_for_tool_id(tool_id, function_name_to_tool_id)
+            if function_name:
+                available_tools.append(_listed_tool_search_result_entry(function_name=function_name, tool=tool))
+            continue
+        function_name = _unique_function_name(
+            str(getattr(tool, "mcp_name", "") or "").strip()
+            or str(getattr(tool, "title", "") or "").strip()
+            or tool_id,
+            function_name_to_tool_id,
+        )
+        function_name_to_tool_id[function_name] = tool_id
+        loaded_tool_ids.add(tool_id)
+        parameters = _schema_from_json(str(getattr(tool, "input_schema", "") or ""))
+        tool_specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": function_name,
+                    "description": _listed_tool_description(tool),
+                    "parameters": parameters,
+                },
+            }
+        )
+        available_tools.append(_listed_tool_search_result_entry(function_name=function_name, tool=tool))
+    return available_tools
+
+
 def _function_name_for_tool_id(tool_id: str, function_name_to_tool_id: dict[str, str]) -> str:
     for function_name, mapped_tool_id in function_name_to_tool_id.items():
         if mapped_tool_id == tool_id:
@@ -1281,6 +1406,39 @@ def _unique_function_name(raw_value: str, function_name_to_tool_id: dict[str, st
 
 def _tool_search_result_entry(*, function_name: str, tool: Any, description: str) -> dict[str, Any]:
     return {"name": function_name, "description": description}
+
+
+def _listed_tool_search_result_entry(*, function_name: str, tool: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {"name": function_name, "description": _listed_tool_description(tool)}
+    ref = _tool_ref_to_dict(getattr(tool, "ref", None))
+    if ref:
+        entry["ref"] = ref
+    return entry
+
+
+def _listed_tool_description(tool: Any) -> str:
+    title = str(getattr(tool, "title", "") or "").strip()
+    mcp_name = str(getattr(tool, "mcp_name", "") or "").strip()
+    description = str(getattr(tool, "description", "") or "").strip()
+    prefix = title or mcp_name
+    if prefix and description and not description.startswith(prefix):
+        return f"{prefix}: {description}"
+    return description or prefix
+
+
+def _schema_from_json(value: str) -> dict[str, Any]:
+    value = value.strip()
+    if not value:
+        return {"type": "object", "additionalProperties": True}
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return {"type": "object", "additionalProperties": True}
+    if not isinstance(payload, dict):
+        return {"type": "object", "additionalProperties": True}
+    if payload.get("type") != "object":
+        payload = {"type": "object", "properties": {}, "additionalProperties": True}
+    return payload
 
 
 def _sanitize_function_name(raw_value: str) -> str:
