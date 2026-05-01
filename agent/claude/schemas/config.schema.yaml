@@ -1,0 +1,26 @@
+type: object
+additionalProperties: false
+properties:
+  defaultModel:
+    type: string
+    default: claude-sonnet-4-5-20250929
+  cliPath:
+    type: string
+  workingDirectory:
+    type: string
+  timeoutSeconds:
+    type: number
+    exclusiveMinimum: 0
+  systemPrompt:
+    type: string
+  permissionMode:
+    type: string
+    default: dontAsk
+    enum:
+      - default
+      - acceptEdits
+      - bypassPermissions
+      - dontAsk
+      - plan
+  anthropicApiKey:
+    type: string
