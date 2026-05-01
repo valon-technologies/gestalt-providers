@@ -41,7 +41,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.28",
+            version="0.0.1-alpha.32",
         )
 
     def warnings(self) -> list[str]:
@@ -80,10 +80,7 @@ class SimpleAgentRuntimeProvider(
         _, store, _ = self._require_runtime(context)
         session = store.get_session(request.session_id)
         if session is None:
-            context.abort(
-                grpc.StatusCode.NOT_FOUND,
-                f"agent session {request.session_id!r} was not found",
-            )
+            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
         return _session_to_proto(session)
 
@@ -114,10 +111,7 @@ class SimpleAgentRuntimeProvider(
             metadata=_struct_to_dict(request.metadata) if request.HasField("metadata") else None,
         )
         if session is None:
-            context.abort(
-                grpc.StatusCode.NOT_FOUND,
-                f"agent session {request.session_id!r} was not found",
-            )
+            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
         return _session_to_proto(session)
 
@@ -125,10 +119,7 @@ class SimpleAgentRuntimeProvider(
         orchestrator, store, _ = self._require_runtime(context)
         session = store.get_session(str(request.session_id or "").strip())
         if session is None:
-            context.abort(
-                grpc.StatusCode.NOT_FOUND,
-                f"agent session {request.session_id!r} was not found",
-            )
+            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
         return orchestrator.create_turn(
             request,
             context,
@@ -140,10 +131,7 @@ class SimpleAgentRuntimeProvider(
         orchestrator, store, _ = self._require_runtime(context)
         turn = store.get_turn(request.turn_id)
         if turn is None:
-            context.abort(
-                grpc.StatusCode.NOT_FOUND,
-                f"agent turn {request.turn_id!r} was not found",
-            )
+            context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
         return orchestrator.turn_to_proto(turn)
 
@@ -168,15 +156,9 @@ class SimpleAgentRuntimeProvider(
 
     def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         orchestrator, store, _ = self._require_runtime(context)
-        turn = store.cancel_turn(
-            str(request.turn_id or "").strip(),
-            str(request.reason or "").strip(),
-        )
+        turn = store.cancel_turn(str(request.turn_id or "").strip(), str(request.reason or "").strip())
         if turn is None:
-            context.abort(
-                grpc.StatusCode.NOT_FOUND,
-                f"agent turn {request.turn_id!r} was not found",
-            )
+            context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
         return orchestrator.turn_to_proto(turn)
 
@@ -195,10 +177,7 @@ class SimpleAgentRuntimeProvider(
 
     def GetInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, _ = self._require_runtime(context)
-        context.abort(
-            grpc.StatusCode.NOT_FOUND,
-            f"agent interaction {request.interaction_id!r} was not found",
-        )
+        context.abort(grpc.StatusCode.NOT_FOUND, f"agent interaction {request.interaction_id!r} was not found")
 
     def ListInteractions(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, _ = self._require_runtime(context)
@@ -206,10 +185,7 @@ class SimpleAgentRuntimeProvider(
 
     def ResolveInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, _ = self._require_runtime(context)
-        context.abort(
-            grpc.StatusCode.NOT_FOUND,
-            f"agent interaction {request.interaction_id!r} was not found",
-        )
+        context.abort(grpc.StatusCode.NOT_FOUND, f"agent interaction {request.interaction_id!r} was not found")
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, _, config = self._require_runtime(context)
@@ -221,8 +197,9 @@ class SimpleAgentRuntimeProvider(
             interactions=False,
             resumable_turns=config.resume.enabled,
             reasoning_summaries=False,
-            native_tool_search=True,
+            native_tool_search=False,
             bounded_list_hydration=True,
+            supported_tool_sources=[agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
 
     def _require_runtime(
@@ -246,9 +223,7 @@ class SimpleAgentRuntimeProvider(
         self._warnings = self._build_warnings(config)
         if config.resume.enabled:
             threading.Thread(
-                target=self._resume_incomplete_turns,
-                args=(orchestrator, resume_generation),
-                daemon=True,
+                target=self._resume_incomplete_turns, args=(orchestrator, resume_generation), daemon=True
             ).start()
 
     def _resume_incomplete_turns(self, orchestrator: SimpleAgentOrchestrator, generation: int) -> None:
@@ -275,6 +250,7 @@ class SimpleAgentRuntimeProvider(
             os.environ["ANTHROPIC_API_KEY"] = config.anthropic_api_key
         if config.openai_api_key:
             os.environ["OPENAI_API_KEY"] = config.openai_api_key
+
 
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
     proto = agent_pb2.AgentSession(

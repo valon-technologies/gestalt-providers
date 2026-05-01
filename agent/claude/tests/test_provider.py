@@ -5,6 +5,7 @@ import os
 import socket
 import tempfile
 import time
+import types as py_types
 import unittest
 from concurrent import futures
 from typing import Any, cast
@@ -219,10 +220,8 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertIn('<message 1 role="user">', fake_client.prompt)
         self.assertEqual(fake_client.options.model, "sonnet-session")
         self.assertEqual(fake_client.options.tools, [])
-        self.assertEqual(
-            fake_client.options.allowed_tools,
-            ["mcp__gestalt__linear__issues", "mcp__gestalt__github__pulls_list"],
-        )
+        self.assertEqual(fake_client.options.allowed_tools, ["mcp__gestalt__*"])
+        self.assertIsNotNone(fake_client.options.can_use_tool)
         self.assertEqual(set(fake_client.options.mcp_servers.keys()), {"gestalt"})
         self.assertEqual(fake_client.options.permission_mode, "dontAsk")
         self.assertEqual(fake_client.options.setting_sources, [])
@@ -231,7 +230,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.env["ANTHROPIC_API_KEY"], "test-anthropic-key")
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
 
-        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
+        self.assertEqual([request["page_token"] for request in host.list_requests], [""])
         self.assertEqual(host.list_requests[0]["tool_grant"], "grant-claude")
         self.assertEqual(host.search_requests, [])
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "sdk-1")
@@ -245,6 +244,24 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
 
+    def test_sdk_mcp_bridge_preserves_list_tools_cursor(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        options = runner._options(
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", tool_grant="grant-claude"
+        )
+
+        first, second = asyncio.run(_list_tools_through_sdk_bridge(options))
+
+        self.assertEqual(first["result"]["tools"][0]["name"], "linear__issues")
+        self.assertEqual(first["result"]["nextCursor"], "page-2")
+        self.assertEqual(second["result"]["tools"][0]["name"], "github__pulls_list")
+        self.assertNotIn("nextCursor", second["result"])
+        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
+
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
         provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-validation"))
@@ -255,10 +272,6 @@ class ClaudeProviderTests(unittest.TestCase):
 
         missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", tool_grant="")
         _assert_invalid(provider_client, missing_grant, "tool_grant is required")
-
-        missing_refs = _turn_request(turn_id="turn-missing-refs", session_id="session-validation")
-        del missing_refs.tool_refs[:]
-        _assert_invalid(provider_client, missing_refs, "tool_refs are required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
         wildcard_ref.tool_refs[0].plugin = "*"
@@ -409,6 +422,20 @@ async def _call_first_sdk_tool(options: Any, *, arguments: dict[str, Any]) -> An
         mcp_types.CallToolRequest(params=mcp_types.CallToolRequestParams(name=tool_name, arguments=arguments))
     )
     return call_result.root
+
+
+async def _list_tools_through_sdk_bridge(options: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    from claude_agent_sdk._internal.query import Query
+
+    bridge = py_types.SimpleNamespace(sdk_mcp_servers={"gestalt": options.mcp_servers["gestalt"]["instance"]})
+    handle_request = cast(Any, Query._handle_sdk_mcp_request)
+    first = await handle_request(
+        bridge, "gestalt", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+    )
+    second = await handle_request(
+        bridge, "gestalt", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"cursor": "page-2"}}
+    )
+    return first, second
 
 
 def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:

@@ -302,6 +302,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
         self.search_requests: list[dict[str, Any]] = []
+        self.list_requests: list[dict[str, Any]] = []
         self.tools: list[Any] = []
         self.load_ref_tools: list[Any] = []
         self.candidates: list[Any] = []
@@ -332,6 +333,25 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         if _proto_message_has_field(response, "has_more"):
             response.has_more = self.has_more and len(response.candidates) > 0
         return response
+
+    def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
+        del context
+        list_request = {
+            "session_id": request.session_id,
+            "turn_id": request.turn_id,
+            "page_size": request.page_size,
+            "page_token": request.page_token,
+        }
+        if str(getattr(request, "tool_grant", "") or "").strip():
+            list_request["tool_grant"] = request.tool_grant
+        self.list_requests.append(list_request)
+        page_size = int(request.page_size or 100)
+        offset = int(request.page_token or 0) if str(request.page_token or "").strip() else 0
+        tools = [_listed_tool_from_any(tool) for tool in self.tools]
+        page = tools[offset : offset + page_size]
+        next_offset = offset + len(page)
+        next_page_token = str(next_offset) if next_offset < len(tools) else ""
+        return agent_pb2.ListAgentToolsResponse(tools=page, next_page_token=next_page_token)
 
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -368,6 +388,36 @@ def _fake_resolved_tool(*, name: str) -> Any:
     return agent_pb2.ResolvedAgentTool(**kwargs)
 
 
+def _fake_listed_tool(
+    *, tool_id: str = "lookup", mcp_name: str = "person_lookup", description: str = "Look up a historical figure"
+) -> Any:
+    return agent_pb2.ListedAgentTool(
+        id=tool_id,
+        mcp_name=mcp_name,
+        title=mcp_name,
+        description=description,
+        input_schema=json.dumps(
+            {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+            separators=(",", ":"),
+        ),
+        ref=agent_pb2.AgentToolRef(plugin="people", operation="lookup"),
+    )
+
+
+def _listed_tool_from_any(tool: Any) -> Any:
+    if hasattr(tool, "mcp_name"):
+        return tool
+    schema = json_format.MessageToDict(getattr(tool, "parameters_schema", struct_pb2.Struct()))
+    return agent_pb2.ListedAgentTool(
+        id=str(getattr(tool, "id", "") or ""),
+        mcp_name=str(getattr(tool, "name", "") or ""),
+        title=str(getattr(tool, "name", "") or ""),
+        description=str(getattr(tool, "description", "") or ""),
+        input_schema=json.dumps(schema or {"type": "object", "properties": {}}, separators=(",", ":")),
+        ref=agent_pb2.AgentToolRef(plugin="people", operation="lookup"),
+    )
+
+
 def _expected_tool_idempotency_key(*, provider_name: str = "simple", turn_id: str, tool_call_id: str) -> str:
     return f"agent/simple:{provider_name}:{turn_id}:{tool_call_id}"
 
@@ -392,23 +442,6 @@ def _fake_message_reply_tool() -> Any:
     return agent_pb2.ResolvedAgentTool(**kwargs)
 
 
-def _fake_tool_candidate(*, system: str = "people", plugin: str = "people", operation: str = "search_more") -> Any:
-    if not hasattr(agent_pb2, "AgentToolCandidate"):
-        raise unittest.SkipTest("adaptive tool search proto fields are not available")
-    ref = agent_pb2.AgentToolRef(plugin=plugin, operation=operation)
-    if _proto_message_has_field(ref, "system"):
-        setattr(ref, "system", system)
-    if _proto_message_has_field(ref, "credential_mode"):
-        setattr(ref, "credential_mode", "user")
-    return agent_pb2.AgentToolCandidate(
-        ref=ref,
-        id=f"{plugin}/{operation}",
-        name="Search more people",
-        description="Search more historical records",
-        parameters=["query"],
-    )
-
-
 def _proto_message_has_field(message: Any, field_name: str) -> bool:
     descriptor = getattr(message, "DESCRIPTOR", None)
     fields_by_name = getattr(descriptor, "fields_by_name", {})
@@ -428,25 +461,6 @@ def _tool_ref_to_dict(ref: Any) -> dict[str, str]:
         if value:
             out[field] = value
     return out
-
-
-def _expected_search_request(
-    *,
-    session_id: str,
-    turn_id: str,
-    query: str,
-    max_results: int,
-    candidate_limit: int | None = None,
-    tool_grant: str = "",
-) -> dict[str, Any]:
-    request: dict[str, Any] = {"session_id": session_id, "turn_id": turn_id, "query": query, "max_results": max_results}
-    if tool_grant:
-        request["tool_grant"] = tool_grant
-    if candidate_limit is not None and _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "candidate_limit"):
-        request["candidate_limit"] = candidate_limit
-    if _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "load_refs"):
-        request["load_refs"] = []
-    return request
 
 
 class _FakeOpenAIChatServer:
@@ -592,10 +606,7 @@ def _fresh_socket(name: str) -> str:
 
 
 def _configure_provider(
-    *,
-    default_model: str = "fast",
-    provider_options: dict[str, Any] | None = None,
-    resume: dict[str, Any] | None = None,
+    *, default_model: str = "fast", provider_options: dict[str, Any] | None = None, resume: dict[str, Any] | None = None
 ) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
@@ -750,7 +761,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
         assert _indexeddb_servicer is not None
         _host_servicer.requests.clear()
         _host_servicer.search_requests.clear()
-        _host_servicer.tools = [_fake_resolved_tool(name="person_lookup")]
+        _host_servicer.list_requests.clear()
+        _host_servicer.tools = [
+            _fake_listed_tool(tool_id="lookup", mcp_name="person_lookup", description="historical figure records")
+        ]
         _host_servicer.load_ref_tools.clear()
         _host_servicer.candidates.clear()
         _host_servicer.has_more = False
@@ -1414,6 +1428,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-success",
                 session_id="session-success",
                 idempotency_key="idem-success",
@@ -1519,9 +1534,10 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(identity.kind, runtime_pb2.ProviderKind.PROVIDER_KIND_AGENT)
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
-        self.assertTrue(capabilities.native_tool_search)
+        self.assertFalse(capabilities.native_tool_search)
         self.assertTrue(capabilities.resumable_turns)
         self.assertTrue(capabilities.bounded_list_hydration)
+        self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
 
         self.assertEqual(created_session.id, "session-success")
         self.assertEqual(created_session.model, "openai/fake-model")
@@ -1585,19 +1601,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(_rpc_error_details(negative_turn_limit.exception), "limit must be non-negative")
 
         assert _host_servicer is not None
-        self.assertEqual(
-            _host_servicer.search_requests,
-            [
-                _expected_search_request(
-                    session_id="session-success",
-                    turn_id="turn-success",
-                    query="historical figure lookup",
-                    max_results=5,
-                    candidate_limit=10,
-                    tool_grant="grant-success",
-                )
-            ],
-        )
+        self.assertEqual(_host_servicer.search_requests, [])
+        self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
+        self.assertEqual(_host_servicer.list_requests[0]["tool_grant"], "grant-success")
         self.assertEqual(len(_host_servicer.requests), 2)
         self.assertEqual(
             _host_servicer.requests[0],
@@ -1675,10 +1681,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _create_session(
             provider_client, session_id="session-adaptive-search", idempotency_key="session-idem-adaptive-search"
         )
-        _host_servicer.tools = []
-        _host_servicer.load_ref_tools = [_fake_resolved_tool(name="person_lookup")]
-        _host_servicer.candidates = [_fake_tool_candidate()]
-        _host_servicer.has_more = True
+        _host_servicer.tools = [
+            _fake_listed_tool(tool_id="lookup", mcp_name="person_lookup", description="historical figure records")
+        ]
 
         fake_llm = _FakeOpenAIChatServer(
             responses=[
@@ -1723,13 +1728,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                                     {
                                         "id": "call-load-ref",
                                         "type": "function",
-                                        "function": {
-                                            "name": "gestalt_search_tools",
-                                            "arguments": (
-                                                '{"load_refs":[{"system":"people","plugin":"people",'
-                                                '"operation":"search_more"}]}'
-                                            ),
-                                        },
+                                        "function": {"name": "person_lookup", "arguments": '{"query":"Ada Lovelace"}'},
                                     }
                                 ],
                             },
@@ -1756,50 +1755,27 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-adaptive-search",
                 session_id="session-adaptive-search",
                 idempotency_key="idem-adaptive-search",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Find historical records.")],
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
         fetched = _wait_for_turn(provider_client, "turn-adaptive-search", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         self.assertEqual(fetched.output_text, "done")
-        expected_load_ref = {"system": "people", "plugin": "people", "operation": "search_more"}
-        if _proto_message_has_field(agent_pb2.AgentToolRef(), "credential_mode"):
-            expected_load_ref["credential_mode"] = "user"
-        self.assertEqual(
-            _host_servicer.search_requests,
-            [
-                {
-                    "session_id": "session-adaptive-search",
-                    "turn_id": "turn-adaptive-search",
-                    "query": "historical records",
-                    "max_results": 3,
-                    "candidate_limit": 10,
-                    "load_refs": [],
-                },
-                {
-                    "session_id": "session-adaptive-search",
-                    "turn_id": "turn-adaptive-search",
-                    "query": "",
-                    "max_results": 0,
-                    "candidate_limit": 0,
-                    "load_refs": [expected_load_ref],
-                },
-            ],
-        )
+        self.assertEqual(_host_servicer.search_requests, [])
+        self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
         first_tool_result = fake_llm.requests[1]["messages"][-1]["content"]
         second_tool_result = fake_llm.requests[2]["messages"][-1]["content"]
-        self.assertIn('"candidates":[', first_tool_result)
-        self.assertIn('"has_more":true', first_tool_result)
-        self.assertNotIn("person_lookup", first_tool_result)
-        self.assertEqual([tool["function"]["name"] for tool in fake_llm.requests[1]["tools"]], ["gestalt_search_tools"])
+        self.assertIn("person_lookup", first_tool_result)
+        self.assertIn("person_lookup", [tool["function"]["name"] for tool in fake_llm.requests[1]["tools"]])
         self.assertIn("load_refs", fake_llm.requests[1]["tools"][0]["function"]["parameters"]["properties"])
-        self.assertIn("person_lookup", second_tool_result)
-        self.assertIn("person_lookup", [tool["function"]["name"] for tool in fake_llm.requests[2]["tools"]])
+        self.assertIn("Ada Lovelace", second_tool_result)
 
     def test_create_turn_passes_tool_schema_and_arguments_without_provider_specific_rewrite(self) -> None:
         assert _host_servicer is not None
@@ -1810,9 +1786,27 @@ class SimpleAgentProviderTests(unittest.TestCase):
             idempotency_key="session-idem-tool-schema-pass-through",
             model="anthropic/claude-fake-model",
         )
+        _host_servicer.tools = [_fake_message_reply_tool()]
 
         fake_anthropic = _FakeAnthropicMessagesServer(
             responses=[
+                {
+                    "id": "msg-search-message-reply",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu-search-message-reply",
+                            "name": "gestalt_search_tools",
+                            "input": {"query": "message reply", "max_results": 5},
+                        }
+                    ],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 8, "output_tokens": 4},
+                },
                 {
                     "id": "msg-message-reply",
                     "type": "message",
@@ -1850,13 +1844,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-tool-schema-pass-through",
                 session_id="session-tool-schema-pass-through",
                 idempotency_key="idem-tool-schema-pass-through",
                 model="anthropic/claude-fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Post the message reply.")],
                 provider_options=provider_options,
-                tools=[_fake_message_reply_tool()],
+                tool_grant="grant-success",
             )
         )
 
@@ -1878,12 +1873,13 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "idempotency_key": _expected_tool_idempotency_key(
                         turn_id="turn-tool-schema-pass-through", tool_call_id="toolu-message-reply"
                     ),
+                    "tool_grant": "grant-success",
                 }
             ],
         )
-        self.assertEqual(len(fake_anthropic.requests), 2)
+        self.assertEqual(len(fake_anthropic.requests), 3)
         reply_tool_schema = next(
-            tool["input_schema"] for tool in fake_anthropic.requests[0]["tools"] if tool["name"] == "messaging_reply"
+            tool["input_schema"] for tool in fake_anthropic.requests[1]["tools"] if tool["name"] == "messaging_reply"
         )
         self.assertEqual(reply_tool_schema["required"], ["request_ref", "text"])
         self.assertEqual(set(reply_tool_schema["properties"]), {"request_ref", "text"})
@@ -1922,12 +1918,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-busy-retry",
                 session_id="session-busy-retry",
                 idempotency_key="idem-busy-retry",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Retry through SQLITE_BUSY")],
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
 
@@ -1975,12 +1973,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
             started = provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
+                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                     turn_id="turn-no-host",
                     session_id="session-no-host",
                     idempotency_key="idem-no-host",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Say something brief.")],
                     provider_options=provider_options,
+                    tool_grant="grant-success",
                 )
             )
             fetched = _wait_for_turn(provider_client, "turn-no-host", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2063,12 +2063,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
             started = provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
+                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                     turn_id="turn-tcp",
                     session_id="session-tcp",
                     idempotency_key="idem-tcp",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Ping over tcp")],
                     provider_options=provider_options,
+                    tool_grant="grant-success",
                 ),
                 timeout=5,
             )
@@ -2129,12 +2131,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-config-options",
                 session_id="session-config-options",
                 idempotency_key="idem-config-options",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Apply config options.")],
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
         fetched = _wait_for_turn(provider_client, "turn-config-options", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2223,10 +2227,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-openai-responses",
                 session_id="session-openai-responses",
                 idempotency_key="idem-openai-responses",
                 messages=[agent_pb2.AgentMessage(role="user", text="Use a tool.")],
+                tool_grant="grant-success",
             )
         )
         fetched = _wait_for_turn(provider_client, "turn-openai-responses", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2321,7 +2327,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         provider_options = struct_pb2.Struct()
         provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
-        _host_servicer.tools = [_fake_resolved_tool(name="")]
+        _host_servicer.tools = [_fake_listed_tool(tool_id="lookup", mcp_name="lookup", description="person lookup")]
         _host_servicer.pause_on_lookup = True
         _host_servicer.wait_until_released.clear()
 
@@ -2330,12 +2336,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
         def run_start() -> None:
             started_holder["run"] = provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
+                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                     turn_id="turn-cancel",
                     session_id="session-cancel",
                     idempotency_key="idem-cancel",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Who is Grace Hopper?")],
                     provider_options=provider_options,
+                    tool_grant="grant-success",
                 )
             )
 
@@ -2364,7 +2372,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(canceled.status_message, "user canceled")
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
         self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
-        self.assertEqual(len(_host_servicer.search_requests), 1)
+        self.assertEqual(_host_servicer.search_requests, [])
+        self.assertEqual(len(_host_servicer.list_requests), 1)
         self.assertEqual(len(fake_llm.requests), 2)
         self.assertEqual(
             [event.type for event in events.events],
@@ -2437,12 +2446,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-shared",
                 session_id="session-a",
                 idempotency_key="idem-shared",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Say done.")],
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
         self.assertEqual(started.session_id, "session-a")
@@ -2451,12 +2462,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
         with self.assertRaises(grpc.RpcError) as turn_id_exc:
             provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
+                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                     turn_id="turn-shared",
                     session_id="session-b",
                     idempotency_key="idem-other",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Say done.")],
                     provider_options=provider_options,
+                    tool_grant="grant-success",
                 )
             )
         self.assertEqual(_rpc_error_code(turn_id_exc.exception), grpc.StatusCode.ALREADY_EXISTS)
@@ -2465,12 +2478,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
         with self.assertRaises(grpc.RpcError) as idempotency_exc:
             provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
+                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                     turn_id="turn-other",
                     session_id="session-b",
                     idempotency_key="idem-shared",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Say done.")],
                     provider_options=provider_options,
+                    tool_grant="grant-success",
                 )
             )
         self.assertEqual(_rpc_error_code(idempotency_exc.exception), grpc.StatusCode.ALREADY_EXISTS)
@@ -2558,6 +2573,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-anthropic",
                 session_id="session-anthropic",
                 idempotency_key="idem-anthropic",
@@ -2565,6 +2581,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 messages=[agent_pb2.AgentMessage(role="user", text="Who is Ada Lovelace?")],
                 response_schema=response_schema,
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
 
@@ -2578,18 +2595,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.structured_output.fields["summary"].string_value, "Ada Lovelace is still relevant.")
 
         assert _host_servicer is not None
-        self.assertEqual(
-            _host_servicer.search_requests,
-            [
-                _expected_search_request(
-                    session_id="session-anthropic",
-                    turn_id="turn-anthropic",
-                    query="historical figure lookup",
-                    max_results=5,
-                    candidate_limit=10,
-                )
-            ],
-        )
+        self.assertEqual(_host_servicer.search_requests, [])
+        self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
         self.assertEqual(
             _host_servicer.requests,
             [
@@ -2600,6 +2607,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_id": "lookup",
                     "arguments": {"query": "Ada Lovelace"},
                     "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-anthropic", tool_call_id="toolu-1"),
+                    "tool_grant": "grant-success",
                 }
             ],
         )
@@ -2635,9 +2643,28 @@ class SimpleAgentProviderTests(unittest.TestCase):
             idempotency_key="session-idem-anthropic-tool-error",
             model="anthropic/claude-fake-model",
         )
+        assert _host_servicer is not None
+        _host_servicer.tools = [_fake_resolved_tool(name="person_lookup")]
 
         fake_anthropic = _FakeAnthropicMessagesServer(
             responses=[
+                {
+                    "id": "msg-search-person",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fake-model",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu-search-person",
+                            "name": "gestalt_search_tools",
+                            "input": {"query": "person lookup", "max_results": 5},
+                        }
+                    ],
+                    "stop_reason": "tool_use",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 8, "output_tokens": 4},
+                },
                 {
                     "id": "msg-invalid-tool",
                     "type": "message",
@@ -2668,13 +2695,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-anthropic-tool-error",
                 session_id="session-anthropic-tool-error",
                 idempotency_key="idem-anthropic-tool-error",
                 model="anthropic/claude-fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Look up a person.")],
-                tools=[_fake_resolved_tool(name="person_lookup")],
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
 
@@ -2686,8 +2714,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.output_text, "I need a query before using that tool.")
         assert _host_servicer is not None
         self.assertEqual(_host_servicer.requests, [])
-        self.assertEqual(len(fake_anthropic.requests), 2)
-        tool_result = fake_anthropic.requests[1]["messages"][2]["content"][0]
+        self.assertEqual(len(fake_anthropic.requests), 3)
+        tool_result = fake_anthropic.requests[2]["messages"][-1]["content"][0]
         self.assertEqual(tool_result["type"], "tool_result")
         self.assertEqual(tool_result["tool_use_id"], "toolu-invalid")
         self.assertEqual(tool_result["is_error"], True)
@@ -2736,12 +2764,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
                 turn_id="turn-compat",
                 session_id="session-compat",
                 idempotency_key="idem-compat",
                 model="groq/fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Say something brief.")],
                 provider_options=provider_options,
+                tool_grant="grant-success",
             )
         )
 

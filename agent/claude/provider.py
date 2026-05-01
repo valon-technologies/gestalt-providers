@@ -48,7 +48,7 @@ class ClaudeCodeAgentProvider(
             name=self._name,
             display_name="Claude Agent SDK",
             description="Runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.",
-            version="0.0.1-alpha.2",
+            version="0.0.1-alpha.3",
         )
 
     def warnings(self) -> list[str]:
@@ -380,7 +380,9 @@ def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -
     if not str(request.tool_grant or "").strip():
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_grant is required")
     if len(list(getattr(request, "tools", []))) > 0:
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog")
+        context.abort(
+            grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
+        )
     if _struct_to_dict(getattr(request, "response_schema", None)):
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "response_schema is not supported by agent/claude")
     if _struct_to_dict(getattr(request, "provider_options", None)):
@@ -389,8 +391,6 @@ def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -
 
 
 def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> None:
-    if not tool_refs:
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_refs are required for mcp_catalog turns")
     for index, ref in enumerate(tool_refs, start=1):
         plugin = str(getattr(ref, "plugin", "") or "").strip()
         system = str(getattr(ref, "system", "") or "").strip()
@@ -403,8 +403,7 @@ def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> 
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "wildcard tool_refs are not supported")
         if bool(plugin) == bool(system):
             context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT,
-                f"tool_refs[{index}] must set exactly one of plugin or system",
+                grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}] must set exactly one of plugin or system"
             )
         if system and system != "workflow":
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported")
@@ -435,10 +434,7 @@ def _messages_to_dicts(messages: Any) -> list[dict[str, Any]]:
                     "output": json_format.MessageToDict(part.tool_result.output),
                 }
             if part.HasField("image_ref"):
-                part_item["image_ref"] = {
-                    "uri": part.image_ref.uri,
-                    "mime_type": part.image_ref.mime_type,
-                }
+                part_item["image_ref"] = {"uri": part.image_ref.uri, "mime_type": part.image_ref.mime_type}
             parts.append(part_item)
         if parts:
             item["parts"] = parts

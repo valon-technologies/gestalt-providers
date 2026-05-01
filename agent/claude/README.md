@@ -2,9 +2,9 @@
 
 `agent/claude` runs Claude through the Claude Agent SDK. Gestalt does not rank
 or search tools in this provider. For `toolSource: mcp_catalog`, the provider
-hydrates the exact granted catalog tools with `AgentHost.ListTools`, registers
-them as an in-process SDK MCP server named `gestalt`, and lets Claude select
-from that exact allowed set.
+registers an in-process SDK MCP server named `gestalt`; Claude lists granted
+tools lazily through `AgentHost.ListTools` and calls them through
+`AgentHost.ExecuteTool`.
 
 The first cut is intentionally small:
 
