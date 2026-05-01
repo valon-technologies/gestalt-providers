@@ -79,6 +79,15 @@ jobs:
               for path in sorted(root.glob("*/manifest.yaml")):
                   package_dir = path.parent
                   has_go = any(candidate.suffix == ".go" for candidate in package_dir.glob("*.go"))
+                  has_typescript = False
+                  package_json = package_dir / "package.json"
+                  if package_json.is_file():
+                      try:
+                          package_data = json.loads(package_json.read_text(encoding="utf-8"))
+                      except json.JSONDecodeError:
+                          package_data = {}
+                      provider = (package_data.get("gestalt") or {}).get("provider")
+                      has_typescript = bool(provider)
                   all_plugins.append(
                       {
                           "dir": str(package_dir.as_posix()),
@@ -87,6 +96,7 @@ jobs:
                           "has_go": has_go,
                           "has_python": (package_dir / "pyproject.toml").is_file(),
                           "has_rust": (package_dir / "Cargo.toml").is_file(),
+                          "has_typescript": has_typescript,
                       }
                   )
           packages_by_root = {}
@@ -217,6 +227,8 @@ jobs:
         if: matrix.plugin.has_go
         with:
           go-version: '1.26'
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.plugin.has_typescript
       - name: Install Python
         if: matrix.plugin.has_python
         run: uv python install 3.13 3.14
@@ -265,6 +277,10 @@ jobs:
 
           if [ -f "${plugin_dir}/pyproject.toml" ]; then
             python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
+          fi
+
+          if [ "${{ matrix.plugin.has_typescript }}" = "true" ]; then
+            (cd "$plugin_dir" && bun install --frozen-lockfile && bun run check)
           fi
 
           rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"

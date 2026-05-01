@@ -1,0 +1,16 @@
+type: object
+additionalProperties: false
+properties:
+  defaultModel:
+    type: string
+    default: composer-2
+  timeoutSeconds:
+    type: number
+    default: 300
+    exclusiveMinimum: 0
+  workingDirectory:
+    type: string
+  cursorApiKey:
+    type: string
+  sandboxEnabled:
+    type: boolean
