@@ -64,6 +64,36 @@ func TestRuntimeProviderContractAcceptsAgentHostRelayBinding(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderContractPassesRuntimeLogEnv(t *testing.T) {
+	t.Parallel()
+
+	if !isRelayHostServiceEnv(runtimeLogHostSocketEnv) {
+		t.Fatalf("%s should be accepted as a relay host service env", runtimeLogHostSocketEnv)
+	}
+	env := buildPluginEnv(&proto.StartHostedPluginRequest{
+		SessionId: " session-1 ",
+		Env: map[string]string{
+			runtimeSessionIDEnv: "spoofed-session",
+			"CUSTOM":            "value",
+		},
+	}, map[string]string{
+		runtimeLogHostSocketEnv: "tls://runtime-log-relay.gestalt.example:443",
+	}, "tcp://0.0.0.0:50051")
+
+	if got, want := env[runtimeLogHostSocketEnv], "tls://runtime-log-relay.gestalt.example:443"; got != want {
+		t.Fatalf("runtime log socket env = %q, want %q", got, want)
+	}
+	if got, want := env[runtimeSessionIDEnv], "session-1"; got != want {
+		t.Fatalf("runtime session id env = %q, want %q", got, want)
+	}
+	if got, want := env[proto.EnvProviderSocket], "tcp://0.0.0.0:50051"; got != want {
+		t.Fatalf("provider socket env = %q, want %q", got, want)
+	}
+	if got, want := env["CUSTOM"], "value"; got != want {
+		t.Fatalf("custom env = %q, want %q", got, want)
+	}
+}
+
 func TestRuntimeProviderContractRejectsUnknownRelayBinding(t *testing.T) {
 	t.Parallel()
 

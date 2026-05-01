@@ -42,9 +42,11 @@ const (
 	sessionStateStopped = "stopped"
 	sessionStateFailed  = "failed"
 
-	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
-	registryUsernameEnv    = "REGISTRY_USERNAME"
-	registryPasswordEnv    = "REGISTRY_PASSWORD"
+	authorizationSocketEnv  = "GESTALT_AUTHORIZATION_SOCKET"
+	runtimeSessionIDEnv     = "GESTALT_RUNTIME_SESSION_ID"
+	runtimeLogHostSocketEnv = "GESTALT_RUNTIME_LOG_SOCKET"
+	registryUsernameEnv     = "REGISTRY_USERNAME"
+	registryPasswordEnv     = "REGISTRY_PASSWORD"
 
 	modalSandboxTagSchemaVersion = "gestalt_schema_version"
 	modalSandboxTagVersion       = "1"
@@ -645,14 +647,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 
 	command := req.GetCommand()
 
-	env := cloneStringMap(req.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	for key, value := range bindings {
-		env[key] = value
-	}
-	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort)
+	env := buildPluginEnv(req, bindings, fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort))
 
 	execArgv := append([]string{command}, req.GetArgs()...)
 	startedAt := time.Now()
@@ -1451,6 +1446,19 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
+func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings map[string]string, providerSocket string) map[string]string {
+	env := cloneStringMap(req.GetEnv())
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, value := range bindings {
+		env[key] = value
+	}
+	env[proto.EnvProviderSocket] = providerSocket
+	env[runtimeSessionIDEnv] = strings.TrimSpace(req.GetSessionId())
+	return env
+}
+
 func cloneImageRegistryCredentials(src *imageRegistryCredentials) *imageRegistryCredentials {
 	if src == nil {
 		return nil
@@ -1482,6 +1490,8 @@ func isRelayHostServiceEnv(envVar string) bool {
 	case envVar == proto.EnvPluginInvokerSocket:
 		return true
 	case envVar == proto.EnvWorkflowManagerSocket:
+		return true
+	case envVar == runtimeLogHostSocketEnv:
 		return true
 	default:
 		return false

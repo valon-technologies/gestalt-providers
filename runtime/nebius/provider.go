@@ -39,9 +39,11 @@ const (
 	sessionStateStopped  = "stopped"
 	sessionStateFailed   = "failed"
 
-	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
-	tokenEnv               = "NEBIUS_IAM_TOKEN"
-	sshPort                = 22
+	authorizationSocketEnv  = "GESTALT_AUTHORIZATION_SOCKET"
+	runtimeSessionIDEnv     = "GESTALT_RUNTIME_SESSION_ID"
+	runtimeLogHostSocketEnv = "GESTALT_RUNTIME_LOG_SOCKET"
+	tokenEnv                = "NEBIUS_IAM_TOKEN"
+	sshPort                 = 22
 )
 
 var resourceNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -376,14 +378,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		closeInstance(inst)
 	}()
 
-	env := cloneStringMap(req.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	for key, value := range bindings {
-		env[key] = value
-	}
-	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort)
+	env := buildPluginEnv(req, bindings, fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort))
 
 	containerName := dockerContainerName(req.GetPluginName(), req.GetSessionId())
 	runCmd := buildDockerRunCommand(containerName, image, req.GetCommand(), req.GetArgs(), env)
@@ -938,6 +933,19 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
+func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings map[string]string, providerSocket string) map[string]string {
+	env := cloneStringMap(req.GetEnv())
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, value := range bindings {
+		env[key] = value
+	}
+	env[proto.EnvProviderSocket] = providerSocket
+	env[runtimeSessionIDEnv] = strings.TrimSpace(req.GetSessionId())
+	return env
+}
+
 func generateEphemeralSSHKey() (ssh.Signer, string, error) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -1008,6 +1016,8 @@ func isRelayHostServiceEnv(envVar string) bool {
 	case envVar == proto.EnvPluginInvokerSocket:
 		return true
 	case envVar == proto.EnvWorkflowManagerSocket:
+		return true
+	case envVar == runtimeLogHostSocketEnv:
 		return true
 	default:
 		return false

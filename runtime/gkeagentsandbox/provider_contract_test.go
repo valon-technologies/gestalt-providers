@@ -108,6 +108,15 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	if got, want := binding.GetRelay().GetDialTarget(), "https://gestaltd.example.internal/runtime/session/relay"; got != want {
 		t.Fatalf("BindHostService relay = %q, want %q", got, want)
 	}
+	if _, err := client.BindHostService(ctx, &proto.BindPluginRuntimeHostServiceRequest{
+		SessionId: session.GetId(),
+		EnvVar:    runtimeLogHostSocketEnv,
+		Relay: &proto.PluginRuntimeHostServiceRelay{
+			DialTarget: "tls://runtime-log-relay.gestalt.example:443",
+		},
+	}); err != nil {
+		t.Fatalf("BindHostService runtime log host: %v", err)
+	}
 
 	hosted, err := client.StartPlugin(ctx, &proto.StartHostedPluginRequest{
 		SessionId:  session.GetId(),
@@ -115,7 +124,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		Command:    "./plugin",
 		Args:       []string{"--serve", "space value"},
 		Env: map[string]string{
-			"CUSTOM": "value",
+			"CUSTOM":                           "value",
+			runtimeLogHostSocketEnv + "_TOKEN": "runtime-log-token",
 		},
 	})
 	if err != nil {
@@ -142,6 +152,9 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
 		"'GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock'",
 		"'GESTALT_CACHE_SOCKET=https://gestaltd.example.internal/runtime/session/relay'",
+		"'GESTALT_RUNTIME_LOG_SOCKET=tls://runtime-log-relay.gestalt.example:443'",
+		"'GESTALT_RUNTIME_LOG_SOCKET_TOKEN=runtime-log-token'",
+		"'GESTALT_RUNTIME_SESSION_ID=" + session.GetId() + "'",
 		"'CUSTOM=value'",
 		"'./plugin' '--serve' 'space value'",
 	} {

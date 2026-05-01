@@ -26,6 +26,9 @@ const (
 	sessionStateRunning  = "running"
 	sessionStateStopped  = "stopped"
 	sessionStateFailed   = "failed"
+
+	runtimeSessionIDEnv     = "GESTALT_RUNTIME_SESSION_ID"
+	runtimeLogHostSocketEnv = "GESTALT_RUNTIME_LOG_SOCKET"
 )
 
 type Provider struct {
@@ -379,14 +382,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	execCtx, cancel := context.WithTimeout(ctx, cfg.ExecTimeout)
 	defer cancel()
 
-	env := cloneStringMap(req.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	for _, binding := range bindings {
-		env[binding.envVar] = binding.dialTarget
-	}
-	env[proto.EnvProviderSocket] = "/tmp/gestalt/plugin.sock"
+	env := buildPluginEnv(req, bindings, "/tmp/gestalt/plugin.sock")
 	if requiresHostnameEgress(req, env, bindings) {
 		hostnameEgress, err := buildHostnameEgressConfig(env, bindings, templateName)
 		if err != nil {
@@ -600,6 +596,19 @@ func cloneBindings(src map[string]hostServiceBinding) []hostServiceBinding {
 	return dst
 }
 
+func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings []hostServiceBinding, providerSocket string) map[string]string {
+	env := cloneStringMap(req.GetEnv())
+	if env == nil {
+		env = map[string]string{}
+	}
+	for _, binding := range bindings {
+		env[binding.envVar] = binding.dialTarget
+	}
+	env[proto.EnvProviderSocket] = providerSocket
+	env[runtimeSessionIDEnv] = strings.TrimSpace(req.GetSessionId())
+	return env
+}
+
 func tcpDialTarget(host string, port int) string {
 	return "tcp://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
@@ -621,6 +630,8 @@ func isRelayHostServiceEnv(envVar string) bool {
 	case envVar == proto.EnvAgentHostSocket:
 		return true
 	case envVar == proto.EnvAgentManagerSocket:
+		return true
+	case envVar == runtimeLogHostSocketEnv:
 		return true
 	default:
 		return false
