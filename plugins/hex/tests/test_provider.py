@@ -159,6 +159,57 @@ class HexProviderTests(unittest.TestCase):
         self.assertEqual(client.payload, {"projectId": "proj-1", "version": 2})
         self.assertEqual(client.token, "test-token")
 
+    def test_suggestions_list_accepts_typed_client_boundary(self) -> None:
+        class FakeHexClient:
+            def __init__(self) -> None:
+                self.path = ""
+                self.query: Mapping[str, Any] | None = None
+                self.token = ""
+
+            def get_json(
+                self,
+                path: str,
+                token: str,
+                query: Mapping[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.path = path
+                self.query = query
+                self.token = token
+                return {"values": []}
+
+            def post_json(
+                self, path: str, payload: Mapping[str, Any], token: str
+            ) -> dict[str, Any]:
+                raise AssertionError("list_suggestions should not issue POST requests")
+
+        client = FakeHexClient()
+
+        result = operations_module.list_suggestions(
+            "test-token",
+            operations_module.SuggestionListRequest(
+                limit=25,
+                sort_by=operations_module.HexSuggestionSortBy.CREATED_DATE,
+                sort_direction=operations_module.HexSortDirection.DESC,
+                status=operations_module.HexSuggestionStatus.OPEN,
+            ),
+            client=client,
+        )
+
+        self.assertEqual(result, {"values": []})
+        self.assertEqual(client.path, "/suggestions")
+        self.assertEqual(
+            client.query,
+            {
+                "limit": 25,
+                "after": None,
+                "before": None,
+                "sortBy": operations_module.HexSuggestionSortBy.CREATED_DATE,
+                "sortDirection": operations_module.HexSortDirection.DESC,
+                "status": operations_module.HexSuggestionStatus.OPEN,
+            },
+        )
+        self.assertEqual(client.token, "test-token")
+
     def test_project_import_uses_cli_endpoint_contract(self) -> None:
         def fake_urlopen(
             request: urllib.request.Request, timeout: float = 30
