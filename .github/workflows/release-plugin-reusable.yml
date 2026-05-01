@@ -183,9 +183,6 @@ jobs:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           python_image="python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
-          case "${{ inputs.plugin-dir }}" in
-            agent/claude) python_image="python:${{ needs.metadata.outputs.python-version }}-slim" ;;
-          esac
           .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
       - name: Package TypeScript linux/amd64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'
@@ -238,9 +235,6 @@ jobs:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
           python_image="python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
-          case "${{ inputs.plugin-dir }}" in
-            agent/claude) python_image="python:${{ needs.metadata.outputs.python-version }}-slim" ;;
-          esac
           .github/scripts/package_python_docker.sh linux/arm64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_ARM64 linux/arm64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
       - name: Package TypeScript linux/arm64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'

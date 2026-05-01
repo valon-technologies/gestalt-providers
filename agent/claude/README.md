@@ -53,5 +53,6 @@ The provider passes the SDK exact allowed tool names like
 still uses the Claude Code transport internally, but this provider integrates
 through the SDK API rather than launching `claude` directly.
 
-Linux release artifacts are built only for `linux/amd64` and `linux/arm64`.
-The Claude Agent SDK does not publish a bundled CLI wheel for `linux/arm`.
+Linux release artifacts are built on the same Alpine/musl Python base as
+`agent/simple`, and only for `linux/amd64` and `linux/arm64`. The Claude Agent
+SDK does not publish a bundled CLI wheel for `linux/arm`.
