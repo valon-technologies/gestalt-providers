@@ -11,10 +11,14 @@ on:
         description: Semantic version for the release
         type: string
         required: true
-      gestalt-ref:
-        description: Pinned Gestalt git ref used to build gestaltd for packaging
+      gestaltd-version:
+        description: Tag suffix of the published gestaltd release to use for packaging (e.g. v0.0.1-alpha.7).
         type: string
         required: true
+      needs-sibling-gestalt:
+        description: Whether this provider still needs a sibling gestalt checkout for `replace github.com/.../gestalt/sdk/go => ../../../gestalt/sdk/go`. Defaults to false.
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -129,36 +133,31 @@ jobs:
       - name: Install Python
         if: needs.metadata.outputs.source-language == 'python'
         run: uv python install "${{ needs.metadata.outputs.python-version }}"
-      - name: Install gestaltd
-        env:
-          GOBIN: ${{ runner.temp }}/bin
+      - name: Sibling Gestalt checkout (legacy holdouts only)
+        if: inputs.needs-sibling-gestalt
         run: |
           set -euo pipefail
-          mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
-          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
+      - uses: ./.github/actions/setup-gestaltd
+        with:
+          version: ${{ inputs.gestaltd-version }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # -- Tests (amd64 only) --
       - name: Test Go plugin
         if: needs.metadata.outputs.has-go == 'true'
         run: |
           case "${{ inputs.plugin-dir }}" in
-            indexeddb/*)
-              . .github/scripts/setup_go_indexeddb_test_env.sh "${{ inputs.plugin-dir }}"
-              ;;
-          esac
-          case "${{ inputs.plugin-dir }}" in
-            cache/*)
-              . .github/scripts/setup_go_cache_test_env.sh "${{ inputs.plugin-dir }}"
-              ;;
+            indexeddb/relationaldb) . .github/scripts/setup_test_env.sh postgres mysql sqlserver ;;
+            indexeddb/mongodb)      . .github/scripts/setup_test_env.sh mongodb ;;
+            indexeddb/dynamodb)     . .github/scripts/setup_test_env.sh dynamodb ;;
+            cache/valkey)           . .github/scripts/setup_test_env.sh valkey ;;
           esac
           cd "${{ inputs.plugin-dir }}" && go test ./...
       - name: Test Rust plugin
         if: needs.metadata.outputs.source-language == 'rust'
-        run: |
-          . .github/scripts/setup_rust_datastore_test_env.sh "${{ inputs.plugin-dir }}"
-          cd "${{ inputs.plugin-dir }}" && cargo test
+        run: cd "${{ inputs.plugin-dir }}" && cargo test
       - name: Validate Python plugin
         if: needs.metadata.outputs.source-language == 'python'
         run: python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
@@ -226,7 +225,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Package Go linux/arm64 provider
         if: needs.metadata.outputs.source-language == 'go'
@@ -276,7 +275,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Package Rust linux/arm64 artifact
         env:
@@ -326,7 +325,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Cross-compile gestaltd for ARMv7
         if: needs.metadata.outputs.source-language == 'python'
@@ -384,7 +383,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Package Go darwin/arm64 provider
         if: needs.metadata.outputs.source-language == 'go'
@@ -430,7 +429,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Package Go darwin/amd64 provider
         if: needs.metadata.outputs.source-language == 'go'
@@ -471,7 +470,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Package Python darwin/arm64 provider
         run: |
@@ -507,7 +506,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "gestaltd/${{ inputs.gestaltd-version }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Package Python darwin/amd64 provider
         run: |

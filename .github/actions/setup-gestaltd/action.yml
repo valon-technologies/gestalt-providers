@@ -1,0 +1,59 @@
+name: Setup gestaltd
+description: Download a published gestaltd binary from valon-technologies/gestalt releases and put it on PATH.
+
+inputs:
+  version:
+    description: Tag suffix to download (e.g. v0.0.1-alpha.7).
+    required: true
+  github-token:
+    description: Token used by `gh release download` for the (private) gestalt repo.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve platform
+      id: platform
+      shell: bash
+      run: |
+        case "$(uname -s)" in
+          Linux)  os=linux ;;
+          Darwin) os=macos ;;
+          *) echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64|amd64) arch=x86_64 ;;
+          arm64|aarch64) arch=arm64 ;;
+          armv7l) arch=armv7 ;;
+          *) echo "Unsupported arch: $(uname -m)"; exit 1 ;;
+        esac
+        echo "asset=gestaltd-${os}-${arch}.tar.gz" >> "$GITHUB_OUTPUT"
+        echo "cache_dir=$HOME/.cache/gestaltd-${{ inputs.version }}-${os}-${arch}" >> "$GITHUB_OUTPUT"
+    - name: Restore cached gestaltd
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.platform.outputs.cache_dir }}
+        key: gestaltd-${{ inputs.version }}-${{ steps.platform.outputs.asset }}
+    - name: Download gestaltd
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        ASSET: ${{ steps.platform.outputs.asset }}
+        CACHE_DIR: ${{ steps.platform.outputs.cache_dir }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$CACHE_DIR"
+        gh release download "gestaltd/${{ inputs.version }}" \
+          --repo valon-technologies/gestalt \
+          --pattern "$ASSET" \
+          --output - | tar xz -C "$CACHE_DIR"
+    - name: Add gestaltd to PATH
+      shell: bash
+      env:
+        CACHE_DIR: ${{ steps.platform.outputs.cache_dir }}
+      run: |
+        chmod +x "$CACHE_DIR/gestaltd"
+        echo "$CACHE_DIR" >> "$GITHUB_PATH"
+        "$CACHE_DIR/gestaltd" --version 2>&1 || true

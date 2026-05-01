@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 
-	"github.com/valon-technologies/gestalt-providers/secrets/internal/configutil"
 )
 
 const (
@@ -41,7 +40,7 @@ func New() *Provider { return &Provider{} }
 
 func (p *Provider) Configure(ctx context.Context, name string, raw map[string]any) error {
 	var cfg config
-	if err := configutil.Decode(raw, &cfg); err != nil {
+	if err := decodeConfig(raw, &cfg); err != nil {
 		return fmt.Errorf("aws secrets: %w", err)
 	}
 	if cfg.Region == "" {

@@ -1,60 +1,52 @@
-name: Validate Plugins
+name: Validate Providers
 
 on:
   pull_request:
-    paths:
-      - '.github/workflows/**'
-      - '.github/scripts/**'
-      - 'agent/**'
-      - 'runtime/**'
-      - 'plugins/**'
-      - 'auth/**'
-      - 'authorization/**'
-      - 'external_credentials/**'
-      - 's3/**'
-      - 'indexeddb/**'
-      - 'workflow/**'
-      - 'cache/**'
-      - 'secrets/**'
-      - 'ui/**'
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
   push:
     branches:
       - main
-    paths:
-      - '.github/workflows/**'
-      - '.github/scripts/**'
-      - 'agent/**'
-      - 'runtime/**'
-      - 'plugins/**'
-      - 'auth/**'
-      - 'authorization/**'
-      - 'external_credentials/**'
-      - 's3/**'
-      - 'indexeddb/**'
-      - 'workflow/**'
-      - 'cache/**'
-      - 'secrets/**'
-      - 'ui/**'
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
-  GESTALT_REPOSITORY: valon-technologies/gestalt
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:
   discover:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       plugins: ${{ steps.discover.outputs.plugins }}
       count: ${{ steps.discover.outputs.count }}
       scope: ${{ steps.discover.outputs.scope }}
+      run_validate: ${{ steps.discover.outputs.run_validate }}
+      run_ui_lint: ${{ steps.discover.outputs.run_ui_lint }}
+      run_ui_tests: ${{ steps.discover.outputs.run_ui_tests }}
+      run_ui_e2e: ${{ steps.discover.outputs.run_ui_e2e }}
+      run_integration: ${{ steps.discover.outputs.run_integration }}
+      gestaltd_version: ${{ steps.pin.outputs.gestaltd }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Discover plugins to validate
+      - name: Read pinned versions
+        id: pin
+        run: |
+          # shellcheck disable=SC1091
+          source .gestalt-sdk-version
+          echo "gestaltd=${GESTALTD}" >> "$GITHUB_OUTPUT"
+      - name: Discover providers to validate
         id: discover
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -62,153 +54,15 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-
-          discovery_output="$(python3 - <<'PY'
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-
-          repo = Path(".")
-          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "external_credentials", "s3", "indexeddb", "workflow", "cache", "secrets")
-          all_plugins = []
-          for root_name in package_roots:
-              root = repo / root_name
-              if not root.is_dir():
-                  continue
-              for path in sorted(root.glob("*/manifest.yaml")):
-                  package_dir = path.parent
-                  has_go = any(candidate.suffix == ".go" for candidate in package_dir.glob("*.go"))
-                  has_typescript = False
-                  package_json = package_dir / "package.json"
-                  if package_json.is_file():
-                      try:
-                          package_data = json.loads(package_json.read_text(encoding="utf-8"))
-                      except json.JSONDecodeError:
-                          package_data = {}
-                      provider = (package_data.get("gestalt") or {}).get("provider")
-                      has_typescript = bool(provider)
-                  all_plugins.append(
-                      {
-                          "dir": str(package_dir.as_posix()),
-                          "name": f"{root_name}/{package_dir.name}",
-                          "root": root_name,
-                          "has_go": has_go,
-                          "has_python": (package_dir / "pyproject.toml").is_file(),
-                          "has_rust": (package_dir / "Cargo.toml").is_file(),
-                          "has_typescript": has_typescript,
-                      }
-                  )
-          packages_by_root = {}
-          for plugin in all_plugins:
-              packages_by_root.setdefault(plugin["root"], set()).add(plugin["dir"])
-          shared_prefixes = (".github/workflows/", ".github/scripts/")
-
-          event_name = os.environ["EVENT_NAME"]
-          run_all = event_name != "pull_request"
-          selected = set()
-
-          if event_name == "pull_request":
-              base = os.environ["PR_BASE_SHA"]
-              head = os.environ["PR_HEAD_SHA"]
-              changed_files = subprocess.check_output(
-                  ["git", "diff", "--name-only", f"{base}..{head}"],
-                  text=True,
-              ).splitlines()
-
-              for path in changed_files:
-                  if not path:
-                      continue
-                  if path.startswith(shared_prefixes):
-                      run_all = True
-                      break
-                  parts = Path(path).parts
-                  if len(parts) >= 2 and parts[0] == "indexeddb":
-                      if parts[1] == "contracttest":
-                          run_all = True
-                          break
-                      if parts[1] == "internal":
-                          selected.update(packages_by_root.get("indexeddb", set()))
-                          selected.update(packages_by_root.get("external_credentials", set()))
-                          continue
-                      if parts[1] == "relationaldb":
-                          selected.update(packages_by_root.get("external_credentials", set()))
-                  if len(parts) >= 2 and parts[0] == "cache":
-                      if parts[1] == "internal":
-                          selected.update(packages_by_root.get("cache", set()))
-                          continue
-                      if len(parts) == 2:
-                          selected.update(packages_by_root.get("cache", set()))
-                          continue
-                  if len(parts) >= 3 and parts[0] in package_roots:
-                      package_dir = Path(parts[0]) / parts[1]
-                      if (repo / package_dir / "manifest.yaml").is_file():
-                          selected.add(package_dir.as_posix())
-
-          if run_all:
-              plugins = all_plugins
-          else:
-              plugins = [plugin for plugin in all_plugins if plugin["dir"] in selected]
-
-          print(
-              json.dumps(
-                  {
-                      "plugins": plugins,
-                      "count": len(plugins),
-                      "scope": "all" if run_all else "changed",
-                  }
-              )
-          )
-          PY
-          )"
-
-          plugins_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["plugins"]))' <<<"$discovery_output")"
-          count="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["count"])' <<<"$discovery_output")"
-          scope="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["scope"])' <<<"$discovery_output")"
-
-          {
-            echo "plugins<<EOF"
-            echo "$plugins_json"
-            echo "EOF"
-            echo "count=$count"
-            echo "scope=$scope"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "validation scope: $scope"
-          echo "plugin count: $count"
-          echo "plugins: $plugins_json"
-
-  build-gestaltd:
-    needs: discover
-    if: needs.discover.outputs.count != '0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-      - name: Install gestaltd
-        env:
-          GOBIN: ${{ runner.temp }}/bin
-        run: |
-          set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
-          (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: gestaltd
-          path: ${{ runner.temp }}/bin/gestaltd
-          if-no-files-found: error
+          python3 .github/scripts/discover_changed_providers.py \
+            --event-name "$EVENT_NAME" \
+            --base-sha "${PR_BASE_SHA:-}" \
+            --head-sha "${PR_HEAD_SHA:-}" \
+            --repo-root .
 
   validate:
-    needs:
-      - discover
-      - build-gestaltd
-    if: needs.discover.outputs.count != '0'
+    needs: discover
+    if: needs.discover.outputs.run_validate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -216,7 +70,7 @@ jobs:
       max-parallel: 6
       matrix:
         plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
-    name: Validate ${{ matrix.plugin.name }}
+    name: Validate provider ${{ matrix.plugin.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -227,26 +81,20 @@ jobs:
         if: matrix.plugin.has_go
         with:
           go-version: '1.26'
-      - uses: oven-sh/setup-bun@v2
-        if: matrix.plugin.has_typescript
       - name: Install Python
         if: matrix.plugin.has_python
         run: uv python install 3.13 3.14
-      - name: Prepare sibling Gestalt checkout for local Go replaces
-        if: matrix.plugin.has_go
+      - name: Prepare sibling Gestalt checkout (legacy holdouts only)
+        if: matrix.plugin.needs_sibling_gestalt
         run: |
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/setup-gestaltd
         with:
-          name: gestaltd
-          path: ${{ runner.temp }}/bin
-      - name: Add gestaltd to PATH
-        run: |
-          chmod +x "${RUNNER_TEMP}/bin/gestaltd"
-          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-      - name: Validate plugin
+          version: ${{ needs.discover.outputs.gestaltd_version }}
+          github-token: ${{ secrets.GH_RELEASE_DOWNLOAD_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Validate provider
         env:
           OUTPUT_ROOT: ${{ runner.temp }}/dist
         run: |
@@ -258,29 +106,20 @@ jobs:
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
             case "$plugin_dir" in
-              indexeddb/*)
-                . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
-                ;;
-            esac
-            case "$plugin_dir" in
-              cache/*)
-                . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
-                ;;
+              indexeddb/relationaldb) . .github/scripts/setup_test_env.sh postgres mysql sqlserver ;;
+              indexeddb/mongodb)      . .github/scripts/setup_test_env.sh mongodb ;;
+              indexeddb/dynamodb)     . .github/scripts/setup_test_env.sh dynamodb ;;
+              cache/valkey)           . .github/scripts/setup_test_env.sh valkey ;;
             esac
             (cd "$plugin_dir" && go test ./...)
           fi
 
           if [ "${{ matrix.plugin.has_rust }}" = "true" ]; then
-            . .github/scripts/setup_rust_datastore_test_env.sh "$plugin_dir"
             (cd "$plugin_dir" && cargo test)
           fi
 
           if [ -f "${plugin_dir}/pyproject.toml" ]; then
             python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
-          fi
-
-          if [ "${{ matrix.plugin.has_typescript }}" = "true" ]; then
-            (cd "$plugin_dir" && bun install --frozen-lockfile && bun run check)
           fi
 
           rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
@@ -307,7 +146,24 @@ jobs:
             exit 1
           fi
 
+  integration:
+    needs: discover
+    if: needs.discover.outputs.run_integration == 'true'
+    name: Cross-provider integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Run integration tests
+        working-directory: integration
+        run: go test ./...
+
   ui-lint:
+    needs: discover
+    if: needs.discover.outputs.run_ui_lint == 'true'
     name: UI Lint & Type Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -326,6 +182,8 @@ jobs:
       - run: npm run lint
 
   ui-tests:
+    needs: discover
+    if: needs.discover.outputs.run_ui_tests == 'true'
     name: UI Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -353,6 +211,8 @@ jobs:
           retention-days: 7
 
   ui-e2e:
+    needs: discover
+    if: needs.discover.outputs.run_ui_e2e == 'true'
     name: UI E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -364,27 +224,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Build gestaltd and UI
+      - uses: ./.github/actions/setup-gestaltd
+        with:
+          version: ${{ needs.discover.outputs.gestaltd_version }}
+          github-token: ${{ secrets.GH_RELEASE_DOWNLOAD_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Build UI and package providers
         run: |
           set -euo pipefail
-          gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "main"
-
-          # Build UI from this repo
           (cd ui/default && npm ci && npm run build)
 
-          # Fix IndexedDB provider SDK replace path
-          sed -i "s|../../../gestalt/sdk/go|$gestalt_dir/sdk/go|" indexeddb/relationaldb/go.mod
-
-          # Build gestaltd
-          mkdir -p "${GITHUB_WORKSPACE}/../bin"
-          (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
-
-          # Package local providers as release metadata to avoid local-source fingerprint churn
           mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release" "${RUNNER_TEMP}/external-credentials-default-release"
-          (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
-          (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
-          (cd external_credentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
+          (cd ui/default && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
+          (cd indexeddb/relationaldb && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
+          (cd external_credentials/default && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
           apiVersion: gestaltd.config/v4
@@ -420,9 +272,9 @@ jobs:
       - name: Start gestaltd
         run: |
           mkdir -p "${RUNNER_TEMP}/prepared-artifacts"
-          "${GITHUB_WORKSPACE}/../bin/gestaltd" lock --config "${GESTALTD_CONFIG}"
-          "${GITHUB_WORKSPACE}/../bin/gestaltd" sync --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
-          "${GITHUB_WORKSPACE}/../bin/gestaltd" serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
+          gestaltd lock --config "${GESTALTD_CONFIG}"
+          gestaltd sync --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts"
+          gestaltd serve --locked --config "${GESTALTD_CONFIG}" --artifacts-dir "${RUNNER_TEMP}/prepared-artifacts" >/tmp/gestaltd.log 2>&1 &
           for _ in $(seq 1 120); do
             if curl -sf http://localhost:8080/health; then break; fi
             sleep 0.5

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/valkey-io/valkey-go"
-	"github.com/valon-technologies/gestalt-providers/cache/internal/configutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
@@ -44,7 +43,7 @@ func New() *Provider { return &Provider{} }
 
 func (p *Provider) Configure(ctx context.Context, name string, raw map[string]any) error {
 	var cfg config
-	if err := configutil.Decode(raw, &cfg); err != nil {
+	if err := decodeConfig(raw, &cfg); err != nil {
 		return fmt.Errorf("valkey cache: %w", err)
 	}
 	if len(cfg.Addresses) == 0 {

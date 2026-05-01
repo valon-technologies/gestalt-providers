@@ -1,4 +1,4 @@
-package externalcredentials
+package integration_test
 
 import (
 	"context"
@@ -13,9 +13,12 @@ import (
 	"testing"
 	"time"
 
+	externalcredentials "github.com/valon-technologies/gestalt-providers/external_credentials/default"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	"encoding/hex"
+	"golang.org/x/crypto/argon2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -95,7 +98,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	raw, err := db.ObjectStore(storeName).Get(context.Background(), created.GetId())
+	raw, err := db.ObjectStore("external_credentials").Get(context.Background(), created.GetId())
 	if err != nil {
 		t.Fatalf("Get(raw): %v", err)
 	}
@@ -233,7 +236,7 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 	createdAt := time.Date(2026, time.April, 24, 12, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
 
-	if err := db.ObjectStore(storeName).Put(context.Background(), gestalt.Record{
+	if err := db.ObjectStore("external_credentials").Put(context.Background(), gestalt.Record{
 		"id":                      "cred-seeded-1",
 		"subject_id":              "user:user-seeded",
 		"integration":             "slack",
@@ -339,16 +342,35 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 	}
 	defer func() { _ = namedDB.Close() }()
 
-	if _, err := defaultDB.ObjectStore(storeName).Get(context.Background(), created.GetId()); !errors.Is(err, gestalt.ErrNotFound) {
+	if _, err := defaultDB.ObjectStore("external_credentials").Get(context.Background(), created.GetId()); !errors.Is(err, gestalt.ErrNotFound) {
 		t.Fatalf("default indexeddb Get error = %v, want %v", err, gestalt.ErrNotFound)
 	}
-	raw, err := namedDB.ObjectStore(storeName).Get(context.Background(), created.GetId())
+	raw, err := namedDB.ObjectStore("external_credentials").Get(context.Background(), created.GetId())
 	if err != nil {
 		t.Fatalf("named indexeddb Get: %v", err)
 	}
 	if got, _ := raw["access_token_encrypted"].(string); got == "" {
 		t.Fatalf("named indexeddb access_token_encrypted = %q, want ciphertext", got)
 	}
+}
+
+// deriveKey mirrors the (unexported) deriveKey in external_credentials/default
+// so this integration test can seed pre-encrypted ciphertext with the same
+// derivation algorithm. Keep in sync with external_credentials/default/crypto.go.
+func deriveKey(value string) []byte {
+	const (
+		argonTime    = 3
+		argonMemory  = 64 * 1024
+		argonThreads = 4
+		argonKeyLen  = 32
+	)
+	if value == "" {
+		return nil
+	}
+	if decoded, err := hex.DecodeString(value); err == nil && len(decoded) == 32 {
+		return decoded
+	}
+	return argon2.IDKey([]byte(value), []byte("gestalt-derivekey-v1"), argonTime, argonMemory, argonThreads, argonKeyLen)
 }
 
 func startTestIndexedDBBackend(t *testing.T) {
@@ -394,7 +416,7 @@ func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- gestalt.ServeExternalCredentialProvider(ctx, New())
+		errCh <- gestalt.ServeExternalCredentialProvider(ctx, externalcredentials.New())
 	}()
 	t.Cleanup(func() {
 		cancel()

@@ -15,8 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/valon-technologies/gestalt-providers/auth/internal/configutil"
-	"github.com/valon-technologies/gestalt-providers/auth/internal/userinfo"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"golang.org/x/oauth2"
 )
@@ -79,7 +77,7 @@ func New() *Provider {
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {
 	var cfg config
-	if err := configutil.Decode(raw, &cfg); err != nil {
+	if err := decodeConfig(raw, &cfg); err != nil {
 		return fmt.Errorf("oidc auth: %w", err)
 	}
 	if cfg.IssuerURL == "" {
@@ -246,10 +244,10 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("oidc auth: decode userinfo: %w", err)
 	}
-	if !userinfo.EmailVerified(info.EmailVerified) {
+	if !emailVerified(info.EmailVerified) {
 		return nil, fmt.Errorf("oidc auth: email %s is not verified", info.Email)
 	}
-	if err := userinfo.CheckAllowedDomains("oidc", p.cfg.AllowedDomains, info.Email); err != nil {
+	if err := checkAllowedDomains("oidc", p.cfg.AllowedDomains, info.Email); err != nil {
 		return nil, err
 	}
 	return &gestalt.AuthenticatedUser{

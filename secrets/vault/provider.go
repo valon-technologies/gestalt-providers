@@ -11,7 +11,6 @@ import (
 	vaultapi "github.com/hashicorp/vault/api"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 
-	"github.com/valon-technologies/gestalt-providers/secrets/internal/configutil"
 )
 
 const (
@@ -39,7 +38,7 @@ func New() *Provider { return &Provider{} }
 
 func (p *Provider) Configure(_ context.Context, name string, raw map[string]any) error {
 	var cfg config
-	if err := configutil.Decode(raw, &cfg); err != nil {
+	if err := decodeConfig(raw, &cfg); err != nil {
 		return fmt.Errorf("vault secrets: %w", err)
 	}
 	if cfg.Address == "" {

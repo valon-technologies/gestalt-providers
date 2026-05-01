@@ -1,11 +1,10 @@
-module github.com/valon-technologies/gestalt-providers/authorization
+module github.com/valon-technologies/gestalt-providers/secrets/keeper
 
 go 1.26
 
 require (
-	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
-	google.golang.org/grpc v1.80.0
-	google.golang.org/protobuf v1.36.11
+	github.com/keeper-security/secrets-manager-go/core v1.7.0
+	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.13
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -21,6 +20,6 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
+	google.golang.org/grpc v1.80.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/valon-technologies/gestalt/sdk/go => ../../gestalt/sdk/go

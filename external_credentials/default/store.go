@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -310,13 +311,13 @@ func normalizeCredential(credential *gestalt.ExternalCredential) *gestalt.Extern
 	if credential == nil {
 		return nil
 	}
-	clone := *credential
+	clone := proto.Clone(credential).(*gestalt.ExternalCredential)
 	clone.Id = strings.TrimSpace(clone.GetId())
 	clone.SubjectId = strings.TrimSpace(clone.GetSubjectId())
 	clone.Integration = strings.TrimSpace(clone.GetIntegration())
 	clone.Connection = strings.TrimSpace(clone.GetConnection())
 	clone.Instance = strings.TrimSpace(clone.GetInstance())
-	return &clone
+	return clone
 }
 
 func credentialCreatedAt(credential *gestalt.ExternalCredential, fallback time.Time) time.Time {

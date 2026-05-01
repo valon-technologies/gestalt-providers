@@ -1,4 +1,4 @@
-package configutil
+package aws
 
 import (
 	"fmt"
@@ -6,7 +6,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func Decode(config map[string]any, out any) error {
+// decodeConfig decodes a raw `map[string]any` config into a typed struct via
+// yaml round-trip. Inlined from the previous secrets/internal/configutil package.
+func decodeConfig(config map[string]any, out any) error {
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)

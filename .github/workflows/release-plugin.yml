@@ -28,7 +28,8 @@ jobs:
       plugin-dir: ${{ steps.validate.outputs.plugin-dir }}
       plugin-version: ${{ steps.parse.outputs.plugin-version }}
       is-plugin: ${{ steps.validate.outputs.is-plugin }}
-      gestalt-ref: ${{ steps.validate.outputs.gestalt-ref }}
+      gestaltd-version: ${{ steps.validate.outputs.gestaltd-version }}
+      needs-sibling-gestalt: ${{ steps.validate.outputs.needs-sibling-gestalt }}
     steps:
       - uses: actions/checkout@v4
       - name: Parse tag
@@ -63,19 +64,32 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            agent|runtime|plugins|auth|authorization|external_credentials|s3|indexeddb|workflow|cache|secrets|ui)
-              GESTALT_REF="main"
-              ;;
+            agent|runtime|plugins|auth|authorization|external_credentials|s3|indexeddb|workflow|cache|secrets|ui) ;;
             *)
               echo "ERROR: unsupported plugin root ${PLUGIN_ROOT}"
               exit 1
               ;;
           esac
 
+          # Read pinned gestaltd version from workspace pin file.
+          # shellcheck disable=SC1091
+          source .gestalt-sdk-version
+          if [ -z "${GESTALTD:-}" ]; then
+            echo "ERROR: GESTALTD pin missing from .gestalt-sdk-version"
+            exit 1
+          fi
+
+          # Detect whether this provider still uses the sibling-checkout pattern.
+          NEEDS_SIBLING=false
+          if [ -f "${PLUGIN_DIR}/go.mod" ] && grep -qE '^\s*replace\s+github\.com/valon-technologies/gestalt/sdk/go\s*=>' "${PLUGIN_DIR}/go.mod"; then
+            NEEDS_SIBLING=true
+          fi
+
           {
             echo "plugin-dir=${PLUGIN_DIR}"
             echo "is-plugin=true"
-            echo "gestalt-ref=${GESTALT_REF}"
+            echo "gestaltd-version=${GESTALTD}"
+            echo "needs-sibling-gestalt=${NEEDS_SIBLING}"
           } >> "$GITHUB_OUTPUT"
 
   release:
@@ -89,4 +103,5 @@ jobs:
     with:
       plugin-dir: ${{ needs.prepare.outputs.plugin-dir }}
       version: ${{ needs.prepare.outputs.plugin-version }}
-      gestalt-ref: ${{ needs.prepare.outputs.gestalt-ref }}
+      gestaltd-version: ${{ needs.prepare.outputs.gestaltd-version }}
+      needs-sibling-gestalt: ${{ needs.prepare.outputs.needs-sibling-gestalt == 'true' }}
