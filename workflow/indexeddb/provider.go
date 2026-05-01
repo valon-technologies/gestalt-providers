@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.39"
+	providerVersion           = "0.0.1-alpha.40"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -1397,6 +1397,26 @@ func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWork
 		record.CreatedAt = p.clock().UTC()
 	}
 	if err := state.executionRefStore.Put(ctx, record.toRecord()); err != nil {
+		if errors.Is(err, gestalt.ErrAlreadyExists) {
+			existing, found, loadErr := loadExecutionReferenceRecord(ctx, state.executionRefStore, record.ID)
+			if loadErr != nil {
+				p.mu.RUnlock()
+				return nil, status.Errorf(codes.Internal, "load existing execution reference after conflict: %v", loadErr)
+			}
+			if found {
+				if !existing.CreatedAt.IsZero() {
+					record.CreatedAt = existing.CreatedAt
+				}
+				if executionReferenceRecordsEqual(existing, record) {
+					resp, buildErr := existing.toProto()
+					p.mu.RUnlock()
+					if buildErr != nil {
+						return nil, status.Errorf(codes.Internal, "build execution reference response: %v", buildErr)
+					}
+					return resp, nil
+				}
+			}
+		}
 		p.mu.RUnlock()
 		return nil, status.Errorf(codes.Internal, "put execution reference: %v", err)
 	}
