@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pathlib
 import sys
 import unittest
@@ -12,6 +14,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import gestalt
 
 import internals.blob as blob_module
+import internals.config as config_module
+import internals.models as models_module
 from internals.blob import VercelBlobAPIError
 import provider as provider_module
 
@@ -49,6 +53,14 @@ class VercelProviderTests(unittest.TestCase):
     def setUp(self) -> None:
         provider_module.configure(
             "vercel", {"clientId": "client-id", "clientSecret": "client-secret"}
+        )
+
+    def test_blob_module_reexports_interface_types(self) -> None:
+        self.assertIs(blob_module.VercelBlobAccess, models_module.VercelBlobAccess)
+        self.assertIs(blob_module.VercelBlobConfig, config_module.VercelBlobConfig)
+        self.assertIs(
+            blob_module.VercelBlobConfigurationError,
+            config_module.VercelBlobConfigurationError,
         )
 
     def test_blob_put_requires_blob_token(self) -> None:
@@ -94,11 +106,10 @@ class VercelProviderTests(unittest.TestCase):
 
         self.assertEqual(result["data"]["blob"]["pathname"], "roadmaps/newrez.json")
         self.assertEqual(put_blob.call_args.args[0].token, "blob-rw-token")
-        self.assertEqual(put_blob.call_args.kwargs["pathname"], "roadmaps/newrez.json")
-        self.assertEqual(
-            put_blob.call_args.kwargs["access"], blob_module.VercelBlobAccess.PRIVATE
-        )
-        self.assertEqual(put_blob.call_args.kwargs["body"], '{"ok":true}')
+        request = put_blob.call_args.args[1]
+        self.assertEqual(request.pathname, "roadmaps/newrez.json")
+        self.assertEqual(request.access, blob_module.VercelBlobAccess.PRIVATE)
+        self.assertEqual(request.body, '{"ok":true}')
 
     def test_blob_put_rejects_invalid_access(self) -> None:
         result = provider_module.blob_put(
@@ -252,8 +263,8 @@ class VercelProviderTests(unittest.TestCase):
 
         self.assertEqual(result["data"]["deleted"], 2)
         self.assertEqual(
-            delete_blobs.call_args.kwargs["targets"],
-            ["roadmaps/a.json", "roadmaps/b.json"],
+            delete_blobs.call_args.args[1].targets,
+            ("roadmaps/a.json", "roadmaps/b.json"),
         )
         self.assertEqual(delete_blobs.call_args.args[0].token, "blob-rw-token")
 
@@ -291,14 +302,16 @@ class VercelProviderTests(unittest.TestCase):
         ):
             result = blob_module.put_blob(
                 blob_module.VercelBlobConfig(token="blob_rw_x_store123_token"),
-                pathname="roadmaps/newrez.json",
-                body='{"ok":true}',
-                body_base64="",
-                access=blob_module.VercelBlobAccess.PRIVATE,
-                content_type="application/json",
-                add_random_suffix=False,
-                overwrite=True,
-                cache_control_max_age=None,
+                blob_module.VercelBlobPutRequest(
+                    pathname="roadmaps/newrez.json",
+                    body='{"ok":true}',
+                    body_base64="",
+                    access=blob_module.VercelBlobAccess.PRIVATE,
+                    content_type="application/json",
+                    add_random_suffix=False,
+                    overwrite=True,
+                    cache_control_max_age=None,
+                ),
             )
 
         self.assertEqual(result["data"]["blob"]["pathname"], "roadmaps/newrez.json")
@@ -333,11 +346,13 @@ class VercelProviderTests(unittest.TestCase):
         ):
             result = blob_module.get_blob(
                 blob_module.VercelBlobConfig(token="blob_rw_x_store123_token"),
-                url_or_path="roadmaps/newrez.json",
-                access=blob_module.VercelBlobAccess.PRIVATE,
-                if_none_match="",
-                timeout_seconds=12.0,
-                use_cache=True,
+                blob_module.VercelBlobGetRequest(
+                    url_or_path="roadmaps/newrez.json",
+                    access=blob_module.VercelBlobAccess.PRIVATE,
+                    if_none_match="",
+                    timeout_seconds=12.0,
+                    use_cache=True,
+                ),
             )
 
         blob = result["data"]["blob"]
@@ -366,7 +381,9 @@ class VercelProviderTests(unittest.TestCase):
         ):
             result = blob_module.delete_blobs(
                 blob_module.VercelBlobConfig(token="blob_rw_x_store123_token"),
-                targets=["roadmaps/a.json", "roadmaps/b.json"],
+                blob_module.VercelBlobDeleteRequest(
+                    targets=("roadmaps/a.json", "roadmaps/b.json")
+                ),
             )
 
         self.assertEqual(result["data"]["deleted"], 2)
