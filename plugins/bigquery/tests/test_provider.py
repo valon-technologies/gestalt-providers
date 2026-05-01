@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from http import HTTPStatus
 from typing import cast
@@ -79,8 +80,18 @@ class QueryProviderTests(unittest.TestCase):
 
     def test_query_success_preserves_existing_output_shape(self) -> None:
         iterator = FakeIterator(
-            rows=[{"count": 1, "amount": client_module.decimal.Decimal("12.50")}],
-            schema=[SchemaField("count", "INT64"), SchemaField("amount", "NUMERIC")],
+            rows=[
+                {
+                    "count": 1,
+                    "amount": client_module.decimal.Decimal("12.50"),
+                    "blob": b"hi",
+                }
+            ],
+            schema=[
+                SchemaField("count", "INT64"),
+                SchemaField("amount", "NUMERIC"),
+                SchemaField("blob", "BYTES"),
+            ],
             total_rows=1,
         )
         job = mock.Mock()
@@ -98,10 +109,89 @@ class QueryProviderTests(unittest.TestCase):
 
         output = cast(provider_module.QueryOutput, result)
         self.assertEqual(output.total_rows, 1)
-        self.assertEqual(output.rows, [{"count": 1, "amount": "12.50"}])
+        self.assertEqual(output.rows, [{"count": 1, "amount": "12.50", "blob": "aGk="}])
         self.assertEqual(output.schema[0].name, "count")
         self.assertEqual(output.schema[1].name, "amount")
+        self.assertEqual(output.schema[2].name, "blob")
         self.assertTrue(output.job_complete)
+
+    def test_query_applies_max_results_as_row_limit(self) -> None:
+        iterator = FakeIterator(
+            rows=[{"count": 1}, {"count": 2}],
+            schema=[SchemaField("count", "INT64")],
+            total_rows=2,
+        )
+        job = mock.Mock()
+        job.result.return_value = iterator
+        client = mock.Mock()
+        client.query.return_value = job
+
+        with mock.patch.object(client_module.bigquery, "Client") as client_cls:
+            client_cls.return_value.__enter__.return_value = client
+
+            result = provider_module.query(
+                provider_module.QueryInput(
+                    project_id="serviceone",
+                    query="SELECT 1",
+                    max_results=1,
+                ),
+                gestalt.Request(token="token"),
+            )
+
+        output = cast(provider_module.QueryOutput, result)
+        self.assertEqual(output.rows, [{"count": 1}])
+
+    def test_query_sanitizes_nested_rows_and_non_finite_floats(self) -> None:
+        iterator = FakeIterator(
+            rows=[
+                {
+                    "child": FakeRow(
+                        {
+                            "amount": client_module.decimal.Decimal("3.14"),
+                            "day": dt.date(2026, 5, 1),
+                        }
+                    ),
+                    "children": [FakeRow({"payload": b"ok"})],
+                    "nan_value": float("nan"),
+                    "positive_infinity": float("inf"),
+                    "negative_infinity": float("-inf"),
+                }
+            ],
+            schema=[
+                SchemaField("child", "RECORD"),
+                SchemaField("children", "RECORD", mode="REPEATED"),
+                SchemaField("nan_value", "FLOAT64"),
+                SchemaField("positive_infinity", "FLOAT64"),
+                SchemaField("negative_infinity", "FLOAT64"),
+            ],
+            total_rows=1,
+        )
+        job = mock.Mock()
+        job.result.return_value = iterator
+        client = mock.Mock()
+        client.query.return_value = job
+
+        with mock.patch.object(client_module.bigquery, "Client") as client_cls:
+            client_cls.return_value.__enter__.return_value = client
+
+            result = provider_module.query(
+                provider_module.QueryInput(project_id="serviceone", query="SELECT 1"),
+                gestalt.Request(token="token"),
+            )
+
+        output = cast(provider_module.QueryOutput, result)
+        self.assertEqual(
+            output.rows,
+            [
+                {
+                    "child": {"amount": "3.14", "day": "2026-05-01"},
+                    "children": [{"payload": "b2s="}],
+                    "nan_value": "NaN",
+                    "positive_infinity": "Infinity",
+                    "negative_infinity": "-Infinity",
+                }
+            ],
+        )
 
     def test_query_sets_default_dataset_when_provided(self) -> None:
         iterator = FakeIterator(rows=[], schema=[], total_rows=0)
