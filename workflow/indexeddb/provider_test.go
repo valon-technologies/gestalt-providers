@@ -281,7 +281,7 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("raw idempotency get: %v", err)
 	}
-	assertRecordOmitsFields(t, rawIDRecord, "plugin_name")
+	assertRecordDoesNotContainFields(t, rawIDRecord, "plugin_name")
 
 	call, err := host.waitForCall(time.Second)
 	if err != nil {
@@ -1105,11 +1105,12 @@ func TestProviderSignalRunConcurrentSignalsUseUniqueSequences(t *testing.T) {
 
 	now := time.Now().UTC()
 	run := workflowRunRecord{
-		ID:          "signal-run-concurrent",
-		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
-		TriggerKind: triggerKindManual,
-		CreatedAt:   now,
+		ID:                 "signal-run-concurrent",
+		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:             protoAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
+		TriggerKind:        triggerKindManual,
+		NextSignalSequence: 1,
+		CreatedAt:          now,
 	}
 	if err := provider.runStore.Add(ctx, run.toRecord()); err != nil {
 		t.Fatalf("seed run: %v", err)
@@ -1585,7 +1586,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw schedule get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, scheduleRecord)
-	assertRecordOmitsFields(t, scheduleRecord, "plugin_name", "operation", "connection", "instance", "input")
+	assertRecordDoesNotContainFields(t, scheduleRecord, "plugin_name", "operation", "connection", "instance", "input")
 
 	trigger, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerId: "stored-trigger",
@@ -1600,7 +1601,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw event trigger get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, triggerRecord)
-	assertRecordOmitsFields(t, triggerRecord, "plugin_name", "operation", "connection", "instance", "input")
+	assertRecordDoesNotContainFields(t, triggerRecord, "plugin_name", "operation", "connection", "instance", "input")
 
 	run, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: target})
 	if err != nil {
@@ -1611,7 +1612,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw run get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, runRecord)
-	assertRecordOmitsFields(t, runRecord, "plugin_name", "operation", "connection", "instance", "input")
+	assertRecordDoesNotContainFields(t, runRecord, "plugin_name", "operation", "connection", "instance", "input")
 
 	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
@@ -1628,7 +1629,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw execution ref get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, refRecord)
-	assertRecordOmitsFields(t, refRecord, "target_plugin", "target_operation", "target_connection", "target_instance", "target_fingerprint")
+	assertRecordDoesNotContainFields(t, refRecord, "target_plugin", "target_operation", "target_connection", "target_instance", "target_fingerprint")
 }
 
 func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
@@ -3005,11 +3006,11 @@ func assertRecordHasTargetJSON(t *testing.T, record gestalt.Record) {
 	}
 }
 
-func assertRecordOmitsFields(t *testing.T, record gestalt.Record, fields ...string) {
+func assertRecordDoesNotContainFields(t *testing.T, record gestalt.Record, fields ...string) {
 	t.Helper()
 	for _, field := range fields {
 		if _, ok := record[field]; ok {
-			t.Fatalf("record contains legacy field %q: %#v", field, record)
+			t.Fatalf("record contains removed field %q: %#v", field, record)
 		}
 	}
 }
