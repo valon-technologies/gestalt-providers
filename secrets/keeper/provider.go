@@ -122,3 +122,6 @@ func (p *Provider) resolveByUID(ctx context.Context, uid string) (string, error)
 	notation := fmt.Sprintf("keeper://%s/field/%s", uid, p.field)
 	return p.resolveNotation(ctx, notation)
 }
+
+var _ gestalt.SecretsProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)

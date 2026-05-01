@@ -201,3 +201,6 @@ func fieldValue(item *op.Item, field string) (string, bool) {
 
 	return "", false
 }
+
+var _ gestalt.SecretsProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)

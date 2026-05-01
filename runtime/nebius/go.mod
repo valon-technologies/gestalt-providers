@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/nebius/gosdk v0.2.10
-	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.11.0.20260423195736-af2bbc9e1add
+	github.com/valon-technologies/gestalt/sdk/go v0.0.1-alpha.12.0.20260429020718-1a8b090c4184
 	golang.org/x/crypto v0.47.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11

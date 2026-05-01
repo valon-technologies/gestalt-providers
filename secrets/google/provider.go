@@ -102,3 +102,7 @@ func (p *Provider) Close() error {
 	}
 	return p.client.Close()
 }
+
+var _ gestalt.SecretsProvider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
+var _ gestalt.Closer = (*Provider)(nil)

@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/nebius/gosdk"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
@@ -104,6 +105,50 @@ func TestRuntimeProviderContractRejectsInvalidRelayBindingEnv(t *testing.T) {
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("BindHostService code = %v, want InvalidArgument: %v", status.Code(err), err)
+	}
+}
+
+func TestRuntimeProviderContractListsSessions(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{
+		name: "nebius",
+		sdk:  &gosdk.SDK{},
+		cfg:  Config{SubnetID: "subnet-1"},
+		sessions: map[string]*session{
+			"session-b": {
+				id:       "session-b",
+				state:    sessionStateReady,
+				metadata: map[string]string{"tenant": "beta"},
+			},
+			"session-a": {
+				id:       "session-a",
+				state:    sessionStateReady,
+				metadata: map[string]string{"tenant": "alpha"},
+			},
+		},
+	}
+	client := startRuntimeProviderServer(t, provider)
+
+	resp, err := client.ListSessions(context.Background(), &proto.ListPluginRuntimeSessionsRequest{})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	sessions := resp.GetSessions()
+	if len(sessions) != 2 {
+		t.Fatalf("ListSessions len = %d, want 2", len(sessions))
+	}
+	if got, want := sessions[0].GetId(), "session-a"; got != want {
+		t.Fatalf("first session id = %q, want %q", got, want)
+	}
+	if got, want := sessions[1].GetId(), "session-b"; got != want {
+		t.Fatalf("second session id = %q, want %q", got, want)
+	}
+	if got, want := sessions[0].GetMetadata()["tenant"], "alpha"; got != want {
+		t.Fatalf("first session tenant = %q, want %q", got, want)
+	}
+	if got, want := sessions[1].GetMetadata()["tenant"], "beta"; got != want {
+		t.Fatalf("second session tenant = %q, want %q", got, want)
 	}
 }
 

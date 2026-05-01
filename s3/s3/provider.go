@@ -1103,6 +1103,7 @@ func isBenignWriteCompletionError(err error) bool {
 }
 
 var _ gestalt.S3Provider = (*Provider)(nil)
+var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)
 
