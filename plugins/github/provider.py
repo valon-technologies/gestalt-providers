@@ -256,13 +256,35 @@ def _signal_or_start_webhook_workflow(
 ) -> OperationResult:
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id)
+    workflow_key = ""
     try:
         workflow_request = build_workflow_signal_or_start_request(input, summary)
+        workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
+        logger.info(
+            "dispatching GitHub webhook workflow",
+            extra={
+                "github_event": summary.get("event_type", ""),
+                "github_action": summary.get("action", ""),
+                "github_delivery_id": summary.get("delivery_id", ""),
+                "github_repository": summary.get("repository", ""),
+                "workflow_key": workflow_key,
+                "workflow_provider": workflow_request.provider_name,
+            },
+        )
         workflow_manager_factory = getattr(req, "workflow_manager")
         with workflow_manager_factory() as workflow_manager:
             response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
-        logger.exception("failed to dispatch GitHub webhook workflow")
+        logger.exception(
+            "failed to dispatch GitHub webhook workflow",
+            extra={
+                "github_event": summary.get("event_type", ""),
+                "github_action": summary.get("action", ""),
+                "github_delivery_id": summary.get("delivery_id", ""),
+                "github_repository": summary.get("repository", ""),
+                "workflow_key": workflow_key,
+            },
+        )
         return _service_unavailable(f"failed to dispatch workflow run: {err}")
 
     run = getattr(response, "run", None)
@@ -270,6 +292,23 @@ def _signal_or_start_webhook_workflow(
     workflow_key = str(
         getattr(response, "workflow_key", "") or getattr(run, "workflow_key", "")
     ).strip()
+    logger.info(
+        "dispatched GitHub webhook workflow",
+        extra={
+            "github_event": summary.get("event_type", ""),
+            "github_action": summary.get("action", ""),
+            "github_delivery_id": summary.get("delivery_id", ""),
+            "github_repository": summary.get("repository", ""),
+            "workflow_key": workflow_key,
+            "workflow_provider": str(
+                getattr(response, "provider_name", "")
+                or get_github_config().workflow_provider
+            ),
+            "workflow_run_id": str(getattr(run, "id", "")),
+            "workflow_signal_id": str(getattr(signal, "id", "")),
+            "workflow_started_run": bool(getattr(response, "started_run", False)),
+        },
+    )
 
     return {
         "ok": True,

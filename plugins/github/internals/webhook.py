@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,10 +60,12 @@ def event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, An
         "repository_owner": nested_str(repository, "owner", "login"),
         "repository_name": str_field(repository, "name"),
         "sender": str_field(sender, "login"),
+        "delivery_id": github_delivery_id(payload),
     }
     number = int_field(pull_request, "number") or int_field(issue, "number")
     if number > 0:
         summary["number"] = number
+    _add_ci_event_summary(payload, summary)
     if str_field(pull_request, "head", "ref"):
         summary["head_ref"] = nested_str(pull_request, "head", "ref")
     if str_field(pull_request, "base", "ref"):
@@ -97,6 +101,55 @@ def event_summary(payload: dict[str, Any], installation_id: int) -> dict[str, An
         if isinstance(value, bool):
             summary[key] = value
     return {key: value for key, value in summary.items() if value not in ("", 0)}
+
+
+def _add_ci_event_summary(payload: dict[str, Any], summary: dict[str, Any]) -> None:
+    event_type = str(summary.get("event_type", "")).strip()
+    if event_type not in ("check_run", "check_suite", "workflow_run"):
+        return
+    summary["payload_sha256"] = payload_digest(payload)
+    event_object = map_field(payload, event_type)
+    event_id = int_field(event_object, "id")
+    if event_id > 0:
+        summary[f"{event_type}_id"] = event_id
+    pr_numbers = pull_request_numbers(event_object)
+    if pr_numbers:
+        summary["pull_request_numbers"] = pr_numbers
+    if len(pr_numbers) == 1:
+        summary["number"] = pr_numbers[0]
+
+
+def pull_request_numbers(value: dict[str, Any]) -> list[int]:
+    pull_requests = value.get("pull_requests")
+    if not isinstance(pull_requests, list):
+        return []
+    numbers: list[int] = []
+    seen: set[int] = set()
+    for item in pull_requests:
+        if not isinstance(item, dict):
+            continue
+        number = int_field(item, "number")
+        if number <= 0 or number in seen:
+            continue
+        seen.add(number)
+        numbers.append(number)
+    return numbers
+
+
+def github_delivery_id(payload: dict[str, Any]) -> str:
+    headers = map_field(payload, "headers")
+    for key, value in headers.items():
+        if str(key).lower() == "x-github-delivery" and isinstance(value, str):
+            return value.strip()
+    return ""
+
+
+def payload_digest(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 def bounded_text(value: str, max_chars: int) -> str:

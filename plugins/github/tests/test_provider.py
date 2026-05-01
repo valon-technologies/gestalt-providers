@@ -409,6 +409,84 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("GitHub App webhook", agent_request["user_prompt"])
         self.assertIn("head_ref: feature", agent_request["user_prompt"])
 
+    def test_ci_webhooks_use_event_specific_workflow_keys(self) -> None:
+        base = {
+            "action": "completed",
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "sender": {"id": 10, "login": "octocat", "type": "User"},
+        }
+        cases: list[tuple[str, dict[str, Any], str, int | None, list[int]]] = [
+            (
+                "check_run",
+                {"id": 123.0, "pull_requests": [{"number": 7.0}]},
+                "github:99:acme/widgets:check_run:123",
+                7,
+                [7],
+            ),
+            (
+                "check_suite",
+                {"id": 456, "pull_requests": [{"number": 7}, {"number": 8}]},
+                "github:99:acme/widgets:check_suite:456",
+                None,
+                [7, 8],
+            ),
+            (
+                "workflow_run",
+                {"pull_requests": [{"number": 9}]},
+                "github:99:acme/widgets:workflow_run:delivery-workflow_run",
+                9,
+                [9],
+            ),
+        ]
+
+        for event_type, event_object, expected_key, number, pr_numbers in cases:
+            with self.subTest(event_type=event_type):
+                request = self._workflow_signal_request(
+                    {
+                        **base,
+                        event_type: event_object,
+                        "headers": {"X-GitHub-Delivery": f"delivery-{event_type}"},
+                    }
+                )
+                self.assertEqual(request.workflow_key, expected_key)
+                data = cast(
+                    dict[str, Any],
+                    json_format.MessageToDict(request.signal.payload),
+                )
+                event_id_key = f"{event_type}_id"
+                if "id" in event_object:
+                    self.assertEqual(data["summary"][event_id_key], event_object["id"])
+                else:
+                    self.assertNotIn(event_id_key, data["summary"])
+                self.assertEqual(data["summary"]["pull_request_numbers"], pr_numbers)
+                if number is None:
+                    self.assertNotIn("number", data["summary"])
+                else:
+                    self.assertEqual(data["summary"]["number"], number)
+                self.assertIn(
+                    event_type,
+                    json_format.MessageToDict(request.target.agent.metadata)["github"][
+                        "session_ref"
+                    ],
+                )
+        digest_fallback = self._workflow_signal_request(
+            {
+                **base,
+                "check_run": {"pull_requests": []},
+            }
+        )
+        self.assertTrue(
+            digest_fallback.workflow_key.startswith(
+                "github:99:acme/widgets:check_run:payload:"
+            )
+        )
+        self.assertNotEqual(digest_fallback.workflow_key, "github:99:acme/widgets")
+
     def _workflow_signal_request(self, payload: dict[str, Any]) -> Any:
         workflow_manager = FakeWorkflowManager()
         with (
