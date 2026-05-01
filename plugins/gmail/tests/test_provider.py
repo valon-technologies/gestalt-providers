@@ -1,13 +1,64 @@
 import unittest
+from collections.abc import Mapping
 from http import HTTPStatus
-from typing import cast
+from typing import Any, cast
 from unittest import mock
 
 import gestalt
 
+import internals.client as client_module
 import internals.operations as operations_module
 from internals.mime import MIMEParams, build_mime, decode_base64url, ensure_reply_prefix
 import provider as provider_module
+
+
+class RecordingGmailClient(client_module.GmailAPIClient):
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, str, dict[str, Any]]] = []
+        self.sent_raw = ""
+
+    def base_url(self) -> str:
+        return "https://gmail.example/gmail/v1/users/me"
+
+    def get_json(self, url: str, token: str) -> dict[str, Any]:
+        self.requests.append(("GET", url, token, {}))
+        return {
+            "threadId": "thread-1",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "alice@example.com"},
+                    {"name": "To", "value": "me@example.com, bob@example.com"},
+                    {"name": "Cc", "value": "team@example.com"},
+                    {"name": "Subject", "value": "Original Subject"},
+                    {"name": "Message-ID", "value": "<msg-id@example.com>"},
+                    {"name": "Delivered-To", "value": "me@example.com"},
+                ]
+            },
+        }
+
+    def post_json(
+        self, url: str, payload: Mapping[str, Any], token: str
+    ) -> dict[str, Any]:
+        body = dict(payload)
+        self.requests.append(("POST", url, token, body))
+        raw = body.get("raw")
+        self.sent_raw = raw if isinstance(raw, str) else ""
+        return {"id": "reply-1", "threadId": body.get("threadId", "")}
+
+    def put_json(
+        self, url: str, payload: Mapping[str, Any], token: str
+    ) -> dict[str, Any]:
+        self.requests.append(("PUT", url, token, dict(payload)))
+        return {"id": "draft-1"}
+
+    def metadata_message_url(self, message_id: str) -> str:
+        return f"{self.base_url()}/messages/{message_id}?format=metadata"
+
+    def full_message_url(self, message_id: str) -> str:
+        return f"{self.base_url()}/messages/{message_id}?format=full"
+
+    def draft_url(self, draft_id: str) -> str:
+        return f"{self.base_url()}/drafts/{draft_id}"
 
 
 class GmailProviderTests(unittest.TestCase):
@@ -24,7 +75,7 @@ class GmailProviderTests(unittest.TestCase):
 
     def test_send_message_wraps_gmail_response(self) -> None:
         with mock.patch.object(
-            operations_module,
+            client_module,
             "post_json",
             return_value={"id": "msg-new", "threadId": "t-1"},
         ) as post_json:
@@ -50,7 +101,7 @@ class GmailProviderTests(unittest.TestCase):
 
     def test_send_message_with_html_builds_multipart_body(self) -> None:
         with mock.patch.object(
-            operations_module, "post_json", return_value={"id": "msg-new"}
+            client_module, "post_json", return_value={"id": "msg-new"}
         ) as post_json:
             provider_module.messages_send(
                 provider_module.SendMessageInput(
@@ -68,7 +119,7 @@ class GmailProviderTests(unittest.TestCase):
 
     def test_create_draft_wraps_gmail_response(self) -> None:
         with mock.patch.object(
-            operations_module,
+            client_module,
             "post_json",
             return_value={"id": "draft-1", "message": {"id": "msg-1"}},
         ) as post_json:
@@ -87,7 +138,7 @@ class GmailProviderTests(unittest.TestCase):
 
     def test_update_draft_wraps_gmail_response(self) -> None:
         with mock.patch.object(
-            operations_module,
+            client_module,
             "put_json",
             return_value={"id": "draft-1", "message": {"id": "msg-1"}},
         ) as put_json:
@@ -108,7 +159,7 @@ class GmailProviderTests(unittest.TestCase):
 
     def test_send_draft_wraps_gmail_response(self) -> None:
         with mock.patch.object(
-            operations_module,
+            client_module,
             "post_json",
             return_value={"id": "msg-sent", "threadId": "t-1"},
         ) as post_json:
@@ -137,10 +188,10 @@ class GmailProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                operations_module, "get_json", return_value=original
+                client_module, "get_json", return_value=original
             ) as get_json,
             mock.patch.object(
-                operations_module,
+                client_module,
                 "post_json",
                 return_value={"id": "reply-1", "threadId": "t-1"},
             ) as post_json,
@@ -177,9 +228,9 @@ class GmailProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch.object(operations_module, "get_json", return_value=original),
+            mock.patch.object(client_module, "get_json", return_value=original),
             mock.patch.object(
-                operations_module, "post_json", return_value={"id": "reply-1"}
+                client_module, "post_json", return_value={"id": "reply-1"}
             ) as post_json,
         ):
             provider_module.messages_reply(
@@ -197,6 +248,33 @@ class GmailProviderTests(unittest.TestCase):
             "Cc: bob@example.com, team@example.com, extra@example.com", decoded
         )
         self.assertNotIn("Cc: me@example.com", decoded)
+
+    def test_reply_message_uses_typed_gmail_client_interface(self) -> None:
+        recording_client = RecordingGmailClient()
+        client: client_module.GmailAPIClient = recording_client
+
+        result = operations_module.reply_message(
+            "test-token",
+            operations_module.GmailReplyRequest(
+                message_id="orig-1",
+                body="Thanks!",
+                cc="extra@example.com",
+                reply_all=True,
+            ),
+            client=client,
+        )
+
+        self.assertEqual(result["data"]["message"]["id"], "reply-1")
+        self.assertEqual(
+            [(method, token) for method, _url, token, _body in recording_client.requests],
+            [("GET", "test-token"), ("POST", "test-token")],
+        )
+        decoded = decode_base64url(recording_client.sent_raw).decode("utf-8")
+        self.assertIn("To: alice@example.com", decoded)
+        self.assertIn(
+            "Cc: bob@example.com, team@example.com, extra@example.com", decoded
+        )
+        self.assertIn("In-Reply-To: <msg-id@example.com>", decoded)
 
     def test_forward_includes_original_message_body(self) -> None:
         original = {
@@ -218,10 +296,10 @@ class GmailProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                operations_module, "get_json", return_value=original
+                client_module, "get_json", return_value=original
             ) as get_json,
             mock.patch.object(
-                operations_module, "post_json", return_value={"id": "forward-1"}
+                client_module, "post_json", return_value={"id": "forward-1"}
             ) as post_json,
         ):
             provider_module.messages_forward(

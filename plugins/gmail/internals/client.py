@@ -4,10 +4,14 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, Protocol, TypeAlias
 from urllib.parse import quote, urlencode
 
 GMAIL_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
+GmailJsonObject: TypeAlias = dict[str, Any]
+GmailJsonPayload: TypeAlias = Mapping[str, Any]
 
 
 class GmailAPIError(RuntimeError):
@@ -21,11 +25,66 @@ class GmailClientError(RuntimeError):
     pass
 
 
+class GmailAPIClient(Protocol):
+    """Runtime Gmail API contract used by source-backed operations."""
+
+    def base_url(self) -> str: ...
+
+    def get_json(self, url: str, token: str) -> GmailJsonObject: ...
+
+    def post_json(
+        self, url: str, payload: GmailJsonPayload, token: str
+    ) -> GmailJsonObject: ...
+
+    def put_json(
+        self, url: str, payload: GmailJsonPayload, token: str
+    ) -> GmailJsonObject: ...
+
+    def metadata_message_url(self, message_id: str) -> str: ...
+
+    def full_message_url(self, message_id: str) -> str: ...
+
+    def draft_url(self, draft_id: str) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class GmailHTTPClient:
+    """Concrete Gmail API client backed by this module's HTTP helpers."""
+
+    def base_url(self) -> str:
+        return gmail_base_url()
+
+    def get_json(self, url: str, token: str) -> GmailJsonObject:
+        return get_json(url, token)
+
+    def post_json(
+        self, url: str, payload: GmailJsonPayload, token: str
+    ) -> GmailJsonObject:
+        return post_json(url, payload, token)
+
+    def put_json(
+        self, url: str, payload: GmailJsonPayload, token: str
+    ) -> GmailJsonObject:
+        return put_json(url, payload, token)
+
+    def metadata_message_url(self, message_id: str) -> str:
+        return metadata_message_url(message_id)
+
+    def full_message_url(self, message_id: str) -> str:
+        return full_message_url(message_id)
+
+    def draft_url(self, draft_id: str) -> str:
+        return draft_url(draft_id)
+
+
+DEFAULT_GMAIL_CLIENT = GmailHTTPClient()
+
+
 def gmail_base_url() -> str:
     return os.environ.get("GMAIL_BASE_URL", GMAIL_BASE_URL).rstrip("/")
 
 
-def get_json(url: str, token: str) -> dict[str, Any]:
+def get_json(url: str, token: str) -> GmailJsonObject:
     request = urllib.request.Request(
         url=url,
         method="GET",
@@ -34,10 +93,10 @@ def get_json(url: str, token: str) -> dict[str, Any]:
     return _request_json(request)
 
 
-def post_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
+def post_json(url: str, payload: GmailJsonPayload, token: str) -> GmailJsonObject:
     request = urllib.request.Request(
         url=url,
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(dict(payload)).encode("utf-8"),
         method="POST",
         headers={
             "Authorization": f"Bearer {token}",
@@ -47,10 +106,10 @@ def post_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
     return _request_json(request)
 
 
-def put_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
+def put_json(url: str, payload: GmailJsonPayload, token: str) -> GmailJsonObject:
     request = urllib.request.Request(
         url=url,
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(dict(payload)).encode("utf-8"),
         method="PUT",
         headers={
             "Authorization": f"Bearer {token}",
@@ -60,7 +119,7 @@ def put_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
     return _request_json(request)
 
 
-def _request_json(request: urllib.request.Request) -> dict[str, Any]:
+def _request_json(request: urllib.request.Request) -> GmailJsonObject:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             body = response.read()
