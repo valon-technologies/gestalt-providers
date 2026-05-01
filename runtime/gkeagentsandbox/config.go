@@ -14,6 +14,7 @@ const (
 	defaultContainer           = "runtime"
 	defaultPluginPort          = 50051
 	defaultConnectionMode      = connectionModePortForward
+	defaultGKEEndpoint         = gkeEndpointPrivate
 	defaultSandboxReadyTimeout = 3 * time.Minute
 	defaultPluginReadyTimeout  = 30 * time.Second
 	defaultExecTimeout         = 2 * time.Minute
@@ -28,6 +29,9 @@ const (
 	connectionModePortForward = "portForward"
 	connectionModePodIP       = "podIP"
 	connectionModeServiceDNS  = "serviceDNS"
+
+	gkeEndpointPrivate = "private"
+	gkeEndpointPublic  = "public"
 )
 
 type Config struct {
@@ -35,6 +39,7 @@ type Config struct {
 	Container           string        `yaml:"container,omitempty"`
 	Kubeconfig          string        `yaml:"kubeconfig,omitempty"`
 	Context             string        `yaml:"context,omitempty"`
+	GKE                 GKEConfig     `yaml:"gke,omitempty"`
 	PluginPort          int           `yaml:"pluginPort,omitempty"`
 	ConnectionMode      string        `yaml:"connectionMode,omitempty"`
 	SandboxReadyTimeout time.Duration `yaml:"sandboxReadyTimeout,omitempty"`
@@ -42,6 +47,13 @@ type Config struct {
 	ExecTimeout         time.Duration `yaml:"execTimeout,omitempty"`
 	CleanupTimeout      time.Duration `yaml:"cleanupTimeout,omitempty"`
 	Direct              DirectConfig  `yaml:"direct,omitempty"`
+}
+
+type GKEConfig struct {
+	ProjectID string `yaml:"projectID,omitempty"`
+	Location  string `yaml:"location,omitempty"`
+	Cluster   string `yaml:"cluster,omitempty"`
+	Endpoint  string `yaml:"endpoint,omitempty"`
 }
 
 type DirectConfig struct {
@@ -148,6 +160,7 @@ func (c *Config) Normalize() {
 	}
 	c.Kubeconfig = expandHome(strings.TrimSpace(c.Kubeconfig))
 	c.Context = strings.TrimSpace(c.Context)
+	c.GKE.Normalize()
 	if c.PluginPort == 0 {
 		c.PluginPort = defaultPluginPort
 	}
@@ -197,7 +210,55 @@ func (c Config) Validate() error {
 	if c.CleanupTimeout < 0 {
 		return fmt.Errorf("gke agent sandbox runtime cleanupTimeout must be non-negative")
 	}
+	if c.GKE.IsConfigured() && (c.Kubeconfig != "" || c.Context != "") {
+		return fmt.Errorf("gke agent sandbox runtime gke config cannot be combined with kubeconfig or context")
+	}
+	if err := c.GKE.Validate(); err != nil {
+		return err
+	}
 	return c.Direct.Validate()
+}
+
+func (c *GKEConfig) Normalize() {
+	if c == nil {
+		return
+	}
+	c.ProjectID = strings.TrimSpace(c.ProjectID)
+	c.Location = strings.TrimSpace(c.Location)
+	c.Cluster = strings.TrimSpace(c.Cluster)
+	c.Endpoint = strings.TrimSpace(c.Endpoint)
+	if c.IsConfigured() && c.Endpoint == "" {
+		c.Endpoint = defaultGKEEndpoint
+	}
+}
+
+func (c GKEConfig) IsConfigured() bool {
+	return c.ProjectID != "" || c.Location != "" || c.Cluster != "" || c.Endpoint != ""
+}
+
+func (c GKEConfig) Validate() error {
+	if !c.IsConfigured() {
+		return nil
+	}
+	if c.ProjectID == "" {
+		return fmt.Errorf("gke agent sandbox runtime gke.projectID is required")
+	}
+	if c.Location == "" {
+		return fmt.Errorf("gke agent sandbox runtime gke.location is required")
+	}
+	if c.Cluster == "" {
+		return fmt.Errorf("gke agent sandbox runtime gke.cluster is required")
+	}
+	switch c.Endpoint {
+	case gkeEndpointPrivate, gkeEndpointPublic:
+		return nil
+	default:
+		return fmt.Errorf("gke agent sandbox runtime gke.endpoint must be %q or %q", gkeEndpointPrivate, gkeEndpointPublic)
+	}
+}
+
+func (c GKEConfig) clusterResourceName() string {
+	return fmt.Sprintf("projects/%s/locations/%s/clusters/%s", c.ProjectID, c.Location, c.Cluster)
 }
 
 func (c *DirectConfig) Normalize() {
