@@ -8,4 +8,5 @@ concrete backend.
 
 Current packages:
 
+- `claude`: Python agent provider backed by the Claude Agent SDK with Gestalt MCP catalog tools
 - `simple`: Python agent provider backed by the OpenAI and Anthropic SDKs with provider-owned IndexedDB state

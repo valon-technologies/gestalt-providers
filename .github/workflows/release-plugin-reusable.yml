@@ -182,7 +182,11 @@ jobs:
         env:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh linux/amd64 "python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
+          python_image="python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
+          case "${{ inputs.plugin-dir }}" in
+            agent/claude) python_image="python:${{ needs.metadata.outputs.python-version }}-slim" ;;
+          esac
+          .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
       - name: Package TypeScript linux/amd64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
@@ -233,7 +237,11 @@ jobs:
         env:
           RUNNER_TEMP: ${{ runner.temp }}
         run: |
-          .github/scripts/package_python_docker.sh linux/arm64 "python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}" gestaltd GESTALT_PYTHON_LINUX_ARM64 linux/arm64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
+          python_image="python:${{ needs.metadata.outputs.python-version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
+          case "${{ inputs.plugin-dir }}" in
+            agent/claude) python_image="python:${{ needs.metadata.outputs.python-version }}-slim" ;;
+          esac
+          .github/scripts/package_python_docker.sh linux/arm64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_ARM64 linux/arm64 "${{ inputs.plugin-dir }}" "${{ needs.metadata.outputs.version }}"
       - name: Package TypeScript linux/arm64 artifact
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
@@ -286,7 +294,7 @@ jobs:
 
   build-linux-armv7:
     needs: metadata
-    if: ${{ needs.metadata.outputs.source-language == 'go' || needs.metadata.outputs.source-language == 'rust' || needs.metadata.outputs.source-language == 'python' }}
+    if: ${{ needs.metadata.outputs.source-language == 'go' || needs.metadata.outputs.source-language == 'rust' || (needs.metadata.outputs.source-language == 'python' && inputs.plugin-dir != 'agent/claude') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
