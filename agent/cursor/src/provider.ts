@@ -303,7 +303,6 @@ export class CursorAgentProvider extends SDKAgentProvider {
       interactions: false,
       resumableTurns: false,
       reasoningSummaries: false,
-      nativeToolSearch: false,
       boundedListHydration: true,
       supportedToolSources: [AgentToolSourceMode.MCP_CATALOG],
     };

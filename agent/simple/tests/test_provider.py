@@ -1693,7 +1693,6 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(identity.kind, runtime_pb2.ProviderKind.PROVIDER_KIND_AGENT)
         self.assertEqual(identity.name, "simple")
         self.assertEqual(list(identity.warnings), [])
-        self.assertFalse(capabilities.native_tool_search)
         self.assertTrue(capabilities.resumable_turns)
         self.assertTrue(capabilities.bounded_list_hydration)
         self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
