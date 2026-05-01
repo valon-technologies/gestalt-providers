@@ -1594,7 +1594,7 @@ func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idem
 
 	if assignSequence {
 		if run.NextSignalSequence <= 0 {
-			run.NextSignalSequence = 1
+			return nil, signal.GetId(), status.Errorf(codes.FailedPrecondition, "workflow run %q has invalid next_signal_sequence", run.ID)
 		}
 		signal.Sequence = run.NextSignalSequence
 		run.NextSignalSequence++
