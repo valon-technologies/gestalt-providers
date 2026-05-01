@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import binascii
 from http import HTTPStatus
 from typing import Any, TypeAlias
@@ -6,16 +8,27 @@ import gestalt
 
 from internals.blob import (
     VercelBlobAPIError,
-    VercelBlobAccess,
     VercelBlobClientError,
-    VercelBlobConfig,
-    VercelBlobConfigurationError,
     copy_blob,
     delete_blobs,
     get_blob,
     head_blob,
     list_blobs,
     put_blob,
+)
+from internals.config import (
+    VercelBlobConfig,
+    VercelBlobConfigurationError,
+    blob_config_from_mapping,
+)
+from internals.models import (
+    VercelBlobAccess,
+    VercelBlobCopyRequest,
+    VercelBlobDeleteRequest,
+    VercelBlobGetRequest,
+    VercelBlobHeadRequest,
+    VercelBlobListRequest,
+    VercelBlobPutRequest,
 )
 
 plugin = gestalt.Plugin("vercel")
@@ -129,7 +142,7 @@ class BlobCopyInput(gestalt.Model):
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     global _blob_config
-    _blob_config = VercelBlobConfig.from_config(config)
+    _blob_config = blob_config_from_mapping(config)
 
 
 @plugin.operation(
@@ -145,14 +158,16 @@ def blob_put(input: BlobPutInput) -> OperationResult:
     try:
         return put_blob(
             _blob_config,
-            pathname=pathname,
-            body=input.body,
-            body_base64=input.body_base64,
-            access=access,
-            content_type=input.content_type.strip(),
-            add_random_suffix=input.add_random_suffix,
-            overwrite=input.overwrite,
-            cache_control_max_age=input.cache_control_max_age,
+            VercelBlobPutRequest(
+                pathname=pathname,
+                body=input.body,
+                body_base64=input.body_base64,
+                access=access,
+                content_type=input.content_type.strip(),
+                add_random_suffix=input.add_random_suffix,
+                overwrite=input.overwrite,
+                cache_control_max_age=input.cache_control_max_age,
+            ),
         )
     except (ValueError, binascii.Error) as err:
         return _bad_request(str(err))
@@ -179,11 +194,13 @@ def blob_get(input: BlobGetInput) -> OperationResult:
     try:
         return get_blob(
             _blob_config,
-            url_or_path=url_or_path,
-            access=access,
-            if_none_match=input.if_none_match.strip(),
-            timeout_seconds=input.timeout_seconds,
-            use_cache=input.use_cache,
+            VercelBlobGetRequest(
+                url_or_path=url_or_path,
+                access=access,
+                if_none_match=input.if_none_match.strip(),
+                timeout_seconds=input.timeout_seconds,
+                use_cache=input.use_cache,
+            ),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -203,7 +220,7 @@ def blob_head(input: BlobHeadInput) -> OperationResult:
     if isinstance(url_or_path, gestalt.Response):
         return url_or_path
     try:
-        return head_blob(_blob_config, url_or_path=url_or_path)
+        return head_blob(_blob_config, VercelBlobHeadRequest(url_or_path=url_or_path))
     except (
         VercelBlobConfigurationError,
         VercelBlobAPIError,
@@ -223,10 +240,12 @@ def blob_list(input: BlobListInput) -> OperationResult:
     try:
         return list_blobs(
             _blob_config,
-            limit=input.limit,
-            prefix=input.prefix.strip(),
-            cursor=input.cursor.strip(),
-            mode=input.mode.strip(),
+            VercelBlobListRequest(
+                limit=input.limit,
+                prefix=input.prefix.strip(),
+                cursor=input.cursor.strip(),
+                mode=input.mode.strip(),
+            ),
         )
     except (
         VercelBlobConfigurationError,
@@ -246,7 +265,9 @@ def blob_delete(input: BlobDeleteInput) -> OperationResult:
     if not targets:
         return _bad_request("targets must contain at least one non-empty value")
     try:
-        return delete_blobs(_blob_config, targets=targets)
+        return delete_blobs(
+            _blob_config, VercelBlobDeleteRequest(targets=tuple(targets))
+        )
     except (
         VercelBlobConfigurationError,
         VercelBlobAPIError,
@@ -275,13 +296,15 @@ def blob_copy(input: BlobCopyInput) -> OperationResult:
     try:
         return copy_blob(
             _blob_config,
-            source_url_or_path=source_url_or_path,
-            destination_path=destination_path,
-            access=access,
-            content_type=input.content_type.strip(),
-            add_random_suffix=input.add_random_suffix,
-            overwrite=input.overwrite,
-            cache_control_max_age=input.cache_control_max_age,
+            VercelBlobCopyRequest(
+                source_url_or_path=source_url_or_path,
+                destination_path=destination_path,
+                access=access,
+                content_type=input.content_type.strip(),
+                add_random_suffix=input.add_random_suffix,
+                overwrite=input.overwrite,
+                cache_control_max_age=input.cache_control_max_age,
+            ),
         )
     except ValueError as err:
         return _bad_request(str(err))

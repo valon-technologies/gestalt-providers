@@ -1,22 +1,25 @@
+from __future__ import annotations
+
 import base64
 import json
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
-DEFAULT_BLOB_API_URL = "https://vercel.com/api/blob"
-DEFAULT_BLOB_API_VERSION = "11"
-MAXIMUM_PATHNAME_LENGTH = 950
+from . import config as _config
+from . import models as _models
 
+DEFAULT_BLOB_API_URL: Final = "https://vercel.com/api/blob"
+DEFAULT_BLOB_API_VERSION: Final = "11"
+MAXIMUM_PATHNAME_LENGTH: Final = 950
 
-class VercelBlobConfigurationError(RuntimeError):
-    pass
+VercelBlobConfig = _config.VercelBlobConfig
+VercelBlobConfigurationError = _config.VercelBlobConfigurationError
+VercelBlobAccess = _models.VercelBlobAccess
 
 
 class VercelBlobAPIError(RuntimeError):
@@ -30,62 +33,26 @@ class VercelBlobClientError(RuntimeError):
     pass
 
 
-class VercelBlobAccess(StrEnum):
-    PRIVATE = "private"
-    PUBLIC = "public"
-
-
-@dataclass(frozen=True, slots=True)
-class VercelBlobConfig:
-    token: str = ""
-
-    @classmethod
-    def from_config(cls, config: dict[str, Any]) -> VercelBlobConfig:
-        value = config.get("blobReadWriteToken", "")
-        if isinstance(value, str):
-            return cls(token=value.strip())
-        return cls()
-
-    def require_token(self) -> str:
-        token = (
-            self.token
-            or os.getenv("BLOB_READ_WRITE_TOKEN", "").strip()
-            or os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN", "").strip()
-        )
-        if not token:
-            raise VercelBlobConfigurationError("blobReadWriteToken is not configured")
-        return token
-
-
 def put_blob(
-    config: VercelBlobConfig,
-    *,
-    pathname: str,
-    body: str,
-    body_base64: str,
-    access: VercelBlobAccess,
-    content_type: str = "",
-    add_random_suffix: bool = False,
-    overwrite: bool = False,
-    cache_control_max_age: int | None = None,
+    config: VercelBlobConfig, request: _models.VercelBlobPutRequest
 ) -> dict[str, Any]:
     token = config.require_token()
-    _validate_path(pathname)
-    _validate_access(access)
-    payload = _payload(body=body, body_base64=body_base64)
+    _validate_path(request.pathname)
+    _validate_access(request.access)
+    payload = _payload(body=request.body, body_base64=request.body_base64)
     headers = {
-        "x-vercel-blob-access": access,
-        "x-add-random-suffix": "1" if add_random_suffix else "0",
-        "x-allow-overwrite": "1" if overwrite else "0",
+        "x-vercel-blob-access": request.access,
+        "x-add-random-suffix": "1" if request.add_random_suffix else "0",
+        "x-allow-overwrite": "1" if request.overwrite else "0",
     }
-    if content_type:
-        headers["x-content-type"] = content_type
-    if cache_control_max_age is not None:
-        headers["x-cache-control-max-age"] = str(cache_control_max_age)
+    if request.content_type:
+        headers["x-content-type"] = request.content_type
+    if request.cache_control_max_age is not None:
+        headers["x-cache-control-max-age"] = str(request.cache_control_max_age)
     result = _request_json(
         method="PUT",
         token=token,
-        params={"pathname": pathname},
+        params={"pathname": request.pathname},
         headers=headers,
         body=payload,
     )
@@ -94,38 +61,34 @@ def put_blob(
 
 def get_blob(
     config: VercelBlobConfig,
-    *,
-    url_or_path: str,
-    access: VercelBlobAccess,
-    if_none_match: str = "",
-    timeout_seconds: float | None = None,
-    use_cache: bool = True,
+    request: _models.VercelBlobGetRequest,
 ) -> dict[str, Any]:
     token = config.require_token()
-    _validate_access(access)
-    target_url = url_or_path.strip()
+    _validate_access(request.access)
+    target_url = request.url_or_path.strip()
     if not _is_url(target_url):
         store_id = _extract_store_id_from_token(token)
         if store_id:
-            target_url = _construct_blob_url(store_id, target_url, access)
+            target_url = _construct_blob_url(store_id, target_url, request.access)
         else:
-            target_url = head_blob(config, url_or_path=url_or_path)["data"]["blob"][
-                "url"
-            ]
+            head_request = _models.VercelBlobHeadRequest(
+                url_or_path=request.url_or_path
+            )
+            target_url = head_blob(config, head_request)["data"]["blob"]["url"]
     download_url = _download_url(target_url)
-    if not use_cache:
+    if not request.use_cache:
         target_url = _cache_bypass_url(target_url)
 
     headers: dict[str, str] = {}
-    if access == VercelBlobAccess.PRIVATE:
+    if request.access == VercelBlobAccess.PRIVATE:
         headers["authorization"] = f"Bearer {token}"
-    if if_none_match:
-        headers["if-none-match"] = if_none_match
+    if request.if_none_match:
+        headers["if-none-match"] = request.if_none_match
 
     http_request = urllib.request.Request(target_url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(
-            http_request, timeout=timeout_seconds or 30.0
+            http_request, timeout=request.timeout_seconds or 30.0
         ) as response:
             content = response.read()
             status = getattr(response, "status", 200)
@@ -156,30 +119,30 @@ def get_blob(
         ) from err
 
 
-def head_blob(config: VercelBlobConfig, *, url_or_path: str) -> dict[str, Any]:
+def head_blob(
+    config: VercelBlobConfig, request: _models.VercelBlobHeadRequest
+) -> dict[str, Any]:
     token = config.require_token()
-    result = _request_json(method="GET", token=token, params={"url": url_or_path})
+    result = _request_json(
+        method="GET", token=token, params={"url": request.url_or_path}
+    )
     return {"data": {"blob": _head_result(result)}}
 
 
 def list_blobs(
     config: VercelBlobConfig,
-    *,
-    limit: int | None = None,
-    prefix: str = "",
-    cursor: str = "",
-    mode: str = "",
+    request: _models.VercelBlobListRequest,
 ) -> dict[str, Any]:
     token = config.require_token()
     params: dict[str, Any] = {}
-    if limit is not None:
-        params["limit"] = limit
-    if prefix:
-        params["prefix"] = prefix
-    if cursor:
-        params["cursor"] = cursor
-    if mode:
-        params["mode"] = mode
+    if request.limit is not None:
+        params["limit"] = request.limit
+    if request.prefix:
+        params["prefix"] = request.prefix
+    if request.cursor:
+        params["cursor"] = request.cursor
+    if request.mode:
+        params["mode"] = request.mode
     result = _request_json(method="GET", token=token, params=params)
     return {
         "data": {
@@ -191,51 +154,47 @@ def list_blobs(
     }
 
 
-def delete_blobs(config: VercelBlobConfig, *, targets: list[str]) -> dict[str, Any]:
+def delete_blobs(
+    config: VercelBlobConfig, request: _models.VercelBlobDeleteRequest
+) -> dict[str, Any]:
     token = config.require_token()
     _request_json(
         method="POST",
         token=token,
         path="/delete",
         headers={"content-type": "application/json"},
-        body=json.dumps({"urls": targets}).encode("utf-8"),
+        body=json.dumps({"urls": list(request.targets)}).encode("utf-8"),
         decode_json=False,
     )
-    return {"data": {"deleted": len(targets)}}
+    return {"data": {"deleted": len(request.targets)}}
 
 
 def copy_blob(
     config: VercelBlobConfig,
-    *,
-    source_url_or_path: str,
-    destination_path: str,
-    access: VercelBlobAccess,
-    content_type: str = "",
-    add_random_suffix: bool = False,
-    overwrite: bool = False,
-    cache_control_max_age: int | None = None,
+    request: _models.VercelBlobCopyRequest,
 ) -> dict[str, Any]:
     token = config.require_token()
-    _validate_path(destination_path)
-    _validate_access(access)
-    source_url = source_url_or_path
+    _validate_path(request.destination_path)
+    _validate_access(request.access)
+    source_url = request.source_url_or_path
     if not _is_url(source_url):
-        source_url = head_blob(config, url_or_path=source_url_or_path)["data"]["blob"][
-            "url"
-        ]
+        head_request = _models.VercelBlobHeadRequest(
+            url_or_path=request.source_url_or_path
+        )
+        source_url = head_blob(config, head_request)["data"]["blob"]["url"]
     headers = {
-        "x-vercel-blob-access": access,
-        "x-add-random-suffix": "1" if add_random_suffix else "0",
-        "x-allow-overwrite": "1" if overwrite else "0",
+        "x-vercel-blob-access": request.access,
+        "x-add-random-suffix": "1" if request.add_random_suffix else "0",
+        "x-allow-overwrite": "1" if request.overwrite else "0",
     }
-    if content_type:
-        headers["x-content-type"] = content_type
-    if cache_control_max_age is not None:
-        headers["x-cache-control-max-age"] = str(cache_control_max_age)
+    if request.content_type:
+        headers["x-content-type"] = request.content_type
+    if request.cache_control_max_age is not None:
+        headers["x-cache-control-max-age"] = str(request.cache_control_max_age)
     result = _request_json(
         method="PUT",
         token=token,
-        params={"pathname": destination_path, "fromUrl": source_url},
+        params={"pathname": request.destination_path, "fromUrl": source_url},
         headers=headers,
     )
     return {"data": {"blob": _put_result(result)}}
@@ -477,7 +436,7 @@ def _parse_last_modified(value: str | None) -> datetime:
         return datetime.now(tz=UTC)
     try:
         return parsedate_to_datetime(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return datetime.now(tz=UTC)
 
 
