@@ -793,6 +793,37 @@ func TestAddDuplicateReturnsAlreadyExists(t *testing.T) {
 	}
 }
 
+func TestClassifyGenericRecordInsertConflictTreatsInvisibleDuplicateAsAlreadyExists(t *testing.T) {
+	primary := mustEncodedKey(t, "workflow_key:abc")
+
+	err := classifyGenericRecordInsertConflict(nil, primary)
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("error = %v, want AlreadyExists", err)
+	}
+}
+
+func TestClassifyGenericRecordInsertConflictTreatsMatchingDuplicateAsAlreadyExists(t *testing.T) {
+	primary := mustEncodedKey(t, "workflow_key:abc")
+
+	err := classifyGenericRecordInsertConflict(&genericRecordRow{pkBytes: primary.raw}, primary)
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("error = %v, want AlreadyExists", err)
+	}
+}
+
+func TestClassifyGenericRecordInsertConflictDetectsHashCollision(t *testing.T) {
+	primary := mustEncodedKey(t, "workflow_key:abc")
+	other := mustEncodedKey(t, "workflow_key:def")
+
+	err := classifyGenericRecordInsertConflict(&genericRecordRow{pkBytes: other.raw}, primary)
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("error = %v, want Internal", err)
+	}
+	if !strings.Contains(err.Error(), "primary key hash collision") {
+		t.Fatalf("error = %v, want primary key hash collision", err)
+	}
+}
+
 func TestGetAllWithRange(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
@@ -878,4 +909,13 @@ func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
 		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
 	}
 	return pbValue
+}
+
+func mustEncodedKey(t *testing.T, value any) encodedKey {
+	t.Helper()
+	key, err := encodeKeyValue(value)
+	if err != nil {
+		t.Fatalf("encodeKeyValue(%#v): %v", value, err)
+	}
+	return key
 }

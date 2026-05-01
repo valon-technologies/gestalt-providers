@@ -11,13 +11,13 @@ apiVersion: gestaltd.config/v4
 providers:
   indexeddb:
     main-db:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.16/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.21/provider-release.yaml
       config:
         dsn: "file:/var/lib/gestalt/workflow.db?_pragma=journal_mode(WAL)"
 
   workflow:
     local:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.36/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.37/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
