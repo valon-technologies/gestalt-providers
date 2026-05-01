@@ -3,6 +3,7 @@
 import { createElement, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import {
+  ConnectionParamDef,
   Integration,
   PENDING_CONNECTION_PATH,
   resolveAPIPath,
@@ -15,6 +16,7 @@ import {
   normalizeIntegrationStatus,
   shouldShowIntegrationSettings,
   type ConnectionContext,
+  type NormalizedConnection,
 } from "@/lib/integrationStatus";
 import Button from "./Button";
 import { CheckCircleIcon, GearIcon, DefaultIcon } from "./icons";
@@ -202,11 +204,20 @@ function renderSafeIcon(svg: string, prefix: string): ReactNode | null {
   return renderSafeSVGNode(root, prefix, buildSVGIDMap(root, prefix));
 }
 
-function hasConnectionParams(integration: Integration): boolean {
-  return (
-    !!integration.connectionParams &&
-    Object.keys(integration.connectionParams).length > 0
-  );
+function hasConnectionParams(
+  params: Record<string, ConnectionParamDef> | undefined,
+): boolean {
+  return !!params && Object.keys(params).length > 0;
+}
+
+function connectionForTarget(
+  connections: NormalizedConnection[],
+  target: ConnectionTarget,
+): NormalizedConnection | undefined {
+  if (target.connection) {
+    return connections.find((connection) => connection.connection === target.connection);
+  }
+  return connections.length === 1 ? connections[0] : undefined;
 }
 
 type ConnectionTarget = {
@@ -284,12 +295,16 @@ export default function IntegrationCard({
     integration,
     connectionContext,
   );
-  const needsParams = hasConnectionParams(integration);
   const mountedPath = integration.mountedPath?.trim();
   const settingsAvailable = shouldShowIntegrationSettings(
     normalizedStatus,
     readOnly,
   );
+  const pendingOAuthConnection = connectionForTarget(
+    normalizedStatus.connections,
+    pendingOAuthTarget,
+  );
+  const pendingOAuthConnectionParams = pendingOAuthConnection?.connectionParams;
   const cardNavigationEnabled =
     !disableNavigation &&
     !!mountedPath &&
@@ -305,8 +320,8 @@ export default function IntegrationCard({
     form: HTMLFormElement,
   ): Record<string, string> {
     const params: Record<string, string> = {};
-    if (!integration.connectionParams) return params;
-    for (const name of Object.keys(integration.connectionParams)) {
+    if (!pendingOAuthConnectionParams) return params;
+    for (const name of Object.keys(pendingOAuthConnectionParams)) {
       const val = (new FormData(form).get(`cp_${name}`) as string)?.trim();
       if (val) params[name] = val;
     }
@@ -335,7 +350,8 @@ export default function IntegrationCard({
   async function handleStartOAuth(instance?: string, connection?: string) {
     const target = { instance, connection };
     setPendingOAuthTarget(target);
-    if (needsParams && !showParamForm) {
+    const targetConnection = connectionForTarget(normalizedStatus.connections, target);
+    if (hasConnectionParams(targetConnection?.connectionParams) && !showParamForm) {
       setSettingsOpen(false);
       setShowParamForm(true);
       setError(null);
@@ -429,8 +445,8 @@ export default function IntegrationCard({
   }
 
   function renderConnectionParamFields() {
-    if (!integration.connectionParams) return null;
-    return Object.entries(integration.connectionParams).map(([name, def]) => (
+    if (!pendingOAuthConnectionParams) return null;
+    return Object.entries(pendingOAuthConnectionParams).map(([name, def]) => (
       <div key={name} className="mt-3">
         <label
           htmlFor={`cp_${name}-${integration.name}`}

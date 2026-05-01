@@ -61,6 +61,7 @@ export interface ConnectionDefInfo {
   name: string;
   displayName?: string;
   authTypes?: AuthType[];
+  connectionParams?: Record<string, ConnectionParamDef>;
   credentialFields?: CredentialFieldDef[];
   status?: IntegrationStatus;
   credentialState?: CredentialState;
@@ -69,9 +70,6 @@ export interface ConnectionDefInfo {
   mode?: ConnectionMode;
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
-  disconnectable?: boolean;
-  connected?: boolean;
-  connectable?: boolean;
   instances?: InstanceInfo[];
   mcpPassthrough?: boolean;
 }
@@ -82,12 +80,7 @@ export interface Integration {
   description?: string;
   iconSvg?: string;
   mountedPath?: string;
-  connected?: boolean;
-  instances?: InstanceInfo[];
-  authTypes?: AuthType[];
-  connectionParams?: Record<string, ConnectionParamDef>;
   connections?: ConnectionDefInfo[];
-  credentialFields?: CredentialFieldDef[];
   status?: IntegrationStatus;
   credentialState?: CredentialState;
   healthState?: HealthState;

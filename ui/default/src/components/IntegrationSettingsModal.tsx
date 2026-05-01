@@ -102,9 +102,6 @@ function buildAuthActionLabel(
   const name = connection.label;
 
   if (kind === "add_instance") {
-    if (connection.actionSource === "legacy") {
-      return showConnectionNames ? `Add ${name}` : "Add Connection";
-    }
     return showConnectionNames ? `Add ${name} Instance` : "Add Instance";
   }
 
@@ -230,14 +227,12 @@ export default function IntegrationSettingsModal({
     connectionContext,
   );
   const authActions = buildAuthActions(normalizedStatus.connections);
-  const needsParams =
-    integration.connectionParams &&
-    Object.keys(integration.connectionParams).length > 0;
   const pendingConnection = pendingAction
     ? normalizedStatus.connections.find(
         (connection) => connection.key === pendingAction.connectionKey,
       )
     : undefined;
+  const pendingConnectionParams = pendingConnection?.connectionParams;
 
   function handleCancel(e: SyntheticEvent<HTMLDialogElement>) {
     if (disconnecting || submitting) {
@@ -280,7 +275,7 @@ export default function IntegrationSettingsModal({
   }
 
   function resolveCredentialFields(): CredentialFieldDef[] | undefined {
-    return pendingConnection?.credentialFields ?? integration.credentialFields;
+    return pendingConnection?.credentialFields;
   }
 
   function handleTokenSubmit(e: FormEvent<HTMLFormElement>) {
@@ -306,9 +301,9 @@ export default function IntegrationSettingsModal({
     }
 
     let params: Record<string, string> | undefined;
-    if (integration.connectionParams) {
+    if (pendingConnectionParams) {
       const collected: Record<string, string> = {};
-      for (const name of Object.keys(integration.connectionParams)) {
+      for (const name of Object.keys(pendingConnectionParams)) {
         const val = (fd.get(`cp_${name}`) as string)?.trim();
         if (val) collected[name] = val;
       }
@@ -543,7 +538,7 @@ export default function IntegrationSettingsModal({
             integrationName={integration.name}
             headingId={headingId}
             credentialFields={resolveCredentialFields()}
-            connectionParams={needsParams ? integration.connectionParams : undefined}
+            connectionParams={pendingConnectionParams}
             error={error}
             submitting={submitting}
             onSubmit={handleTokenSubmit}

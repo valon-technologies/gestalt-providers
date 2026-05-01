@@ -2,6 +2,7 @@ import type {
   AuthType,
   ConnectionDefInfo,
   ConnectionMode,
+  ConnectionParamDef,
   CredentialFieldDef,
   CredentialMode,
   CredentialState,
@@ -21,13 +22,14 @@ export type NormalizedConnection = {
   connection?: string;
   label: string;
   authTypes: AuthType[];
+  connectionParams?: Record<string, ConnectionParamDef>;
   credentialFields?: CredentialFieldDef[];
   instances: InstanceInfo[];
   status: IntegrationStatus;
   credentialState: CredentialState;
   healthState: HealthState;
   actions: IntegrationAction[];
-  actionSource: "server" | "legacy";
+  actionSource: "server" | "inferred";
   mode: ConnectionMode;
   credentialMode: CredentialMode;
   ownerKind: OwnerKind;
@@ -118,6 +120,7 @@ type RawConnection = {
   name?: string;
   displayName?: string;
   authTypes?: AuthType[];
+  connectionParams?: Record<string, ConnectionParamDef>;
   credentialFields?: CredentialFieldDef[];
   status?: IntegrationStatus;
   credentialState?: CredentialState;
@@ -126,9 +129,6 @@ type RawConnection = {
   mode?: ConnectionMode;
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
-  disconnectable?: boolean;
-  connected?: boolean;
-  connectable?: boolean;
   instances?: InstanceInfo[];
   mcpPassthrough?: boolean;
 };
@@ -235,34 +235,17 @@ function buildRawConnections(integration: Integration): RawConnection[] {
       instances: connectionInstances(integration, connection),
     }));
   }
-
-  return [
-    {
-      name: undefined,
-      displayName: integration.displayName || integration.name,
-      authTypes: integration.authTypes,
-      credentialFields: integration.credentialFields,
-      status: integration.status,
-      credentialState: integration.credentialState,
-      healthState: integration.healthState,
-      actions: integration.actions,
-      connected: integration.connected,
-      instances: integration.instances ?? [],
-    },
-  ];
+  return [];
 }
 
 function connectionInstances(
-  integration: Integration,
+  _integration: Integration,
   connection: ConnectionDefInfo,
 ): InstanceInfo[] {
   const nested = connection.instances ?? [];
-  const topLevel =
-    integration.instances?.filter((instance) => instance.connection === connection.name) ??
-    [];
   const seen = new Set<string>();
   const out: InstanceInfo[] = [];
-  for (const instance of [...nested, ...topLevel]) {
+  for (const instance of nested) {
     const key = `${instance.connection || connection.name}:${instance.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -327,16 +310,14 @@ function normalizeConnection(
     ? actions
     : inferConnectionActions(raw, authTypes, status, isPlatformManaged, isNoAuth);
   const disconnectable =
-    raw.disconnectable ?? inferredActions.includes("disconnect");
+    inferredActions.includes("disconnect");
   const connected =
-    raw.connected === true ||
     credentialState === "connected" ||
     credentialState === "configured" ||
     credentialState === "not_required" ||
     status === "ready" ||
     status === "degraded";
   const connectable =
-    raw.connectable === true ||
     inferredActions.some((action) =>
       action === "connect" ||
       action === "reconnect" ||
@@ -393,15 +374,14 @@ function normalizeConnection(
     connection: raw.name,
     label,
     authTypes,
-    credentialFields: raw.credentialFields?.length
-      ? raw.credentialFields
-      : integration.credentialFields,
+    connectionParams: raw.connectionParams,
+    credentialFields: raw.credentialFields,
     instances: raw.instances ?? [],
     status,
     credentialState,
     healthState,
     actions: inferredActions,
-    actionSource: actions.length ? "server" : "legacy",
+    actionSource: actions.length ? "server" : "inferred",
     mode,
     credentialMode,
     ownerKind,
@@ -517,9 +497,8 @@ function inferConnectionCredentialState(
   isNoAuth: boolean,
 ): CredentialState {
   if (isNoAuth) return "not_required";
-  if (raw.connected === true) return isPlatformManaged ? "configured" : "connected";
   if (isPlatformManaged) return "unknown";
-  if (authTypes.length > 0 || raw.connectable === true) return "missing";
+  if (authTypes.length > 0) return "missing";
   return "unknown";
 }
 
@@ -538,12 +517,12 @@ function inferConnectionStatus(
   if (credentialState === "missing") {
     return isPlatformManaged ? "needs_admin_configuration" : "needs_user_connection";
   }
-  if (raw.connected === true || credentialState === "connected") return "ready";
+  if (credentialState === "connected") return "ready";
   if (credentialState === "configured" || credentialState === "not_required") {
     return "ready";
   }
   if (isNoAuth) return "ready";
-  if (authTypes.length > 0 || raw.connectable === true) return "needs_user_connection";
+  if (authTypes.length > 0) return "needs_user_connection";
   return "unknown";
 }
 
@@ -556,23 +535,17 @@ function inferConnectionActions(
 ): IntegrationAction[] {
   if (isPlatformManaged || isNoAuth) return [];
   const actions: IntegrationAction[] = [];
-  const hasAuth = authTypes.length > 0 || raw.connectable === true;
+  const hasAuth = authTypes.length > 0;
 
   if (status === "needs_instance_selection" && hasAuth) {
     actions.push("select_instance");
-  } else if (raw.connected === true && hasAuth) {
+  } else if ((raw.instances?.length ?? 0) > 0 && hasAuth) {
     actions.push("add_instance");
   } else if (hasAuth) {
     actions.push("connect");
   }
 
-  if (raw.connected === true && (raw.instances?.length ?? 0) > 0) {
-    actions.push("disconnect");
-  }
-  if (raw.disconnectable === false) {
-    return actions.filter((action) => action !== "disconnect");
-  }
-  if (raw.disconnectable === true && !actions.includes("disconnect")) {
+  if ((raw.instances?.length ?? 0) > 0) {
     actions.push("disconnect");
   }
   return actions;
@@ -626,10 +599,9 @@ function aggregateHealthState(connections: NormalizedConnection[]): HealthState 
 }
 
 function inferIntegrationStatus(
-  integration: Integration,
+  _integration: Integration,
   connections: NormalizedConnection[],
 ): IntegrationStatus {
-  if (integration.connected === true) return "ready";
   if (connections.some((connection) => connection.connectable)) {
     return "needs_user_connection";
   }

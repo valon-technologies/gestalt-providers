@@ -249,25 +249,38 @@ function createManagedIdentityIntegrations(slackConnected = false): Integration[
       name: "github",
       displayName: "GitHub",
       description: "Repository and workflow operations",
-      authTypes: ["manual"],
-      credentialFields: [{ name: "token", label: "GitHub token" }],
-      connected: false,
       status: "needs_user_connection",
       credentialState: "missing",
       healthState: "not_checked",
       actions: ["connect"],
+      connections: [{
+        name: "plugin",
+        authTypes: ["manual"],
+        credentialFields: [{ name: "token", label: "GitHub token" }],
+        status: "needs_user_connection",
+        credentialState: "missing",
+        healthState: "not_checked",
+        actions: ["connect"],
+      }],
     },
     {
       name: "slack",
       displayName: "Slack",
       description: "Workspace chat integration",
-      authTypes: ["manual"],
-      credentialFields: [{ name: "token", label: "Bot token" }],
-      connected: slackConnected,
       status: slackConnected ? "ready" : "needs_user_connection",
       credentialState: slackConnected ? "connected" : "missing",
       healthState: "not_checked",
       actions: slackConnected ? ["disconnect"] : ["connect"],
+      connections: [{
+        name: "plugin",
+        authTypes: ["manual"],
+        credentialFields: [{ name: "token", label: "Bot token" }],
+        status: slackConnected ? "ready" : "needs_user_connection",
+        credentialState: slackConnected ? "connected" : "missing",
+        healthState: "not_checked",
+        actions: slackConnected ? ["disconnect"] : ["connect"],
+        instances: slackConnected ? [{ name: "default", connection: "plugin" }] : [],
+      }],
     },
   ];
 }
@@ -283,10 +296,16 @@ function updateManagedIdentityIntegrationConnection(
       integration.name === integrationName
         ? {
             ...integration,
-            connected,
             status: connected ? "ready" : "needs_user_connection",
             credentialState: connected ? "connected" : "missing",
             actions: connected ? ["disconnect"] : ["connect"],
+            connections: integration.connections?.map((connection) => ({
+              ...connection,
+              status: connected ? "ready" : "needs_user_connection",
+              credentialState: connected ? "connected" : "missing",
+              actions: connected ? ["disconnect"] : ["connect"],
+              instances: connected ? [{ name: "default", connection: connection.name }] : [],
+            })),
           }
         : integration,
     );
@@ -387,6 +406,7 @@ test.describe("Managed identities", () => {
     await expect.poll(() => managedConnectBodies).toEqual([
       {
         integration: "slack",
+        connection: "plugin",
         credential: "xoxb-managed-identity",
         returnPath: "/identities?id=service_account%3Aagent-1",
       },
