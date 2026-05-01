@@ -1,14 +1,48 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from .constants import (
+    BOT_OPERATION_ORDER,
     DEFAULT_WEBHOOK_EVENTS,
+    DEFAULT_POLICY_OPERATIONS_BY_MODE,
     GITHUB_DEFAULT_API_BASE_URL,
     GITHUB_DEFAULT_WEB_BASE_URL,
+    WEBHOOK_POLICY_ACTION_MODES,
+    WEBHOOK_POLICY_OBSERVE_MODE,
 )
+
+
+_POLICY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubWebhookPolicyMatch:
+    events: tuple[str, ...] = ()
+    actions: tuple[str, ...] = ()
+    statuses: tuple[str, ...] = ()
+    conclusions: tuple[str, ...] = ()
+    repositories: tuple[str, ...] = ()
+    branches: tuple[str, ...] = ()
+    check_names: tuple[str, ...] = ()
+    workflow_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubWebhookPolicy:
+    id: str
+    match: GitHubWebhookPolicyMatch = field(default_factory=GitHubWebhookPolicyMatch)
+    workflow_provider: str = ""
+    agent_provider: str = ""
+    agent_model: str = ""
+    agent_system_prompt: str = ""
+    agent_provider_options: dict[str, Any] | None = None
+    action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
+    allowed_operations: tuple[str, ...] = ()
+
 
 @dataclass(frozen=True, slots=True)
 class GitHubAppConfig:
@@ -18,6 +52,8 @@ class GitHubAppConfig:
     api_base_url: str = GITHUB_DEFAULT_API_BASE_URL
     web_base_url: str = GITHUB_DEFAULT_WEB_BASE_URL
     webhook_events: tuple[str, ...] = DEFAULT_WEBHOOK_EVENTS
+    webhook_events_configured: bool = False
+    webhook_policies: tuple[GitHubWebhookPolicy, ...] = ()
     workflow_provider: str = ""
     ignore_bot_sender: bool = True
     agent_provider: str = ""
@@ -87,6 +123,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
 
     webhook_events = config_string_list(config, "webhookEvents", "webhook_events")
     workflow_provider = workflow_config_string(config, "provider")
+    webhook_policies = parse_webhook_policies(config)
     return GitHubAppConfig(
         app_id=app_id,
         private_key=normalize_private_key(private_key),
@@ -107,6 +144,8 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
                 else list(DEFAULT_WEBHOOK_EVENTS)
             )
         ),
+        webhook_events_configured=webhook_events is not None,
+        webhook_policies=webhook_policies,
         workflow_provider=workflow_provider,
         ignore_bot_sender=config_bool(
             config, "ignoreBotSender", "ignore_bot_sender", default=True
@@ -120,6 +159,112 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
             config, "providerOptions", "provider_options"
         ),
     )
+
+
+def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy, ...]:
+    raw = config.get("webhookPolicies", config.get("webhook_policies"))
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("webhookPolicies must be a list")
+
+    policies: list[GitHubWebhookPolicy] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"webhookPolicies[{index}] must be an object")
+        policy_config = cast(dict[str, Any], item)
+        policy_id = config_string(policy_config, "id")
+        if not policy_id:
+            raise ValueError(f"webhookPolicies[{index}].id is required")
+        if not _POLICY_ID_RE.fullmatch(policy_id):
+            raise ValueError(
+                f"webhookPolicies[{index}].id must match {_POLICY_ID_RE.pattern}"
+            )
+        if policy_id in seen_ids:
+            raise ValueError(f"duplicate webhook policy id {policy_id!r}")
+        seen_ids.add(policy_id)
+
+        match_config = config_dict(policy_config, "match")
+        workflow_config = config_dict(policy_config, "workflow")
+        agent_config = config_dict(policy_config, "agent")
+        action_config = config_dict(policy_config, "action")
+        action_mode = (
+            config_string(action_config, "mode") or WEBHOOK_POLICY_OBSERVE_MODE
+        )
+        if action_mode not in WEBHOOK_POLICY_ACTION_MODES:
+            raise ValueError(
+                f"webhookPolicies[{index}].action.mode must be one of "
+                + ", ".join(WEBHOOK_POLICY_ACTION_MODES)
+            )
+
+        allowed_operations = policy_allowed_operations(
+            action_config, action_mode, index
+        )
+        provider_options = (
+            config_dict(agent_config, "providerOptions", "provider_options")
+            if "providerOptions" in agent_config or "provider_options" in agent_config
+            else None
+        )
+        policies.append(
+            GitHubWebhookPolicy(
+                id=policy_id,
+                match=GitHubWebhookPolicyMatch(
+                    events=lower_string_tuple(match_config, "events"),
+                    actions=lower_string_tuple(match_config, "actions"),
+                    statuses=lower_string_tuple(match_config, "statuses"),
+                    conclusions=lower_string_tuple(match_config, "conclusions"),
+                    repositories=string_tuple(match_config, "repositories"),
+                    branches=string_tuple(match_config, "branches"),
+                    check_names=string_tuple(match_config, "checkNames", "check_names"),
+                    workflow_names=string_tuple(
+                        match_config, "workflowNames", "workflow_names"
+                    ),
+                ),
+                workflow_provider=config_string(workflow_config, "provider"),
+                agent_provider=config_string(agent_config, "provider"),
+                agent_model=config_string(agent_config, "model"),
+                agent_system_prompt=config_string(
+                    agent_config, "systemPrompt", "system_prompt", "prompt"
+                ),
+                agent_provider_options=provider_options,
+                action_mode=action_mode,
+                allowed_operations=allowed_operations,
+            )
+        )
+    return tuple(policies)
+
+
+def policy_allowed_operations(
+    action_config: dict[str, Any], action_mode: str, policy_index: int
+) -> tuple[str, ...]:
+    configured = config_string_list(
+        action_config, "allowedOperations", "allowed_operations"
+    )
+    if configured is None:
+        configured = list(DEFAULT_POLICY_OPERATIONS_BY_MODE[action_mode])
+
+    unknown = sorted(
+        {operation for operation in configured if operation not in BOT_OPERATION_ORDER}
+    )
+    if unknown:
+        raise ValueError(
+            f"webhookPolicies[{policy_index}].action.allowedOperations contains "
+            f"unknown operation(s): {', '.join(unknown)}"
+        )
+
+    configured_set = set(configured)
+    return tuple(
+        operation for operation in BOT_OPERATION_ORDER if operation in configured_set
+    )
+
+
+def lower_string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:
+    return tuple(item.lower() for item in string_tuple(config, *keys))
+
+
+def string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:
+    return tuple(config_string_list(config, *keys) or [])
 
 
 def config_string(config: dict[str, Any], *keys: str) -> str:

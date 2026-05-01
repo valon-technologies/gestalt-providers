@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import Any
 
+from .config import GitHubWebhookPolicy
 from .constants import (
     MAX_GITHUB_BODY_CHARS,
     MAX_GITHUB_TITLE_CHARS,
@@ -15,10 +16,11 @@ from .webhook import bounded_text
 def workflow_signal_data(
     payload: dict[str, Any],
     summary: dict[str, Any],
+    policy: GitHubWebhookPolicy | None = None,
 ) -> dict[str, Any]:
     payload_digest = _payload_digest(payload)
     delivery_id = _github_delivery_id(payload)
-    return {
+    data = {
         "delivery_id": delivery_id or f"github:{payload_digest}",
         "github_event": summary.get("event_type", ""),
         "github_action": summary.get("action", ""),
@@ -30,6 +32,14 @@ def workflow_signal_data(
         "payload_sha256": payload_digest,
         "payload_omitted": True,
     }
+    policy_data = _policy_data(policy)
+    if policy_data:
+        data["webhook_policy"] = policy_data
+        data["agent_request"]["policy"] = policy_data
+    ci_data = _ci_event_data(payload, summary)
+    if ci_data:
+        data.update(ci_data)
+    return data
 
 
 def _payload_digest(payload: dict[str, Any]) -> str:
@@ -63,6 +73,30 @@ def _agent_request(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str
             request[key] = value
     request.update(_ref_data(payload))
     return request
+
+
+def _policy_data(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
+    if policy is None:
+        return {}
+    return {
+        "id": policy.id,
+        "mode": policy.action_mode,
+        "tool_refs": list(policy.allowed_operations),
+    }
+
+
+def _ci_event_data(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    event_type = str(summary.get("event_type", "")).strip()
+    if event_type == "check_run":
+        data = _check_run_data(map_field(payload, "check_run"))
+        return {"check_run": data} if data else {}
+    if event_type == "check_suite":
+        data = _check_suite_data(map_field(payload, "check_suite"))
+        return {"check_suite": data} if data else {}
+    if event_type == "workflow_run":
+        data = _workflow_run_data(map_field(payload, "workflow_run"))
+        return {"workflow_run": data} if data else {}
+    return {}
 
 
 def _subject_data(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
@@ -140,6 +174,73 @@ def _review_data(payload: dict[str, Any]) -> dict[str, Any]:
         "user": nested_str(review, "user", "login"),
     }
     return _compact_dict(data)
+
+
+def _check_run_data(check_run: dict[str, Any]) -> dict[str, Any]:
+    if not check_run:
+        return {}
+    data = {
+        "id": _positive_int(check_run, "id"),
+        "name": str_field(check_run, "name"),
+        "status": str_field(check_run, "status"),
+        "conclusion": str_field(check_run, "conclusion"),
+        "html_url": str_field(check_run, "html_url"),
+        "details_url": str_field(check_run, "details_url"),
+        "head_sha": str_field(check_run, "head_sha"),
+        "head_branch": str_field(check_run, "head_branch"),
+        "pull_request_numbers": _pull_request_numbers(check_run),
+    }
+    return _compact_dict(data)
+
+
+def _check_suite_data(check_suite: dict[str, Any]) -> dict[str, Any]:
+    if not check_suite:
+        return {}
+    data = {
+        "id": _positive_int(check_suite, "id"),
+        "status": str_field(check_suite, "status"),
+        "conclusion": str_field(check_suite, "conclusion"),
+        "html_url": str_field(check_suite, "html_url"),
+        "head_sha": str_field(check_suite, "head_sha"),
+        "head_branch": str_field(check_suite, "head_branch"),
+        "pull_request_numbers": _pull_request_numbers(check_suite),
+    }
+    return _compact_dict(data)
+
+
+def _workflow_run_data(workflow_run: dict[str, Any]) -> dict[str, Any]:
+    if not workflow_run:
+        return {}
+    data = {
+        "id": _positive_int(workflow_run, "id"),
+        "name": str_field(workflow_run, "name"),
+        "status": str_field(workflow_run, "status"),
+        "conclusion": str_field(workflow_run, "conclusion"),
+        "html_url": str_field(workflow_run, "html_url"),
+        "head_sha": str_field(workflow_run, "head_sha"),
+        "head_branch": str_field(workflow_run, "head_branch"),
+        "run_number": _positive_int(workflow_run, "run_number"),
+        "event": str_field(workflow_run, "event"),
+        "pull_request_numbers": _pull_request_numbers(workflow_run),
+    }
+    return _compact_dict(data)
+
+
+def _pull_request_numbers(value: dict[str, Any]) -> list[int]:
+    pull_requests = value.get("pull_requests")
+    if not isinstance(pull_requests, list):
+        return []
+    numbers: list[int] = []
+    seen: set[int] = set()
+    for item in pull_requests:
+        if not isinstance(item, dict):
+            continue
+        number = _positive_int(item, "number")
+        if number <= 0 or number in seen:
+            continue
+        seen.add(number)
+        numbers.append(number)
+    return numbers
 
 
 def _ref_data(payload: dict[str, Any]) -> dict[str, Any]:

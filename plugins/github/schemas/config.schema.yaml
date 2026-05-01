@@ -34,6 +34,114 @@ properties:
       pull_request_review, pull_request_review_comment, and workflow_run.
     items:
       type: string
+  webhookPolicies:
+    type: array
+    description: >-
+      Ordered webhook policies. When present, the first matching policy selects
+      the workflow/agent target and GitHub bot operations exposed to the agent.
+      If no policy matches, the webhook is acknowledged and ignored.
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          pattern: '^[A-Za-z0-9._-]+$'
+          minLength: 1
+          description: Stable policy identifier used in workflow keys.
+        match:
+          type: object
+          additionalProperties: false
+          description: >-
+            GitHub-shaped match fields. Empty fields are wildcards; values within
+            a field are ORed and fields are ANDed.
+          properties:
+            events:
+              type: array
+              items:
+                type: string
+            actions:
+              type: array
+              items:
+                type: string
+            statuses:
+              type: array
+              items:
+                type: string
+            conclusions:
+              type: array
+              items:
+                type: string
+            repositories:
+              type: array
+              items:
+                type: string
+            branches:
+              type: array
+              items:
+                type: string
+            checkNames:
+              type: array
+              items:
+                type: string
+            workflowNames:
+              type: array
+              items:
+                type: string
+        workflow:
+          type: object
+          additionalProperties: false
+          properties:
+            provider:
+              type: string
+              description: Workflow provider override for this policy.
+        agent:
+          type: object
+          additionalProperties: false
+          properties:
+            provider:
+              type: string
+              description: Agent provider override for this policy.
+            model:
+              type: string
+              description: Agent model override for this policy.
+            systemPrompt:
+              type: string
+              description: Additional system prompt for this policy.
+            providerOptions:
+              type: object
+              description: Provider-specific options for this policy.
+              additionalProperties: true
+        action:
+          type: object
+          additionalProperties: false
+          properties:
+            mode:
+              type: string
+              enum:
+                - observe
+                - comment
+                - branch_commit
+                - pull_request
+              description: Semantic remediation mode for this policy.
+            allowedOperations:
+              type: array
+              description: >-
+                Exact GitHub bot operation allowlist. If omitted, operations are
+                derived from mode. An explicit empty list grants no tools.
+              items:
+                type: string
+                enum:
+                  - bot.getCheckRun
+                  - bot.listCheckRunAnnotations
+                  - bot.getWorkflowRun
+                  - bot.listWorkflowRunJobs
+                  - bot.createIssueComment
+                  - bot.commitFiles
+                  - bot.openPullRequest
+                  - bot.createPullRequest
   workflow:
     type: object
     description: Workflow provider used for GitHub App webhook dispatch.

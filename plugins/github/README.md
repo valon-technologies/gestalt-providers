@@ -35,6 +35,11 @@ connection:
 - `bot.openPullRequest` opens a pull request using an installation access token.
 - `bot.createPullRequest` commits file changes and opens a pull request in one
   operation.
+- `bot.createIssueComment` creates an issue or pull request conversation
+  comment.
+- `bot.getCheckRun`, `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
+  `bot.listWorkflowRunJobs` inspect CI failures using GitHub's Checks and
+  Actions REST interfaces.
 
 The bot operations do not require a GitHub user OAuth connection. The GitHub App
 must be installed on the target repository and must have the permissions needed
@@ -75,8 +80,9 @@ The private key can also be supplied with `appPrivateKey`,
 `GITHUB_APP_PRIVATE_KEY_PATH`.
 
 `workflow.provider` is required because GitHub App webhooks always dispatch
-through the configured Workflow provider. The workflow run target is an agent
-target built from the same `agent` configuration and GitHub bot tool refs.
+through the configured Workflow provider. Without `webhookPolicies`, the
+workflow run target is an agent target built from the same `agent` configuration
+and the legacy write-capable GitHub bot tool refs.
 
 The provider derives the GitHub App bot identity from the configured app. It
 uses `/app` to read the app name and slug, then resolves `{slug}[bot]` to the
@@ -98,6 +104,62 @@ By default, webhook-triggered agents are started for `check_run`, `check_suite`,
 `pull_request_review_comment`, and `workflow_run`. `push` is intentionally not
 enabled by default so commits created by the bot do not recursively start new
 agent turns. Set `webhookEvents` to override the allowlist.
+
+Use `webhookPolicies` when webhook behavior should depend on the event. Policies
+are evaluated in order and the first match selects the workflow provider
+override, agent override, action mode, and exact bot operations exposed to the
+agent. If `webhookPolicies` is present and no policy matches, the webhook is
+acknowledged and ignored. If `webhookEvents` is also configured, it remains a
+coarse app-level allowlist before policy selection; if it is omitted, policy
+`match.events` controls event types.
+
+```yaml
+plugins:
+  github:
+    config:
+      appId: "123456"
+      appPrivateKeyEnv: GITHUB_APP_PRIVATE_KEY
+      workflow:
+        provider: local
+      agent:
+        provider: simple
+        model: gpt-5.4
+      webhookPolicies:
+        - id: failed-ci-comment
+          match:
+            events: [check_run, workflow_run]
+            actions: [completed]
+            conclusions: [failure, timed_out, action_required]
+            repositories: [acme/widgets]
+            branches: [main]
+            checkNames: ["Build Gestalt"]
+            workflowNames: ["CI"]
+          agent:
+            model: gpt-5.4
+            systemPrompt: Investigate failed CI and leave a concise PR comment.
+          action:
+            mode: comment
+        - id: failed-ci-pr
+          match:
+            events: [check_run]
+            conclusions: [failure]
+          action:
+            mode: pull_request
+            allowedOperations:
+              - bot.getCheckRun
+              - bot.listCheckRunAnnotations
+              - bot.createIssueComment
+              - bot.createPullRequest
+```
+
+Policy match fields are GitHub-shaped. Empty fields are wildcards, values within
+a field are ORed, and fields are ANDed. Event matching prefers the
+`X-GitHub-Event` header when present. `branches` matches PR head/base refs, CI
+`head_branch`, and push refs. `action.mode` defaults operations as follows:
+`observe` grants read-only CI tools, `comment` adds `bot.createIssueComment`,
+`branch_commit` adds `bot.commitFiles`, and `pull_request` adds the comment,
+commit, and pull request tools. `allowedOperations` can narrow or replace those
+defaults; an explicit empty list grants no tools.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and calls
@@ -121,6 +183,11 @@ responses as retryable enqueue failures.
   "installation": {"id": 99},
   "repository": {"full_name": "acme/widgets"},
   "sender": {"login": "octocat"},
+  "webhook_policy": {
+    "id": "failed-ci-comment",
+    "mode": "comment",
+    "tool_refs": ["bot.getCheckRun", "bot.createIssueComment"]
+  },
   "summary": {"repository": "acme/widgets", "number": 7},
   "agent_request": {
     "user_prompt": "GitHub App webhook:\n...",
@@ -133,6 +200,13 @@ responses as retryable enqueue failures.
       "head_ref": "feature",
       "base_ref": "main"
     }
+  },
+  "check_run": {
+    "id": 123,
+    "name": "Build Gestalt",
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/acme/widgets/runs/123"
   },
   "payload_sha256": "<payload digest>",
   "payload_omitted": true
@@ -153,6 +227,21 @@ plugins:
         credentialMode: none
       - plugin: github
         operation: bot.createPullRequest
+        credentialMode: none
+      - plugin: github
+        operation: bot.createIssueComment
+        credentialMode: none
+      - plugin: github
+        operation: bot.getCheckRun
+        credentialMode: none
+      - plugin: github
+        operation: bot.listCheckRunAnnotations
+        credentialMode: none
+      - plugin: github
+        operation: bot.getWorkflowRun
+        credentialMode: none
+      - plugin: github
+        operation: bot.listWorkflowRunJobs
         credentialMode: none
 ```
 
@@ -239,6 +328,27 @@ Commit files and open the pull request in one call with
     }
   ]
 }
+```
+
+Create a pull request conversation comment with `bot.createIssueComment`:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "issue_number": 42,
+  "body": "The failed check points at a snapshot mismatch in README.md."
+}
+```
+
+Read CI state with the GitHub-shaped read operations:
+
+```json
+{"owner": "acme", "repo": "widgets", "check_run_id": 123}
+```
+
+```json
+{"owner": "acme", "repo": "widgets", "run_id": 456, "filter": "all"}
 ```
 
 ## Documentation

@@ -109,6 +109,18 @@ def github_json(
     token: str | None,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    decoded = github_json_value(method, path, token, payload)
+    if not isinstance(decoded, dict):
+        raise GitHubAPIError(502, "GitHub API returned a non-object JSON response")
+    return decoded
+
+
+def github_json_value(
+    method: str,
+    path: str,
+    token: str | None,
+    payload: dict[str, Any] | None = None,
+) -> Any:
     data = None
     headers = {
         "Accept": "application/vnd.github+json",
@@ -140,8 +152,6 @@ def github_json(
         decoded = json.loads(body.decode("utf-8"))
     except json.JSONDecodeError as err:
         raise GitHubAPIError(502, f"GitHub API returned invalid JSON: {err}") from err
-    if not isinstance(decoded, dict):
-        raise GitHubAPIError(502, "GitHub API returned a non-object JSON response")
     return decoded
 
 
