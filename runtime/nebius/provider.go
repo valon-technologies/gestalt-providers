@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.1"
+	providerVersion      = "0.0.1-alpha.2"
 	pluginGRPCPort       = 50051
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
