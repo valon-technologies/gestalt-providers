@@ -7,7 +7,7 @@ import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Final, Protocol, TypeAlias
 
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import bigquery
@@ -76,7 +76,7 @@ class GoogleBigQueryQueryExecutor:
             )
 
 
-DEFAULT_QUERY_EXECUTOR = GoogleBigQueryQueryExecutor()
+DEFAULT_QUERY_EXECUTOR: Final[QueryExecutor] = GoogleBigQueryQueryExecutor()
 
 
 def execute_query(
