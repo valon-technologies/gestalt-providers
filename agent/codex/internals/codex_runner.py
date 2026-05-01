@@ -7,10 +7,13 @@ import logging
 import os
 import tempfile
 import threading
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Callable, cast
 
-from agents.mcp import MCPServerStdio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 from mcp import types as mcp_types
 
 from .config import CodexAgentConfig
@@ -40,10 +43,61 @@ class _ActiveTurn:
     server: Any | None = None
 
 
+class CodexMCPStdioServer:
+    def __init__(self, *, params: dict[str, Any], name: str, client_session_timeout_seconds: float) -> None:
+        self._name = name
+        self._timeout = timedelta(seconds=client_session_timeout_seconds)
+        self._params = StdioServerParameters(
+            command=str(params.get("command") or ""),
+            args=[str(arg) for arg in params.get("args") or []],
+            env={str(key): str(value) for key, value in (params.get("env") or {}).items()},
+            cwd=params.get("cwd"),
+        )
+        self._stack: AsyncExitStack | None = None
+        self._session: ClientSession | None = None
+
+    async def connect(self) -> None:
+        if self._session is not None:
+            return
+        stack = AsyncExitStack()
+        try:
+            read_stream, write_stream = await stack.enter_async_context(stdio_client(self._params))
+            session = await stack.enter_async_context(
+                ClientSession(read_stream, write_stream, read_timeout_seconds=self._timeout)
+            )
+            await session.initialize()
+        except BaseException:
+            await stack.aclose()
+            raise
+        self._stack = stack
+        self._session = session
+
+    async def list_tools(self) -> list[Any]:
+        session = self._require_session()
+        result = await session.list_tools()
+        return list(result.tools)
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        session = self._require_session()
+        return await session.call_tool(name, arguments, read_timeout_seconds=self._timeout)
+
+    async def cleanup(self) -> None:
+        stack = self._stack
+        self._stack = None
+        self._session = None
+        if stack is not None:
+            await stack.aclose()
+
+    def _require_session(self) -> ClientSession:
+        if self._session is None:
+            raise CodexExecutionError(f"{self._name} MCP server is not connected")
+        return self._session
+
+
 class CodexMCPRunner:
     def __init__(self, config: CodexAgentConfig, *, server_factory: ServerFactory | None = None) -> None:
         self._config = config
-        self._server_factory = server_factory or MCPServerStdio
+        self._server_factory = server_factory or CodexMCPStdioServer
         self._lock = threading.RLock()
         self._active_turns: dict[str, _ActiveTurn] = {}
         self._canceled_turns: set[str] = set()
