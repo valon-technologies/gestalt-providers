@@ -2,11 +2,17 @@ package gkeagentsandbox
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"io"
 	"net"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/container/apiv1/containerpb"
+	"golang.org/x/oauth2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +22,69 @@ import (
 	extfake "sigs.k8s.io/agent-sandbox/clients/k8s/extensions/clientset/versioned/fake"
 	extv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 )
+
+func TestRuntimeContractBuildsADCBackedGKERestConfig(t *testing.T) {
+	t.Parallel()
+
+	caData := []byte("test-ca")
+	cfg := GKEConfig{
+		ProjectID: "gitlab-peach-street",
+		Location:  "us-east4",
+		Cluster:   "gestalt-agent-sandbox",
+		Endpoint:  gkeEndpointPrivate,
+	}
+	restConfig, err := gkeRESTConfigFromCluster(cfg, &containerpb.Cluster{
+		Endpoint: "34.11.22.90",
+		PrivateClusterConfig: &containerpb.PrivateClusterConfig{
+			PrivateEndpoint: "172.24.192.2",
+		},
+		MasterAuth: &containerpb.MasterAuth{
+			ClusterCaCertificate: base64.StdEncoding.EncodeToString(caData),
+		},
+	}, oauth2.StaticTokenSource(&oauth2.Token{
+		AccessToken: "test-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(time.Hour),
+	}))
+	if err != nil {
+		t.Fatalf("gkeRESTConfigFromCluster: %v", err)
+	}
+	if got, want := restConfig.Host, "https://172.24.192.2"; got != want {
+		t.Fatalf("Host = %q, want %q", got, want)
+	}
+	if got, want := string(restConfig.TLSClientConfig.CAData), string(caData); got != want {
+		t.Fatalf("CAData = %q, want %q", got, want)
+	}
+	if restConfig.BearerToken != "" {
+		t.Fatalf("BearerToken = %q, want empty token managed by WrapTransport", restConfig.BearerToken)
+	}
+	if restConfig.WrapTransport == nil {
+		t.Fatal("WrapTransport = nil, want ADC OAuth transport")
+	}
+
+	var gotAuthorization string
+	transport := restConfig.WrapTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotAuthorization = req.Header.Get("Authorization")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    req,
+		}, nil
+	}))
+	req, err := http.NewRequest(http.MethodGet, restConfig.Host+"/version", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	defer resp.Body.Close()
+	if got, want := gotAuthorization, "Bearer test-token"; got != want {
+		t.Fatalf("Authorization = %q, want %q", got, want)
+	}
+}
 
 func TestRuntimeContractHostnameEgressPolicyRestrictsDNSAndProxyTargets(t *testing.T) {
 	t.Parallel()
@@ -63,6 +132,12 @@ func TestRuntimeContractHostnameEgressPolicyRestrictsDNSAndProxyTargets(t *testi
 	assertPolicyRule(t, policy.Spec.Egress[0], []string{"10.96.0.10/32", "169.254.20.10/32"}, 53, corev1.ProtocolUDP)
 	assertPolicyRule(t, policy.Spec.Egress[1], []string{"10.96.0.10/32", "169.254.20.10/32"}, 53, corev1.ProtocolTCP)
 	assertPolicyRule(t, policy.Spec.Egress[2], []string{"203.0.113.10/32"}, 9443, corev1.ProtocolTCP)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestRuntimeContractHostnameEgressPolicyRejectsManagedTemplates(t *testing.T) {

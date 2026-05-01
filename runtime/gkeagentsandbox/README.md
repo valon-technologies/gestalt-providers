@@ -61,6 +61,11 @@ runtime:
         container: runtime
         pluginPort: 50051
         connectionMode: portForward
+        gke:
+          projectID: gitlab-peach-street
+          location: us-east4
+          cluster: gestalt-agent-sandbox
+          endpoint: private
         sandboxReadyTimeout: 3m
         pluginReadyTimeout: 30s
         execTimeout: 2m
@@ -233,9 +238,19 @@ spec:
 
 ## Kubernetes Access
 
-The provider uses in-cluster configuration first and falls back to the default
-kubeconfig. `config.kubeconfig` and `config.context` can override that behavior
-for local development.
+When `config.gke` is present, the provider discovers the cluster endpoint and
+CA bundle through the GKE API and authenticates to Kubernetes with Google
+application default credentials. `gke.endpoint` can be `private` or `public`
+and defaults to `private`.
+
+Without `config.gke`, the provider uses in-cluster configuration first and
+falls back to the default kubeconfig. `config.kubeconfig` and `config.context`
+can override that behavior for local development. `config.gke` cannot be
+combined with `config.kubeconfig` or `config.context`.
+
+For GKE discovery, the Google service account running `gestaltd` needs IAM
+permission for `container.clusters.get`, such as `roles/container.clusterViewer`
+on the project or a narrower custom role.
 
 The provider identity needs permissions for:
 
@@ -244,7 +259,8 @@ The provider identity needs permissions for:
 - `agents.x-k8s.io/v1alpha1` `sandboxes`
 - core `pods`, including `pods/exec`; `pods/portforward` is required for
   `connectionMode: portForward`
-- `networking.k8s.io/v1` `networkpolicies`
+- `networking.k8s.io/v1` `networkpolicies`, including update when hostname
+  egress policies are reused
 
 ## Verification
 

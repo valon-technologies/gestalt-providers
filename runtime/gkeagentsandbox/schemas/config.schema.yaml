@@ -13,6 +13,26 @@ properties:
   context:
     type: string
     description: Optional kubeconfig context.
+  gke:
+    type: object
+    additionalProperties: false
+    description: Optional GKE cluster discovery configuration. Uses Google application default credentials and cannot be combined with kubeconfig or context.
+    properties:
+      projectID:
+        type: string
+        description: Google Cloud project ID that owns the GKE cluster.
+      location:
+        type: string
+        description: GKE cluster location, such as us-east4 for a regional cluster.
+      cluster:
+        type: string
+        description: GKE cluster name.
+      endpoint:
+        type: string
+        enum:
+          - private
+          - public
+        description: GKE API endpoint to use. Defaults to private when gke config is present.
   pluginPort:
     type: integer
     minimum: 1

@@ -3,6 +3,7 @@ package gkeagentsandbox
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,10 @@ import (
 	"sync"
 	"time"
 
+	container "cloud.google.com/go/container/apiv1"
+	"cloud.google.com/go/container/apiv1/containerpb"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -117,11 +122,81 @@ func kubernetesRESTConfig(cfg Config) (*rest.Config, error) {
 		loader := &clientcmd.ClientConfigLoadingRules{ExplicitPath: cfg.Kubeconfig}
 		return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, overrides).ClientConfig()
 	}
+	if cfg.GKE.IsConfigured() {
+		return gkeKubernetesRESTConfig(context.Background(), cfg.GKE)
+	}
 	if restConfig, err := rest.InClusterConfig(); err == nil {
 		return restConfig, nil
 	}
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, overrides).ClientConfig()
+}
+
+func gkeKubernetesRESTConfig(ctx context.Context, cfg GKEConfig) (*rest.Config, error) {
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	client, err := container.NewClusterManagerClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime: create GKE cluster client: %w", err)
+	}
+	defer client.Close()
+
+	cluster, err := client.GetCluster(ctx, &containerpb.GetClusterRequest{Name: cfg.clusterResourceName()})
+	if err != nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime: get GKE cluster %s: %w", cfg.clusterResourceName(), err)
+	}
+	tokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime: load Google application default credentials: %w", err)
+	}
+	return gkeRESTConfigFromCluster(cfg, cluster, tokenSource)
+}
+
+func gkeRESTConfigFromCluster(cfg GKEConfig, cluster *containerpb.Cluster, tokenSource oauth2.TokenSource) (*rest.Config, error) {
+	if cluster == nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime: GKE cluster response is empty")
+	}
+	endpoint := strings.TrimSpace(cluster.GetEndpoint())
+	if cfg.Endpoint == gkeEndpointPrivate {
+		endpoint = strings.TrimSpace(cluster.GetPrivateClusterConfig().GetPrivateEndpoint())
+	}
+	if endpoint == "" {
+		return nil, fmt.Errorf("gke agent sandbox runtime: GKE cluster %s endpoint %q is empty", cfg.clusterResourceName(), cfg.Endpoint)
+	}
+	if strings.HasPrefix(endpoint, "http://") {
+		return nil, fmt.Errorf("gke agent sandbox runtime: GKE cluster %s endpoint must use https", cfg.clusterResourceName())
+	}
+	if !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "https://" + endpoint
+	}
+	ca := strings.TrimSpace(cluster.GetMasterAuth().GetClusterCaCertificate())
+	if ca == "" {
+		return nil, fmt.Errorf("gke agent sandbox runtime: GKE cluster %s CA certificate is empty", cfg.clusterResourceName())
+	}
+	caData, err := base64.StdEncoding.DecodeString(ca)
+	if err != nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime: decode GKE cluster %s CA certificate: %w", cfg.clusterResourceName(), err)
+	}
+	if tokenSource == nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime: Google token source is required")
+	}
+	return &rest.Config{
+		Host: endpoint,
+		TLSClientConfig: rest.TLSClientConfig{
+			CAData: caData,
+		},
+		WrapTransport: func(base http.RoundTripper) http.RoundTripper {
+			if base == nil {
+				base = http.DefaultTransport
+			}
+			return &oauth2.Transport{
+				Source: tokenSource,
+				Base:   base,
+			}
+		},
+	}, nil
 }
 
 func (r *kubernetesSandboxRuntime) HealthCheck(ctx context.Context) error {
