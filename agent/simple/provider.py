@@ -39,7 +39,7 @@ class SimpleAgentRuntimeProvider(
             name=self._name,
             display_name="Simple Agent",
             description="Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
-            version="0.0.1-alpha.33",
+            version="0.0.1-alpha.34",
         )
 
     def warnings(self) -> list[str]:
@@ -96,6 +96,7 @@ class SimpleAgentRuntimeProvider(
                     subject_id=_subject_id(request),
                     state=int(getattr(request, "state", 0) or 0),
                     limit=limit,
+                    summary_only=summary_only,
                 )
             ]
         )
@@ -148,6 +149,7 @@ class SimpleAgentRuntimeProvider(
                     subject_id=_subject_id(request),
                     status=int(getattr(request, "status", 0) or 0),
                     limit=limit,
+                    summary_only=summary_only,
                 )
             ]
         )
@@ -186,7 +188,7 @@ class SimpleAgentRuntimeProvider(
         context.abort(grpc.StatusCode.NOT_FOUND, f"agent interaction {request.interaction_id!r} was not found")
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, _, config = self._require_runtime(context)
+        _, store, config = self._require_runtime(context)
         return gestalt.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
@@ -195,7 +197,7 @@ class SimpleAgentRuntimeProvider(
             interactions=False,
             resumable_turns=config.resume.enabled,
             reasoning_summaries=False,
-            bounded_list_hydration=True,
+            bounded_list_hydration=store.supports_bounded_list_hydration(),
             supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
 

@@ -1,3 +1,4 @@
+import base64
 import copy
 import threading
 import time
@@ -10,7 +11,6 @@ import gestalt
 import grpc
 
 
-
 TERMINAL_STATUSES = {
     gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
     gestalt.AGENT_EXECUTION_STATUS_FAILED,
@@ -20,6 +20,10 @@ TERMINAL_STATUSES = {
 BUSY_RETRY_INITIAL_DELAY_SECONDS = 0.02
 BUSY_RETRY_MAX_DELAY_SECONDS = 0.25
 CHECKPOINT_SCHEMA_VERSION = 1
+PROJECTION_SCHEMA_VERSION = 1
+PROJECTION_SEP = "\x1f"
+PROJECTION_RANGE_SUFFIX = "\x7f"
+MAX_INVERTED_SORT_MICROS = 99_999_999_999_999_999_999
 UNSUPPORTED_CHECKPOINT_RECORD_PHASE = "unsupported_record_shape"
 CHECKPOINT_RECORD_FIELDS = frozenset(
     {
@@ -127,7 +131,8 @@ class SimpleRunStore:
         self._checkpoints = _LazyObjectStore(self, f"{run_store}_checkpoints")
         self._tool_results = _LazyObjectStore(self, f"{run_store}_tool_results")
         self._sessions = _LazyObjectStore(self, f"{run_store}_sessions")
-        self._session_idempotency = _LazyObjectStore(self, f"{idempotency_store}_sessions")
+        self._session_projections = _LazyObjectStore(self, f"{run_store}_session_projections")
+        self._turn_projections = _LazyObjectStore(self, f"{run_store}_turn_projections")
         self._run_store_name = run_store
         self._idempotency_store_name = idempotency_store
         self._event_store_name = f"{run_store}_events"
@@ -135,6 +140,8 @@ class SimpleRunStore:
         self._tool_result_store_name = f"{run_store}_tool_results"
         self._session_store_name = f"{run_store}_sessions"
         self._session_idempotency_store_name = f"{idempotency_store}_sessions"
+        self._session_projection_store_name = f"{run_store}_session_projections"
+        self._turn_projection_store_name = f"{run_store}_turn_projections"
         self._initialize_lock = threading.RLock()
         self._initialized = False
         self._closed = False
@@ -156,6 +163,8 @@ class SimpleRunStore:
                     self._tool_result_store_name,
                     self._session_store_name,
                     self._session_idempotency_store_name,
+                    self._session_projection_store_name,
+                    self._turn_projection_store_name,
                 ):
                     try:
                         _call_with_busy_retry(lambda name=name: client.create_object_store(name))
@@ -221,58 +230,51 @@ class SimpleRunStore:
         session_id = session_id.strip()
         if not session_id:
             raise ValueError("session_id is required")
-        existing = self.get_session(session_id)
-        if existing is not None:
-            return existing, False
 
-        if idempotency_key:
-            existing = self._session_for_idempotency_key(idempotency_key)
+        def create(stores: dict[str, Any]) -> tuple[StoredSession, bool]:
+            sessions = stores[self._session_store_name]
+            idempotency = stores[self._session_idempotency_store_name]
+            session_projections = stores[self._session_projection_store_name]
+
+            existing = _record_to_session(_get_optional_record(sessions, session_id))
             if existing is not None:
+                _replace_session_projections(session_projections, None, existing)
                 return existing, False
 
-        now = _utcnow()
-        session = StoredSession(
-            session_id=session_id,
-            idempotency_key=idempotency_key,
-            provider_name=provider_name,
-            model=model,
-            client_ref=client_ref,
-            state=gestalt.AGENT_SESSION_STATE_ACTIVE,
-            metadata=metadata,
-            created_by=created_by,
-            created_at=now,
-            updated_at=now,
-            last_turn_at=None,
-        )
+            if idempotency_key:
+                existing = _session_for_idempotency_key_from_stores(idempotency, sessions, idempotency_key)
+                if existing is not None:
+                    _replace_session_projections(session_projections, None, existing)
+                    return existing, False
 
-        claimed_idempotency = False
-        if idempotency_key:
-            try:
-                self._session_idempotency.add(
+            now = _utcnow()
+            session = StoredSession(
+                session_id=session_id,
+                idempotency_key=idempotency_key,
+                provider_name=provider_name,
+                model=model,
+                client_ref=client_ref,
+                state=gestalt.AGENT_SESSION_STATE_ACTIVE,
+                metadata=copy.deepcopy(metadata),
+                created_by=copy.deepcopy(created_by),
+                created_at=now,
+                updated_at=now,
+                last_turn_at=None,
+            )
+
+            if idempotency_key:
+                idempotency.add(
                     {"id": idempotency_key, "session_id": session_id, "provider_name": provider_name, "created_at": now}
                 )
-                claimed_idempotency = True
-            except gestalt.AlreadyExistsError:
-                existing = self._session_for_idempotency_key(idempotency_key)
-                if existing is not None:
-                    return existing, False
-                raise
+            sessions.add(_session_to_record(session))
+            _replace_session_projections(session_projections, None, session)
+            return session, True
 
-        try:
-            self._sessions.add(_session_to_record(session))
-        except gestalt.AlreadyExistsError:
-            if claimed_idempotency:
-                self._delete_session_idempotency(idempotency_key)
-            existing = self.get_session(session_id)
-            if existing is not None:
-                return existing, False
-            raise
-        except Exception:
-            if claimed_idempotency:
-                self._delete_session_idempotency(idempotency_key)
-            raise
-
-        return session, True
+        with self._mutation_lock:
+            return self._with_transaction(
+                [self._session_store_name, self._session_idempotency_store_name, self._session_projection_store_name],
+                create,
+            )
 
     def get_session(self, session_id: str) -> StoredSession | None:
         try:
@@ -287,10 +289,16 @@ class SimpleRunStore:
         subject_id: str = "",
         state: int = 0,
         limit: int = 0,
+        summary_only: bool = False,
     ) -> list[StoredSession]:
         requested_ids = _normalized_unique_ids(session_ids)
         if requested_ids:
             sessions = [self.get_session(session_id) for session_id in requested_ids]
+        elif summary_only or limit > 0:
+            projected = self._list_session_projections(subject_id=subject_id, state=state, limit=limit)
+            if summary_only:
+                return projected
+            sessions = [self.get_session(session.session_id) for session in projected]
         else:
             sessions = [_record_to_session(record) for record in self._sessions.iter_records()]
         sessions = [session for session in sessions if session is not None]
@@ -318,18 +326,26 @@ class SimpleRunStore:
     def update_session(
         self, *, session_id: str, client_ref: str, state: int, metadata: dict[str, Any] | None
     ) -> StoredSession | None:
-        session = self.get_session(session_id)
-        if session is None:
-            return None
-        if client_ref:
-            session.client_ref = client_ref
-        if state:
-            session.state = state
-        if metadata is not None:
-            session.metadata = metadata
-        session.updated_at = _utcnow()
-        self._sessions.put(_session_to_record(session))
-        return self.get_session(session_id)
+        def update(stores: dict[str, Any]) -> StoredSession | None:
+            sessions = stores[self._session_store_name]
+            session_projections = stores[self._session_projection_store_name]
+            session = _record_to_session(_get_optional_record(sessions, session_id))
+            if session is None:
+                return None
+            previous = replace(session)
+            if client_ref:
+                session.client_ref = client_ref
+            if state:
+                session.state = state
+            if metadata is not None:
+                session.metadata = copy.deepcopy(metadata)
+            session.updated_at = _utcnow()
+            sessions.put(_session_to_record(session))
+            _replace_session_projections(session_projections, previous, session)
+            return session
+
+        with self._mutation_lock:
+            return self._with_transaction([self._session_store_name, self._session_projection_store_name], update)
 
     def begin_turn(
         self,
@@ -352,6 +368,8 @@ class SimpleRunStore:
                 runs = stores[self._run_store_name]
                 idempotency = stores[self._idempotency_store_name]
                 sessions = stores[self._session_store_name]
+                session_projections = stores[self._session_projection_store_name]
+                turn_projections = stores[self._turn_projection_store_name]
                 checkpoints = stores[self._checkpoint_store_name]
                 events = stores[self._event_store_name]
 
@@ -369,7 +387,7 @@ class SimpleRunStore:
                         return existing, False
 
                 now = _utcnow()
-                _touch_session_for_turn_in_store(sessions, session_id, now)
+                _touch_session_for_turn_in_store(sessions, session_id, now, session_projections)
                 run = StoredRun(
                     run_id=turn_id,
                     idempotency_key=idempotency_key,
@@ -394,6 +412,7 @@ class SimpleRunStore:
                         {"id": idempotency_key, "run_id": turn_id, "provider_name": provider_name, "created_at": now}
                     )
                 runs.add(_run_to_record(run))
+                _replace_turn_projections(turn_projections, None, run)
                 if isinstance(resume_seed, dict):
                     checkpoints.add(_turn_checkpoint_to_record(_checkpoint_from_seed(run, resume_seed, now=now)))
                 if start_event_source:
@@ -412,6 +431,8 @@ class SimpleRunStore:
                     self._run_store_name,
                     self._idempotency_store_name,
                     self._session_store_name,
+                    self._session_projection_store_name,
+                    self._turn_projection_store_name,
                     self._checkpoint_store_name,
                     self._event_store_name,
                 ],
@@ -429,6 +450,7 @@ class SimpleRunStore:
         subject_id: str = "",
         status: int = 0,
         limit: int = 0,
+        summary_only: bool = False,
     ) -> list[StoredRun]:
         requested_ids = _normalized_unique_ids(turn_ids)
         if requested_ids:
@@ -437,6 +459,15 @@ class SimpleRunStore:
         else:
             if not session_id.strip():
                 return []
+            if summary_only or limit > 0:
+                projected = self._list_turn_projections(
+                    session_id=session_id, subject_id=subject_id, status=status, limit=limit
+                )
+                if summary_only:
+                    return projected
+                turns = [self.get_run(turn.run_id) for turn in projected]
+                turns = [turn for turn in turns if turn is not None]
+                return turns
             turns = [_record_to_run(record) for record in self._runs.iter_records()]
             turns = [turn for turn in turns if turn is not None]
         session_id = session_id.strip()
@@ -459,12 +490,14 @@ class SimpleRunStore:
                 runs = stores[self._run_store_name]
                 checkpoints = stores[self._checkpoint_store_name]
                 events = stores[self._event_store_name]
+                turn_projections = stores[self._turn_projection_store_name]
                 run = _get_run_from_store(runs, turn_id)
                 if run is None:
                     return None
                 existing_checkpoint = _record_to_turn_checkpoint(_get_optional_record(checkpoints, turn_id))
                 if run.status in TERMINAL_STATUSES:
                     return run
+                previous = replace(run)
                 cancel_reason = reason.strip() or "canceled"
                 completed_at = _utcnow()
                 run.status = gestalt.AGENT_EXECUTION_STATUS_CANCELED
@@ -472,6 +505,7 @@ class SimpleRunStore:
                 run.cancel_reason = cancel_reason
                 run.completed_at = completed_at
                 runs.put(_run_to_record(run))
+                _replace_turn_projections(turn_projections, previous, run)
                 checkpoints.put(
                     _turn_checkpoint_to_record(
                         _terminal_checkpoint_for_run(
@@ -493,7 +527,13 @@ class SimpleRunStore:
                 return run
 
             return self._with_transaction(
-                [self._run_store_name, self._checkpoint_store_name, self._event_store_name], cancel
+                [
+                    self._run_store_name,
+                    self._checkpoint_store_name,
+                    self._event_store_name,
+                    self._turn_projection_store_name,
+                ],
+                cancel,
             )
 
     def append_turn_event(
@@ -713,6 +753,7 @@ class SimpleRunStore:
                 runs = stores[self._run_store_name]
                 checkpoints = stores[self._checkpoint_store_name]
                 events = stores[self._event_store_name]
+                turn_projections = stores[self._turn_projection_store_name]
                 current = _get_run_from_store(runs, turn_id)
                 if current is None:
                     raise RuntimeError(f"agent run {turn_id!r} was not found")
@@ -721,6 +762,7 @@ class SimpleRunStore:
                     _require_checkpoint_lease(existing_checkpoint, owner=lease_owner)
                 if current.status in TERMINAL_STATUSES:
                     return current
+                previous = replace(current)
                 completed_at = _utcnow()
                 current.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
                 current.messages = messages
@@ -729,6 +771,7 @@ class SimpleRunStore:
                 current.status_message = ""
                 current.completed_at = completed_at
                 runs.put(_run_to_record(current))
+                _replace_turn_projections(turn_projections, previous, current)
                 replacement = _as_terminal_checkpoint(checkpoint, messages=messages, now=completed_at)
                 checkpoints.put(_turn_checkpoint_to_record(replacement))
                 self._append_turn_event_locked(
@@ -750,7 +793,13 @@ class SimpleRunStore:
                 return current
 
             return self._with_transaction(
-                [self._run_store_name, self._checkpoint_store_name, self._event_store_name], mark_succeeded
+                [
+                    self._run_store_name,
+                    self._checkpoint_store_name,
+                    self._event_store_name,
+                    self._turn_projection_store_name,
+                ],
+                mark_succeeded,
             )
 
     def mark_turn_failed(
@@ -762,6 +811,7 @@ class SimpleRunStore:
                 runs = stores[self._run_store_name]
                 checkpoints = stores[self._checkpoint_store_name]
                 events = stores[self._event_store_name]
+                turn_projections = stores[self._turn_projection_store_name]
                 current = _get_run_from_store(runs, turn_id)
                 if current is None:
                     raise RuntimeError(f"agent run {turn_id!r} was not found")
@@ -770,12 +820,14 @@ class SimpleRunStore:
                     _require_checkpoint_lease(existing_checkpoint, owner=lease_owner)
                 if current.status in TERMINAL_STATUSES:
                     return current
+                previous = replace(current)
                 completed_at = _utcnow()
                 current.status = gestalt.AGENT_EXECUTION_STATUS_FAILED
                 current.messages = messages
                 current.status_message = status_message.strip()
                 current.completed_at = completed_at
                 runs.put(_run_to_record(current))
+                _replace_turn_projections(turn_projections, previous, current)
                 checkpoints.put(
                     _turn_checkpoint_to_record(
                         _terminal_checkpoint_for_run(
@@ -794,7 +846,13 @@ class SimpleRunStore:
                 return current
 
             return self._with_transaction(
-                [self._run_store_name, self._checkpoint_store_name, self._event_store_name], mark_failed
+                [
+                    self._run_store_name,
+                    self._checkpoint_store_name,
+                    self._event_store_name,
+                    self._turn_projection_store_name,
+                ],
+                mark_failed,
             )
 
     def get_run(self, run_id: str) -> StoredRun | None:
@@ -859,23 +917,22 @@ class SimpleRunStore:
                 continue
             return event
 
-    def _session_for_idempotency_key(self, idempotency_key: str) -> StoredSession | None:
-        try:
-            record = self._session_idempotency.get(idempotency_key)
-        except gestalt.NotFoundError:
-            return None
-        session_id = str(record.get("session_id") or "").strip()
-        if not session_id:
-            return None
-        return self.get_session(session_id)
+    def _list_session_projections(self, *, subject_id: str = "", state: int = 0, limit: int = 0) -> list[StoredSession]:
+        prefix = _session_projection_prefix(subject_id=subject_id, state=state)
+        records = self._session_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
+        return [
+            session for session in (_record_to_session_projection(record) for record in records) if session is not None
+        ]
 
-    def _delete_session_idempotency(self, idempotency_key: str) -> None:
-        if not idempotency_key:
-            return
-        try:
-            self._session_idempotency.delete(idempotency_key)
-        except gestalt.NotFoundError:
-            pass
+    def _list_turn_projections(
+        self, *, session_id: str, subject_id: str = "", status: int = 0, limit: int = 0
+    ) -> list[StoredRun]:
+        prefix = _turn_projection_prefix(session_id=session_id, subject_id=subject_id, status=status)
+        records = self._turn_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
+        return [turn for turn in (_record_to_turn_projection(record) for record in records) if turn is not None]
+
+    def supports_bounded_list_hydration(self) -> bool:
+        return self._session_projections.supports_cursor() and self._turn_projections.supports_cursor()
 
 
 def _turn_checkpoint_to_record(checkpoint: StoredTurnCheckpoint) -> dict[str, Any]:
@@ -1133,6 +1190,200 @@ def _session_to_record(session: StoredSession) -> dict[str, Any]:
     }
 
 
+def _replace_session_projections(store: Any, old: StoredSession | None, new: StoredSession) -> None:
+    for key in set(_session_projection_keys(old) if old is not None else []):
+        try:
+            store.delete(key)
+        except gestalt.NotFoundError:
+            pass
+    for key in _session_projection_keys(new):
+        store.put(_session_projection_to_record(key, new))
+
+
+def _replace_turn_projections(store: Any, old: StoredRun | None, new: StoredRun) -> None:
+    for key in set(_turn_projection_keys(old) if old is not None else []):
+        try:
+            store.delete(key)
+        except gestalt.NotFoundError:
+            pass
+    for key in _turn_projection_keys(new):
+        store.put(_turn_projection_to_record(key, new))
+
+
+def _session_projection_to_record(record_id: str, session: StoredSession) -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "schema_version": PROJECTION_SCHEMA_VERSION,
+        "session_id": session.session_id,
+        "idempotency_key": session.idempotency_key,
+        "provider_name": session.provider_name,
+        "model": session.model,
+        "client_ref": session.client_ref,
+        "state": session.state,
+        "created_by": copy.deepcopy(session.created_by),
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "last_turn_at": session.last_turn_at,
+    }
+
+
+def _record_to_session_projection(record: dict[str, Any] | None) -> StoredSession | None:
+    if record is None:
+        return None
+    session_id = str(record.get("session_id") or "").strip()
+    if not session_id:
+        return None
+    return StoredSession(
+        session_id=session_id,
+        idempotency_key=str(record.get("idempotency_key") or ""),
+        provider_name=str(record.get("provider_name") or ""),
+        model=str(record.get("model") or ""),
+        client_ref=str(record.get("client_ref") or ""),
+        state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
+        metadata={},
+        created_by=_coerce_string_dict(record.get("created_by")),
+        created_at=_coerce_required_datetime(record.get("created_at")),
+        updated_at=_coerce_required_datetime(record.get("updated_at")),
+        last_turn_at=_coerce_datetime(record.get("last_turn_at")),
+    )
+
+
+def _turn_projection_to_record(record_id: str, run: StoredRun) -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "schema_version": PROJECTION_SCHEMA_VERSION,
+        "run_id": run.run_id,
+        "idempotency_key": run.idempotency_key,
+        "provider_name": run.provider_name,
+        "model": run.model,
+        "status": run.status,
+        "status_message": run.status_message,
+        "session_ref": run.session_ref,
+        "created_by": copy.deepcopy(run.created_by),
+        "created_at": run.created_at,
+        "started_at": run.started_at,
+        "completed_at": run.completed_at,
+        "execution_ref": run.execution_ref,
+        "cancel_reason": run.cancel_reason,
+    }
+
+
+def _record_to_turn_projection(record: dict[str, Any] | None) -> StoredRun | None:
+    if record is None:
+        return None
+    run_id = str(record.get("run_id") or "").strip()
+    if not run_id:
+        return None
+    return StoredRun(
+        run_id=run_id,
+        idempotency_key=str(record.get("idempotency_key") or ""),
+        provider_name=str(record.get("provider_name") or ""),
+        model=str(record.get("model") or ""),
+        status=int(record.get("status") or gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED),
+        messages=[],
+        output_text="",
+        structured_output=None,
+        status_message=str(record.get("status_message") or ""),
+        session_ref=str(record.get("session_ref") or ""),
+        created_by=_coerce_string_dict(record.get("created_by")),
+        created_at=_coerce_required_datetime(record.get("created_at")),
+        started_at=_coerce_datetime(record.get("started_at")),
+        completed_at=_coerce_datetime(record.get("completed_at")),
+        execution_ref=str(record.get("execution_ref") or ""),
+        cancel_reason=str(record.get("cancel_reason") or ""),
+        resume_seed=None,
+    )
+
+
+def _session_projection_keys(session: StoredSession) -> list[str]:
+    sort_key = _projection_sort_key(session.last_turn_at or session.updated_at)
+    session_id = _projection_value(session.session_id)
+    state = str(session.state)
+    keys = [
+        _projection_key("session", "all", sort_key, session_id),
+        _projection_key("session", "state", state, sort_key, session_id),
+    ]
+    subject_id = _subject_id_from_actor(session.created_by)
+    if subject_id:
+        subject = _projection_value(subject_id)
+        keys.append(_projection_key("session", "subject", subject, "all", sort_key, session_id))
+        keys.append(_projection_key("session", "subject", subject, "state", state, sort_key, session_id))
+    return keys
+
+
+def _turn_projection_keys(run: StoredRun) -> list[str]:
+    sort_key = _projection_sort_key(run.created_at)
+    session = _projection_value(run.session_ref)
+    run_id = _projection_value(run.run_id)
+    status = str(run.status)
+    keys = [
+        _projection_key("turn", "session", session, "all", sort_key, run_id),
+        _projection_key("turn", "session", session, "status", status, sort_key, run_id),
+    ]
+    subject_id = _subject_id_from_actor(run.created_by)
+    if subject_id:
+        subject = _projection_value(subject_id)
+        keys.append(_projection_key("turn", "session", session, "subject", subject, "all", sort_key, run_id))
+        keys.append(_projection_key("turn", "session", session, "subject", subject, "status", status, sort_key, run_id))
+    return keys
+
+
+def _session_projection_prefix(*, subject_id: str = "", state: int = 0) -> str:
+    subject_id = subject_id.strip()
+    if subject_id and state:
+        return _projection_prefix("session", "subject", _projection_value(subject_id), "state", str(state))
+    if subject_id:
+        return _projection_prefix("session", "subject", _projection_value(subject_id), "all")
+    if state:
+        return _projection_prefix("session", "state", str(state))
+    return _projection_prefix("session", "all")
+
+
+def _turn_projection_prefix(*, session_id: str, subject_id: str = "", status: int = 0) -> str:
+    session = _projection_value(session_id.strip())
+    subject_id = subject_id.strip()
+    if subject_id and status:
+        return _projection_prefix(
+            "turn", "session", session, "subject", _projection_value(subject_id), "status", str(status)
+        )
+    if subject_id:
+        return _projection_prefix("turn", "session", session, "subject", _projection_value(subject_id), "all")
+    if status:
+        return _projection_prefix("turn", "session", session, "status", str(status))
+    return _projection_prefix("turn", "session", session, "all")
+
+
+def _projection_sort_key(value: datetime) -> str:
+    normalized = value.astimezone(UTC)
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    delta = normalized - epoch
+    micros = (delta.days * 86_400 + delta.seconds) * 1_000_000 + delta.microseconds
+    inverted = MAX_INVERTED_SORT_MICROS - max(0, micros)
+    return f"{inverted:020d}"
+
+
+def _projection_value(value: str) -> str:
+    raw = str(value or "").strip().encode()
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return encoded or "-"
+
+
+def _projection_key(*parts: str) -> str:
+    return PROJECTION_SEP.join(parts)
+
+
+def _projection_prefix(*parts: str) -> str:
+    return _projection_key(*parts) + PROJECTION_SEP
+
+
+def _prefix_key_range(prefix: str) -> Any:
+    return gestalt.KeyRange(lower=prefix, upper=f"{prefix}{PROJECTION_RANGE_SUFFIX}")
+
+
+def _subject_id_from_actor(actor: dict[str, str]) -> str:
+    return str(actor.get("subject_id", "") or "").strip()
+
+
 def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
     if record is None:
         return None
@@ -1155,6 +1406,18 @@ def _get_run_from_store(store: Any, run_id: str) -> StoredRun | None:
     return _record_to_run(_get_optional_record(store, run_id))
 
 
+def _session_for_idempotency_key_from_stores(
+    idempotency_store: Any, session_store: Any, idempotency_key: str
+) -> StoredSession | None:
+    record = _get_optional_record(idempotency_store, idempotency_key)
+    if record is None:
+        return None
+    session_id = str(record.get("session_id") or "").strip()
+    if not session_id:
+        return None
+    return _record_to_session(_get_optional_record(session_store, session_id))
+
+
 def _run_for_idempotency_key_from_stores(
     idempotency_store: Any, run_store: Any, idempotency_key: str
 ) -> StoredRun | None:
@@ -1167,15 +1430,20 @@ def _run_for_idempotency_key_from_stores(
     return _get_run_from_store(run_store, run_id)
 
 
-def _touch_session_for_turn_in_store(store: Any, session_id: str, now: datetime) -> None:
+def _touch_session_for_turn_in_store(
+    store: Any, session_id: str, now: datetime, projection_store: Any | None = None
+) -> None:
     if not session_id:
         return
     session = _record_to_session(_get_optional_record(store, session_id))
     if session is None:
         return
+    previous = replace(session)
     session.last_turn_at = now
     session.updated_at = now
     store.put(_session_to_record(session))
+    if projection_store is not None:
+        _replace_session_projections(projection_store, previous, session)
 
 
 def _require_checkpoint_lease_from_store(store: Any, *, turn_id: str, owner: str) -> None:
@@ -1316,15 +1584,29 @@ class _RetryingObjectStore:
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return _call_with_busy_retry(lambda: self._store.get_all(key_range))
 
-    def iter_records(self, key_range: Any | None = None) -> Iterator[dict[str, Any]]:
+    def supports_cursor(self) -> bool:
+        return callable(getattr(self._store, "open_cursor", None))
+
+    def iter_records(
+        self, key_range: Any | None = None, *, limit: int = 0, require_cursor: bool = False
+    ) -> Iterator[dict[str, Any]]:
         open_cursor = getattr(self._store, "open_cursor", None)
         if open_cursor is None:
-            yield from self.get_all(key_range)
+            if require_cursor:
+                raise RuntimeError("indexeddb cursor support is required for bounded list projections")
+            records = self.get_all(key_range)
+            if limit > 0:
+                records = records[:limit]
+            yield from records
             return
 
         cursor = _call_with_busy_retry(lambda: open_cursor(key_range))
         try:
-            while cursor.continue_():
+            yielded = 0
+            while limit <= 0 or yielded < limit:
+                if not cursor.continue_():
+                    break
+                yielded += 1
                 yield copy.deepcopy(cursor.value)
         finally:
             cursor.close()
@@ -1350,8 +1632,13 @@ class _LazyObjectStore:
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return self._resolve().get_all(key_range)
 
-    def iter_records(self, key_range: Any | None = None) -> Iterator[dict[str, Any]]:
-        return self._resolve().iter_records(key_range)
+    def supports_cursor(self) -> bool:
+        return self._resolve().supports_cursor()
+
+    def iter_records(
+        self, key_range: Any | None = None, *, limit: int = 0, require_cursor: bool = False
+    ) -> Iterator[dict[str, Any]]:
+        return self._resolve().iter_records(key_range, limit=limit, require_cursor=require_cursor)
 
     def _resolve(self) -> _RetryingObjectStore:
         return self._owner._object_store(self._name)

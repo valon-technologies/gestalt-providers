@@ -372,7 +372,7 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 		t.Fatalf("Listen(indexeddb): %v", err)
 	}
 	server := grpc.NewServer()
-	proto.RegisterIndexedDBServer(server, store)
+	proto.RegisterIndexedDBServer(server, store.Store)
 	go func() { _ = server.Serve(lis) }()
 	t.Cleanup(func() {
 		server.GracefulStop()

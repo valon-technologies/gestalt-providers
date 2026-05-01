@@ -29,10 +29,34 @@ type connectionConfig struct {
 }
 
 type Provider struct {
-	*Store
+	Store *Store
+	sdkBackend
 }
 
-func New() *Provider { return &Provider{Store: &Store{}} }
+func New() *Provider {
+	p := &Provider{}
+	p.setStore(&Store{})
+	return p
+}
+
+func (p *Provider) setStore(store *Store) {
+	p.Store = store
+	p.sdkBackend = sdkBackend{backend: store}
+}
+
+func (p *Provider) Close() error {
+	if p.Store == nil {
+		return nil
+	}
+	return p.Store.Close()
+}
+
+func (p *Provider) HealthCheck(ctx context.Context) error {
+	if p.Store == nil {
+		return fmt.Errorf("relationaldb: store is not configured")
+	}
+	return p.Store.HealthCheck(ctx)
+}
 
 func (c config) storeOptions() (storeOptions, error) {
 	options := storeOptions{TablePrefix: defaultTablePrefix}
@@ -123,6 +147,6 @@ func (p *Provider) Configure(_ context.Context, _ string, raw map[string]any) er
 	if p.Store != nil {
 		_ = p.Store.Close()
 	}
-	p.Store = store
+	p.setStore(store)
 	return nil
 }
