@@ -18,29 +18,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protowire"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-func TestBoundWorkflowTargetWireShapeIsNestedOnly(t *testing.T) {
-	fields := (&proto.BoundWorkflowTarget{}).ProtoReflect().Descriptor().Fields()
-	got := make([]string, 0, fields.Len())
-	for i := 0; i < fields.Len(); i++ {
-		got = append(got, string(fields.Get(i).Name()))
-	}
-	if len(got) != 2 || got[0] != "plugin" || got[1] != "agent" {
-		t.Fatalf("BoundWorkflowTarget fields = %#v, want [plugin agent]", got)
-	}
-	for _, number := range []protoreflect.FieldNumber{1, 2, 3, 4, 5} {
-		if field := fields.ByNumber(number); field != nil {
-			t.Fatalf("BoundWorkflowTarget field %d = %s, want reserved retired flat slot", number, field.Name())
-		}
-	}
-}
 
 func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	ctx := context.Background()
@@ -2124,46 +2106,6 @@ func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 	}
 }
 
-func TestProviderIgnoresReservedTargetUnknownFields(t *testing.T) {
-	ctx := context.Background()
-	startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
-
-	provider := New()
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	flatOnly := &proto.BoundWorkflowTarget{}
-	appendReservedUnknownStringField(flatOnly, 1, "roadmap")
-	appendReservedUnknownStringField(flatOnly, 2, "sync")
-	if _, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{Target: flatOnly}); err == nil {
-		t.Fatal("StartRun(flat unknown fields) succeeded, want error")
-	} else if !strings.Contains(err.Error(), "target.plugin.plugin_name is required") {
-		t.Fatalf("StartRun(flat unknown fields) error = %v, want nested plugin validation", err)
-	}
-
-	agentTarget := protoAgentTarget("managed", "gpt-5.5", "send a Slack reminder")
-	appendReservedUnknownStringField(agentTarget, 1, "roadmap")
-	appendReservedUnknownStringField(agentTarget, 2, "sync")
-	schedule, err := provider.UpsertSchedule(ctx, &proto.UpsertWorkflowProviderScheduleRequest{
-		ScheduleId: "reserved-unknown-agent",
-		Cron:       "* * * * *",
-		Timezone:   "UTC",
-		Target:     agentTarget,
-	})
-	if err != nil {
-		t.Fatalf("UpsertSchedule(agent with reserved unknown fields): %v", err)
-	}
-	if schedule.GetTarget().GetAgent().GetProviderName() != "managed" {
-		t.Fatalf("schedule target = %#v", schedule.GetTarget())
-	}
-	if len(schedule.GetTarget().ProtoReflect().GetUnknown()) != 0 {
-		t.Fatalf("schedule target retained reserved unknown fields")
-	}
-}
-
 func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
@@ -2251,12 +2193,12 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			want: "missing target_json",
 		},
 		{
-			name: "flat-shaped target json",
+			name: "run target json with unsupported field",
 			put: func() error {
 				return provider.runStore.Put(ctx, gestalt.Record{
 					"id":           "flat-json-run",
 					"status":       int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
-					"target_json":  `{"pluginName":"roadmap","operation":"sync"}`,
+					"target_json":  `{"agent":{"providerName":"simple","prompt":"send a Slack reminder","toolSource":"AGENT_TOOL_SOURCE_MODE_NATIVE_SEARCH"}}`,
 					"trigger_kind": triggerKindManual,
 					"created_at":   now,
 				})
@@ -2265,7 +2207,7 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 				_, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: "flat-json-run"})
 				return err
 			},
-			want: "target_json must contain plugin or agent target",
+			want: "invalid target_json",
 		},
 	}
 	for _, tc := range cases {
@@ -2921,14 +2863,6 @@ func protoBoundTarget(t *testing.T, pluginName, operation string, input map[stri
 			},
 		},
 	}
-}
-
-func appendReservedUnknownStringField(target *proto.BoundWorkflowTarget, number protoreflect.FieldNumber, value string) {
-	message := target.ProtoReflect()
-	raw := append([]byte(nil), message.GetUnknown()...)
-	raw = protowire.AppendTag(raw, protowire.Number(number), protowire.BytesType)
-	raw = protowire.AppendString(raw, value)
-	message.SetUnknown(raw)
 }
 
 func protoAgentTarget(providerName, model, prompt string) *proto.BoundWorkflowTarget {
