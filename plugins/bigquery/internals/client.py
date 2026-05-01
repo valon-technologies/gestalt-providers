@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import decimal
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -107,10 +108,21 @@ def sanitize_row(items: Iterable[tuple[str, Any]]) -> QueryRow:
 def sanitize_value(value: Any) -> JSONValue:
     if isinstance(value, decimal.Decimal):
         return format(value, "f")
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        if math.isnan(value):
+            return "NaN"
+        if value > 0:
+            return "Infinity"
+        return "-Infinity"
     if isinstance(value, bytes):
         return base64.b64encode(value).decode("ascii")
     if isinstance(value, Mapping):
         return {str(key): sanitize_value(item) for key, item in value.items()}
+    row_items = _row_items(value)
+    if row_items is not None:
+        return sanitize_row(row_items)
     if isinstance(value, (list, tuple)):
         return [sanitize_value(item) for item in value]
     if isinstance(value, dt.datetime):
@@ -120,6 +132,13 @@ def sanitize_value(value: Any) -> JSONValue:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _row_items(value: Any) -> Iterable[tuple[str, Any]] | None:
+    items = getattr(value, "items", None)
+    if not callable(items):
+        return None
+    return items()
 
 
 def default_dataset(project_id: str, dataset: str | None) -> DatasetReference | None:
