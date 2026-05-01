@@ -39,9 +39,8 @@ const (
 	sessionStateStopped  = "stopped"
 	sessionStateFailed   = "failed"
 
-	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
-	tokenEnv               = "NEBIUS_IAM_TOKEN"
-	sshPort                = 22
+	tokenEnv = "NEBIUS_IAM_TOKEN"
+	sshPort  = 22
 )
 
 var resourceNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -310,11 +309,9 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 }
 
 func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRuntimeHostServiceRequest) (*proto.PluginRuntimeHostServiceBinding, error) {
-	if strings.TrimSpace(req.GetEnvVar()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "host service env var is required")
-	}
-	if !isRelayHostServiceEnv(req.GetEnvVar()) {
-		return nil, status.Errorf(codes.Unimplemented, "nebius runtime only supports relay-backed public host services, got %q", req.GetEnvVar())
+	envVar, err := normalizeHostServiceEnvVar(req.GetEnvVar())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if req.GetRelay() == nil || strings.TrimSpace(req.GetRelay().GetDialTarget()) == "" {
 		return nil, status.Error(codes.Unimplemented, "nebius runtime requires relay.dial_target for host services")
@@ -332,11 +329,11 @@ func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRunti
 	if s.bindings == nil {
 		s.bindings = map[string]string{}
 	}
-	s.bindings[req.GetEnvVar()] = strings.TrimSpace(req.GetRelay().GetDialTarget())
+	s.bindings[envVar] = strings.TrimSpace(req.GetRelay().GetDialTarget())
 	return &proto.PluginRuntimeHostServiceBinding{
 		Id:        p.newID("binding"),
 		SessionId: s.id,
-		EnvVar:    req.GetEnvVar(),
+		EnvVar:    envVar,
 		Relay: &proto.PluginRuntimeHostServiceRelay{
 			DialTarget: req.GetRelay().GetDialTarget(),
 		},
@@ -376,14 +373,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		closeInstance(inst)
 	}()
 
-	env := cloneStringMap(req.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	for key, value := range bindings {
-		env[key] = value
-	}
-	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort)
+	env := buildPluginEnv(req, bindings, fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort))
 
 	containerName := dockerContainerName(req.GetPluginName(), req.GetSessionId())
 	runCmd := buildDockerRunCommand(containerName, image, req.GetCommand(), req.GetArgs(), env)
@@ -938,6 +928,18 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
+func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings map[string]string, providerSocket string) map[string]string {
+	env := cloneStringMap(req.GetEnv())
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, value := range bindings {
+		env[key] = value
+	}
+	env[proto.EnvProviderSocket] = providerSocket
+	return env
+}
+
 func generateEphemeralSSHKey() (ssh.Signer, string, error) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -987,31 +989,33 @@ func dockerContainerName(pluginName, sessionID string) string {
 	return resourceName("plugin", pluginName, sessionID)
 }
 
-func isIndexedDBSocketEnv(envVar string) bool {
+func normalizeHostServiceEnvVar(envVar string) (string, error) {
 	envVar = strings.TrimSpace(envVar)
-	return envVar == gestalt.EnvIndexedDBSocket || strings.HasPrefix(envVar, gestalt.EnvIndexedDBSocket+"_")
+	if envVar == "" {
+		return "", fmt.Errorf("host service env var is required")
+	}
+	if !isHostServiceEnvVar(envVar) {
+		return "", fmt.Errorf("host service env var %q is invalid", envVar)
+	}
+	return envVar, nil
 }
 
-func isRelayHostServiceEnv(envVar string) bool {
-	envVar = strings.TrimSpace(envVar)
-	switch {
-	case isIndexedDBSocketEnv(envVar):
-		return true
-	case envVar == gestalt.EnvAgentHostSocket:
-		return true
-	case envVar == gestalt.EnvCacheSocket || strings.HasPrefix(envVar, gestalt.EnvCacheSocket+"_"):
-		return true
-	case envVar == gestalt.EnvS3Socket || strings.HasPrefix(envVar, gestalt.EnvS3Socket+"_"):
-		return true
-	case envVar == authorizationSocketEnv:
-		return true
-	case envVar == proto.EnvPluginInvokerSocket:
-		return true
-	case envVar == proto.EnvWorkflowManagerSocket:
-		return true
-	default:
+func isHostServiceEnvVar(envVar string) bool {
+	if envVar == "" {
 		return false
 	}
+	for i, r := range envVar {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case r == '_':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	first := envVar[0]
+	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
 
 func sortStrings(values []string) {

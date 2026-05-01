@@ -292,11 +292,9 @@ func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRunti
 	if req.GetRelay() == nil || strings.TrimSpace(req.GetRelay().GetDialTarget()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "gke agent sandbox runtime requires relay-backed host service bindings")
 	}
-	if strings.TrimSpace(req.GetEnvVar()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "host service env var is required")
-	}
-	if !isRelayHostServiceEnv(req.GetEnvVar()) {
-		return nil, status.Errorf(codes.Unimplemented, "gke agent sandbox runtime only supports relay-backed public host services, got %q", req.GetEnvVar())
+	envVar, err := normalizeHostServiceEnvVar(req.GetEnvVar())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	p.mu.Lock()
@@ -311,10 +309,10 @@ func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRunti
 	id := p.newID("binding")
 	binding := hostServiceBinding{
 		id:         id,
-		envVar:     req.GetEnvVar(),
+		envVar:     envVar,
 		dialTarget: req.GetRelay().GetDialTarget(),
 	}
-	s.bindings[req.GetEnvVar()] = binding
+	s.bindings[envVar] = binding
 	return &proto.PluginRuntimeHostServiceBinding{
 		Id:        id,
 		SessionId: s.id,
@@ -379,14 +377,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 	execCtx, cancel := context.WithTimeout(ctx, cfg.ExecTimeout)
 	defer cancel()
 
-	env := cloneStringMap(req.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	for _, binding := range bindings {
-		env[binding.envVar] = binding.dialTarget
-	}
-	env[proto.EnvProviderSocket] = "/tmp/gestalt/plugin.sock"
+	env := buildPluginEnv(req, bindings, "/tmp/gestalt/plugin.sock")
 	if requiresHostnameEgress(req, env, bindings) {
 		hostnameEgress, err := buildHostnameEgressConfig(env, bindings, templateName)
 		if err != nil {
@@ -600,33 +591,47 @@ func cloneBindings(src map[string]hostServiceBinding) []hostServiceBinding {
 	return dst
 }
 
+func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings []hostServiceBinding, providerSocket string) map[string]string {
+	env := cloneStringMap(req.GetEnv())
+	if env == nil {
+		env = map[string]string{}
+	}
+	for _, binding := range bindings {
+		env[binding.envVar] = binding.dialTarget
+	}
+	env[proto.EnvProviderSocket] = providerSocket
+	return env
+}
+
 func tcpDialTarget(host string, port int) string {
 	return "tcp://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-func isRelayHostServiceEnv(envVar string) bool {
-	switch {
-	case isIndexedDBSocketEnv(envVar):
-		return true
-	case envVar == gestalt.EnvCacheSocket || strings.HasPrefix(envVar, gestalt.EnvCacheSocket+"_"):
-		return true
-	case envVar == gestalt.EnvS3Socket || strings.HasPrefix(envVar, gestalt.EnvS3Socket+"_"):
-		return true
-	case envVar == gestalt.EnvAuthorizationSocket:
-		return true
-	case envVar == proto.EnvPluginInvokerSocket:
-		return true
-	case envVar == proto.EnvWorkflowManagerSocket:
-		return true
-	case envVar == proto.EnvAgentHostSocket:
-		return true
-	case envVar == proto.EnvAgentManagerSocket:
-		return true
-	default:
-		return false
+func normalizeHostServiceEnvVar(envVar string) (string, error) {
+	envVar = strings.TrimSpace(envVar)
+	if envVar == "" {
+		return "", fmt.Errorf("host service env var is required")
 	}
+	if !isHostServiceEnvVar(envVar) {
+		return "", fmt.Errorf("host service env var %q is invalid", envVar)
+	}
+	return envVar, nil
 }
 
-func isIndexedDBSocketEnv(envVar string) bool {
-	return envVar == gestalt.EnvIndexedDBSocket || strings.HasPrefix(envVar, gestalt.EnvIndexedDBSocket+"_")
+func isHostServiceEnvVar(envVar string) bool {
+	if envVar == "" {
+		return false
+	}
+	for i, r := range envVar {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case r == '_':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	first := envVar[0]
+	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }

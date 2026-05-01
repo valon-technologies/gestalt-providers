@@ -42,9 +42,8 @@ const (
 	sessionStateStopped = "stopped"
 	sessionStateFailed  = "failed"
 
-	authorizationSocketEnv = "GESTALT_AUTHORIZATION_SOCKET"
-	registryUsernameEnv    = "REGISTRY_USERNAME"
-	registryPasswordEnv    = "REGISTRY_PASSWORD"
+	registryUsernameEnv = "REGISTRY_USERNAME"
+	registryPasswordEnv = "REGISTRY_PASSWORD"
 
 	modalSandboxTagSchemaVersion = "gestalt_schema_version"
 	modalSandboxTagVersion       = "1"
@@ -560,11 +559,9 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 }
 
 func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRuntimeHostServiceRequest) (*proto.PluginRuntimeHostServiceBinding, error) {
-	if strings.TrimSpace(req.GetEnvVar()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "host service env var is required")
-	}
-	if !isRelayHostServiceEnv(req.GetEnvVar()) {
-		return nil, status.Errorf(codes.Unimplemented, "modal runtime only supports relay-backed public host services, got %q", req.GetEnvVar())
+	envVar, err := normalizeHostServiceEnvVar(req.GetEnvVar())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	relay := req.GetRelay()
@@ -591,12 +588,12 @@ func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRunti
 	if session.bindings == nil {
 		session.bindings = map[string]string{}
 	}
-	session.bindings[req.GetEnvVar()] = dialTarget
+	session.bindings[envVar] = dialTarget
 
 	return &proto.PluginRuntimeHostServiceBinding{
 		Id:        p.newID("binding"),
 		SessionId: session.id,
-		EnvVar:    req.GetEnvVar(),
+		EnvVar:    envVar,
 		Relay:     relay,
 	}, nil
 }
@@ -645,14 +642,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 
 	command := req.GetCommand()
 
-	env := cloneStringMap(req.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	for key, value := range bindings {
-		env[key] = value
-	}
-	env[proto.EnvProviderSocket] = fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort)
+	env := buildPluginEnv(req, bindings, fmt.Sprintf("tcp://0.0.0.0:%d", pluginGRPCPort))
 
 	execArgv := append([]string{command}, req.GetArgs()...)
 	startedAt := time.Now()
@@ -1451,6 +1441,18 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
+func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings map[string]string, providerSocket string) map[string]string {
+	env := cloneStringMap(req.GetEnv())
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, value := range bindings {
+		env[key] = value
+	}
+	env[proto.EnvProviderSocket] = providerSocket
+	return env
+}
+
 func cloneImageRegistryCredentials(src *imageRegistryCredentials) *imageRegistryCredentials {
 	if src == nil {
 		return nil
@@ -1461,31 +1463,33 @@ func cloneImageRegistryCredentials(src *imageRegistryCredentials) *imageRegistry
 	}
 }
 
-func isIndexedDBSocketEnv(envVar string) bool {
+func normalizeHostServiceEnvVar(envVar string) (string, error) {
 	envVar = strings.TrimSpace(envVar)
-	return envVar == gestalt.EnvIndexedDBSocket || strings.HasPrefix(envVar, gestalt.EnvIndexedDBSocket+"_")
+	if envVar == "" {
+		return "", fmt.Errorf("host service env var is required")
+	}
+	if !isHostServiceEnvVar(envVar) {
+		return "", fmt.Errorf("host service env var %q is invalid", envVar)
+	}
+	return envVar, nil
 }
 
-func isRelayHostServiceEnv(envVar string) bool {
-	envVar = strings.TrimSpace(envVar)
-	switch {
-	case isIndexedDBSocketEnv(envVar):
-		return true
-	case envVar == gestalt.EnvAgentHostSocket:
-		return true
-	case envVar == gestalt.EnvCacheSocket || strings.HasPrefix(envVar, gestalt.EnvCacheSocket+"_"):
-		return true
-	case envVar == gestalt.EnvS3Socket || strings.HasPrefix(envVar, gestalt.EnvS3Socket+"_"):
-		return true
-	case envVar == authorizationSocketEnv:
-		return true
-	case envVar == proto.EnvPluginInvokerSocket:
-		return true
-	case envVar == proto.EnvWorkflowManagerSocket:
-		return true
-	default:
+func isHostServiceEnvVar(envVar string) bool {
+	if envVar == "" {
 		return false
 	}
+	for i, r := range envVar {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case r == '_':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	first := envVar[0]
+	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
 
 func slicesOrNil[T any](in []T) []T {
