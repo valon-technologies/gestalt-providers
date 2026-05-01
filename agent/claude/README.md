@@ -11,7 +11,7 @@ The first cut is intentionally small:
 - in-memory AgentProvider sessions and turns
 - one SDK client per turn
 - no durable Claude session store, resume, branching, or fork support
-- no provider-side `SearchTools` call
+- no provider-side search RPC call
 - built-in Claude tools disabled with `tools=[]`
 - Gestalt tool calls routed through `AgentHost.ExecuteTool`
 

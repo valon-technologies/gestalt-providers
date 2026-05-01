@@ -42,7 +42,6 @@ vulture-ignore-names = [
   "configure",
   "metadata",
   "ListTools",
-  "SearchTools",
   "ExecuteTool",
   "setUpModule",
   "tearDownModule",

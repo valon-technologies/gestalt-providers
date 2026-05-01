@@ -27,7 +27,7 @@ timestamp_pb2: Any = _timestamp_pb2
 
 TOOL_SEARCH_FUNCTION_NAME = "gestalt_search_tools"
 TOOL_SEARCH_TOOL_ID = "__gestalt_search_tools__"
-TOOL_SEARCH_LEGACY_DEFAULT_MAX_RESULTS = 8
+TOOL_SEARCH_DEFAULT_MAX_RESULTS = 8
 TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS = 3
 TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT = 10
 TOOL_SEARCH_MAX_RESULTS = 20
@@ -238,7 +238,7 @@ class SimpleAgentOrchestrator:
             if claimed:
                 try:
                     self._store.release_turn_lease(turn_id, owner=self._worker_id)
-                except (grpc.RpcError, RuntimeError):
+                except grpc.RpcError, RuntimeError:
                     pass
             with self._scheduled_lock:
                 self._scheduled_turns.discard(turn_id)
@@ -253,7 +253,7 @@ class SimpleAgentOrchestrator:
                 try:
                     if not self._store.renew_turn_lease(turn_id, owner=self._worker_id, lease_seconds=lease_seconds):
                         return
-                except (grpc.RpcError, RuntimeError):
+                except grpc.RpcError, RuntimeError:
                     return
 
         thread = threading.Thread(target=renew_loop, daemon=True)
@@ -812,8 +812,8 @@ def _search_tools_for_model(
             0
             if load_refs
             else TOOL_SEARCH_ADAPTIVE_DEFAULT_MAX_RESULTS
-            if _tool_search_adaptive_supported() and candidate_limit > 0
-            else TOOL_SEARCH_LEGACY_DEFAULT_MAX_RESULTS
+            if candidate_limit > 0
+            else TOOL_SEARCH_DEFAULT_MAX_RESULTS
         ),
         allow_zero=bool(load_refs),
     )
@@ -962,7 +962,7 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
 def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool = False) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if value < 0:
         return default
@@ -974,7 +974,7 @@ def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool =
 def _tool_search_candidate_limit(raw_value: Any, *, default: int) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if value <= 0:
         return 0
@@ -1040,35 +1040,12 @@ def _proto_message_has_field(message: Any, field_name: str) -> bool:
     return field_name in fields_by_name
 
 
-def _tool_search_adaptive_supported() -> bool:
-    return (
-        _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "candidate_limit")
-        and _proto_message_has_field(agent_pb2.SearchAgentToolsRequest(), "load_refs")
-        and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "candidates")
-        and _proto_message_has_field(agent_pb2.SearchAgentToolsResponse(), "has_more")
-    )
-
-
 def _tool_search_system_prompt() -> str:
-    if _tool_search_adaptive_supported():
-        return TOOL_SEARCH_SYSTEM_PROMPT + TOOL_SEARCH_ADAPTIVE_SYSTEM_PROMPT
-    return TOOL_SEARCH_SYSTEM_PROMPT
+    return TOOL_SEARCH_SYSTEM_PROMPT + TOOL_SEARCH_ADAPTIVE_SYSTEM_PROMPT
 
 
 def _tool_search_tool_spec() -> dict[str, Any]:
-    tool_spec = copy.deepcopy(TOOL_SEARCH_TOOL_SPEC)
-    function_spec = cast(dict[str, Any], tool_spec["function"])
-    parameters = cast(dict[str, Any], function_spec["parameters"])
-    if _tool_search_adaptive_supported():
-        return tool_spec
-
-    properties = cast(dict[str, Any], parameters["properties"])
-    properties.pop("candidate_limit", None)
-    properties.pop("load_refs", None)
-    max_results = cast(dict[str, Any], properties["max_results"])
-    max_results["minimum"] = 1
-    parameters["required"] = ["query"]
-    return tool_spec
+    return copy.deepcopy(TOOL_SEARCH_TOOL_SPEC)
 
 
 def _set_proto_string_field(message: Any, field_name: str, raw_value: Any) -> None:
