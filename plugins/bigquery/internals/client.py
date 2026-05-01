@@ -1,76 +1,125 @@
+from __future__ import annotations
+
+import base64
 import datetime as dt
 import decimal
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Protocol, TypeAlias
 
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import bigquery
 from google.cloud.bigquery import DatasetReference, QueryJobConfig, SchemaField
 from google.oauth2.credentials import Credentials
 
+JSONScalar: TypeAlias = str | int | float | bool | None
+JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+QueryRow: TypeAlias = dict[str, JSONValue]
+
+
+class BigQueryRow(Protocol):
+    def items(self) -> Iterable[tuple[str, Any]]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class QueryRequest:
+    access_token: str
+    project_id: str
+    sql: str
+    dataset: str | None = None
+    max_results: int = 500
+    timeout_seconds: int = 60
+    use_legacy_sql: bool = False
+
+    @property
+    def row_limit(self) -> int:
+        return max(0, self.max_results)
+
+    @property
+    def timeout(self) -> int | None:
+        if self.timeout_seconds <= 0:
+            return None
+        return self.timeout_seconds
+
 
 @dataclass(frozen=True, slots=True)
 class QueryExecutionResult:
-    schema: list[SchemaField]
-    rows: list[dict[str, Any]]
+    schema: tuple[SchemaField, ...]
+    rows: tuple[QueryRow, ...]
     total_rows: int
 
 
-def query_operation(
-    *,
-    access_token: str,
-    project_id: str,
-    dataset: str | None,
-    query: str,
-    max_results: int,
-    timeout_seconds: int,
-    use_legacy_sql: bool,
+class QueryExecutor(Protocol):
+    def execute(self, request: QueryRequest) -> QueryExecutionResult: ...
+
+
+class GoogleBigQueryQueryExecutor:
+    def execute(self, request: QueryRequest) -> QueryExecutionResult:
+        query_timeout = request.timeout
+        with bigquery.Client(
+            project=request.project_id,
+            credentials=Credentials(token=request.access_token),
+        ) as client:
+            job = client.query(
+                request.sql,
+                job_config=query_job_config(request),
+                timeout=query_timeout,
+                project=request.project_id,
+            )
+            iterator = job.result(timeout=query_timeout)
+            return QueryExecutionResult(
+                schema=tuple(iterator.schema),
+                rows=query_rows(iterator, limit=request.row_limit),
+                total_rows=int(iterator.total_rows or 0),
+            )
+
+
+DEFAULT_QUERY_EXECUTOR = GoogleBigQueryQueryExecutor()
+
+
+def execute_query(
+    request: QueryRequest, executor: QueryExecutor = DEFAULT_QUERY_EXECUTOR
 ) -> QueryExecutionResult:
-    max_results = max(0, max_results)
-    query_timeout = timeout_seconds if timeout_seconds > 0 else None
-    with bigquery.Client(
-        project=project_id, credentials=Credentials(token=access_token)
-    ) as client:
-        job = client.query(
-            query,
-            job_config=QueryJobConfig(
-                use_legacy_sql=use_legacy_sql,
-                default_dataset=default_dataset(project_id, dataset),
-            ),
-            timeout=query_timeout,
-            project=project_id,
-        )
-        iterator = job.result(timeout=query_timeout)
-        rows: list[dict[str, Any]] = []
-        for index, row in enumerate(iterator):
-            if index >= max_results:
-                break
-            rows.append(sanitize_row(dict(row.items())))
-
-        return QueryExecutionResult(
-            schema=list(iterator.schema),
-            rows=rows,
-            total_rows=int(iterator.total_rows or 0),
-        )
+    return executor.execute(request)
 
 
-def sanitize_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {key: sanitize_value(value) for key, value in row.items()}
+def query_job_config(request: QueryRequest) -> QueryJobConfig:
+    return QueryJobConfig(
+        use_legacy_sql=request.use_legacy_sql,
+        default_dataset=default_dataset(request.project_id, request.dataset),
+    )
 
 
-def sanitize_value(value: Any) -> Any:
+def query_rows(rows: Iterable[BigQueryRow], *, limit: int) -> tuple[QueryRow, ...]:
+    collected: list[QueryRow] = []
+    for index, row in enumerate(rows):
+        if index >= limit:
+            break
+        collected.append(sanitize_row(row.items()))
+    return tuple(collected)
+
+
+def sanitize_row(items: Iterable[tuple[str, Any]]) -> QueryRow:
+    return {key: sanitize_value(value) for key, value in items}
+
+
+def sanitize_value(value: Any) -> JSONValue:
     if isinstance(value, decimal.Decimal):
         return format(value, "f")
-    if isinstance(value, dict):
-        return {key: sanitize_value(item) for key, item in value.items()}
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    if isinstance(value, Mapping):
+        return {str(key): sanitize_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [sanitize_value(item) for item in value]
     if isinstance(value, dt.datetime):
         return value.isoformat()
     if isinstance(value, (dt.date, dt.time)):
         return value.isoformat()
-    return value
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def default_dataset(project_id: str, dataset: str | None) -> DatasetReference | None:

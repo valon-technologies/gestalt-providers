@@ -1,11 +1,20 @@
+from __future__ import annotations
+
 from http import HTTPStatus
-from typing import Any
+from typing import Any, TypeAlias
 
 import gestalt
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud.bigquery import SchemaField
 
-from internals.client import google_api_message, google_api_status, query_operation
+from internals.client import (
+    QueryRequest,
+    execute_query,
+    google_api_message,
+    google_api_status,
+)
+
+ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 
 
 class QueryInput(gestalt.Model):
@@ -46,37 +55,26 @@ class QueryOutput(gestalt.Model):
     job_complete: bool
 
 
-QueryResult = QueryOutput | gestalt.Response[dict[str, str]]
+QueryResult: TypeAlias = QueryOutput | ErrorResponse
 
 
 @gestalt.operation(description="Execute a BigQuery SQL query", tags=["bq", "sql"])
 def query(input: QueryInput, req: gestalt.Request) -> QueryResult:
-    project_id = input.project_id.strip()
-    if not project_id:
-        return gestalt.Response(
-            status=HTTPStatus.BAD_REQUEST, body={"error": "project_id is required"}
-        )
-
-    dataset = input.dataset.strip() if input.dataset else None
-    query_text = input.query.strip()
-    if not query_text:
-        return gestalt.Response(
-            status=HTTPStatus.BAD_REQUEST, body={"error": "query is required"}
-        )
-
     try:
-        result = query_operation(
-            access_token=req.token,
-            project_id=project_id,
-            dataset=dataset or None,
-            query=query_text,
-            max_results=input.max_results,
-            timeout_seconds=input.timeout_seconds,
-            use_legacy_sql=input.use_legacy_sql,
+        result = execute_query(
+            QueryRequest(
+                access_token=req.token,
+                project_id=_require_trimmed_text(input.project_id, "project_id"),
+                dataset=_optional_trimmed_text(input.dataset),
+                sql=_require_trimmed_text(input.query, "query"),
+                max_results=input.max_results,
+                timeout_seconds=input.timeout_seconds,
+                use_legacy_sql=input.use_legacy_sql,
+            )
         )
         return QueryOutput(
             schema=convert_schema(result.schema),
-            rows=result.rows,
+            rows=list(result.rows),
             total_rows=result.total_rows,
             job_complete=True,
         )
@@ -92,7 +90,7 @@ def query(input: QueryInput, req: gestalt.Request) -> QueryResult:
         )
 
 
-def convert_schema(schema: list[SchemaField]) -> list[QuerySchemaField]:
+def convert_schema(schema: tuple[SchemaField, ...]) -> list[QuerySchemaField]:
     return [
         QuerySchemaField(
             name=field.name,
@@ -101,3 +99,16 @@ def convert_schema(schema: list[SchemaField]) -> list[QuerySchemaField]:
         )
         for field in schema
     ]
+
+
+def _require_trimmed_text(value: str, field_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required")
+    return normalized
+
+
+def _optional_trimmed_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip() or None
