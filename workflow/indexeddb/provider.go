@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
-	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -22,9 +21,7 @@ import (
 	"github.com/robfig/cron/v3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	gproto "google.golang.org/protobuf/proto"
@@ -68,11 +65,11 @@ const (
 	signalStateDelivered = "delivered"
 	signalStateFailed    = "failed"
 
-	columnTypeString = 0
-	columnTypeInt    = 1
-	columnTypeBool   = 3
-	columnTypeTime   = 4
-	columnTypeJSON   = 6
+	columnTypeString = gestalt.TypeString
+	columnTypeInt    = gestalt.TypeInt
+	columnTypeBool   = gestalt.TypeBool
+	columnTypeTime   = gestalt.TypeTime
+	columnTypeJSON   = gestalt.TypeJSON
 
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
@@ -96,8 +93,6 @@ type Provider struct {
 	name              string
 	cfg               config
 	db                *gestalt.IndexedDBClient
-	adminConn         *grpc.ClientConn
-	admin             proto.IndexedDBClient
 	host              *gestalt.WorkflowHostClient
 	scheduleStore     *gestalt.ObjectStoreClient
 	eventTriggerStore *gestalt.ObjectStoreClient
@@ -254,26 +249,18 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		return fmt.Errorf("indexeddb workflow: connect indexeddb: %w", err)
 	}
 
-	adminConn, admin, err := dialIndexedDBAdmin()
-	if err != nil {
-		_ = db.Close()
-		return fmt.Errorf("indexeddb workflow: connect indexeddb admin: %w", err)
-	}
-
 	host, err := gestalt.WorkflowHost()
 	if err != nil {
-		_ = adminConn.Close()
 		_ = db.Close()
 		return fmt.Errorf("indexeddb workflow: connect workflow host: %w", err)
 	}
 
 	cleanup := func() {
 		_ = host.Close()
-		_ = adminConn.Close()
 		_ = db.Close()
 	}
 
-	if err := ensureWorkflowStores(ctx, admin, db); err != nil {
+	if err := ensureWorkflowStores(ctx, db); err != nil {
 		cleanup()
 		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
 	}
@@ -292,8 +279,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.name = strings.TrimSpace(name)
 	p.cfg = cfg
 	p.db = db
-	p.adminConn = adminConn
-	p.admin = admin
 	p.host = host
 	p.scheduleStore = db.ObjectStore(storeSchedules)
 	p.eventTriggerStore = db.ObjectStore(storeEventTriggers)
@@ -402,13 +387,10 @@ func (p *Provider) Close() error {
 	done := p.pollDone
 	host := p.host
 	db := p.db
-	adminConn := p.adminConn
 
 	p.name = ""
 	p.cfg = config{}
 	p.db = nil
-	p.adminConn = nil
-	p.admin = nil
 	p.host = nil
 	p.scheduleStore = nil
 	p.eventTriggerStore = nil
@@ -434,11 +416,6 @@ func (p *Provider) Close() error {
 	var errs []error
 	if host != nil {
 		if err := host.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if adminConn != nil {
-		if err := adminConn.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -2523,77 +2500,57 @@ func decodeConfig(raw map[string]any) (config, error) {
 	return cfg, nil
 }
 
-func dialIndexedDBAdmin() (*grpc.ClientConn, proto.IndexedDBClient, error) {
-	socketPath := os.Getenv(gestalt.EnvIndexedDBSocket)
-	if socketPath == "" {
-		return nil, nil, fmt.Errorf("%s is not set", gestalt.EnvIndexedDBSocket)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := grpc.DialContext(ctx, "unix:"+socketPath,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	return conn, proto.NewIndexedDBClient(conn), nil
-}
-
-func ensureWorkflowStores(ctx context.Context, admin proto.IndexedDBClient, db *gestalt.IndexedDBClient) error {
+func ensureWorkflowStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
 	for _, def := range []storeSchemaDef{
-		{name: storeSchedules, schema: &proto.ObjectStoreSchema{}},
-		{name: storeEventTriggers, schema: &proto.ObjectStoreSchema{}},
-		{name: storeIdempotency, schema: &proto.ObjectStoreSchema{}},
+		{name: storeSchedules, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeEventTriggers, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeIdempotency, schema: gestalt.ObjectStoreSchema{}},
 	} {
-		if err := createWorkflowStore(ctx, admin, def.name, def.schema); err != nil {
+		if err := createWorkflowStore(ctx, db, def.name, def.schema); err != nil {
 			return err
 		}
 	}
-	if err := ensureWorkflowStoreExists(ctx, admin, db.ObjectStore(storeWorkflowKeys), storeWorkflowKeys, &proto.ObjectStoreSchema{}); err != nil {
+	if err := ensureWorkflowStoreExists(ctx, db, db.ObjectStore(storeWorkflowKeys), storeWorkflowKeys, gestalt.ObjectStoreSchema{}); err != nil {
 		return err
 	}
 
 	runStore := db.ObjectStore(storeRuns)
-	if err := ensureWorkflowStoreExists(ctx, admin, runStore, storeRuns, &proto.ObjectStoreSchema{}); err != nil {
+	if err := ensureWorkflowStoreExists(ctx, db, runStore, storeRuns, gestalt.ObjectStoreSchema{}); err != nil {
 		return err
 	}
-	if err := ensureWorkflowStoreExists(ctx, admin, db.ObjectStore(storeRunClaims), storeRunClaims, workflowRunClaimSchema()); err != nil {
+	if err := ensureWorkflowStoreExists(ctx, db, db.ObjectStore(storeRunClaims), storeRunClaims, workflowRunClaimSchema()); err != nil {
 		return err
 	}
 
-	if err := ensureIndexedWorkflowStore(ctx, admin, db.ObjectStore(storeExecutionRefs), storeExecutionRefs, workflowExecutionReferenceSchema(), validateWorkflowExecutionReferenceIndexes); err != nil {
+	if err := ensureIndexedWorkflowStore(ctx, db, db.ObjectStore(storeExecutionRefs), storeExecutionRefs, workflowExecutionReferenceSchema(), validateWorkflowExecutionReferenceIndexes); err != nil {
 		return err
 	}
-	if err := ensureIndexedWorkflowStore(ctx, admin, db.ObjectStore(storeSignals), storeSignals, workflowSignalSchema(), validateWorkflowSignalIndexes); err != nil {
+	if err := ensureIndexedWorkflowStore(ctx, db, db.ObjectStore(storeSignals), storeSignals, workflowSignalSchema(), validateWorkflowSignalIndexes); err != nil {
 		return err
 	}
 	return nil
 }
 
-func createWorkflowStore(ctx context.Context, admin proto.IndexedDBClient, name string, schema *proto.ObjectStoreSchema) error {
-	_, err := admin.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name:   name,
-		Schema: schema,
-	})
-	if err != nil && status.Code(err) != codes.AlreadyExists {
+func createWorkflowStore(ctx context.Context, db *gestalt.IndexedDBClient, name string, schema gestalt.ObjectStoreSchema) error {
+	err := db.CreateObjectStore(ctx, name, schema)
+	if err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return err
 	}
 	return nil
 }
 
-func ensureWorkflowStoreExists(ctx context.Context, admin proto.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema *proto.ObjectStoreSchema) error {
+func ensureWorkflowStoreExists(ctx context.Context, db *gestalt.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema gestalt.ObjectStoreSchema) error {
 	if _, err := store.Count(ctx, nil); err == nil {
 		return nil
 	} else if !errors.Is(err, gestalt.ErrNotFound) {
 		return err
 	}
-	return createWorkflowStore(ctx, admin, name, schema)
+	return createWorkflowStore(ctx, db, name, schema)
 }
 
-func ensureIndexedWorkflowStore(ctx context.Context, admin proto.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema *proto.ObjectStoreSchema, validate func(context.Context, *gestalt.ObjectStoreClient) error) error {
+func ensureIndexedWorkflowStore(ctx context.Context, db *gestalt.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema gestalt.ObjectStoreSchema, validate func(context.Context, *gestalt.ObjectStoreClient) error) error {
 	if _, err := store.Count(ctx, nil); errors.Is(err, gestalt.ErrNotFound) {
-		if err := createWorkflowStore(ctx, admin, name, schema); err != nil {
+		if err := createWorkflowStore(ctx, db, name, schema); err != nil {
 			return err
 		}
 		return validate(ctx, store)
@@ -2629,12 +2586,12 @@ func validateWorkflowSignalIndexes(ctx context.Context, store *gestalt.ObjectSto
 
 type storeSchemaDef struct {
 	name   string
-	schema *proto.ObjectStoreSchema
+	schema gestalt.ObjectStoreSchema
 }
 
-func workflowKeySchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Columns: []*proto.ColumnDef{
+func workflowKeySchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
 			{Name: "run_id", Type: columnTypeString, NotNull: true},
 			{Name: "created_at", Type: columnTypeTime},
@@ -2642,9 +2599,9 @@ func workflowKeySchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func workflowRunClaimSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Columns: []*proto.ColumnDef{
+func workflowRunClaimSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
 			{Name: "run_id", Type: columnTypeString, NotNull: true},
 			{Name: "owner_id", Type: columnTypeString, NotNull: true},
@@ -2654,14 +2611,14 @@ func workflowRunClaimSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func workflowSignalSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func workflowSignalSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_run", KeyPath: []string{"run_id"}},
 			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},
 			{Name: "by_run_sequence", KeyPath: []string{"run_id", "sequence"}, Unique: true},
 		},
-		Columns: []*proto.ColumnDef{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
 			{Name: "run_id", Type: columnTypeString, NotNull: true},
 			{Name: "workflow_key", Type: columnTypeString},
@@ -2680,12 +2637,12 @@ func workflowSignalSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func workflowExecutionReferenceSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_subject", KeyPath: []string{"subject_id"}},
 		},
-		Columns: []*proto.ColumnDef{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: columnTypeString, PrimaryKey: true},
 			{Name: "provider_name", Type: columnTypeString, NotNull: true},
 			{Name: "target_json", Type: columnTypeString},

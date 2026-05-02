@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -55,11 +55,8 @@ func hostnameEgressStatus(prefix string, err error) error {
 	return status.Errorf(codes.Internal, "%s: %v", prefix, err)
 }
 
-func requiresHostnameEgress(req *proto.StartHostedPluginRequest, env map[string]string, bindings []hostServiceBinding) bool {
-	if req == nil {
-		return false
-	}
-	if strings.EqualFold(strings.TrimSpace(req.GetDefaultAction()), "deny") {
+func requiresHostnameEgress(req gestalt.StartHostedPluginRequest, env map[string]string) bool {
+	if strings.EqualFold(strings.TrimSpace(req.DefaultAction), "deny") {
 		return true
 	}
 	for _, proxyEnv := range []string{"HTTPS_PROXY", "HTTP_PROXY"} {
@@ -67,8 +64,8 @@ func requiresHostnameEgress(req *proto.StartHostedPluginRequest, env map[string]
 			return true
 		}
 	}
-	relayHosts := relayHostnameSet(bindings)
-	for _, host := range req.GetAllowedHosts() {
+	relayHosts := relayHostnameSetFromEnv(env)
+	for _, host := range req.AllowedHosts {
 		if _, ok := relayHosts[normalizeHostname(host)]; !ok {
 			return true
 		}
@@ -76,7 +73,7 @@ func requiresHostnameEgress(req *proto.StartHostedPluginRequest, env map[string]
 	return false
 }
 
-func buildHostnameEgressConfig(env map[string]string, bindings []hostServiceBinding, templateName string) (hostnameEgressConfig, error) {
+func buildHostnameEgressConfig(env map[string]string, templateName string) (hostnameEgressConfig, error) {
 	config := hostnameEgressConfig{
 		Template: strings.TrimSpace(templateName),
 	}
@@ -97,7 +94,7 @@ func buildHostnameEgressConfig(env map[string]string, bindings []hostServiceBind
 	if !proxySet {
 		return hostnameEgressConfig{}, newHostnameEgressPreconditionError("hostname-based egress requires HTTP_PROXY or HTTPS_PROXY")
 	}
-	for _, binding := range bindings {
+	for _, binding := range hostServiceRelayTargetsFromEnv(env) {
 		endpoint, err := parseHostnameEgressTarget(binding.dialTarget)
 		if err != nil {
 			return hostnameEgressConfig{}, newHostnameEgressPreconditionError("parse relay target for %s: %v", binding.envVar, err)
@@ -122,9 +119,9 @@ func addHostnameEgressEndpoint(config *hostnameEgressConfig, added map[string]st
 	config.Endpoints = append(config.Endpoints, endpoint)
 }
 
-func relayHostnameSet(bindings []hostServiceBinding) map[string]struct{} {
-	hosts := make(map[string]struct{}, len(bindings))
-	for _, binding := range bindings {
+func relayHostnameSetFromEnv(env map[string]string) map[string]struct{} {
+	hosts := make(map[string]struct{}, len(env))
+	for _, binding := range hostServiceRelayTargetsFromEnv(env) {
 		endpoint, err := parseHostnameEgressTarget(binding.dialTarget)
 		if err != nil {
 			continue
@@ -134,6 +131,32 @@ func relayHostnameSet(bindings []hostServiceBinding) map[string]struct{} {
 		}
 	}
 	return hosts
+}
+
+func hostServiceRelayTargetsFromEnv(env map[string]string) []hostServiceBinding {
+	if len(env) == 0 {
+		return nil
+	}
+	out := make([]hostServiceBinding, 0, len(env))
+	for key, target := range env {
+		if !isHostServiceSocketEnv(key) {
+			continue
+		}
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		out = append(out, hostServiceBinding{
+			envVar:     key,
+			dialTarget: target,
+		})
+	}
+	return out
+}
+
+func isHostServiceSocketEnv(key string) bool {
+	key = strings.TrimSpace(key)
+	return key != envProviderSocket && strings.HasSuffix(key, "_SOCKET")
 }
 
 func normalizeHostname(host string) string {

@@ -18,10 +18,10 @@ from mcp import types as mcp_types
 
 import provider as provider_module
 from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-from gestalt.gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
-from gestalt.gen.v1 import runtime_pb2 as _runtime_pb2
-from gestalt.gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
+from gestalt._gen.v1 import agent_pb2 as _agent_pb2
+from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
+from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
+from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc

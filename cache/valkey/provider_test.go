@@ -7,10 +7,7 @@ import (
 	"time"
 
 	"github.com/valkey-io/valkey-go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 const testDB = 15
@@ -28,12 +25,12 @@ func TestProviderRequiresAddresses(t *testing.T) {
 func TestProviderRequiresConfiguration(t *testing.T) {
 	provider := New()
 
-	_, err := provider.Get(context.Background(), &proto.CacheGetRequest{Key: "alpha"})
+	_, _, err := provider.Get(context.Background(), "alpha")
 	if err == nil {
 		t.Fatal("Get without Configure succeeded, want error")
 	}
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("Get without Configure code = %s, want %s", status.Code(err), codes.FailedPrecondition)
+	if err.Error() != "valkey cache: not configured" {
+		t.Fatalf("Get without Configure error = %q, want not configured", err.Error())
 	}
 }
 
@@ -63,176 +60,140 @@ func TestProviderLifecycle(t *testing.T) {
 	if err := provider.HealthCheck(ctx); err != nil {
 		t.Fatalf("HealthCheck: %v", err)
 	}
-	if _, err := provider.Set(ctx, &proto.CacheSetRequest{
-		Key:   "bad-ttl",
-		Value: []byte("x"),
-		Ttl:   durationProto(-time.Second),
-	}); err == nil {
+	if err := provider.Set(ctx, "bad-ttl", []byte("x"), gestalt.CacheSetOptions{TTL: -time.Second}); err == nil {
 		t.Fatal("Set with negative ttl succeeded, want error")
-	} else if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("Set with negative ttl code = %s, want %s", status.Code(err), codes.InvalidArgument)
 	}
-	if _, err := provider.Set(ctx, &proto.CacheSetRequest{
-		Key:   "subms-set",
-		Value: []byte("short"),
-		Ttl:   durationProto(500 * time.Microsecond),
-	}); err != nil {
+	if err := provider.Set(ctx, "subms-set", []byte("short"), gestalt.CacheSetOptions{TTL: 500 * time.Microsecond}); err != nil {
 		t.Fatalf("Set(subms-set): %v", err)
 	}
 	time.Sleep(20 * time.Millisecond)
-	submsSet, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "subms-set"})
+	_, submsSet, err := provider.Get(ctx, "subms-set")
 	if err != nil {
 		t.Fatalf("Get(subms-set after expiry): %v", err)
 	}
-	if submsSet.GetFound() {
+	if submsSet {
 		t.Fatal("Get(subms-set after expiry) found = true, want false")
 	}
 
-	if _, err := provider.Set(ctx, &proto.CacheSetRequest{
-		Key:   "alpha",
-		Value: []byte("one"),
-	}); err != nil {
+	if err := provider.Set(ctx, "alpha", []byte("one"), gestalt.CacheSetOptions{}); err != nil {
 		t.Fatalf("Set(alpha): %v", err)
 	}
 
-	alpha, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "alpha"})
+	alpha, found, err := provider.Get(ctx, "alpha")
 	if err != nil {
 		t.Fatalf("Get(alpha): %v", err)
 	}
-	if !alpha.GetFound() || string(alpha.GetValue()) != "one" {
-		t.Fatalf("Get(alpha) = (%v, %q), want (true, %q)", alpha.GetFound(), alpha.GetValue(), "one")
+	if !found || string(alpha) != "one" {
+		t.Fatalf("Get(alpha) = (%v, %q), want (true, %q)", found, alpha, "one")
 	}
 
-	if _, err := provider.Set(ctx, &proto.CacheSetRequest{
-		Key:   "ephemeral",
-		Value: []byte("temp"),
-		Ttl:   durationProto(150 * time.Millisecond),
-	}); err != nil {
+	if err := provider.Set(ctx, "ephemeral", []byte("temp"), gestalt.CacheSetOptions{TTL: 150 * time.Millisecond}); err != nil {
 		t.Fatalf("Set(ephemeral): %v", err)
 	}
-	if _, err := provider.Touch(ctx, &proto.CacheTouchRequest{
-		Key: "ephemeral",
-		Ttl: durationProto(500 * time.Millisecond),
-	}); err != nil {
+	if _, err := provider.Touch(ctx, "ephemeral", 500*time.Millisecond); err != nil {
 		t.Fatalf("Touch(ephemeral): %v", err)
 	}
 
 	time.Sleep(250 * time.Millisecond)
-	ephemeral, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "ephemeral"})
+	ephemeral, found, err := provider.Get(ctx, "ephemeral")
 	if err != nil {
 		t.Fatalf("Get(ephemeral after touch): %v", err)
 	}
-	if !ephemeral.GetFound() || string(ephemeral.GetValue()) != "temp" {
-		t.Fatalf("Get(ephemeral after touch) = (%v, %q), want (true, %q)", ephemeral.GetFound(), ephemeral.GetValue(), "temp")
+	if !found || string(ephemeral) != "temp" {
+		t.Fatalf("Get(ephemeral after touch) = (%v, %q), want (true, %q)", found, ephemeral, "temp")
 	}
 
 	time.Sleep(400 * time.Millisecond)
-	expired, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "ephemeral"})
+	_, expired, err := provider.Get(ctx, "ephemeral")
 	if err != nil {
 		t.Fatalf("Get(ephemeral after expiry): %v", err)
 	}
-	if expired.GetFound() {
+	if expired {
 		t.Fatal("Get(ephemeral after expiry) found = true, want false")
 	}
 
-	if _, err := provider.SetMany(ctx, &proto.CacheSetManyRequest{
-		Entries: []*proto.CacheSetEntry{
-			{Key: "beta", Value: []byte("two")},
-			{Key: "gamma", Value: []byte("three")},
-		},
-		Ttl: durationProto(time.Second),
-	}); err != nil {
+	if err := provider.SetMany(ctx, []gestalt.CacheEntry{
+		{Key: "beta", Value: []byte("two")},
+		{Key: "gamma", Value: []byte("three")},
+	}, gestalt.CacheSetOptions{TTL: time.Second}); err != nil {
 		t.Fatalf("SetMany: %v", err)
 	}
-	if _, err := provider.SetMany(ctx, &proto.CacheSetManyRequest{
-		Entries: []*proto.CacheSetEntry{
-			{Key: "subms-batch-a", Value: []byte("a")},
-			{Key: "subms-batch-b", Value: []byte("b")},
-		},
-		Ttl: durationProto(500 * time.Microsecond),
-	}); err != nil {
+	if err := provider.SetMany(ctx, []gestalt.CacheEntry{
+		{Key: "subms-batch-a", Value: []byte("a")},
+		{Key: "subms-batch-b", Value: []byte("b")},
+	}, gestalt.CacheSetOptions{TTL: 500 * time.Microsecond}); err != nil {
 		t.Fatalf("SetMany(subms): %v", err)
 	}
 	time.Sleep(20 * time.Millisecond)
-	submsBatch, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "subms-batch-a"})
+	_, submsBatch, err := provider.Get(ctx, "subms-batch-a")
 	if err != nil {
 		t.Fatalf("Get(subms-batch-a after expiry): %v", err)
 	}
-	if submsBatch.GetFound() {
+	if submsBatch {
 		t.Fatal("Get(subms-batch-a after expiry) found = true, want false")
 	}
 
-	many, err := provider.GetMany(ctx, &proto.CacheGetManyRequest{Keys: []string{"beta", "gamma", "missing"}})
+	many, err := provider.GetMany(ctx, []string{"beta", "gamma", "missing"})
 	if err != nil {
 		t.Fatalf("GetMany: %v", err)
 	}
-	if got := many.GetEntries()[0]; !got.GetFound() || string(got.GetValue()) != "two" {
-		t.Fatalf("GetMany beta = (%v, %q), want (true, %q)", got.GetFound(), got.GetValue(), "two")
+	if got, ok := many["beta"]; !ok || string(got) != "two" {
+		t.Fatalf("GetMany beta = (%v, %q), want (true, %q)", ok, got, "two")
 	}
-	if got := many.GetEntries()[1]; !got.GetFound() || string(got.GetValue()) != "three" {
-		t.Fatalf("GetMany gamma = (%v, %q), want (true, %q)", got.GetFound(), got.GetValue(), "three")
+	if got, ok := many["gamma"]; !ok || string(got) != "three" {
+		t.Fatalf("GetMany gamma = (%v, %q), want (true, %q)", ok, got, "three")
 	}
-	if got := many.GetEntries()[2]; got.GetFound() {
+	if _, ok := many["missing"]; ok {
 		t.Fatal("GetMany missing found = true, want false")
 	}
 
-	deleted, err := provider.Delete(ctx, &proto.CacheDeleteRequest{Key: "beta"})
+	deleted, err := provider.Delete(ctx, "beta")
 	if err != nil {
 		t.Fatalf("Delete(beta): %v", err)
 	}
-	if !deleted.GetDeleted() {
+	if !deleted {
 		t.Fatal("Delete(beta) deleted = false, want true")
 	}
 
-	deletedMany, err := provider.DeleteMany(ctx, &proto.CacheDeleteManyRequest{Keys: []string{"gamma", "missing", "gamma"}})
+	deletedMany, err := provider.DeleteMany(ctx, []string{"gamma", "missing", "gamma"})
 	if err != nil {
 		t.Fatalf("DeleteMany: %v", err)
 	}
-	if deletedMany.GetDeleted() != 1 {
-		t.Fatalf("DeleteMany deleted = %d, want 1", deletedMany.GetDeleted())
+	if deletedMany != 1 {
+		t.Fatalf("DeleteMany deleted = %d, want 1", deletedMany)
 	}
 
-	if _, err := provider.Set(ctx, &proto.CacheSetRequest{
-		Key:   "persistent",
-		Value: []byte("forever"),
-		Ttl:   durationProto(time.Second),
-	}); err != nil {
+	if err := provider.Set(ctx, "persistent", []byte("forever"), gestalt.CacheSetOptions{TTL: time.Second}); err != nil {
 		t.Fatalf("Set(persistent): %v", err)
 	}
-	touched, err := provider.Touch(ctx, &proto.CacheTouchRequest{Key: "persistent"})
+	touched, err := provider.Touch(ctx, "persistent", 0)
 	if err != nil {
 		t.Fatalf("Touch(persistent clear ttl): %v", err)
 	}
-	if !touched.GetTouched() {
+	if !touched {
 		t.Fatal("Touch(persistent clear ttl) touched = false, want true")
 	}
-	if _, err := provider.Set(ctx, &proto.CacheSetRequest{
-		Key:   "subms-touch",
-		Value: []byte("touch"),
-	}); err != nil {
+	if err := provider.Set(ctx, "subms-touch", []byte("touch"), gestalt.CacheSetOptions{}); err != nil {
 		t.Fatalf("Set(subms-touch): %v", err)
 	}
-	if _, err := provider.Touch(ctx, &proto.CacheTouchRequest{
-		Key: "subms-touch",
-		Ttl: durationProto(500 * time.Microsecond),
-	}); err != nil {
+	if _, err := provider.Touch(ctx, "subms-touch", 500*time.Microsecond); err != nil {
 		t.Fatalf("Touch(subms-touch): %v", err)
 	}
 	time.Sleep(20 * time.Millisecond)
-	submsTouch, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "subms-touch"})
+	_, submsTouch, err := provider.Get(ctx, "subms-touch")
 	if err != nil {
 		t.Fatalf("Get(subms-touch after expiry): %v", err)
 	}
-	if submsTouch.GetFound() {
+	if submsTouch {
 		t.Fatal("Get(subms-touch after expiry) found = true, want false")
 	}
 	time.Sleep(1100 * time.Millisecond)
-	persistent, err := provider.Get(ctx, &proto.CacheGetRequest{Key: "persistent"})
+	persistent, found, err := provider.Get(ctx, "persistent")
 	if err != nil {
 		t.Fatalf("Get(persistent): %v", err)
 	}
-	if !persistent.GetFound() || string(persistent.GetValue()) != "forever" {
-		t.Fatalf("Get(persistent) = (%v, %q), want (true, %q)", persistent.GetFound(), persistent.GetValue(), "forever")
+	if !found || string(persistent) != "forever" {
+		t.Fatalf("Get(persistent) = (%v, %q), want (true, %q)", found, persistent, "forever")
 	}
 }
 
@@ -259,8 +220,4 @@ func flushTestDB(t *testing.T, ctx context.Context, client valkey.Client) {
 	if err := client.Do(ctx, client.B().Flushdb().Build()).Error(); err != nil {
 		t.Fatalf("Flushdb: %v", err)
 	}
-}
-
-func durationProto(d time.Duration) *durationpb.Duration {
-	return durationpb.New(d)
 }

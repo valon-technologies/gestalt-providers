@@ -9,8 +9,6 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -19,7 +17,7 @@ const (
 )
 
 type runtimeLogHostClient interface {
-	AppendLogs(ctx context.Context, req *proto.AppendPluginRuntimeLogsRequest) (*proto.AppendPluginRuntimeLogsResponse, error)
+	AppendLogs(ctx context.Context, sessionID string, entries []gestalt.RuntimeLogEntry) error
 	Close() error
 }
 
@@ -47,21 +45,21 @@ func newSessionLogSink(sessionID string, counter *uint64, openHost runtimeLogHos
 	}
 }
 
-func (s *sessionLogSink) add(stream proto.PluginRuntimeLogStream, message string, observedAt time.Time) {
+func (s *sessionLogSink) add(stream gestalt.RuntimeLogStream, message string, observedAt time.Time) {
 	if s == nil || message == "" {
 		return
 	}
-	if err := s.append([]*proto.PluginRuntimeLogEntry{{
+	if err := s.append([]gestalt.RuntimeLogEntry{{
 		Stream:     normalizeLogStream(stream),
 		Message:    message,
-		ObservedAt: timestamppb.New(observedAt.UTC()),
+		ObservedAt: observedAt.UTC(),
 		SourceSeq:  int64(atomic.AddUint64(s.counter, 1)),
 	}}); err != nil {
 		reportRuntimeLogAppendError(s.sessionID, err)
 	}
 }
 
-func (s *sessionLogSink) stream(reader io.ReadCloser, stream proto.PluginRuntimeLogStream) <-chan struct{} {
+func (s *sessionLogSink) stream(reader io.ReadCloser, stream gestalt.RuntimeLogStream) <-chan struct{} {
 	done := make(chan struct{})
 	if s == nil || reader == nil {
 		close(done)
@@ -80,7 +78,7 @@ func (s *sessionLogSink) stream(reader io.ReadCloser, stream proto.PluginRuntime
 				continue
 			}
 			if err != io.EOF {
-				s.add(proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME, "read process logs: "+err.Error(), time.Now())
+				s.add(gestalt.RuntimeLogStreamRuntime, "read process logs: "+err.Error(), time.Now())
 			}
 			return
 		}
@@ -88,7 +86,7 @@ func (s *sessionLogSink) stream(reader io.ReadCloser, stream proto.PluginRuntime
 	return done
 }
 
-func (s *sessionLogSink) append(logs []*proto.PluginRuntimeLogEntry) error {
+func (s *sessionLogSink) append(logs []gestalt.RuntimeLogEntry) error {
 	if s == nil || len(logs) == 0 {
 		return nil
 	}
@@ -101,11 +99,7 @@ func (s *sessionLogSink) append(logs []*proto.PluginRuntimeLogEntry) error {
 	ctx, cancel := context.WithTimeout(context.Background(), runtimeLogAppendTimout)
 	defer cancel()
 
-	_, err = client.AppendLogs(ctx, &proto.AppendPluginRuntimeLogsRequest{
-		SessionId: s.sessionID,
-		Logs:      logs,
-	})
-	return err
+	return client.AppendLogs(ctx, s.sessionID, logs)
 }
 
 func reportRuntimeLogAppendError(sessionID string, err error) {
@@ -115,12 +109,12 @@ func reportRuntimeLogAppendError(sessionID string, err error) {
 	_, _ = fmt.Fprintf(os.Stderr, "modal runtime: append session log for %q: %v\n", sessionID, err)
 }
 
-func normalizeLogStream(stream proto.PluginRuntimeLogStream) proto.PluginRuntimeLogStream {
+func normalizeLogStream(stream gestalt.RuntimeLogStream) gestalt.RuntimeLogStream {
 	switch stream {
-	case proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDOUT,
-		proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_STDERR:
+	case gestalt.RuntimeLogStreamStdout,
+		gestalt.RuntimeLogStreamStderr:
 		return stream
 	default:
-		return proto.PluginRuntimeLogStream_PLUGIN_RUNTIME_LOG_STREAM_RUNTIME
+		return gestalt.RuntimeLogStreamRuntime
 	}
 }

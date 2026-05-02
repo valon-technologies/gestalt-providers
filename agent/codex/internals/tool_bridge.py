@@ -11,9 +11,7 @@ import grpc
 from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 
-agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 
 DEFAULT_PAGE_SIZE = 100
@@ -87,7 +85,7 @@ def list_tools(
             if page_token in seen_tokens:
                 raise ToolBridgeError(f"ListTools repeated page token {page_token!r}")
             seen_tokens.add(page_token)
-            request = agent_pb2.ListAgentToolsRequest(
+            request = gestalt.ListAgentToolsRequest(
                 session_id=session_id,
                 turn_id=turn_id,
                 page_size=DEFAULT_PAGE_SIZE,
@@ -146,7 +144,7 @@ def execute_tool(
     struct = struct_pb2.Struct()
     struct.update(arguments or {})
     with gestalt.AgentHost() as host:
-        request = agent_pb2.ExecuteAgentToolRequest(
+        request = gestalt.ExecuteAgentToolRequest(
             session_id=session_id,
             turn_id=turn_id,
             tool_call_id=tool_call_id,
@@ -221,7 +219,7 @@ def _agent_host_call(*, host: gestalt.AgentHost, rpc_name: str, request: Any, ti
 def _coerce_timeout_seconds(value: float) -> float:
     try:
         timeout = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         timeout = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
     return timeout if timeout > 0 else DEFAULT_HOST_RPC_TIMEOUT_SECONDS
 

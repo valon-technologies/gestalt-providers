@@ -23,17 +23,11 @@ import (
 	smithymiddleware "github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 )
 
 const (
 	providerVersion        = "0.0.1-alpha.2"
-	streamChunkSize        = 64 * 1024
 	payloadSigningAuto     = "auto"
 	payloadSigningSigned   = "signed"
 	signingMiddlewareID    = "Signing"
@@ -61,8 +55,6 @@ type config struct {
 }
 
 type Provider struct {
-	proto.UnimplementedS3Server
-
 	mu        sync.RWMutex
 	name      string
 	cfg       config
@@ -162,27 +154,27 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-func (p *Provider) HeadObject(ctx context.Context, req *proto.HeadObjectRequest) (*proto.HeadObjectResponse, error) {
-	ref, err := validateObjectRef(req.GetRef(), "ref")
+func (p *Provider) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
+	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return nil, err
+		return gestalt.ObjectMeta{}, err
 	}
 	meta, err := p.headObject(ctx, ref)
 	if err != nil {
-		return nil, toStatusError(err)
+		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
-	return &proto.HeadObjectResponse{Meta: objectMetaToProto(meta)}, nil
+	return meta, nil
 }
 
-func (p *Provider) ReadObject(req *proto.ReadObjectRequest, stream proto.S3_ReadObjectServer) error {
-	ref, err := validateObjectRef(req.GetRef(), "ref")
+func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
+	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return err
+		return gestalt.ObjectMeta{}, nil, err
 	}
 
 	client, _, err := p.configured()
 	if err != nil {
-		return toStatusError(err)
+		return gestalt.ObjectMeta{}, nil, toStatusError(err)
 	}
 
 	input := &s3sdk.GetObjectInput{
@@ -192,132 +184,52 @@ func (p *Provider) ReadObject(req *proto.ReadObjectRequest, stream proto.S3_Read
 	if ref.VersionID != "" {
 		input.VersionId = aws.String(ref.VersionID)
 	}
-	if req.GetIfMatch() != "" {
-		input.IfMatch = aws.String(req.GetIfMatch())
-	}
-	if req.GetIfNoneMatch() != "" {
-		input.IfNoneMatch = aws.String(req.GetIfNoneMatch())
-	}
-	if ts := req.GetIfModifiedSince(); ts != nil {
-		t := ts.AsTime()
-		input.IfModifiedSince = &t
-	}
-	if ts := req.GetIfUnmodifiedSince(); ts != nil {
-		t := ts.AsTime()
-		input.IfUnmodifiedSince = &t
-	}
-	if req.GetRange() != nil {
-		rangeHeader, err := byteRangeHeader(req.GetRange())
+	if opts != nil {
+		if opts.IfMatch != "" {
+			input.IfMatch = aws.String(opts.IfMatch)
+		}
+		if opts.IfNoneMatch != "" {
+			input.IfNoneMatch = aws.String(opts.IfNoneMatch)
+		}
+		if opts.IfModifiedSince != nil {
+			input.IfModifiedSince = opts.IfModifiedSince
+		}
+		if opts.IfUnmodifiedSince != nil {
+			input.IfUnmodifiedSince = opts.IfUnmodifiedSince
+		}
+		rangeHeader, err := byteRangeHeader(opts.Range)
 		if err != nil {
-			return err
+			return gestalt.ObjectMeta{}, nil, err
 		}
 		if rangeHeader != "" {
 			input.Range = aws.String(rangeHeader)
 		}
 	}
 
-	out, err := client.GetObject(stream.Context(), input)
+	out, err := client.GetObject(ctx, input)
 	if err != nil {
-		return toStatusError(fmt.Errorf("s3: get object %s/%s: %w", ref.Bucket, ref.Key, err))
+		return gestalt.ObjectMeta{}, nil, toStatusError(fmt.Errorf("s3: get object %s/%s: %w", ref.Bucket, ref.Key, err))
 	}
-	defer out.Body.Close()
-
-	meta := objectMetaFromGet(ref, out)
-
-	if err := stream.Send(&proto.ReadObjectChunk{
-		Result: &proto.ReadObjectChunk_Meta{Meta: objectMetaToProto(meta)},
-	}); err != nil {
-		return err
-	}
-
-	buf := make([]byte, streamChunkSize)
-	for {
-		n, readErr := out.Body.Read(buf)
-		if n > 0 {
-			chunk := append([]byte(nil), buf[:n]...)
-			if err := stream.Send(&proto.ReadObjectChunk{
-				Result: &proto.ReadObjectChunk_Data{Data: chunk},
-			}); err != nil {
-				return err
-			}
-		}
-		if errors.Is(readErr, io.EOF) {
-			return nil
-		}
-		if readErr != nil {
-			return toStatusError(fmt.Errorf("s3: read object %s/%s: %w", ref.Bucket, ref.Key, readErr))
-		}
-	}
+	return objectMetaFromGet(ref, out), out.Body, nil
 }
 
-func (p *Provider) WriteObject(stream proto.S3_WriteObjectServer) error {
-	first, err := stream.Recv()
+func (p *Provider) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
+	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return err
+		return gestalt.ObjectMeta{}, err
 	}
-	open := first.GetOpen()
-	if open == nil {
-		return status.Error(codes.InvalidArgument, "first message must be WriteObjectOpen")
-	}
-	ref, err := validateObjectRef(open.GetRef(), "open.ref")
-	if err != nil {
-		return err
-	}
-
-	pr, pw := io.Pipe()
-	done := make(chan error, 1)
-	go func() {
-		defer close(done)
-		defer func() { _ = pw.Close() }()
-		for {
-			msg, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				done <- nil
-				return
-			}
-			if err != nil {
-				_ = pw.CloseWithError(err)
-				done <- err
-				return
-			}
-			data := msg.GetData()
-			if len(data) == 0 {
-				continue
-			}
-			if _, err := pw.Write(data); err != nil {
-				done <- err
-				return
-			}
-		}
-	}()
-
-	meta, err := p.writeObject(stream.Context(), ref, open, pr)
-	_ = pr.Close()
-	if err != nil {
-		_ = pw.CloseWithError(err)
-		return toStatusError(err)
-	}
-	recvErr := <-done
-	if recvErr != nil && !isBenignWriteCompletionError(recvErr) {
-		return recvErr
-	}
-	if err := stream.SendAndClose(&proto.WriteObjectResponse{Meta: objectMetaToProto(meta)}); err != nil {
-		if isBenignWriteCompletionError(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	meta, err := p.writeObject(ctx, ref, opts, body)
+	return meta, toStatusError(err)
 }
 
-func (p *Provider) DeleteObject(ctx context.Context, req *proto.DeleteObjectRequest) (*emptypb.Empty, error) {
-	ref, err := validateObjectRef(req.GetRef(), "ref")
+func (p *Provider) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) error {
+	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	client, _, err := p.configured()
 	if err != nil {
-		return nil, toStatusError(err)
+		return toStatusError(err)
 	}
 	input := &s3sdk.DeleteObjectInput{
 		Bucket: aws.String(ref.Bucket),
@@ -327,90 +239,95 @@ func (p *Provider) DeleteObject(ctx context.Context, req *proto.DeleteObjectRequ
 		input.VersionId = aws.String(ref.VersionID)
 	}
 	if _, err := client.DeleteObject(ctx, input); err != nil {
-		return nil, toStatusError(fmt.Errorf("s3: delete object %s/%s: %w", ref.Bucket, ref.Key, err))
+		return toStatusError(fmt.Errorf("s3: delete object %s/%s: %w", ref.Bucket, ref.Key, err))
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *Provider) ListObjects(ctx context.Context, req *proto.ListObjectsRequest) (*proto.ListObjectsResponse, error) {
-	bucket := strings.TrimSpace(req.GetBucket())
+func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
+	bucket := strings.TrimSpace(opts.Bucket)
 	if bucket == "" {
-		return nil, status.Error(codes.InvalidArgument, "bucket is required")
+		return gestalt.ListPage{}, gestalt.InvalidArgument("bucket is required")
 	}
 	client, _, err := p.configured()
 	if err != nil {
-		return nil, toStatusError(err)
+		return gestalt.ListPage{}, toStatusError(err)
 	}
 	input := &s3sdk.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 	}
-	if req.GetPrefix() != "" {
-		input.Prefix = aws.String(req.GetPrefix())
+	if opts.Prefix != "" {
+		input.Prefix = aws.String(opts.Prefix)
 	}
-	if req.GetDelimiter() != "" {
-		input.Delimiter = aws.String(req.GetDelimiter())
+	if opts.Delimiter != "" {
+		input.Delimiter = aws.String(opts.Delimiter)
 	}
-	if req.GetContinuationToken() != "" {
-		input.ContinuationToken = aws.String(req.GetContinuationToken())
+	if opts.ContinuationToken != "" {
+		input.ContinuationToken = aws.String(opts.ContinuationToken)
 	}
-	if req.GetStartAfter() != "" {
-		input.StartAfter = aws.String(req.GetStartAfter())
+	if opts.StartAfter != "" {
+		input.StartAfter = aws.String(opts.StartAfter)
 	}
-	if req.GetMaxKeys() > 0 {
-		input.MaxKeys = aws.Int32(req.GetMaxKeys())
+	if opts.MaxKeys > 0 {
+		input.MaxKeys = aws.Int32(opts.MaxKeys)
 	}
 
 	out, err := client.ListObjectsV2(ctx, input)
 	if err != nil {
-		return nil, toStatusError(fmt.Errorf("s3: list objects in %s: %w", bucket, err))
+		return gestalt.ListPage{}, toStatusError(fmt.Errorf("s3: list objects in %s: %w", bucket, err))
 	}
 
-	resp := &proto.ListObjectsResponse{
+	page := gestalt.ListPage{
 		CommonPrefixes:        make([]string, 0, len(out.CommonPrefixes)),
 		NextContinuationToken: aws.ToString(out.NextContinuationToken),
 		HasMore:               aws.ToBool(out.IsTruncated),
-		Objects:               make([]*proto.S3ObjectMeta, 0, len(out.Contents)),
+		Objects:               make([]gestalt.ObjectMeta, 0, len(out.Contents)),
 	}
 	for _, prefix := range out.CommonPrefixes {
-		resp.CommonPrefixes = append(resp.CommonPrefixes, aws.ToString(prefix.Prefix))
+		page.CommonPrefixes = append(page.CommonPrefixes, aws.ToString(prefix.Prefix))
 	}
 	for _, object := range out.Contents {
-		resp.Objects = append(resp.Objects, objectMetaToProto(objectMetaFromList(bucket, object)))
+		page.Objects = append(page.Objects, objectMetaFromList(bucket, object))
 	}
-	return resp, nil
+	return page, nil
 }
 
-func (p *Provider) CopyObject(ctx context.Context, req *proto.CopyObjectRequest) (*proto.CopyObjectResponse, error) {
-	source, err := validateObjectRef(req.GetSource(), "source")
+func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.ObjectRef, opts *gestalt.CopyOptions) (gestalt.ObjectMeta, error) {
+	source, err := validateObjectRef(source, "source")
 	if err != nil {
-		return nil, err
+		return gestalt.ObjectMeta{}, err
 	}
-	destination, err := validateObjectRef(req.GetDestination(), "destination")
+	destination, err = validateObjectRef(destination, "destination")
 	if err != nil {
-		return nil, err
+		return gestalt.ObjectMeta{}, err
 	}
 
 	client, _, err := p.configured()
 	if err != nil {
-		return nil, toStatusError(err)
+		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
 	sourceHead, err := p.headObject(ctx, source)
 	if err != nil {
-		return nil, toStatusError(err)
+		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
 	if sourceHead.Size > maxSingleRequestObjectSize {
-		return nil, toStatusError(fmt.Errorf("%w: object size %d exceeds single-request copy limit %d", errMultipartCopyRequired, sourceHead.Size, maxSingleRequestObjectSize))
+		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("%w: object size %d exceeds single-request copy limit %d", errMultipartCopyRequired, sourceHead.Size, maxSingleRequestObjectSize))
+	}
+	var ifMatch, ifNoneMatch string
+	if opts != nil {
+		ifMatch = opts.IfMatch
+		ifNoneMatch = opts.IfNoneMatch
 	}
 
 	copyOut, err := client.CopyObject(ctx, &s3sdk.CopyObjectInput{
 		Bucket:                aws.String(destination.Bucket),
 		Key:                   aws.String(destination.Key),
 		CopySource:            aws.String(copySourceHeader(source)),
-		CopySourceIfMatch:     awsStringIfSet(req.GetIfMatch()),
-		CopySourceIfNoneMatch: awsStringIfSet(req.GetIfNoneMatch()),
+		CopySourceIfMatch:     awsStringIfSet(ifMatch),
+		CopySourceIfNoneMatch: awsStringIfSet(ifNoneMatch),
 	})
 	if err != nil {
-		return nil, toStatusError(fmt.Errorf("s3: copy object %s/%s to %s/%s: %w", source.Bucket, source.Key, destination.Bucket, destination.Key, err))
+		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("s3: copy object %s/%s to %s/%s: %w", source.Bucket, source.Key, destination.Bucket, destination.Key, err))
 	}
 
 	meta := gestalt.ObjectMeta{
@@ -429,28 +346,36 @@ func (p *Provider) CopyObject(ctx context.Context, req *proto.CopyObjectRequest)
 	if head, err := p.headObject(ctx, meta.Ref); err == nil {
 		meta = head
 	}
-	return &proto.CopyObjectResponse{Meta: objectMetaToProto(meta)}, nil
+	return meta, nil
 }
 
-func (p *Provider) PresignObject(ctx context.Context, req *proto.PresignObjectRequest) (*proto.PresignObjectResponse, error) {
-	ref, err := validateObjectRef(req.GetRef(), "ref")
+func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
+	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return nil, err
+		return gestalt.PresignResult{}, err
 	}
 	_, presigner, err := p.configured()
 	if err != nil {
-		return nil, toStatusError(err)
+		return gestalt.PresignResult{}, toStatusError(err)
 	}
 
-	method := presignMethodFromProto(req.GetMethod())
+	method := gestalt.PresignMethodGet
+	var expires time.Duration
+	var contentType, contentDisposition string
+	var headers map[string]string
+	if opts != nil {
+		method = opts.Method
+		expires = opts.Expires
+		contentType = opts.ContentType
+		contentDisposition = opts.ContentDisposition
+		headers = clonePresignHeaders(opts.Headers)
+	}
 	if method == "" {
 		method = gestalt.PresignMethodGet
 	}
-	if req.GetExpiresSeconds() < 0 {
-		return nil, status.Error(codes.InvalidArgument, "expiresSeconds must be >= 0")
+	if expires < 0 {
+		return gestalt.PresignResult{}, gestalt.InvalidArgument("expires must be >= 0")
 	}
-	headers := clonePresignHeaders(req.GetHeaders())
-	expires := time.Duration(req.GetExpiresSeconds()) * time.Second
 
 	var presigned *v4.PresignedHTTPRequest
 	switch method {
@@ -459,15 +384,15 @@ func (p *Provider) PresignObject(ctx context.Context, req *proto.PresignObjectRe
 			Bucket: aws.String(ref.Bucket),
 			Key:    aws.String(ref.Key),
 		}
-		if req.GetContentType() != "" {
-			input.ContentType = aws.String(req.GetContentType())
+		if contentType != "" {
+			input.ContentType = aws.String(contentType)
 		}
-		if req.GetContentDisposition() != "" {
-			input.ContentDisposition = aws.String(req.GetContentDisposition())
-			headers = setPresignHeader(headers, "Content-Disposition", req.GetContentDisposition())
+		if contentDisposition != "" {
+			input.ContentDisposition = aws.String(contentDisposition)
+			headers = setPresignHeader(headers, "Content-Disposition", contentDisposition)
 		}
-		if req.GetContentType() != "" {
-			headers = setPresignHeader(headers, "Content-Type", req.GetContentType())
+		if contentType != "" {
+			headers = setPresignHeader(headers, "Content-Type", contentType)
 		}
 		presigned, err = presigner.PresignPutObject(ctx, input, presignOptions(expires, headers))
 	case gestalt.PresignMethodDelete:
@@ -488,27 +413,27 @@ func (p *Provider) PresignObject(ctx context.Context, req *proto.PresignObjectRe
 			Key:       aws.String(ref.Key),
 			VersionId: awsStringIfPresent(ref.VersionID),
 		}
-		if req.GetContentType() != "" {
-			input.ResponseContentType = aws.String(req.GetContentType())
+		if contentType != "" {
+			input.ResponseContentType = aws.String(contentType)
 		}
-		if req.GetContentDisposition() != "" {
-			input.ResponseContentDisposition = aws.String(req.GetContentDisposition())
+		if contentDisposition != "" {
+			input.ResponseContentDisposition = aws.String(contentDisposition)
 		}
 		presigned, err = presigner.PresignGetObject(ctx, input, presignOptions(expires, headers))
 	}
 	if err != nil {
-		return nil, toStatusError(fmt.Errorf("s3: presign object %s/%s: %w", ref.Bucket, ref.Key, err))
+		return gestalt.PresignResult{}, toStatusError(fmt.Errorf("s3: presign object %s/%s: %w", ref.Bucket, ref.Key, err))
 	}
 
-	resp := &proto.PresignObjectResponse{
-		Url:     presigned.URL,
-		Method:  presignMethodToProto(method),
+	result := gestalt.PresignResult{
+		URL:     presigned.URL,
+		Method:  method,
 		Headers: cloneStringMap(headers),
 	}
 	if expires > 0 {
-		resp.ExpiresAt = timestamppb.New(p.now().Add(expires))
+		result.ExpiresAt = p.now().Add(expires)
 	}
-	return resp, nil
+	return result, nil
 }
 
 func (p *Provider) configured() (*s3sdk.Client, *s3sdk.PresignClient, error) {
@@ -539,7 +464,7 @@ func (p *Provider) headObject(ctx context.Context, ref gestalt.ObjectRef) (gesta
 	return objectMetaFromHead(ref, out), nil
 }
 
-func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, open *proto.WriteObjectOpen, body io.Reader) (gestalt.ObjectMeta, error) {
+func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.WriteOptions, body io.Reader) (gestalt.ObjectMeta, error) {
 	client, _, err := p.configured()
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
@@ -563,29 +488,31 @@ func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, open 
 		Body:          staged,
 		ContentLength: aws.Int64(size),
 	}
-	if open.GetContentType() != "" {
-		input.ContentType = aws.String(open.GetContentType())
-	}
-	if open.GetCacheControl() != "" {
-		input.CacheControl = aws.String(open.GetCacheControl())
-	}
-	if open.GetContentDisposition() != "" {
-		input.ContentDisposition = aws.String(open.GetContentDisposition())
-	}
-	if open.GetContentEncoding() != "" {
-		input.ContentEncoding = aws.String(open.GetContentEncoding())
-	}
-	if open.GetContentLanguage() != "" {
-		input.ContentLanguage = aws.String(open.GetContentLanguage())
-	}
-	if open.GetIfMatch() != "" {
-		input.IfMatch = aws.String(open.GetIfMatch())
-	}
-	if open.GetIfNoneMatch() != "" {
-		input.IfNoneMatch = aws.String(open.GetIfNoneMatch())
-	}
-	if len(open.GetMetadata()) > 0 {
-		input.Metadata = cloneStringMap(open.GetMetadata())
+	if opts != nil {
+		if opts.ContentType != "" {
+			input.ContentType = aws.String(opts.ContentType)
+		}
+		if opts.CacheControl != "" {
+			input.CacheControl = aws.String(opts.CacheControl)
+		}
+		if opts.ContentDisposition != "" {
+			input.ContentDisposition = aws.String(opts.ContentDisposition)
+		}
+		if opts.ContentEncoding != "" {
+			input.ContentEncoding = aws.String(opts.ContentEncoding)
+		}
+		if opts.ContentLanguage != "" {
+			input.ContentLanguage = aws.String(opts.ContentLanguage)
+		}
+		if opts.IfMatch != "" {
+			input.IfMatch = aws.String(opts.IfMatch)
+		}
+		if opts.IfNoneMatch != "" {
+			input.IfNoneMatch = aws.String(opts.IfNoneMatch)
+		}
+		if len(opts.Metadata) > 0 {
+			input.Metadata = cloneStringMap(opts.Metadata)
+		}
 	}
 	putOut, err := client.PutObject(ctx, input)
 	if err != nil {
@@ -597,10 +524,12 @@ func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, open 
 			Key:       ref.Key,
 			VersionID: aws.ToString(putOut.VersionId),
 		},
-		ETag:        aws.ToString(putOut.ETag),
-		Size:        size,
-		ContentType: open.GetContentType(),
-		Metadata:    cloneStringMap(open.GetMetadata()),
+		ETag: aws.ToString(putOut.ETag),
+		Size: size,
+	}
+	if opts != nil {
+		meta.ContentType = opts.ContentType
+		meta.Metadata = cloneStringMap(opts.Metadata)
 	}
 	if now := p.now(); !now.IsZero() {
 		meta.LastModified = now.UTC()
@@ -710,27 +639,24 @@ func (restoreAcceptEncoding) HandleFinalize(ctx context.Context, in smithymiddle
 	return next.HandleFinalize(ctx, in)
 }
 
-func validateObjectRef(ref *proto.S3ObjectRef, field string) (gestalt.ObjectRef, error) {
-	if ref == nil {
-		return gestalt.ObjectRef{}, status.Errorf(codes.InvalidArgument, "%s is required", field)
-	}
-	bucket := strings.TrimSpace(ref.GetBucket())
-	key := ref.GetKey()
+func validateObjectRef(ref gestalt.ObjectRef, field string) (gestalt.ObjectRef, error) {
+	bucket := strings.TrimSpace(ref.Bucket)
+	key := ref.Key
 	switch {
 	case bucket == "":
-		return gestalt.ObjectRef{}, status.Errorf(codes.InvalidArgument, "%s.bucket is required", field)
+		return gestalt.ObjectRef{}, gestalt.InvalidArgument(fmt.Sprintf("%s.bucket is required", field))
 	case key == "":
-		return gestalt.ObjectRef{}, status.Errorf(codes.InvalidArgument, "%s.key is required", field)
+		return gestalt.ObjectRef{}, gestalt.InvalidArgument(fmt.Sprintf("%s.key is required", field))
 	default:
 		return gestalt.ObjectRef{
 			Bucket:    bucket,
 			Key:       key,
-			VersionID: ref.GetVersionId(),
+			VersionID: ref.VersionID,
 		}, nil
 	}
 }
 
-func byteRangeHeader(r *proto.ByteRange) (string, error) {
+func byteRangeHeader(r *gestalt.ByteRange) (string, error) {
 	if r == nil {
 		return "", nil
 	}
@@ -745,13 +671,13 @@ func byteRangeHeader(r *proto.ByteRange) (string, error) {
 		end = *r.End
 	}
 	if startSet && start < 0 {
-		return "", status.Error(codes.OutOfRange, "s3: invalid range")
+		return "", gestalt.OutOfRange("s3: invalid range")
 	}
 	if endSet && end < 0 {
-		return "", status.Error(codes.OutOfRange, "s3: invalid range")
+		return "", gestalt.OutOfRange("s3: invalid range")
 	}
 	if startSet && endSet && start > end {
-		return "", status.Error(codes.OutOfRange, "s3: invalid range")
+		return "", gestalt.OutOfRange("s3: invalid range")
 	}
 	switch {
 	case startSet && endSet:
@@ -878,55 +804,6 @@ func totalSizeFromContentRange(value string) (int64, bool) {
 	return total, true
 }
 
-func objectMetaToProto(meta gestalt.ObjectMeta) *proto.S3ObjectMeta {
-	out := &proto.S3ObjectMeta{
-		Ref: &proto.S3ObjectRef{
-			Bucket:    meta.Ref.Bucket,
-			Key:       meta.Ref.Key,
-			VersionId: meta.Ref.VersionID,
-		},
-		Etag:         meta.ETag,
-		Size:         meta.Size,
-		ContentType:  meta.ContentType,
-		Metadata:     cloneStringMap(meta.Metadata),
-		StorageClass: meta.StorageClass,
-	}
-	if !meta.LastModified.IsZero() {
-		out.LastModified = timestamppb.New(meta.LastModified)
-	}
-	return out
-}
-
-func presignMethodFromProto(method proto.PresignMethod) gestalt.PresignMethod {
-	switch method {
-	case proto.PresignMethod_PRESIGN_METHOD_GET:
-		return gestalt.PresignMethodGet
-	case proto.PresignMethod_PRESIGN_METHOD_PUT:
-		return gestalt.PresignMethodPut
-	case proto.PresignMethod_PRESIGN_METHOD_DELETE:
-		return gestalt.PresignMethodDelete
-	case proto.PresignMethod_PRESIGN_METHOD_HEAD:
-		return gestalt.PresignMethodHead
-	default:
-		return ""
-	}
-}
-
-func presignMethodToProto(method gestalt.PresignMethod) proto.PresignMethod {
-	switch method {
-	case gestalt.PresignMethodGet:
-		return proto.PresignMethod_PRESIGN_METHOD_GET
-	case gestalt.PresignMethodPut:
-		return proto.PresignMethod_PRESIGN_METHOD_PUT
-	case gestalt.PresignMethodDelete:
-		return proto.PresignMethod_PRESIGN_METHOD_DELETE
-	case gestalt.PresignMethodHead:
-		return proto.PresignMethod_PRESIGN_METHOD_HEAD
-	default:
-		return proto.PresignMethod_PRESIGN_METHOD_UNSPECIFIED
-	}
-}
-
 func presignOptions(expires time.Duration, headers map[string]string) func(*s3sdk.PresignOptions) {
 	return func(opts *s3sdk.PresignOptions) {
 		if expires > 0 {
@@ -1010,30 +887,27 @@ func toStatusError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := status.FromError(err); ok {
-		return err
-	}
 	switch {
 	case errors.Is(err, context.Canceled):
-		return status.Error(codes.Canceled, err.Error())
+		return gestalt.Canceled(err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
-		return status.Error(codes.DeadlineExceeded, err.Error())
+		return gestalt.Canceled(err.Error())
 	case errors.Is(err, errMultipartUploadRequired), errors.Is(err, errMultipartCopyRequired):
-		return status.Error(codes.Unimplemented, err.Error())
+		return gestalt.Unimplemented(err.Error())
 	case errors.Is(err, errNotConfigured):
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.FailedPrecondition(err.Error())
 	case errors.Is(err, gestalt.ErrS3NotFound), isNotFound(err):
-		return status.Error(codes.NotFound, err.Error())
+		return gestalt.NotFound(err.Error())
 	case isNotModified(err):
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.FailedPrecondition(err.Error())
 	case errors.Is(err, gestalt.ErrS3PreconditionFailed), isPreconditionFailed(err):
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.FailedPrecondition(err.Error())
 	case errors.Is(err, gestalt.ErrS3InvalidRange), isInvalidRange(err):
-		return status.Error(codes.OutOfRange, err.Error())
+		return gestalt.OutOfRange(err.Error())
 	case isPermissionDenied(err):
-		return status.Error(codes.PermissionDenied, err.Error())
+		return gestalt.PermissionDenied(err.Error())
 	default:
-		return status.Error(codes.Internal, err.Error())
+		return gestalt.Internal(err.Error())
 	}
 }
 
@@ -1094,12 +968,6 @@ func isPermissionDenied(err error) bool {
 		}
 	}
 	return false
-}
-
-func isBenignWriteCompletionError(err error) bool {
-	return errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, io.ErrClosedPipe)
 }
 
 var _ gestalt.S3Provider = (*Provider)(nil)

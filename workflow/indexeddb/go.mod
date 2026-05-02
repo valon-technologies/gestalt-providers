@@ -57,3 +57,5 @@ replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest =
 replace github.com/valon-technologies/gestalt => ../../../gestalt
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go
+
+replace github.com/valon-technologies/gestalt => ../../../gestalt

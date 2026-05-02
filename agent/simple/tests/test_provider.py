@@ -18,12 +18,12 @@ from google.protobuf import struct_pb2 as _struct_pb2
 
 import provider as provider_module
 from gestalt import ENV_AGENT_HOST_SOCKET, ProviderKind, _runtime, indexeddb_socket_env
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-from gestalt.gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
-from gestalt.gen.v1 import datastore_pb2 as _datastore_pb2
-from gestalt.gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
-from gestalt.gen.v1 import runtime_pb2 as _runtime_pb2
-from gestalt.gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
+from gestalt._gen.v1 import agent_pb2 as _agent_pb2
+from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
+from gestalt._gen.v1 import datastore_pb2 as _datastore_pb2
+from gestalt._gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
+from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
+from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.config import SimpleAgentConfig
 from internals.store import SimpleRunStore, StoredTurnCheckpoint
 

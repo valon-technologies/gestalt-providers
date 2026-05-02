@@ -4,7 +4,7 @@ version = "0.0.1a3"
 requires-python = "==3.14.*"
 dependencies = [
   "claude-agent-sdk==0.1.71",
-  "gestalt-sdk @ git+https://github.com/valon-technologies/gestalt.git@f9d35fa6b9cbd1a06d600787827bec7de6ca5c1a#subdirectory=sdk/python",
+  "gestalt-sdk",
 ]
 
 [dependency-groups]
@@ -19,6 +19,9 @@ package = false
 override-dependencies = [
   "typing-extensions>=4.14.1",
 ]
+
+[tool.uv.sources]
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 plugin = "provider"

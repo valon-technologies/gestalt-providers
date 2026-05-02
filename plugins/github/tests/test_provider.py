@@ -15,8 +15,8 @@ from unittest import mock
 
 import gestalt
 from google.protobuf import json_format
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
+from gestalt._gen.v1 import agent_pb2 as _agent_pb2
+from gestalt._gen.v1 import workflow_pb2 as _workflow_pb2
 import yaml
 
 import internals.client as client_module

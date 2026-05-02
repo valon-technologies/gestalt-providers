@@ -21,9 +21,7 @@ from mcp.types import (
     ToolAnnotations,
 )
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 
-agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 logger = logging.getLogger(__name__)
 
@@ -117,7 +115,7 @@ class GestaltMCPBridge:
     def _list_entries(self, page_token: str) -> tuple[list[ToolEntry], str]:
         with gestalt.AgentHost() as host:
             response = host.list_tools(
-                agent_pb2.ListAgentToolsRequest(
+                gestalt.ListAgentToolsRequest(
                     session_id=self._session_id,
                     turn_id=self._turn_id,
                     page_size=DEFAULT_PAGE_SIZE,
@@ -251,7 +249,7 @@ def _execute_tool(
     struct.update(arguments or {})
     with gestalt.AgentHost() as host:
         return host.execute_tool(
-            agent_pb2.ExecuteAgentToolRequest(
+            gestalt.ExecuteAgentToolRequest(
                 session_id=session_id,
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,

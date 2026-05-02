@@ -1252,12 +1252,12 @@ func TestProviderConfigureFailsExistingSignalStoreMissingIndexesWithoutMigration
 	})
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	adminConn, admin, err := dialIndexedDBAdmin()
+	db, err := gestalt.IndexedDB()
 	if err != nil {
-		t.Fatalf("dialIndexedDBAdmin: %v", err)
+		t.Fatalf("IndexedDB: %v", err)
 	}
-	defer adminConn.Close()
-	if err := createWorkflowStore(ctx, admin, storeSignals, &proto.ObjectStoreSchema{}); err != nil {
+	defer func() { _ = db.Close() }()
+	if err := createWorkflowStore(ctx, db, storeSignals, gestalt.ObjectStoreSchema{}); err != nil {
 		t.Fatalf("precreate workflow_signals: %v", err)
 	}
 	precreateCount := spy.createObjectStoreCount(storeSignals)
@@ -1284,12 +1284,12 @@ func TestProviderConfigureFailsExistingExecutionRefsMissingSubjectIndexWithoutMi
 	})
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	adminConn, admin, err := dialIndexedDBAdmin()
+	db, err := gestalt.IndexedDB()
 	if err != nil {
-		t.Fatalf("dialIndexedDBAdmin: %v", err)
+		t.Fatalf("IndexedDB: %v", err)
 	}
-	defer adminConn.Close()
-	if err := createWorkflowStore(ctx, admin, storeExecutionRefs, &proto.ObjectStoreSchema{}); err != nil {
+	defer func() { _ = db.Close() }()
+	if err := createWorkflowStore(ctx, db, storeExecutionRefs, gestalt.ObjectStoreSchema{}); err != nil {
 		t.Fatalf("precreate execution_refs: %v", err)
 	}
 	precreateCount := spy.createObjectStoreCount(storeExecutionRefs)

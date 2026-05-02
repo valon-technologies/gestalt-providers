@@ -22,11 +22,9 @@ import (
 	computepb "github.com/nebius/gosdk/proto/nebius/compute/v1"
 	computesvc "github.com/nebius/gosdk/services/nebius/compute/v1"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,11 +41,11 @@ const (
 	sshPort  = 22
 )
 
+const envProviderSocket = "GESTALT_PLUGIN_SOCKET"
+
 var resourceNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 type Provider struct {
-	proto.UnimplementedPluginRuntimeProviderServer
-
 	name string
 	sdk  *gosdk.SDK
 	cfg  Config
@@ -170,29 +168,28 @@ func (p *Provider) HealthCheck(context.Context) error {
 	return nil
 }
 
-func (p *Provider) GetSupport(context.Context, *emptypb.Empty) (*proto.PluginRuntimeSupport, error) {
-	return &proto.PluginRuntimeSupport{
-		CanHostPlugins:    true,
-		HostServiceAccess: proto.PluginRuntimeHostServiceAccess_PLUGIN_RUNTIME_HOST_SERVICE_ACCESS_NONE,
-		EgressMode:        proto.PluginRuntimeEgressMode_PLUGIN_RUNTIME_EGRESS_MODE_NONE,
+func (p *Provider) GetSupport(context.Context) (gestalt.PluginRuntimeSupport, error) {
+	return gestalt.PluginRuntimeSupport{
+		CanHostPlugins: true,
+		EgressMode:     gestalt.PluginRuntimeEgressModeNone,
 	}, nil
 }
 
-func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
+func (p *Provider) StartSession(_ context.Context, req gestalt.StartPluginRuntimeSessionRequest) (gestalt.PluginRuntimeSession, error) {
 	_, _, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if strings.TrimSpace(req.GetImage()) == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the nebius runtime", req.GetPluginName())
+	if strings.TrimSpace(req.Image) == "" {
+		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the nebius runtime", req.PluginName)
 	}
 
 	sessionID := p.newID("session")
 	s := &session{
 		id:       sessionID,
 		state:    sessionStateReady,
-		metadata: cloneStringMap(req.GetMetadata()),
-		image:    strings.TrimSpace(req.GetImage()),
+		metadata: cloneStringMap(req.Metadata),
+		image:    strings.TrimSpace(req.Image),
 	}
 	if s.metadata == nil {
 		s.metadata = map[string]string{}
@@ -201,23 +198,24 @@ func (p *Provider) StartSession(_ context.Context, req *proto.StartPluginRuntime
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
-		return nil, status.Error(codes.FailedPrecondition, "nebius runtime is closed")
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, "nebius runtime is closed")
 	}
 	p.sessions[sessionID] = s
 	return cloneSession(s), nil
 }
 
-func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSessionRequest) (*proto.PluginRuntimeSession, error) {
+func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.PluginRuntimeSession, error) {
 	sdk, _, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
+	sessionID = strings.TrimSpace(sessionID)
 
 	p.mu.Lock()
-	s, err := p.sessionLocked(req.GetSessionId())
+	s, err := p.sessionLocked(sessionID)
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Error(codes.NotFound, err.Error())
+		return gestalt.PluginRuntimeSession{}, status.Error(codes.NotFound, err.Error())
 	}
 	instanceID := ""
 	if s.instance != nil {
@@ -233,7 +231,7 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 	instance, getErr := instanceService.Get(ctx, &computepb.GetInstanceRequest{Id: instanceID})
 	if getErr != nil {
 		p.mu.Lock()
-		if s, ok := p.sessions[req.GetSessionId()]; ok && s != nil {
+		if s, ok := p.sessions[sessionID]; ok && s != nil {
 			s.state = sessionStateFailed
 			current = cloneSession(s)
 		}
@@ -243,7 +241,7 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 
 	publicIP := instancePublicIP(instance)
 	p.mu.Lock()
-	if s, ok := p.sessions[req.GetSessionId()]; ok && s != nil {
+	if s, ok := p.sessions[sessionID]; ok && s != nil {
 		if s.instance != nil && publicIP != "" {
 			s.instance.publicIP = publicIP
 			if s.metadata == nil {
@@ -267,7 +265,7 @@ func (p *Provider) GetSession(ctx context.Context, req *proto.GetPluginRuntimeSe
 	return current, nil
 }
 
-func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeSessionsRequest) (*proto.ListPluginRuntimeSessionsResponse, error) {
+func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSession, error) {
 	p.mu.Lock()
 	sessionIDs := make([]string, 0, len(p.sessions))
 	for sessionID := range p.sessions {
@@ -276,34 +274,33 @@ func (p *Provider) ListSessions(ctx context.Context, _ *proto.ListPluginRuntimeS
 	p.mu.Unlock()
 	sortStrings(sessionIDs)
 
-	resp := &proto.ListPluginRuntimeSessionsResponse{
-		Sessions: make([]*proto.PluginRuntimeSession, 0, len(sessionIDs)),
-	}
+	sessions := make([]gestalt.PluginRuntimeSession, 0, len(sessionIDs))
 	for _, sessionID := range sessionIDs {
-		session, err := p.GetSession(ctx, &proto.GetPluginRuntimeSessionRequest{SessionId: sessionID})
+		session, err := p.GetSession(ctx, sessionID)
 		if status.Code(err) == codes.NotFound {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		resp.Sessions = append(resp.Sessions, session)
+		sessions = append(sessions, session)
 	}
-	return resp, nil
+	return sessions, nil
 }
 
-func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntimeSessionRequest) (*emptypb.Empty, error) {
+func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
 	sdk, cfg, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
+	sessionID = strings.TrimSpace(sessionID)
 
 	var (
 		inst *instanceRef
 		s    *session
 	)
 	p.mu.Lock()
-	if current, ok := p.sessions[req.GetSessionId()]; ok && current != nil {
+	if current, ok := p.sessions[sessionID]; ok && current != nil {
 		s = current
 		inst = s.instance
 	}
@@ -315,95 +312,63 @@ func (p *Provider) StopSession(ctx context.Context, req *proto.StopPluginRuntime
 		cancel()
 		if err != nil {
 			p.mu.Lock()
-			if current, ok := p.sessions[req.GetSessionId()]; ok && current == s {
+			if current, ok := p.sessions[sessionID]; ok && current == s {
 				current.state = sessionStateFailed
 			}
 			p.mu.Unlock()
-			return nil, status.Errorf(codes.Internal, "stop nebius runtime session: %v", err)
+			return status.Errorf(codes.Internal, "stop nebius runtime session: %v", err)
 		}
 		closeInstance(inst)
 	}
 
 	p.mu.Lock()
-	if current, ok := p.sessions[req.GetSessionId()]; ok && current == s {
-		delete(p.sessions, req.GetSessionId())
+	if current, ok := p.sessions[sessionID]; ok && current == s {
+		delete(p.sessions, sessionID)
 		current.state = sessionStateStopped
 	}
 	p.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *Provider) BindHostService(_ context.Context, req *proto.BindPluginRuntimeHostServiceRequest) (*proto.PluginRuntimeHostServiceBinding, error) {
-	envVar, err := normalizeHostServiceEnvVar(req.GetEnvVar())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if req.GetRelay() == nil || strings.TrimSpace(req.GetRelay().GetDialTarget()) == "" {
-		return nil, status.Error(codes.Unimplemented, "nebius runtime requires relay.dial_target for host services")
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	s, err := p.sessionLocked(req.GetSessionId())
-	if err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
-	}
-	if s.plugin != nil || s.pluginStarting {
-		return nil, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.GetSessionId())
-	}
-	if s.bindings == nil {
-		s.bindings = map[string]string{}
-	}
-	s.bindings[envVar] = strings.TrimSpace(req.GetRelay().GetDialTarget())
-	return &proto.PluginRuntimeHostServiceBinding{
-		Id:        p.newID("binding"),
-		SessionId: s.id,
-		EnvVar:    envVar,
-		Relay: &proto.PluginRuntimeHostServiceRelay{
-			DialTarget: req.GetRelay().GetDialTarget(),
-		},
-	}, nil
-}
-
-func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPluginRequest) (*proto.HostedPlugin, error) {
-	if strings.TrimSpace(req.GetCommand()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "plugin command is required")
+func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPluginRequest) (gestalt.HostedPlugin, error) {
+	if strings.TrimSpace(req.Command) == "" {
+		return gestalt.HostedPlugin{}, status.Error(codes.InvalidArgument, "plugin command is required")
 	}
 	sdk, cfg, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.HostedPlugin{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	bindings, image, err := p.beginPluginStart(req.GetSessionId())
+	image, err := p.beginPluginStart(req.SessionID)
 	if err != nil {
-		return nil, err
+		return gestalt.HostedPlugin{}, err
 	}
 
 	inst, err := p.ensureSessionInstance(ctx, sdk, cfg, req)
 	if err != nil {
-		p.clearPluginStart(req.GetSessionId())
-		return nil, err
+		p.clearPluginStart(req.SessionID)
+		return gestalt.HostedPlugin{}, err
 	}
 	launchOK := false
 	defer func() {
 		if launchOK {
 			return
 		}
-		p.clearPluginStart(req.GetSessionId())
+		p.clearPluginStart(req.SessionID)
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
 		defer cancel()
-		_ = cleanupRemoteContainer(cleanupCtx, inst.client, dockerContainerName(req.GetPluginName(), req.GetSessionId()))
-		p.resetSessionInstance(req.GetSessionId(), inst)
+		_ = cleanupRemoteContainer(cleanupCtx, inst.client, dockerContainerName(req.PluginName, req.SessionID))
+		p.resetSessionInstance(req.SessionID, inst)
 		_ = stopInstance(cleanupCtx, sdk, inst.id)
 		closeInstance(inst)
 	}()
 
-	env := buildPluginEnv(req, bindings, fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort))
+	env := buildPluginEnv(req, fmt.Sprintf("tcp://127.0.0.1:%d", pluginGRPCPort))
 
-	containerName := dockerContainerName(req.GetPluginName(), req.GetSessionId())
-	runCmd := buildDockerRunCommand(containerName, image, req.GetCommand(), req.GetArgs(), env)
+	containerName := dockerContainerName(req.PluginName, req.SessionID)
+	runCmd := buildDockerRunCommand(containerName, image, req.Command, req.Args, env)
 	if _, err := runRemoteCommand(ctx, inst.client, runCmd); err != nil {
-		return nil, status.Errorf(codes.Internal, "start plugin container in nebius vm: %v", err)
+		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "start plugin container in nebius vm: %v", err)
 	}
 
 	readyCtx, cancel := context.WithTimeout(ctx, cfg.PluginReadyTimeout)
@@ -412,36 +377,36 @@ func (p *Provider) StartPlugin(ctx context.Context, req *proto.StartHostedPlugin
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
 		defer cleanupCancel()
 		_ = cleanupRemoteContainer(cleanupCtx, inst.client, containerName)
-		return nil, status.Errorf(codes.DeadlineExceeded, "wait for nebius plugin gRPC endpoint: %v", err)
+		return gestalt.HostedPlugin{}, status.Errorf(codes.DeadlineExceeded, "wait for nebius plugin gRPC endpoint: %v", err)
 	}
 
 	plugin := &plugin{
 		id:            p.newID("plugin"),
-		name:          req.GetPluginName(),
+		name:          req.PluginName,
 		containerName: containerName,
 		dialTarget:    inst.forward.DialTarget(),
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	s, err := p.sessionLocked(req.GetSessionId())
+	s, err := p.sessionLocked(req.SessionID)
 	if err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
 		defer cancel()
 		_ = cleanupRemoteContainer(cleanupCtx, inst.client, containerName)
 		_ = stopInstance(cleanupCtx, sdk, inst.id)
 		closeInstance(inst)
-		return nil, status.Error(codes.NotFound, err.Error())
+		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
 	}
 	s.pluginStarting = false
 	s.plugin = plugin
 	s.state = sessionStateRunning
-	go p.watchRemoteContainer(req.GetSessionId(), inst, containerName)
+	go p.watchRemoteContainer(req.SessionID, inst, containerName)
 	launchOK = true
 
-	return &proto.HostedPlugin{
-		Id:         plugin.id,
-		SessionId:  s.id,
+	return gestalt.HostedPlugin{
+		ID:         plugin.id,
+		SessionID:  s.id,
 		PluginName: plugin.name,
 		DialTarget: plugin.dialTarget,
 	}, nil
@@ -468,7 +433,7 @@ func (p *Provider) Close() error {
 	var errs []error
 	for _, id := range sessionIDs {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_, err := p.StopSession(stopCtx, &proto.StopPluginRuntimeSessionRequest{SessionId: id})
+		err := p.StopSession(stopCtx, id)
 		cancel()
 		errs = append(errs, err)
 	}
@@ -490,20 +455,20 @@ func (p *Provider) configured() (*gosdk.SDK, Config, error) {
 	return p.sdk, p.cfg, nil
 }
 
-func (p *Provider) beginPluginStart(sessionID string) (map[string]string, string, error) {
+func (p *Provider) beginPluginStart(sessionID string) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	s, err := p.sessionLocked(sessionID)
 	if err != nil {
-		return nil, "", status.Error(codes.NotFound, err.Error())
+		return "", status.Error(codes.NotFound, err.Error())
 	}
 	if s.plugin != nil || s.pluginStarting {
-		return nil, "", status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", sessionID)
+		return "", status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", sessionID)
 	}
 	s.pluginStarting = true
 	s.state = sessionStateStarting
-	return cloneStringMap(s.bindings), s.image, nil
+	return s.image, nil
 }
 
 func (p *Provider) clearPluginStart(sessionID string) {
@@ -523,9 +488,9 @@ func (p *Provider) clearPluginStart(sessionID string) {
 	}
 }
 
-func (p *Provider) ensureSessionInstance(ctx context.Context, sdk *gosdk.SDK, cfg Config, req *proto.StartHostedPluginRequest) (*instanceRef, error) {
+func (p *Provider) ensureSessionInstance(ctx context.Context, sdk *gosdk.SDK, cfg Config, req gestalt.StartHostedPluginRequest) (*instanceRef, error) {
 	p.mu.Lock()
-	s, err := p.sessionLocked(req.GetSessionId())
+	s, err := p.sessionLocked(req.SessionID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -537,14 +502,14 @@ func (p *Provider) ensureSessionInstance(ctx context.Context, sdk *gosdk.SDK, cf
 	}
 	p.mu.Unlock()
 
-	inst, err := startInstance(ctx, sdk, cfg, req.GetPluginName(), req.GetSessionId())
+	inst, err := startInstance(ctx, sdk, cfg, req.PluginName, req.SessionID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "start nebius vm: %v", err)
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	s, err = p.sessionLocked(req.GetSessionId())
+	s, err = p.sessionLocked(req.SessionID)
 	if err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
 		defer cancel()
@@ -931,12 +896,12 @@ func (p *Provider) newID(prefix string) string {
 	return fmt.Sprintf("%s-%06d", prefix, atomic.AddUint64(&p.nextID, 1))
 }
 
-func cloneSession(s *session) *proto.PluginRuntimeSession {
+func cloneSession(s *session) gestalt.PluginRuntimeSession {
 	if s == nil {
-		return nil
+		return gestalt.PluginRuntimeSession{}
 	}
-	return &proto.PluginRuntimeSession{
-		Id:       s.id,
+	return gestalt.PluginRuntimeSession{
+		ID:       s.id,
 		State:    s.state,
 		Metadata: cloneStringMap(s.metadata),
 	}
@@ -953,15 +918,12 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func buildPluginEnv(req *proto.StartHostedPluginRequest, bindings map[string]string, providerSocket string) map[string]string {
-	env := cloneStringMap(req.GetEnv())
+func buildPluginEnv(req gestalt.StartHostedPluginRequest, providerSocket string) map[string]string {
+	env := cloneStringMap(req.Env)
 	if env == nil {
 		env = map[string]string{}
 	}
-	for key, value := range bindings {
-		env[key] = value
-	}
-	env[proto.EnvProviderSocket] = providerSocket
+	env[envProviderSocket] = providerSocket
 	return env
 }
 

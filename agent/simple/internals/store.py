@@ -4,19 +4,17 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import gestalt
 import grpc
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 
-agent_pb2: Any = cast(Any, _agent_pb2)
 
 TERMINAL_STATUSES = {
-    agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-    agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
-    agent_pb2.AGENT_EXECUTION_STATUS_CANCELED,
+    gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
+    gestalt.AGENT_EXECUTION_STATUS_FAILED,
+    gestalt.AGENT_EXECUTION_STATUS_CANCELED,
 }
 
 BUSY_RETRY_INITIAL_DELAY_SECONDS = 0.02
@@ -239,7 +237,7 @@ class SimpleRunStore:
             provider_name=provider_name,
             model=model,
             client_ref=client_ref,
-            state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+            state=gestalt.AGENT_SESSION_STATE_ACTIVE,
             metadata=metadata,
             created_by=created_by,
             created_at=now,
@@ -377,7 +375,7 @@ class SimpleRunStore:
                     idempotency_key=idempotency_key,
                     provider_name=provider_name,
                     model=model,
-                    status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
+                    status=gestalt.AGENT_EXECUTION_STATUS_RUNNING,
                     messages=copy.deepcopy(messages),
                     output_text="",
                     structured_output=None,
@@ -469,7 +467,7 @@ class SimpleRunStore:
                     return run
                 cancel_reason = reason.strip() or "canceled"
                 completed_at = _utcnow()
-                run.status = agent_pb2.AGENT_EXECUTION_STATUS_CANCELED
+                run.status = gestalt.AGENT_EXECUTION_STATUS_CANCELED
                 run.status_message = cancel_reason
                 run.cancel_reason = cancel_reason
                 run.completed_at = completed_at
@@ -724,7 +722,7 @@ class SimpleRunStore:
                 if current.status in TERMINAL_STATUSES:
                     return current
                 completed_at = _utcnow()
-                current.status = agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+                current.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
                 current.messages = messages
                 current.output_text = output_text
                 current.structured_output = structured_output
@@ -773,7 +771,7 @@ class SimpleRunStore:
                 if current.status in TERMINAL_STATUSES:
                     return current
                 completed_at = _utcnow()
-                current.status = agent_pb2.AGENT_EXECUTION_STATUS_FAILED
+                current.status = gestalt.AGENT_EXECUTION_STATUS_FAILED
                 current.messages = messages
                 current.status_message = status_message.strip()
                 current.completed_at = completed_at
@@ -1088,7 +1086,7 @@ def _record_to_run(record: dict[str, Any] | None) -> StoredRun | None:
         idempotency_key=str(record.get("idempotency_key") or ""),
         provider_name=str(record.get("provider_name") or ""),
         model=str(record.get("model") or ""),
-        status=int(record.get("status") or agent_pb2.AGENT_EXECUTION_STATUS_UNSPECIFIED),
+        status=int(record.get("status") or gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED),
         messages=_coerce_messages(record.get("messages")),
         output_text=str(record.get("output_text") or ""),
         structured_output=_coerce_optional_dict(record.get("structured_output")),
@@ -1144,7 +1142,7 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
         provider_name=str(record.get("provider_name") or ""),
         model=str(record.get("model") or ""),
         client_ref=str(record.get("client_ref") or ""),
-        state=int(record.get("state") or agent_pb2.AGENT_SESSION_STATE_UNSPECIFIED),
+        state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
         metadata=_coerce_optional_dict(record.get("metadata")) or {},
         created_by=_coerce_string_dict(record.get("created_by")),
         created_at=_coerce_required_datetime(record.get("created_at")),

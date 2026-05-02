@@ -10,11 +10,6 @@ import (
 	"github.com/valkey-io/valkey-go"
 	"github.com/valon-technologies/gestalt-providers/cache/internal/configutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -34,8 +29,6 @@ type config struct {
 }
 
 type Provider struct {
-	proto.UnimplementedCacheServer
-
 	name   string
 	client valkey.Client
 }
@@ -111,111 +104,101 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	return ping(ctx, client)
 }
 
-func (p *Provider) Get(ctx context.Context, req *proto.CacheGetRequest) (*proto.CacheGetResponse, error) {
+func (p *Provider) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return nil, false, gestalt.FailedPrecondition(err.Error())
 	}
 
-	value, found, err := get(ctx, client, req.GetKey())
+	value, found, err := get(ctx, client, key)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: get %q: %v", req.GetKey(), err)
+		return nil, false, gestalt.Internal(fmt.Sprintf("valkey cache: get %q: %v", key, err))
 	}
-	return &proto.CacheGetResponse{Found: found, Value: value}, nil
+	return value, found, nil
 }
 
-func (p *Provider) GetMany(ctx context.Context, req *proto.CacheGetManyRequest) (*proto.CacheGetManyResponse, error) {
+func (p *Provider) GetMany(ctx context.Context, keys []string) (map[string][]byte, error) {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return nil, gestalt.FailedPrecondition(err.Error())
 	}
 
-	values, err := getMany(ctx, client, req.GetKeys())
+	values, err := getMany(ctx, client, keys)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: get many: %v", err)
+		return nil, gestalt.Internal(fmt.Sprintf("valkey cache: get many: %v", err))
 	}
-
-	entries := make([]*proto.CacheResult, 0, len(req.GetKeys()))
-	for _, key := range req.GetKeys() {
-		entry := &proto.CacheResult{Key: key}
-		if value, ok := values[key]; ok {
-			entry.Found = true
-			entry.Value = value
-		}
-		entries = append(entries, entry)
-	}
-	return &proto.CacheGetManyResponse{Entries: entries}, nil
+	return values, nil
 }
 
-func (p *Provider) Set(ctx context.Context, req *proto.CacheSetRequest) (*emptypb.Empty, error) {
+func (p *Provider) Set(ctx context.Context, key string, value []byte, opts gestalt.CacheSetOptions) error {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.FailedPrecondition(err.Error())
 	}
-	ttl, err := ttlFromProto(req.GetTtl())
+	ttl, err := validatedTTL(opts.TTL)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return gestalt.InvalidArgument(err.Error())
 	}
-	if err := set(ctx, client, req.GetKey(), req.GetValue(), ttl); err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: set %q: %v", req.GetKey(), err)
+	if err := set(ctx, client, key, value, ttl); err != nil {
+		return gestalt.Internal(fmt.Sprintf("valkey cache: set %q: %v", key, err))
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *Provider) SetMany(ctx context.Context, req *proto.CacheSetManyRequest) (*emptypb.Empty, error) {
+func (p *Provider) SetMany(ctx context.Context, entries []gestalt.CacheEntry, opts gestalt.CacheSetOptions) error {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.FailedPrecondition(err.Error())
 	}
-	ttl, err := ttlFromProto(req.GetTtl())
+	ttl, err := validatedTTL(opts.TTL)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return gestalt.InvalidArgument(err.Error())
 	}
 
-	if err := setMany(ctx, client, req.GetEntries(), ttl); err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: set many: %v", err)
+	if err := setMany(ctx, client, entries, ttl); err != nil {
+		return gestalt.Internal(fmt.Sprintf("valkey cache: set many: %v", err))
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *Provider) Delete(ctx context.Context, req *proto.CacheDeleteRequest) (*proto.CacheDeleteResponse, error) {
+func (p *Provider) Delete(ctx context.Context, key string) (bool, error) {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return false, gestalt.FailedPrecondition(err.Error())
 	}
-	deleted, err := del(ctx, client, req.GetKey())
+	deleted, err := del(ctx, client, key)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: delete %q: %v", req.GetKey(), err)
+		return false, gestalt.Internal(fmt.Sprintf("valkey cache: delete %q: %v", key, err))
 	}
-	return &proto.CacheDeleteResponse{Deleted: deleted}, nil
+	return deleted, nil
 }
 
-func (p *Provider) DeleteMany(ctx context.Context, req *proto.CacheDeleteManyRequest) (*proto.CacheDeleteManyResponse, error) {
+func (p *Provider) DeleteMany(ctx context.Context, keys []string) (int64, error) {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return 0, gestalt.FailedPrecondition(err.Error())
 	}
-	deleted, err := deleteMany(ctx, client, req.GetKeys())
+	deleted, err := deleteMany(ctx, client, keys)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: delete many: %v", err)
+		return 0, gestalt.Internal(fmt.Sprintf("valkey cache: delete many: %v", err))
 	}
-	return &proto.CacheDeleteManyResponse{Deleted: deleted}, nil
+	return deleted, nil
 }
 
-func (p *Provider) Touch(ctx context.Context, req *proto.CacheTouchRequest) (*proto.CacheTouchResponse, error) {
+func (p *Provider) Touch(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	client, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return false, gestalt.FailedPrecondition(err.Error())
 	}
-	ttl, err := ttlFromProto(req.GetTtl())
+	ttl, err = validatedTTL(ttl)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return false, gestalt.InvalidArgument(err.Error())
 	}
-	touched, err := touch(ctx, client, req.GetKey(), ttl)
+	touched, err := touch(ctx, client, key, ttl)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "valkey cache: touch %q: %v", req.GetKey(), err)
+		return false, gestalt.Internal(fmt.Sprintf("valkey cache: touch %q: %v", key, err))
 	}
-	return &proto.CacheTouchResponse{Touched: touched}, nil
+	return touched, nil
 }
 
 func (p *Provider) Close() error {
@@ -278,7 +261,7 @@ func set(ctx context.Context, client valkey.Client, key string, value []byte, tt
 	return client.Do(ctx, cmd.Build()).Error()
 }
 
-func setMany(ctx context.Context, client valkey.Client, entries []*proto.CacheSetEntry, ttl time.Duration) error {
+func setMany(ctx context.Context, client valkey.Client, entries []gestalt.CacheEntry, ttl time.Duration) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -286,7 +269,7 @@ func setMany(ctx context.Context, client valkey.Client, entries []*proto.CacheSe
 
 	cmds := make([]valkey.Completed, 0, len(entries))
 	for _, entry := range entries {
-		cmd := client.B().Set().Key(entry.GetKey()).Value(valkey.BinaryString(entry.GetValue()))
+		cmd := client.B().Set().Key(entry.Key).Value(valkey.BinaryString(entry.Value))
 		if ttl > 0 {
 			cmds = append(cmds, cmd.Px(ttl).Build())
 			continue
@@ -297,7 +280,7 @@ func setMany(ctx context.Context, client valkey.Client, entries []*proto.CacheSe
 	results := client.DoMulti(ctx, cmds...)
 	for i, result := range results {
 		if err := result.Error(); err != nil {
-			return fmt.Errorf("set %q: %w", entries[i].GetKey(), err)
+			return fmt.Errorf("set %q: %w", entries[i].Key, err)
 		}
 	}
 	return nil
@@ -361,13 +344,6 @@ func valkeyTTL(ttl time.Duration) time.Duration {
 		return ttl
 	}
 	return ((ttl / time.Millisecond) + 1) * time.Millisecond
-}
-
-func ttlFromProto(ttl *durationpb.Duration) (time.Duration, error) {
-	if ttl == nil {
-		return 0, nil
-	}
-	return validatedTTL(ttl.AsDuration())
 }
 
 func uniqueKeys(keys []string) []string {

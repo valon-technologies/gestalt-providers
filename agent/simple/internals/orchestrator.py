@@ -5,7 +5,7 @@ import threading
 import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 import gestalt
 import grpc
@@ -15,13 +15,11 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from jsonschema import ValidationError, validate
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 
 from .config import SimpleAgentConfig
 from .model_backend import ModelBackend
 from .store import SimpleRunStore, StoredRun, StoredTurnCheckpoint
 
-agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
 
@@ -41,9 +39,9 @@ PHASE_TOOL_INFLIGHT = "tool_inflight"
 PHASE_TOOL_RESULT_RECORDED = "tool_result_recorded"
 PHASE_TERMINAL = "terminal"
 _TERMINAL_STATUSES = {
-    agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-    agent_pb2.AGENT_EXECUTION_STATUS_FAILED,
-    agent_pb2.AGENT_EXECUTION_STATUS_CANCELED,
+    gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
+    gestalt.AGENT_EXECUTION_STATUS_FAILED,
+    gestalt.AGENT_EXECUTION_STATUS_CANCELED,
 }
 TOOL_SEARCH_SYSTEM_PROMPT = (
     "When a user asks you to use an external integration or read external data and the needed tool is not already "
@@ -128,7 +126,7 @@ class SimpleAgentOrchestrator:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
         if len(list(request.messages)) == 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
-        if int(getattr(request, "tool_source", 0) or 0) != agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+        if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/simple requires toolSource mcp_catalog")
         if not str(getattr(request, "tool_grant", "") or "").strip():
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_grant is required")
@@ -228,7 +226,7 @@ class SimpleAgentOrchestrator:
             ) as operation:
                 self._run_turn_loop(turn_id)
                 completed = self._store.get_turn(turn_id)
-                if completed is not None and completed.status == agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
+                if completed is not None and completed.status == gestalt.AGENT_EXECUTION_STATUS_FAILED:
                     operation.mark_error("agent_turn_failed", completed.status_message)
         finally:
             if heartbeat_stop is not None:
@@ -238,7 +236,7 @@ class SimpleAgentOrchestrator:
             if claimed:
                 try:
                     self._store.release_turn_lease(turn_id, owner=self._worker_id)
-                except grpc.RpcError, RuntimeError:
+                except (grpc.RpcError, RuntimeError):
                     pass
             with self._scheduled_lock:
                 self._scheduled_turns.discard(turn_id)
@@ -253,7 +251,7 @@ class SimpleAgentOrchestrator:
                 try:
                     if not self._store.renew_turn_lease(turn_id, owner=self._worker_id, lease_seconds=lease_seconds):
                         return
-                except grpc.RpcError, RuntimeError:
+                except (grpc.RpcError, RuntimeError):
                     return
 
         thread = threading.Thread(target=renew_loop, daemon=True)
@@ -266,7 +264,7 @@ class SimpleAgentOrchestrator:
                 run = self._store.get_turn(turn_id)
                 if run is None or run.status in _TERMINAL_STATUSES:
                     return
-                if run.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+                if run.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
                     return
                 checkpoint = self._store.get_turn_checkpoint(turn_id)
                 if checkpoint is None:
@@ -427,7 +425,7 @@ class SimpleAgentOrchestrator:
             checkpoint=terminal_checkpoint,
             lease_owner=self._worker_id,
         )
-        if completed.status != agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED:
+        if completed.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
             return False
         return False
 
@@ -555,7 +553,7 @@ class SimpleAgentOrchestrator:
                     )
                 )
         current = self._store.get_turn(checkpoint.turn_id)
-        if current is not None and current.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+        if current is not None and current.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
             return False
         result = {
             "status": int(tool_response.status or 0),
@@ -629,11 +627,11 @@ class SimpleAgentOrchestrator:
             if lease_owner:
                 return
             raise
-        if failed.status != agent_pb2.AGENT_EXECUTION_STATUS_FAILED:
+        if failed.status != gestalt.AGENT_EXECUTION_STATUS_FAILED:
             return
 
     def turn_to_proto(self, run: StoredRun, *, summary_only: bool = False) -> Any:
-        proto = agent_pb2.AgentTurn(
+        proto = gestalt.AgentTurn(
             id=run.run_id,
             session_id=run.session_ref,
             provider_name=run.provider_name,
@@ -648,7 +646,7 @@ class SimpleAgentOrchestrator:
             proto.structured_output.CopyFrom(_dict_to_struct(run.structured_output))
         if run.created_by:
             proto.created_by.CopyFrom(
-                agent_pb2.AgentActor(
+                gestalt.AgentActor(
                     subject_id=run.created_by.get("subject_id", ""),
                     subject_kind=run.created_by.get("subject_kind", ""),
                     display_name=run.created_by.get("display_name", ""),
@@ -766,7 +764,7 @@ def _uncertain_tool_status_message(pending_tool_call: dict[str, Any] | None) -> 
 def _execute_tool_request(
     *, checkpoint: StoredTurnCheckpoint, tool_call_id: str, resolved_tool_id: str, execution_arguments: dict[str, Any]
 ) -> Any:
-    request = agent_pb2.ExecuteAgentToolRequest(
+    request = gestalt.ExecuteAgentToolRequest(
         session_id=checkpoint.session_id,
         turn_id=checkpoint.turn_id,
         tool_call_id=tool_call_id,
@@ -863,7 +861,7 @@ def _list_matching_tools_for_model(
             return matched, True
         seen_tokens.add(page_token)
         response = host.list_tools(
-            agent_pb2.ListAgentToolsRequest(
+            gestalt.ListAgentToolsRequest(
                 session_id=prepared.session_id,
                 turn_id=prepared.turn_id,
                 page_size=TOOL_LIST_DEFAULT_PAGE_SIZE,
@@ -962,7 +960,7 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
 def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool = False) -> int:
     try:
         value = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     if value < 0:
         return default
@@ -974,7 +972,7 @@ def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool =
 def _tool_search_candidate_limit(raw_value: Any, *, default: int) -> int:
     try:
         value = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
     if value <= 0:
         return 0
@@ -993,7 +991,7 @@ def _tool_search_load_refs(raw_value: Any) -> list[Any]:
         operation = str(item.get("operation", "") or "").strip()
         if not operation or not (plugin or system):
             continue
-        ref = agent_pb2.AgentToolRef(plugin=plugin, operation=operation)
+        ref = gestalt.AgentToolRef(plugin=plugin, operation=operation)
         _set_proto_string_field(ref, "system", system)
         _set_proto_string_field(ref, "connection", item.get("connection"))
         _set_proto_string_field(ref, "instance", item.get("instance"))
@@ -1126,7 +1124,7 @@ def _message_to_dict(message: Any) -> dict[str, Any]:
 
 
 def _message_from_dict(raw_message: dict[str, Any]) -> Any:
-    message = agent_pb2.AgentMessage()
+    message = gestalt.AgentMessage()
     json_format.ParseDict(raw_message, message)
     return message
 
@@ -1250,15 +1248,15 @@ def _part_type(part: dict[str, Any]) -> str:
     raw_value = part.get("type")
     if isinstance(raw_value, str):
         return raw_value
-    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT:
+    if raw_value == gestalt.AGENT_MESSAGE_PART_TYPE_TEXT:
         return "AGENT_MESSAGE_PART_TYPE_TEXT"
-    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_JSON:
+    if raw_value == gestalt.AGENT_MESSAGE_PART_TYPE_JSON:
         return "AGENT_MESSAGE_PART_TYPE_JSON"
-    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_TOOL_CALL:
+    if raw_value == gestalt.AGENT_MESSAGE_PART_TYPE_TOOL_CALL:
         return "AGENT_MESSAGE_PART_TYPE_TOOL_CALL"
-    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_TOOL_RESULT:
+    if raw_value == gestalt.AGENT_MESSAGE_PART_TYPE_TOOL_RESULT:
         return "AGENT_MESSAGE_PART_TYPE_TOOL_RESULT"
-    if raw_value == agent_pb2.AGENT_MESSAGE_PART_TYPE_IMAGE_REF:
+    if raw_value == gestalt.AGENT_MESSAGE_PART_TYPE_IMAGE_REF:
         return "AGENT_MESSAGE_PART_TYPE_IMAGE_REF"
     return ""
 

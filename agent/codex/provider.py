@@ -12,14 +12,12 @@ from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
 from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError
 from internals.codex_runner import CodexMCPRunner
 from internals.config import CodexAgentConfig
 from internals.store import StoreConflictError, StoredSession, StoredTurn, StoredTurnEvent
 from internals.store import InMemoryRunStore
 
-agent_pb2: Any = cast(Any, _agent_pb2)
 struct_pb2: Any = cast(Any, _struct_pb2)
 timestamp_pb2: Any = cast(Any, _timestamp_pb2)
 logger = logging.getLogger(__name__)
@@ -96,7 +94,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
-        return agent_pb2.ListAgentProviderSessionsResponse(
+        return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
                 _session_to_proto(session, summary_only=bool(getattr(request, "summary_only", False)))
                 for session in store.list_sessions(
@@ -181,7 +179,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
-        return agent_pb2.ListAgentProviderTurnsResponse(
+        return gestalt.ListAgentProviderTurnsResponse(
             turns=[
                 _turn_to_proto(turn, summary_only=bool(getattr(request, "summary_only", False)))
                 for turn in store.list_turns(
@@ -200,13 +198,13 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if turn is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
-        if turn.status == agent_pb2.AGENT_EXECUTION_STATUS_CANCELED:
+        if turn.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
             runner.cancel_turn(turn.turn_id)
         return _turn_to_proto(turn)
 
     def ListTurnEvents(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        return agent_pb2.ListAgentProviderTurnEventsResponse(
+        return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 _turn_event_to_proto(event)
                 for event in store.list_turn_events(
@@ -223,7 +221,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def ListInteractions(self, request: Any, context: grpc.ServicerContext) -> Any:
         self._require_runtime(context)
-        return agent_pb2.ListAgentProviderInteractionsResponse(interactions=[])
+        return gestalt.ListAgentProviderInteractionsResponse(interactions=[])
 
     def ResolveInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
         self._require_runtime(context)
@@ -231,7 +229,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
         self._require_runtime(context)
-        return agent_pb2.AgentProviderCapabilities(
+        return gestalt.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
@@ -240,7 +238,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             resumable_turns=False,
             reasoning_summaries=False,
             bounded_list_hydration=True,
-            supported_tool_sources=[agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
 
     def _require_runtime(
@@ -292,7 +290,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
 
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
-    proto = agent_pb2.AgentSession(
+    proto = gestalt.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
         model=session.model,
@@ -303,7 +301,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         proto.metadata.CopyFrom(_dict_to_struct(session.metadata))
     if session.created_by:
         proto.created_by.CopyFrom(
-            agent_pb2.AgentActor(
+            gestalt.AgentActor(
                 subject_id=session.created_by.get("subject_id", ""),
                 subject_kind=session.created_by.get("subject_kind", ""),
                 display_name=session.created_by.get("display_name", ""),
@@ -318,7 +316,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
 
 
 def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
-    proto = agent_pb2.AgentTurn(
+    proto = gestalt.AgentTurn(
         id=turn.turn_id,
         session_id=turn.session_id,
         provider_name=turn.provider_name,
@@ -332,7 +330,7 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
         proto.messages.extend(_messages_from_dicts(turn.messages))
     if turn.created_by:
         proto.created_by.CopyFrom(
-            agent_pb2.AgentActor(
+            gestalt.AgentActor(
                 subject_id=turn.created_by.get("subject_id", ""),
                 subject_kind=turn.created_by.get("subject_kind", ""),
                 display_name=turn.created_by.get("display_name", ""),
@@ -348,7 +346,7 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
 
 
 def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
-    proto = agent_pb2.AgentTurnEvent(
+    proto = gestalt.AgentTurnEvent(
         id=event.event_id,
         turn_id=event.turn_id,
         seq=event.seq,
@@ -381,7 +379,7 @@ def _which(binary: str) -> str | None:
 
 
 def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -> None:
-    if int(getattr(request, "tool_source", 0) or 0) != agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+    if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/codex requires toolSource mcp_catalog")
     if not str(request.tool_grant or "").strip():
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_grant is required")
@@ -453,11 +451,11 @@ def _messages_to_dicts(messages: Any) -> list[dict[str, Any]]:
 def _messages_from_dicts(messages: list[dict[str, Any]]) -> list[Any]:
     out = []
     for message in messages:
-        proto = agent_pb2.AgentMessage(role=str(message.get("role") or ""), text=str(message.get("text") or ""))
+        proto = gestalt.AgentMessage(role=str(message.get("role") or ""), text=str(message.get("text") or ""))
         for part in message.get("parts") or []:
             if not isinstance(part, dict):
                 continue
-            part_proto = agent_pb2.AgentMessagePart(type=int(part.get("type") or 0), text=str(part.get("text") or ""))
+            part_proto = gestalt.AgentMessagePart(type=int(part.get("type") or 0), text=str(part.get("text") or ""))
             if isinstance(part.get("json"), dict):
                 part_proto.json.CopyFrom(_dict_to_struct(part["json"]))
             if isinstance(part.get("tool_call"), dict):
