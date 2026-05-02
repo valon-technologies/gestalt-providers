@@ -89,6 +89,9 @@ type Provider struct {
 	// workerMu serializes scheduler and worker claim work without blocking
 	// foreground enqueue calls on the provider lifecycle lock.
 	workerMu sync.Mutex
+	// publishMu serializes event publication so deterministic event run IDs and
+	// publisher-scoped execution refs stay consistent across duplicate publishes.
+	publishMu sync.Mutex
 
 	name              string
 	cfg               config
@@ -380,9 +383,9 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 }
 
 func (p *Provider) HealthCheck(ctx context.Context) error {
-	p.mu.Lock()
+	p.mu.RLock()
 	store := p.runStore
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if store == nil {
 		return errors.New("indexeddb workflow: provider is not configured")
 	}
@@ -984,14 +987,14 @@ func (p *Provider) GetSchedule(ctx context.Context, req *proto.GetWorkflowProvid
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 
-	p.mu.Lock()
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	record, found, err := loadScheduleRecord(ctx, state.scheduleStore, pluginName, scheduleID)
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get schedule: %v", err)
 	}
@@ -1011,14 +1014,14 @@ func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowPro
 	}
 	pluginName := ""
 
-	p.mu.Lock()
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	records, err := listScheduleRecords(ctx, state.scheduleStore, pluginName)
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list schedules: %v", err)
 	}
@@ -1161,14 +1164,14 @@ func (p *Provider) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowPr
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
 
-	p.mu.Lock()
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	record, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, pluginName, triggerID)
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get event trigger: %v", err)
 	}
@@ -1188,14 +1191,14 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflo
 	}
 	pluginName := ""
 
-	p.mu.Lock()
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	records, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
@@ -1267,15 +1270,18 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	p.mu.Lock()
+	p.publishMu.Lock()
+	defer p.publishMu.Unlock()
+
+	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
 	if err != nil {
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
 	now := p.clock().UTC()
@@ -1292,7 +1298,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			runID = eventRunID(trigger.ID, event.GetSource(), event.GetId())
 		}
 		if _, found, err := loadRunRecord(ctx, state.runStore, trigger.ownerKey(), runID); err != nil {
-			p.mu.Unlock()
+			p.mu.RUnlock()
 			return nil, status.Errorf(codes.Internal, "load event run: %v", err)
 		} else if found {
 			continue
@@ -1304,18 +1310,18 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			createdBy = cloneActor(publishedBy)
 			ref, err := publishedEventExecutionReference(providerName, runID, trigger, publishedBy, now)
 			if err != nil {
-				p.mu.Unlock()
+				p.mu.RUnlock()
 				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
 				record, err := executionReferenceRecordFromProto(ref)
 				if err != nil {
-					p.mu.Unlock()
+					p.mu.RUnlock()
 					return nil, status.Errorf(codes.Internal, "build event execution reference record: %v", err)
 				}
 				if err := state.executionRefStore.Add(ctx, record.toRecord()); err != nil {
 					if !errors.Is(err, gestalt.ErrAlreadyExists) {
-						p.mu.Unlock()
+						p.mu.RUnlock()
 						return nil, status.Errorf(codes.Internal, "store event execution reference: %v", err)
 					}
 				} else {
@@ -1343,7 +1349,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			if createdExecutionRef {
 				_ = state.executionRefStore.Delete(ctx, executionRef)
 			}
-			p.mu.Unlock()
+			p.mu.RUnlock()
 			return nil, status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
 		}
 		enqueued = true
@@ -1354,7 +1360,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 	if enqueued {
 		p.signalWorkerLocked(preferredRunID)
 	}
-	p.mu.Unlock()
+	p.mu.RUnlock()
 	return &emptypb.Empty{}, nil
 }
 
