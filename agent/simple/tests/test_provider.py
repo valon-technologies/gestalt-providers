@@ -59,6 +59,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         self._stores: dict[str, dict[str, Any]] = {}
         self._busy_failures: dict[tuple[str, str], int] = {}
         self._operation_counts: dict[tuple[str, str], int] = {}
+        self._cursor_commands: dict[str, list[list[str]]] = {}
 
     def fail_next_busy(self, *, store: str, operation: str, count: int = 1) -> None:
         with self._lock:
@@ -69,10 +70,25 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             self._stores.clear()
             self._busy_failures.clear()
             self._operation_counts.clear()
+            self._cursor_commands.clear()
 
     def operation_count(self, *, store: str, operation: str) -> int:
         with self._lock:
             return self._operation_counts.get((store, operation), 0)
+
+    def cursor_commands(self, *, store: str) -> list[list[str]]:
+        with self._lock:
+            return [list(commands) for commands in self._cursor_commands.get(store, [])]
+
+    def _start_cursor_commands(self, *, store: str) -> list[str]:
+        commands: list[str] = []
+        with self._lock:
+            self._cursor_commands.setdefault(store, []).append(commands)
+        return commands
+
+    def _record_cursor_command(self, commands: list[str], command: str) -> None:
+        with self._lock:
+            commands.append(command)
 
     def _maybe_fail_busy(self, *, store: str, operation: str, context: grpc.ServicerContext) -> None:
         self._operation_counts[(store, operation)] = self._operation_counts.get((store, operation), 0) + 1
@@ -186,6 +202,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         with self._lock:
             self._maybe_fail_busy(store=open_req.store, operation="open_cursor", context=context)
             records = _records_for_request_range(self._stores.get(open_req.store, {}), open_req)
+        command_log = self._start_cursor_commands(store=open_req.store)
         yield datastore_pb2.CursorResponse(done=False)
 
         cursor_index = -1
@@ -194,6 +211,7 @@ class _FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, "cursor command is required")
             command = message.command
             kind = command.WhichOneof("command")
+            self._record_cursor_command(command_log, str(kind))
             if kind == "next":
                 cursor_index += 1
             elif kind == "advance":
@@ -960,28 +978,103 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 resume_seed=_resume_seed(messages=[{"role": "user", "text": f"stream {suffix}"}], provider_options={}),
                 start_event_source="simple",
             )
+            if suffix == "a":
+                time.sleep(0.001)
 
-        sessions = store.list_sessions(subject_id="user-123", limit=1)
-        turns = store.list_turns("session-stream-a", subject_id="user-123")
+        source_session_store = f"{_SIMPLE_RUN_STORE}_sessions"
+        source_turn_store = _SIMPLE_RUN_STORE
+        session_projection_store = f"{_SIMPLE_RUN_STORE}_session_projections"
+        turn_projection_store = f"{_SIMPLE_RUN_STORE}_turn_projections"
+        event_store = f"{_SIMPLE_RUN_STORE}_events"
+        before_counts = {
+            (source_session_store, "open_cursor"): _indexeddb_servicer.operation_count(
+                store=source_session_store, operation="open_cursor"
+            ),
+            (source_turn_store, "open_cursor"): _indexeddb_servicer.operation_count(
+                store=source_turn_store, operation="open_cursor"
+            ),
+            (session_projection_store, "open_cursor"): _indexeddb_servicer.operation_count(
+                store=session_projection_store, operation="open_cursor"
+            ),
+            (turn_projection_store, "open_cursor"): _indexeddb_servicer.operation_count(
+                store=turn_projection_store, operation="open_cursor"
+            ),
+            (event_store, "open_cursor"): _indexeddb_servicer.operation_count(
+                store=event_store, operation="open_cursor"
+            ),
+            (source_session_store, "get_all"): _indexeddb_servicer.operation_count(
+                store=source_session_store, operation="get_all"
+            ),
+            (source_turn_store, "get_all"): _indexeddb_servicer.operation_count(
+                store=source_turn_store, operation="get_all"
+            ),
+            (event_store, "get_all"): _indexeddb_servicer.operation_count(store=event_store, operation="get_all"),
+        }
+        before_session_projection_cursors = len(_indexeddb_servicer.cursor_commands(store=session_projection_store))
+        before_turn_projection_cursors = len(_indexeddb_servicer.cursor_commands(store=turn_projection_store))
+
+        sessions = store.list_sessions(subject_id="user-123", limit=1, summary_only=True)
+        full_sessions = store.list_sessions(subject_id="user-123", limit=1)
+        turns = store.list_turns("session-stream-a", subject_id="user-123", summary_only=True)
+        full_turns = store.list_turns("session-stream-a", subject_id="user-123", limit=1)
         events = store.list_turn_events(turn_id="turn-stream-a")
 
         self.assertEqual(len(sessions), 1)
+        self.assertEqual([session.session_id for session in sessions], ["session-stream-b"])
+        self.assertEqual([session.session_id for session in full_sessions], ["session-stream-b"])
+        self.assertEqual(full_sessions[0].metadata, {"large": "x" * 1024})
         self.assertEqual([turn.run_id for turn in turns], ["turn-stream-a"])
+        self.assertEqual([turn.run_id for turn in full_turns], ["turn-stream-a"])
+        self.assertEqual(full_turns[0].messages, [{"role": "user", "text": "stream a"}])
         self.assertEqual([event.event_id for event in events], ["turn-stream-a:turn.started"])
         self.assertGreater(
-            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_sessions", operation="open_cursor"), 0
+            _indexeddb_servicer.operation_count(store=session_projection_store, operation="open_cursor")
+            - before_counts[(session_projection_store, "open_cursor")],
+            0,
         )
-        self.assertGreater(_indexeddb_servicer.operation_count(store=_SIMPLE_RUN_STORE, operation="open_cursor"), 0)
         self.assertGreater(
-            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_events", operation="open_cursor"), 0
+            _indexeddb_servicer.operation_count(store=turn_projection_store, operation="open_cursor")
+            - before_counts[(turn_projection_store, "open_cursor")],
+            0,
+        )
+        self.assertGreater(
+            _indexeddb_servicer.operation_count(store=event_store, operation="open_cursor")
+            - before_counts[(event_store, "open_cursor")],
+            0,
         )
         self.assertEqual(
-            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_sessions", operation="get_all"), 0
+            _indexeddb_servicer.operation_count(store=source_session_store, operation="open_cursor")
+            - before_counts[(source_session_store, "open_cursor")],
+            0,
         )
-        self.assertEqual(_indexeddb_servicer.operation_count(store=_SIMPLE_RUN_STORE, operation="get_all"), 0)
         self.assertEqual(
-            _indexeddb_servicer.operation_count(store=f"{_SIMPLE_RUN_STORE}_events", operation="get_all"), 0
+            _indexeddb_servicer.operation_count(store=source_turn_store, operation="open_cursor")
+            - before_counts[(source_turn_store, "open_cursor")],
+            0,
         )
+        self.assertEqual(
+            _indexeddb_servicer.operation_count(store=source_session_store, operation="get_all")
+            - before_counts[(source_session_store, "get_all")],
+            0,
+        )
+        self.assertEqual(
+            _indexeddb_servicer.operation_count(store=source_turn_store, operation="get_all")
+            - before_counts[(source_turn_store, "get_all")],
+            0,
+        )
+        self.assertEqual(
+            _indexeddb_servicer.operation_count(store=event_store, operation="get_all")
+            - before_counts[(event_store, "get_all")],
+            0,
+        )
+        session_projection_commands = _indexeddb_servicer.cursor_commands(store=session_projection_store)[
+            before_session_projection_cursors:
+        ]
+        self.assertEqual(session_projection_commands, [["next"], ["next"]])
+        turn_projection_commands = _indexeddb_servicer.cursor_commands(store=turn_projection_store)[
+            before_turn_projection_cursors:
+        ]
+        self.assertIn(["next"], turn_projection_commands)
 
     def test_configure_resumes_running_turn_from_atomic_checkpoint(self) -> None:
         fake_llm = _FakeOpenAIChatServer(
@@ -1445,6 +1538,16 @@ class SimpleAgentProviderTests(unittest.TestCase):
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
 
         self.assertTrue(capabilities.resumable_turns)
+
+    def test_capabilities_report_bounded_list_hydration_from_store(self) -> None:
+        with mock.patch.object(
+            provider_module.SimpleRunStore, "supports_bounded_list_hydration", return_value=False
+        ) as supports_bounded:
+            _, provider_client = _configure_provider()
+            capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
+
+        supports_bounded.assert_called()
+        self.assertFalse(capabilities.bounded_list_hydration)
 
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider()
