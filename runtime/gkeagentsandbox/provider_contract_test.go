@@ -199,6 +199,60 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderContractUsesInstanceScopedSessionIDs(t *testing.T) {
+	t.Parallel()
+
+	start := func(t *testing.T, instanceID string) (*proto.PluginRuntimeSession, string) {
+		t.Helper()
+
+		fake := &fakeSandboxRuntime{}
+		client := startRuntimeProviderServer(t, &Provider{
+			name:       "gkeAgentSandbox",
+			instanceID: instanceID,
+			cfg: Config{
+				Namespace:           "runtime-system",
+				PluginPort:          50051,
+				SandboxReadyTimeout: 2 * time.Second,
+				PluginReadyTimeout:  2 * time.Second,
+				ExecTimeout:         2 * time.Second,
+				CleanupTimeout:      2 * time.Second,
+			},
+			runtime:  fake,
+			sessions: map[string]*session{},
+		})
+
+		session, err := client.StartSession(context.Background(), &proto.StartPluginRuntimeSessionRequest{
+			PluginName: "claude",
+			Template:   "agent-runtime",
+		})
+		if err != nil {
+			t.Fatalf("StartSession: %v", err)
+		}
+
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		if len(fake.startRequests) != 1 {
+			t.Fatalf("runtime Start calls = %d, want 1", len(fake.startRequests))
+		}
+		return session, fake.startRequests[0].Name
+	}
+
+	firstSession, firstName := start(t, "first")
+	secondSession, secondName := start(t, "second")
+	if firstSession.GetId() == secondSession.GetId() {
+		t.Fatalf("session IDs matched across provider instances: %q", firstSession.GetId())
+	}
+	if firstName == secondName {
+		t.Fatalf("sandbox resource names matched across provider instances: %q", firstName)
+	}
+	if !strings.Contains(firstSession.GetId(), "first") || !strings.Contains(secondSession.GetId(), "second") {
+		t.Fatalf("session IDs = %q and %q, want provider instance scopes", firstSession.GetId(), secondSession.GetId())
+	}
+	if !strings.HasSuffix(firstName, firstSession.GetId()) || !strings.HasSuffix(secondName, secondSession.GetId()) {
+		t.Fatalf("sandbox resource names %q and %q should preserve session ID suffixes", firstName, secondName)
+	}
+}
+
 func TestRuntimeProviderContractListsSessions(t *testing.T) {
 	t.Parallel()
 

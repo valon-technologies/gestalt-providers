@@ -2,6 +2,8 @@ package gkeagentsandbox
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -21,7 +23,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.12"
+	providerVersion      = "0.0.1-alpha.13"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
 	sessionStateRunning  = "running"
@@ -36,7 +38,8 @@ type Provider struct {
 	cfg     Config
 	runtime sandboxRuntime
 
-	nextID uint64
+	instanceID string
+	nextID     uint64
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -69,7 +72,8 @@ type plugin struct {
 
 func New() *Provider {
 	return &Provider{
-		sessions: make(map[string]*session),
+		instanceID: newProviderInstanceID(),
+		sessions:   make(map[string]*session),
 	}
 }
 
@@ -93,6 +97,9 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.name = strings.TrimSpace(name)
 	p.cfg = cfg
 	p.runtime = runtime
+	if p.instanceID == "" {
+		p.instanceID = newProviderInstanceID()
+	}
 	if p.sessions == nil {
 		p.sessions = make(map[string]*session)
 	}
@@ -583,7 +590,19 @@ func (p *Provider) sessionLocked(sessionID string) (*session, error) {
 }
 
 func (p *Provider) newID(prefix string) string {
-	return fmt.Sprintf("%s-%06d", prefix, atomic.AddUint64(&p.nextID, 1))
+	instanceID := strings.TrimSpace(p.instanceID)
+	if instanceID == "" {
+		instanceID = "local"
+	}
+	return fmt.Sprintf("%s-%s-%06d", prefix, instanceID, atomic.AddUint64(&p.nextID, 1))
+}
+
+func newProviderInstanceID() string {
+	var b [5]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
 func cloneSession(s *session) *proto.PluginRuntimeSession {
