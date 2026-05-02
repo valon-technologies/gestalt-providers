@@ -17,9 +17,9 @@ from typing import Any, Iterable, TypeAlias, cast
 import gestalt
 from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
-from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
+from gestalt._gen.v1 import agent_pb2 as _agent_pb2
+from gestalt._gen.v1 import authorization_pb2 as _authorization_pb2
+from gestalt._gen.v1 import workflow_pb2 as _workflow_pb2
 
 from .client import SlackAPIError, SlackClientError
 from .config import agent_config_from_provider_config, normalize_suggested_prompts
@@ -33,6 +33,8 @@ from .models import (
     SlackAgentRoute,
     SlackCallbackType,
     SlackChannelType,
+    SlackEventPublishCallback,
+    SlackEventPublishRoute,
     SlackEventType,
     SlackInteractionAction,
     SlackInteractionActionStyle,
@@ -237,6 +239,12 @@ def resolve_slack_http_subject(
     request: gestalt.HTTPSubjectRequest, context: gestalt.Request
 ) -> gestalt.Subject | None:
     payload = _json_payload_from_http_request(request)
+    publish_event, _publish_ignored_reason = _slack_publish_callback_from_payload(
+        payload
+    )
+    has_publish_route = bool(
+        publish_event is not None and _matching_publish_routes(publish_event)
+    )
     event, _ignored_reason = _slack_agent_event_from_payload(payload)
     if event is not None:
         _route, ignored_reason = _select_agent_route(event)
@@ -252,6 +260,8 @@ def resolve_slack_http_subject(
         user_id = _interaction_user_id(interaction)
 
     if not team_id or not user_id:
+        if has_publish_route:
+            return None
         raise gestalt.http_subject_error(
             HTTPStatus.BAD_REQUEST, "Slack request is missing team_id or user"
         )
@@ -262,6 +272,8 @@ def resolve_slack_http_subject(
         user_id=user_id,
     )
     if subject is None:
+        if has_publish_route:
+            return None
         raise gestalt.http_subject_error(
             HTTPStatus.FORBIDDEN, "Slack user is not linked to a Gestalt subject"
         )
@@ -272,21 +284,33 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     if _is_url_verification(input):
         return {"challenge": str(input.get("challenge") or "")}
 
+    publish_response = _publish_matching_workflow_events(input, req)
+    if isinstance(publish_response, gestalt.Response):
+        return publish_response
+
     event, ignored_reason = _slack_agent_event_from_payload(input)
     if event is None:
+        if publish_response is not None:
+            return publish_response
         return {"ok": True, "ignored": ignored_reason}
 
     route, ignored_reason = _select_agent_route(event)
     if ignored_reason:
+        if publish_response is not None:
+            return publish_response
         return {"ok": True, "ignored": ignored_reason}
 
     log_context = _slack_event_log_context(event, req, route)
     if not req.subject.id or req.subject.id.startswith("system:"):
+        if publish_response is not None:
+            return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
         return gestalt.Response(
             status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
         )
     if not _agent_config.bot.token:
+        if publish_response is not None:
+            return publish_response
         logger.error("Slack event bot token is not configured %s", log_context)
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
@@ -335,12 +359,16 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                     assistant_status_error,
                 )
         if not _agent_config.workflow.provider_name:
+            if publish_response is not None:
+                return publish_response
             logger.error("Slack workflow provider is not configured %s", log_context)
             return gestalt.Response(
                 status=HTTPStatus.PRECONDITION_FAILED,
                 body={"error": "Slack workflow provider is not configured"},
             )
         if not _workflow_manager_contract_available():
+            if publish_response is not None:
+                return publish_response
             message = "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start and output-delivery support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
@@ -348,6 +376,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
         )
         if workflow_manager_factory is None:
+            if publish_response is not None:
+                return publish_response
             message = "Slack event handling requires a Gestalt SDK/runtime with workflow manager support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
@@ -381,6 +411,10 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
         response["assistant_status_error"] = assistant_status_error
+    if publish_response is not None:
+        response["published_event_count"] = publish_response["published_event_count"]
+        response["workflow_event_ids"] = publish_response["workflow_event_ids"]
+        response["publish_route_ids"] = publish_response["route_ids"]
     return response
 
 
@@ -1314,6 +1348,274 @@ def _slack_agent_event_from_payload(
     )
 
 
+def _publish_matching_workflow_events(
+    payload: dict[str, Any], req: gestalt.Request
+) -> dict[str, Any] | ErrorResponse | None:
+    event, ignored_reason = _slack_publish_callback_from_payload(payload)
+    if event is None:
+        _ = ignored_reason
+        return None
+
+    routes = _matching_publish_routes(event)
+    if not routes:
+        return None
+
+    log_context = _slack_publish_log_context(event, routes)
+    if not _workflow_publish_contract_available():
+        message = "Slack event publishing requires a Gestalt SDK/runtime with workflow event publishing support"
+        logger.error("%s %s", message, log_context)
+        return _server_error(message)
+    if (
+        _workflow_publish_provider_selection_required(routes)
+        and not _workflow_publish_provider_selection_available()
+    ):
+        message = "Slack event publishing requires a Gestalt SDK/runtime with workflow provider selection support"
+        logger.error("%s %s", message, log_context)
+        return _server_error(message)
+
+    workflow_manager_factory = cast(
+        WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
+    )
+    if workflow_manager_factory is None:
+        message = "Slack event publishing requires a Gestalt SDK/runtime with workflow manager support"
+        logger.error("%s %s", message, log_context)
+        return _server_error(message)
+
+    try:
+        workflow_event_ids: list[str] = []
+        route_ids: list[str] = []
+        with workflow_manager_factory() as workflow_manager:
+            for route in routes:
+                workflow_request = _build_workflow_publish_event_request(
+                    event, route, payload
+                )
+                workflow_response = workflow_manager.publish_event(workflow_request)
+                workflow_event_ids.append(
+                    str(getattr(workflow_response, "id", "") or workflow_request.event.id)
+                )
+                route_ids.append(route.id)
+    except Exception as err:
+        logger.exception("failed to publish Slack workflow event %s", log_context)
+        return _server_error(f"failed to publish workflow event: {err}")
+
+    logger.info("published Slack workflow event %s", log_context)
+    return {
+        "ok": True,
+        "published": True,
+        "published_event_count": len(workflow_event_ids),
+        "workflow_event_ids": workflow_event_ids,
+        "route_ids": route_ids,
+    }
+
+
+def _slack_publish_callback_from_payload(
+    payload: dict[str, Any],
+) -> tuple[SlackEventPublishCallback | None, str]:
+    callback_type = str(payload.get("type") or "").strip()
+    if callback_type == SlackCallbackType.URL_VERIFICATION:
+        return None, "url_verification"
+    if callback_type != SlackCallbackType.EVENT_CALLBACK:
+        return None, "unsupported_callback_type"
+
+    event = payload.get("event")
+    if not isinstance(event, dict):
+        return None, "missing_event"
+
+    event_type = string_field(event, "type")
+    if not event_type:
+        return None, "missing_event_type"
+
+    nested_message = map_field(event, "message")
+    item = map_field(event, "item")
+    subtype = string_field(event, "subtype")
+    bot_id = (
+        string_field(event, "bot_id")
+        or string_field(nested_message, "bot_id")
+        or string_field(map_field(event, "bot_profile"), "id")
+        or string_field(map_field(nested_message, "bot_profile"), "id")
+    )
+    user_id = (
+        string_field(event, "user")
+        or string_field(event, "user_id")
+        or string_field(nested_message, "user")
+        or string_field(nested_message, "user_id")
+    )
+    channel_id = (
+        string_field(event, "channel")
+        or string_field(event, "channel_id")
+        or string_field(nested_message, "channel")
+        or string_field(nested_message, "channel_id")
+        or string_field(item, "channel")
+    )
+    message_ts = (
+        string_field(event, "ts")
+        or string_field(nested_message, "ts")
+        or string_field(item, "ts")
+    )
+    event_ts = string_field(event, "event_ts")
+    text = string_field(event, "text") or string_field(nested_message, "text")
+    files = tuple(map_slice(event.get("files")) or map_slice(nested_message.get("files")))
+    return (
+        SlackEventPublishCallback(
+            callback_type=callback_type,
+            event_type=event_type,
+            event_id=string_field(payload, "event_id"),
+            team_id=_slack_team_id(payload, event),
+            enterprise_id=string_field(payload, "enterprise_id"),
+            api_app_id=string_field(payload, "api_app_id"),
+            event_context=string_field(payload, "event_context"),
+            user_id=user_id,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            channel_type=string_field(event, "channel_type")
+            or string_field(nested_message, "channel_type"),
+            subtype=subtype,
+            text=text,
+            message_ts=message_ts,
+            event_ts=event_ts,
+            thread_ts=string_field(event, "thread_ts")
+            or string_field(nested_message, "thread_ts"),
+            files=files,
+            is_bot_event=bool(
+                subtype == "bot_message"
+                or bot_id
+                or event.get("bot_profile")
+                or nested_message.get("bot_profile")
+            ),
+        ),
+        "",
+    )
+
+
+def _matching_publish_routes(
+    event: SlackEventPublishCallback,
+) -> tuple[SlackEventPublishRoute, ...]:
+    return tuple(
+        route
+        for route in _agent_config.events.publish.routes
+        if route.match.matches(event)
+    )
+
+
+def _build_workflow_publish_event_request(
+    event: SlackEventPublishCallback,
+    route: SlackEventPublishRoute,
+    raw_payload: dict[str, Any],
+) -> Any:
+    workflow_event = workflow_pb2.WorkflowEvent(
+        id=_workflow_event_id(event, route),
+        source=route.source or "slack",
+        spec_version="1.0",
+        type=route.workflow_event_type or "slack.event.received",
+        subject=route.subject or f"route:{route.id}",
+        datacontenttype="application/json",
+    )
+    workflow_event.data.CopyFrom(_slack_publish_event_data(event, route, raw_payload))
+    workflow_request = workflow_pb2.WorkflowManagerPublishEventRequest(
+        event=workflow_event
+    )
+    workflow_provider = route.workflow_provider or _agent_config.workflow.provider_name
+    if workflow_provider:
+        workflow_request.provider_name = workflow_provider
+    return workflow_request
+
+
+def _slack_publish_event_data(
+    event: SlackEventPublishCallback,
+    route: SlackEventPublishRoute,
+    raw_payload: dict[str, Any],
+) -> Any:
+    return _dict_to_struct(
+        {
+            "routeId": route.id,
+            "slack": {
+                "callback_type": event.callback_type,
+                "event_type": event.event_type,
+                "event_id": event.event_id,
+                "team_id": event.team_id,
+                "enterprise_id": event.enterprise_id,
+                "api_app_id": event.api_app_id,
+                "event_context": event.event_context,
+                "user_id": event.user_id,
+                "bot_id": event.bot_id,
+                "channel_id": event.channel_id,
+                "channel_type": event.channel_type,
+                "subtype": event.subtype,
+                "text": event.text,
+                "message_ts": event.message_ts,
+                "event_ts": event.event_ts,
+                "thread_ts": event.thread_ts,
+                "is_bot_event": event.is_bot_event,
+                "file_ids": _publish_event_file_ids(event),
+                "files": [dict(file_data) for file_data in event.files],
+            },
+            "raw": raw_payload,
+        }
+    )
+
+
+def _workflow_event_id(
+    event: SlackEventPublishCallback, route: SlackEventPublishRoute
+) -> str:
+    if event.event_id:
+        return f"slack:{event.event_id}"
+    actor = event.user_id or event.bot_id
+    parts = [
+        "slack",
+        "route",
+        route.id,
+        "team",
+        event.team_id,
+        "event",
+        event.event_type,
+        "subtype",
+        event.subtype,
+        "channel",
+        event.channel_id,
+        "ts",
+        event.message_ts or event.event_ts,
+        "thread",
+        event.thread_ts,
+        "actor",
+        actor,
+    ]
+    return ":".join(_workflow_event_id_part(part) for part in parts)
+
+
+def _workflow_event_id_part(value: str) -> str:
+    normalized = str(value or "").strip().replace(":", "_")
+    return normalized or "-"
+
+
+def _publish_event_file_ids(event: SlackEventPublishCallback) -> list[str]:
+    return [
+        file_id
+        for file_id in (
+            str(file_data.get("id") or "").strip() for file_data in event.files
+        )
+        if file_id
+    ]
+
+
+def _slack_publish_log_context(
+    event: SlackEventPublishCallback,
+    routes: tuple[SlackEventPublishRoute, ...],
+) -> str:
+    return _log_context(
+        slack_event_type=event.event_type,
+        slack_event_subtype=event.subtype,
+        slack_event_id=event.event_id,
+        slack_team_id=event.team_id,
+        slack_channel_id=event.channel_id,
+        slack_channel_type=event.channel_type,
+        slack_user_id=event.user_id,
+        slack_bot_id=event.bot_id,
+        slack_message_ts=event.message_ts,
+        slack_thread_ts=event.thread_ts,
+        slack_publish_route_ids=",".join(route.id for route in routes),
+    )
+
+
 def _is_url_verification(payload: dict[str, Any]) -> bool:
     return str(payload.get("type") or "").strip() == SlackCallbackType.URL_VERIFICATION
 
@@ -2107,6 +2409,35 @@ def _workflow_manager_contract_available() -> bool:
             "WorkflowSignal",
         )
     )
+
+
+def _workflow_publish_contract_available() -> bool:
+    return all(
+        getattr(workflow_pb2, name, None) is not None
+        for name in (
+            "WorkflowEvent",
+            "WorkflowManagerPublishEventRequest",
+        )
+    )
+
+
+def _workflow_publish_provider_selection_required(
+    routes: tuple[SlackEventPublishRoute, ...],
+) -> bool:
+    if _agent_config.workflow.provider_name:
+        return True
+    return any(route.workflow_provider for route in routes)
+
+
+def _workflow_publish_provider_selection_available() -> bool:
+    request_type = getattr(workflow_pb2, "WorkflowManagerPublishEventRequest", None)
+    if request_type is None:
+        return False
+    try:
+        request = request_type()
+    except Exception:
+        return False
+    return hasattr(request, "provider_name")
 
 
 def _dict_to_struct(data: dict[str, Any]) -> Any:

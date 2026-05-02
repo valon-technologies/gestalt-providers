@@ -18,9 +18,9 @@ import gestalt
 import yaml
 from google.protobuf import json_format
 from google.protobuf import struct_pb2
-from gestalt.gen.v1 import agent_pb2 as _agent_pb2
-from gestalt.gen.v1 import authorization_pb2 as _authorization_pb2
-from gestalt.gen.v1 import workflow_pb2 as _workflow_pb2
+from gestalt._gen.v1 import agent_pb2 as _agent_pb2
+from gestalt._gen.v1 import authorization_pb2 as _authorization_pb2
+from gestalt._gen.v1 import workflow_pb2 as _workflow_pb2
 
 import provider as provider_module
 
@@ -205,9 +205,41 @@ class FakeWorkflowManagerSignalOrStartRunRequest:
         self.signal = signal
 
 
+class FakeWorkflowEvent:
+    def __init__(
+        self,
+        id: str = "",
+        source: str = "",
+        spec_version: str = "",
+        type: str = "",
+        subject: str = "",
+        datacontenttype: str = "",
+        **_kwargs: Any,
+    ) -> None:
+        self.id = id
+        self.source = source
+        self.spec_version = spec_version
+        self.type = type
+        self.subject = subject
+        self.datacontenttype = datacontenttype
+        self.data = new_struct()
+
+
+class FakeWorkflowManagerPublishEventRequest:
+    def __init__(
+        self,
+        event: Any = None,
+        provider_name: str = "",
+        **_kwargs: Any,
+    ) -> None:
+        self.event = event
+        self.provider_name = provider_name
+
+
 class FakeWorkflowPb2:
     WORKFLOW_RUN_STATUS_PENDING = 1
     WorkflowRunStatus = FakeWorkflowRunStatus
+    WorkflowEvent = FakeWorkflowEvent
     WorkflowSignal = FakeWorkflowSignal
     BoundWorkflowRun = FakeBoundWorkflowRun
     ManagedWorkflowRunSignal = FakeManagedWorkflowRunSignal
@@ -220,11 +252,22 @@ class FakeWorkflowPb2:
     WorkflowManagerSignalOrStartRunRequest = (
         FakeWorkflowManagerSignalOrStartRunRequest
     )
+    WorkflowManagerPublishEventRequest = FakeWorkflowManagerPublishEventRequest
 
 
 def workflow_pb2_with_signal_or_start_contract() -> Any:
     if hasattr(workflow_pb2, "WorkflowManagerSignalOrStartRunRequest") and hasattr(
         workflow_pb2, "WorkflowOutputDelivery"
+    ):
+        return workflow_pb2
+    return FakeWorkflowPb2
+
+
+def workflow_pb2_with_publish_contract() -> Any:
+    if hasattr(workflow_pb2, "WorkflowManagerPublishEventRequest") and hasattr(
+        workflow_pb2, "WorkflowEvent"
+    ) and hasattr(
+        workflow_pb2.WorkflowManagerPublishEventRequest(), "provider_name"
     ):
         return workflow_pb2
     return FakeWorkflowPb2
@@ -323,6 +366,8 @@ class FakeAuthorization:
 class FakeWorkflowManager:
     def __init__(self) -> None:
         self.signal_or_start_requests: list[Any] = []
+        self.publish_event_requests: list[Any] = []
+        self.publish_event_error: Exception | None = None
 
     def __enter__(self) -> FakeWorkflowManager:
         return self
@@ -347,6 +392,12 @@ class FakeWorkflowManager:
             started_run=True,
             workflow_key=request.workflow_key,
         )
+
+    def publish_event(self, request: Any) -> Any:
+        self.publish_event_requests.append(request)
+        if self.publish_event_error is not None:
+            raise self.publish_event_error
+        return request.event
 
 
 class SlackProviderTests(unittest.TestCase):
@@ -2123,6 +2174,334 @@ class SlackProviderTests(unittest.TestCase):
         response = provider_module.slack_events_handle(payload, gestalt.Request())
 
         self.assertEqual(response, {"challenge": "challenge-token"})
+
+    def test_publish_route_publishes_exact_workflow_event(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "deployments",
+                                "workflowProvider": "local",
+                                "workflowEventType": "deployment.slack_event",
+                                "source": "slack/events",
+                                "subject": "deployments",
+                                "match": {
+                                    "eventTypes": ["message"],
+                                    "subtypes": [],
+                                    "teamIds": ["T123"],
+                                    "channelIds": ["C_DEPLOY"],
+                                    "channelTypes": ["channel"],
+                                    "userIds": ["U456"],
+                                },
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvPublish",
+            "team_id": "T123",
+            "enterprise_id": "E123",
+            "api_app_id": "A123",
+            "event_context": "EC123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C_DEPLOY",
+                "channel_type": "channel",
+                "text": "Deploy finished",
+                "ts": "1712161829.000300",
+                "event_ts": "1712161829.000400",
+                "files": [{"id": "F123", "name": "deploy.txt"}],
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_publish_contract()
+
+        with (
+            mock.patch.object(
+                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, gestalt.Request())
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "published": True,
+                "published_event_count": 1,
+                "workflow_event_ids": ["slack:EvPublish"],
+                "route_ids": ["deployments"],
+            },
+        )
+        self.assertEqual(len(workflow_manager.publish_event_requests), 1)
+        request = workflow_manager.publish_event_requests[0]
+        self.assertEqual(request.provider_name, "local")
+        event = request.event
+        self.assertEqual(event.id, "slack:EvPublish")
+        self.assertEqual(event.type, "deployment.slack_event")
+        self.assertEqual(event.source, "slack/events")
+        self.assertEqual(event.subject, "deployments")
+        self.assertEqual(event.spec_version, "1.0")
+        self.assertEqual(event.datacontenttype, "application/json")
+        self.assertEqual(
+            json_format.MessageToDict(event.data),
+            {
+                "routeId": "deployments",
+                "slack": {
+                    "callback_type": "event_callback",
+                    "event_type": "message",
+                    "event_id": "EvPublish",
+                    "team_id": "T123",
+                    "enterprise_id": "E123",
+                    "api_app_id": "A123",
+                    "event_context": "EC123",
+                    "user_id": "U456",
+                    "bot_id": "",
+                    "channel_id": "C_DEPLOY",
+                    "channel_type": "channel",
+                    "subtype": "",
+                    "text": "Deploy finished",
+                    "message_ts": "1712161829.000300",
+                    "event_ts": "1712161829.000400",
+                    "thread_ts": "",
+                    "is_bot_event": False,
+                    "file_ids": ["F123"],
+                    "files": [{"id": "F123", "name": "deploy.txt"}],
+                },
+                "raw": payload,
+            },
+        )
+
+    def test_publish_only_callback_without_linked_subject_passes_resolution(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "mentions",
+                                "match": {
+                                    "eventTypes": ["app_mention"],
+                                    "teamIds": ["T123"],
+                                },
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        authorization = FakeAuthorization([])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvNoLinkedSubject",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> publish only",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNone(resolved)
+        self.assertEqual(len(authorization.requests), 1)
+
+    def test_publish_routes_match_bot_include_and_subtype_filters(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "human-channel",
+                                "match": {
+                                    "eventTypes": ["message"],
+                                    "channelIds": ["C_BOT"],
+                                },
+                            },
+                            {
+                                "id": "bot-messages",
+                                "match": {
+                                    "eventTypes": ["message"],
+                                    "subtypes": ["bot_message"],
+                                    "botIds": ["B123"],
+                                    "includeBotEvents": True,
+                                },
+                            },
+                            {
+                                "id": "no-subtype",
+                                "match": {
+                                    "eventTypes": ["message"],
+                                    "subtypes": [],
+                                    "channelIds": ["C_HUMAN"],
+                                },
+                            },
+                        ]
+                    }
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_publish_contract()
+        bot_payload = {
+            "type": "event_callback",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "subtype": "bot_message",
+                "bot_id": "B123",
+                "channel": "C_BOT",
+                "channel_type": "channel",
+                "ts": "1712161829.000300",
+            },
+        }
+        human_payload = {
+            "type": "event_callback",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C_HUMAN",
+                "channel_type": "channel",
+                "text": "human update",
+                "ts": "1712161830.000400",
+            },
+        }
+        changed_payload = {
+            "type": "event_callback",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "subtype": "message_changed",
+                "user": "U456",
+                "channel": "C_HUMAN",
+                "channel_type": "channel",
+                "message": {"text": "edited", "ts": "1712161831.000500"},
+            },
+        }
+
+        with (
+            mock.patch.object(
+                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            bot_response = provider_module.slack_events_handle(
+                bot_payload, gestalt.Request()
+            )
+            human_response = provider_module.slack_events_handle(
+                human_payload, gestalt.Request()
+            )
+            changed_response = provider_module.slack_events_handle(
+                changed_payload, gestalt.Request()
+            )
+
+        self.assertEqual(bot_response["route_ids"], ["bot-messages"])
+        self.assertEqual(human_response["route_ids"], ["no-subtype"])
+        self.assertEqual(changed_response, {"ok": True, "ignored": "ignored_event"})
+        self.assertEqual(len(workflow_manager.publish_event_requests), 2)
+        bot_event = workflow_manager.publish_event_requests[0].event
+        self.assertEqual(
+            bot_event.id,
+            "slack:route:bot-messages:team:T123:event:message:subtype:"
+            "bot_message:channel:C_BOT:ts:1712161829.000300:thread:-:actor:B123",
+        )
+        self.assertEqual(bot_event.type, "slack.event.received")
+        self.assertEqual(bot_event.source, "slack")
+        self.assertEqual(bot_event.subject, "route:bot-messages")
+        bot_data = json_format.MessageToDict(bot_event.data)
+        self.assertEqual(bot_data["routeId"], "bot-messages")
+        self.assertEqual(bot_data["slack"]["bot_id"], "B123")
+        self.assertEqual(bot_data["slack"]["subtype"], "bot_message")
+        self.assertEqual(bot_data["slack"]["text"], "")
+        self.assertTrue(bot_data["slack"]["is_bot_event"])
+
+    def test_publish_failure_returns_non_2xx(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "all-messages",
+                                "match": {"eventTypes": ["message"]},
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_manager.publish_event_error = RuntimeError("boom")
+        payload = {
+            "type": "event_callback",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C789",
+                "text": "publish me",
+                "ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_publish_contract()
+
+        with (
+            mock.patch.object(
+                provider_module._agent, "workflow_pb2", workflow_pb2_contract
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.slack_events_handle(payload, gestalt.Request())
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(
+            response.body, {"error": "failed to publish workflow event: boom"}
+        )
 
     def test_get_message_uses_history_lookup_contract(self) -> None:
         def fake_urlopen(

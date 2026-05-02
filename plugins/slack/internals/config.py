@@ -10,6 +10,10 @@ from .models import (
     SlackAgentRouteMatch,
     SlackAssistantConfig,
     SlackBotConfig,
+    SlackEventPublishConfig,
+    SlackEventPublishRoute,
+    SlackEventPublishRouteMatch,
+    SlackEventsConfig,
     SlackSuggestedPrompt,
     SlackWorkflowConfig,
 )
@@ -28,6 +32,7 @@ def agent_config_from_provider_config(
         agent, "providerOptions", "provider_options", "agentProviderOptions"
     )
     routes = _agent_routes_from_provider_config(config, agent)
+    events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
@@ -47,6 +52,7 @@ def agent_config_from_provider_config(
                 "slack_bot_token",
             )
         ),
+        events=events,
         assistant=assistant,
         acknowledgement=acknowledgement,
         workflow=workflow,
@@ -230,6 +236,97 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
     )
 
 
+def _events_config_from_provider_config(config: dict[str, Any]) -> SlackEventsConfig:
+    events = _config_dict(config, "events")
+    publish = _config_dict(events, "publish")
+    raw_routes = _config_list(publish, "routes")
+    routes: list[SlackEventPublishRoute] = []
+    for index, raw_route in enumerate(raw_routes, start=1):
+        if isinstance(raw_route, dict):
+            routes.append(_event_publish_route_from_config(raw_route, index))
+    return SlackEventsConfig(publish=SlackEventPublishConfig(routes=tuple(routes)))
+
+
+def _event_publish_route_from_config(
+    config: dict[str, Any], index: int
+) -> SlackEventPublishRoute:
+    route_id = _config_string(config, "id", "name") or f"route_{index}"
+    workflow = _config_dict(config, "workflow")
+    workflow_provider = _config_string(
+        workflow, "provider", "providerName", "provider_name"
+    ) or _config_string(
+        config,
+        "workflowProvider",
+        "workflow_provider",
+        "workflowProviderName",
+        "workflow_provider_name",
+    )
+    workflow_event_type = _config_string(
+        config,
+        "workflowEventType",
+        "workflow_event_type",
+        "eventType",
+        "event_type",
+        "type",
+    )
+    source = _config_string(config, "source", "workflowEventSource")
+    subject = _config_string(config, "subject", "workflowEventSubject")
+    return SlackEventPublishRoute(
+        id=route_id,
+        match=_event_publish_route_match_from_config(_config_dict(config, "match")),
+        workflow_provider=workflow_provider,
+        workflow_event_type=workflow_event_type or "slack.event.received",
+        source=source or "slack",
+        subject=subject or f"route:{route_id}",
+    )
+
+
+def _event_publish_route_match_from_config(
+    config: dict[str, Any],
+) -> SlackEventPublishRouteMatch:
+    return SlackEventPublishRouteMatch(
+        team_ids=_config_string_tuple(
+            config, "team", "teams", "teamId", "teamIds", "team_id", "team_ids"
+        ),
+        channel_ids=_config_string_tuple(
+            config,
+            "channel",
+            "channels",
+            "channelId",
+            "channelIds",
+            "channel_id",
+            "channel_ids",
+        ),
+        channel_types=_lower_tuple(
+            _config_string_tuple(
+                config, "channelType", "channelTypes", "channel_type", "channel_types"
+            )
+        ),
+        event_types=_lower_tuple(
+            _config_string_tuple(
+                config, "eventType", "eventTypes", "event_type", "event_types"
+            )
+        ),
+        subtypes=_config_optional_lower_string_tuple(
+            config, "subtype", "subtypes", "sub_type", "sub_types"
+        ),
+        user_ids=_config_string_tuple(
+            config, "user", "users", "userId", "userIds", "user_id", "user_ids"
+        ),
+        bot_ids=_config_string_tuple(
+            config, "bot", "bots", "botId", "botIds", "bot_id", "bot_ids"
+        ),
+        include_bot_events=_config_bool(
+            config,
+            "includeBotEvents",
+            "include_bot_events",
+            "includeBots",
+            "include_bots",
+            default=False,
+        ),
+    )
+
+
 def _config_string(config: dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = config.get(key)
@@ -286,6 +383,15 @@ def _config_string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:
                     values.append(item_value)
             break
     return tuple(dict.fromkeys(values))
+
+
+def _config_optional_lower_string_tuple(
+    config: dict[str, Any], *keys: str
+) -> tuple[str, ...] | None:
+    for key in keys:
+        if key in config:
+            return _lower_tuple(_config_string_tuple(config, key))
+    return None
 
 
 def _lower_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
