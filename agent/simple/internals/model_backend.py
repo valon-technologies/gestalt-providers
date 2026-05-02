@@ -1,7 +1,13 @@
 import json
+import time
+from base64 import b64encode
 from copy import deepcopy
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from gestalt import telemetry
 from anthropic import Anthropic
@@ -58,6 +64,8 @@ class ModelRoute:
 class ModelBackend:
     def __init__(self, config: SimpleAgentConfig) -> None:
         self._config = config
+        self._oauth_token_cache: dict[tuple[str, str, str, str, str], tuple[str, float]] = {}
+        self._oauth_token_cache_lock = Lock()
 
     def complete(
         self,
@@ -198,6 +206,11 @@ class ModelBackend:
     def _openai_client_options(self, request_options: dict[str, Any], timeout: Any) -> dict[str, Any]:
         client_options: dict[str, Any] = {"timeout": timeout}
         api_key = self._pop_string_option(request_options, "api_key")
+        auth = self._pop_auth_option(request_options)
+        if api_key and auth:
+            raise ValueError("provider options cannot set both api_key and auth")
+        if auth:
+            api_key = self._bearer_token_for_auth(auth, timeout=timeout)
         if api_key:
             client_options["api_key"] = api_key
         base_url = self._pop_string_option(request_options, "base_url")
@@ -683,6 +696,98 @@ class ModelBackend:
 
     def _pop_string_option(self, options: dict[str, Any], key: str) -> str:
         return str(options.pop(key, "") or "").strip()
+
+    def _pop_auth_option(self, options: dict[str, Any]) -> dict[str, Any]:
+        raw_auth = options.pop("auth", None)
+        if raw_auth is None:
+            return {}
+        if not isinstance(raw_auth, dict):
+            raise ValueError("provider auth option must be an object")
+        return deepcopy(raw_auth)
+
+    def _bearer_token_for_auth(self, auth: dict[str, Any], *, timeout: Any) -> str:
+        auth_type = self._auth_string(auth, "type")
+        if auth_type not in {"oauth_client_credentials", "client_credentials"}:
+            raise ValueError(f"unsupported provider auth type {auth_type!r}")
+        return self._oauth_client_credentials_token(auth, timeout=timeout)
+
+    def _oauth_client_credentials_token(self, auth: dict[str, Any], *, timeout: Any) -> str:
+        token_url = self._auth_string(auth, "token_url", "tokenUrl")
+        client_id = self._auth_string(auth, "client_id", "clientId")
+        client_secret = self._auth_string(auth, "client_secret", "clientSecret")
+        scope = self._auth_string(auth, "scope", required=False)
+        audience = self._auth_string(auth, "audience", required=False)
+        client_auth = self._auth_string(auth, "client_auth", "clientAuth", required=False) or "basic"
+        if client_auth not in {"basic", "body"}:
+            raise ValueError("provider auth client_auth must be 'basic' or 'body'")
+
+        cache_key = (token_url, client_id, scope, audience, client_auth)
+        now = time.time()
+        with self._oauth_token_cache_lock:
+            cached = self._oauth_token_cache.get(cache_key)
+            if cached and cached[1] > now:
+                return cached[0]
+
+        form: dict[str, str] = {"grant_type": "client_credentials"}
+        if scope:
+            form["scope"] = scope
+        if audience:
+            form["audience"] = audience
+        headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
+        if client_auth == "basic":
+            encoded = b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+            headers["Authorization"] = f"Basic {encoded}"
+        else:
+            form["client_id"] = client_id
+            form["client_secret"] = client_secret
+
+        request = Request(token_url, data=urlencode(form).encode("utf-8"), headers=headers, method="POST")
+        try:
+            with urlopen(request, timeout=float(timeout)) as response:
+                raw_body = response.read().decode("utf-8")
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise ValueError(f"OAuth token request failed with HTTP {exc.code}: {body}") from exc
+        except URLError as exc:
+            raise ValueError(f"OAuth token request failed: {exc.reason}") from exc
+
+        try:
+            payload = json.loads(raw_body)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"OAuth token response was not JSON: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("OAuth token response must be a JSON object")
+        token = str(payload.get("access_token", "") or "").strip()
+        if not token:
+            raise ValueError("OAuth token response did not include access_token")
+        token_type = str(payload.get("token_type", "Bearer") or "Bearer").strip().lower()
+        if token_type != "bearer":
+            raise ValueError(f"OAuth token response returned unsupported token_type {token_type!r}")
+
+        expires_at = now + self._token_cache_ttl_seconds(payload.get("expires_in"))
+        with self._oauth_token_cache_lock:
+            self._oauth_token_cache[cache_key] = (token, expires_at)
+        return token
+
+    def _token_cache_ttl_seconds(self, raw_expires_in: Any) -> float:
+        try:
+            expires_in = float(raw_expires_in)
+        except TypeError, ValueError:
+            expires_in = 300.0
+        if expires_in <= 0:
+            return 0.0
+        safety_margin = min(60.0, expires_in * 0.1)
+        return max(0.0, expires_in - safety_margin)
+
+    def _auth_string(self, auth: dict[str, Any], *keys: str, required: bool = True) -> str:
+        for key in keys:
+            value = str(auth.get(key, "") or "").strip()
+            if value:
+                return value
+        if required:
+            label = " or ".join(keys)
+            raise ValueError(f"provider auth option {label} is required")
+        return ""
 
     def _block_type(self, block: Any) -> str:
         if isinstance(block, dict):

@@ -5,10 +5,12 @@ import tempfile
 import threading
 import time
 import unittest
+from base64 import b64encode
 from concurrent import futures
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, cast
+from urllib.parse import parse_qs
 from unittest import mock
 
 import grpc
@@ -546,6 +548,7 @@ class _FakeOpenAIChatServer:
     def __init__(self, responses: list[dict[str, Any]]) -> None:
         self._responses = list(responses)
         self.requests: list[dict[str, Any]] = []
+        self.request_headers: list[dict[str, str]] = []
         self._server = HTTPServer(("127.0.0.1", 0), self._handler_type())
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
@@ -573,6 +576,54 @@ class _FakeOpenAIChatServer:
                     return
                 body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 outer.requests.append(json.loads(body.decode("utf-8")))
+                outer.request_headers.append({key: value for key, value in self.headers.items()})
+                payload = outer._responses.pop(0)
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                del format, args
+
+        return Handler
+
+
+class _FakeOAuthTokenServer:
+    def __init__(self, responses: list[dict[str, Any]]) -> None:
+        self._responses = list(responses)
+        self.requests: list[dict[str, Any]] = []
+        self.request_headers: list[dict[str, str]] = []
+        self._server = HTTPServer(("127.0.0.1", 0), self._handler_type())
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    @property
+    def token_url(self) -> str:
+        address = self._server.server_address
+        return f"http://{address[0]}:{address[1]}/oauth/token"
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._thread.join(timeout=5)
+        self._server.server_close()
+
+    def _handler_type(self) -> type[BaseHTTPRequestHandler]:
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                if self.path != "/oauth/token":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode("utf-8")
+                outer.requests.append({key: values[0] for key, values in parse_qs(body).items()})
+                outer.request_headers.append({key: value for key, value in self.headers.items()})
                 payload = outer._responses.pop(0)
                 encoded = json.dumps(payload).encode("utf-8")
                 self.send_response(200)
@@ -2275,6 +2326,78 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(request["max_completion_tokens"], 64)
         self.assertNotIn("litellm", request)
         self.assertNotIn("presence_penalty", request)
+
+    def test_create_turn_uses_oauth_client_credentials_for_openai_compatible_model(self) -> None:
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-oauth",
+                    "object": "chat.completion",
+                    "created": 1710000055,
+                    "model": "vertex/kimi-k2-6",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "oauth model works"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11},
+                }
+            ]
+        )
+        token_server = _FakeOAuthTokenServer(
+            responses=[{"access_token": "vertex-access-token", "token_type": "Bearer", "expires_in": 3600}]
+        )
+        fake_llm.start()
+        token_server.start()
+        self.addCleanup(fake_llm.close)
+        self.addCleanup(token_server.close)
+
+        _, provider_client = _configure_provider(
+            provider_options={
+                "vertex": {
+                    "base_url": f"{fake_llm.base_url}/v1",
+                    "auth": {
+                        "type": "oauth_client_credentials",
+                        "token_url": token_server.token_url,
+                        "client_id": "client-id",
+                        "client_secret": "client-secret",
+                        "scope": "vertex-scope",
+                    },
+                }
+            }
+        )
+        _create_session(
+            provider_client,
+            session_id="session-oauth-model",
+            idempotency_key="session-idem-oauth-model",
+            model="vertex/kimi-k2-6",
+        )
+
+        started = provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+                turn_id="turn-oauth-model",
+                session_id="session-oauth-model",
+                idempotency_key="idem-oauth-model",
+                model="vertex/kimi-k2-6",
+                messages=[agent_pb2.AgentMessage(role="user", text="Use OAuth.")],
+                tool_grant="grant-success",
+            )
+        )
+        fetched = _wait_for_turn(provider_client, "turn-oauth-model", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        self.assertEqual(fetched.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "oauth model works")
+        self.assertEqual(len(token_server.requests), 1)
+        self.assertEqual(token_server.requests[0]["grant_type"], "client_credentials")
+        self.assertEqual(token_server.requests[0]["scope"], "vertex-scope")
+        basic_token = b64encode(b"client-id:client-secret").decode("ascii")
+        self.assertEqual(token_server.request_headers[0]["Authorization"], f"Basic {basic_token}")
+        self.assertEqual(fake_llm.request_headers[0]["Authorization"], "Bearer vertex-access-token")
+        self.assertEqual(fake_llm.requests[0]["model"], "vertex/kimi-k2-6")
 
     def test_create_turn_uses_openai_responses_for_gpt5_tool_reasoning_options(self) -> None:
         fake_llm = _FakeOpenAIResponsesServer(

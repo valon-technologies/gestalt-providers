@@ -10,7 +10,7 @@ properties:
       type: string
   providerOptions:
     type: object
-    description: Default backend request options merged before per-turn provider_options. Nested `openai`, `anthropic`, and provider-prefix blocks are supported.
+    description: Default backend request options merged before per-turn provider_options. Nested `openai`, `anthropic`, and provider-prefix blocks are supported. OpenAI-compatible prefixes can include `auth.type: oauth_client_credentials` with token_url/client_id/client_secret.
     additionalProperties: true
   maxSteps:
     type: integer

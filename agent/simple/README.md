@@ -233,6 +233,32 @@ provider-wide defaults and per-turn `provider_options` for request-specific
 overrides. Both support top-level generic request options and
 `providerOptions.<prefix>` for provider-specific values.
 
+OpenAI-compatible endpoints can use a static `api_key` or OAuth client
+credentials. OAuth config is nested under the provider prefix and the returned
+`access_token` is sent as the bearer credential:
+
+```yaml
+providers:
+  agent:
+    simple:
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.33/provider-release.yaml
+      config:
+        defaultModel: vertex/kimi-k2-6
+        providerOptions:
+          vertex:
+            base_url: https://aiplatform.googleapis.com/v1/projects/PROJECT_ID/locations/us-west2/endpoints/ENDPOINT_ID
+            auth:
+              type: oauth_client_credentials
+              token_url: https://oauth2.example.com/token
+              client_id: ${VERTEX_CLIENT_ID}
+              client_secret: ${VERTEX_CLIENT_SECRET}
+              scope: https://www.googleapis.com/auth/cloud-platform
+```
+
+By default the OAuth token request uses HTTP Basic client authentication. Set
+`client_auth: body` if your token service expects `client_id` and
+`client_secret` in the form body.
+
 When targeting Anthropic, set `providerOptions.max_tokens` (or
 `providerOptions.anthropic.max_tokens`) to control the response budget. If you
 omit it, the provider defaults to `1024`.
