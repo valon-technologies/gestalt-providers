@@ -853,7 +853,7 @@ func (r *kubernetesSandboxRuntime) hostnameEgressPolicy(ctx context.Context, han
 	}
 	return &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      handle.Name + "-egress",
+			Name:      dnsLabelWithSuffix(handle.Name, "egress"),
 			Namespace: handle.Namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "gestalt",
@@ -1019,15 +1019,22 @@ func sanitizeLabelValue(value string) string {
 	return out
 }
 
-func sandboxResourceName(pluginName, sessionID string) string {
+func sandboxResourceName(pluginName, instanceID, sessionID string) string {
 	name := sanitizeDNSLabelValue(pluginName)
 	if name == "" {
 		name = "plugin"
 	}
 	prefix := "gestalt-"
-	suffix := "-" + sanitizeDNSLabelValue(sessionID)
-	if suffix == "-" {
-		suffix = "-session"
+	suffixParts := make([]string, 0, 2)
+	if value := sanitizeDNSLabelValue(instanceID); value != "" {
+		suffixParts = append(suffixParts, value)
+	}
+	if value := sanitizeDNSLabelValue(sessionID); value != "" {
+		suffixParts = append(suffixParts, value)
+	}
+	suffix := "-session"
+	if len(suffixParts) > 0 {
+		suffix = "-" + strings.Join(suffixParts, "-")
 	}
 	maxNameLen := 63 - len(prefix) - len(suffix)
 	if maxNameLen < 1 {
@@ -1040,6 +1047,29 @@ func sandboxResourceName(pluginName, sessionID string) string {
 		name = "plugin"
 	}
 	return strings.Trim(prefix+name+suffix, "-")
+}
+
+func dnsLabelWithSuffix(base, suffix string) string {
+	base = sanitizeDNSLabelValue(base)
+	if base == "" {
+		base = "resource"
+	}
+	suffix = sanitizeDNSLabelValue(suffix)
+	if suffix == "" {
+		return base
+	}
+	suffix = "-" + suffix
+	maxBaseLen := 63 - len(suffix)
+	if maxBaseLen < 1 {
+		maxBaseLen = 1
+	}
+	if len(base) > maxBaseLen {
+		base = strings.Trim(base[:maxBaseLen], "-")
+	}
+	if base == "" {
+		base = "resource"
+	}
+	return strings.Trim(base+suffix, "-")
 }
 
 func sanitizeDNSLabelValue(value string) string {

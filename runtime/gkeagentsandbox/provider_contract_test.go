@@ -199,6 +199,81 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testing.T) {
+	t.Parallel()
+
+	fakeA := &fakeSandboxRuntime{}
+	clientA := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-a",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fakeA,
+		sessions: map[string]*session{},
+	})
+	fakeB := &fakeSandboxRuntime{}
+	clientB := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-b",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fakeB,
+		sessions: map[string]*session{},
+	})
+
+	ctx := context.Background()
+	sessionA, err := clientA.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "simple",
+		Template:   "python-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession A: %v", err)
+	}
+	sessionB, err := clientB.StartSession(ctx, &proto.StartPluginRuntimeSessionRequest{
+		PluginName: "simple",
+		Template:   "python-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession B: %v", err)
+	}
+	if got, want := sessionA.GetId(), sessionB.GetId(); got != want {
+		t.Fatalf("session ids = %q and %q, want same local counter value for fresh providers", got, want)
+	}
+
+	fakeA.mu.Lock()
+	requestsA := slices.Clone(fakeA.startRequests)
+	fakeA.mu.Unlock()
+	fakeB.mu.Lock()
+	requestsB := slices.Clone(fakeB.startRequests)
+	fakeB.mu.Unlock()
+	if len(requestsA) != 1 || len(requestsB) != 1 {
+		t.Fatalf("runtime Start calls = (%d, %d), want one each", len(requestsA), len(requestsB))
+	}
+	nameA := requestsA[0].Name
+	nameB := requestsB[0].Name
+	if nameA == nameB {
+		t.Fatalf("runtime Start resource names both = %q, want provider-instance scoped names", nameA)
+	}
+	if !strings.Contains(nameA, "runtime-a") || !strings.Contains(nameB, "runtime-b") {
+		t.Fatalf("runtime Start resource names = (%q, %q), want provider instance ids", nameA, nameB)
+	}
+	if !strings.HasSuffix(nameA, sessionA.GetId()) || !strings.HasSuffix(nameB, sessionB.GetId()) {
+		t.Fatalf("runtime Start resource names = (%q, %q), want session id suffix %q", nameA, nameB, sessionA.GetId())
+	}
+}
+
 func TestRuntimeProviderContractListsSessions(t *testing.T) {
 	t.Parallel()
 
