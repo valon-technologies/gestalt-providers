@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
@@ -14,7 +15,7 @@ func dynamoTestRecord(t *testing.T, id string, fields map[string]any) *proto.Rec
 	for key, value := range fields {
 		record[key] = value
 	}
-	pb, err := gestalt.RecordToProto(record)
+	pb, err := sdkcompat.RecordToProto(record)
 	if err != nil {
 		t.Fatalf("RecordToProto: %v", err)
 	}
@@ -175,7 +176,7 @@ func TestDynamoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 }
 
 func TestDynamoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
-	updateRecord, err := gestalt.RecordToProto(map[string]any{
+	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
 		"name": "Alice Missing Status",
 	})
 	if err != nil {
@@ -187,7 +188,7 @@ func TestDynamoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
 		t.Fatalf("CloneRecordWithField: %v", err)
 	}
 
-	decoded, err := gestalt.RecordFromProto(record)
+	decoded, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		t.Fatalf("RecordFromProto: %v", err)
 	}

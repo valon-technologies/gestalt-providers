@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
@@ -260,7 +261,7 @@ func intPrimaryKeySchema() *proto.ObjectStoreSchema {
 }
 
 func makeWidget(id, code, title string) *proto.Record {
-	record, _ := gestalt.RecordToProto(map[string]any{
+	record, _ := sdkcompat.RecordToProto(map[string]any{
 		"id":         id,
 		"code":       code,
 		"title":      title,
@@ -271,7 +272,7 @@ func makeWidget(id, code, title string) *proto.Record {
 }
 
 func makeSampleRecord(id string) *proto.Record {
-	record, _ := gestalt.RecordToProto(map[string]any{
+	record, _ := sdkcompat.RecordToProto(map[string]any{
 		"id":             id,
 		"owner_id":       "owner-1",
 		"category":       "alpha",
@@ -287,7 +288,7 @@ func makeSampleRecord(id string) *proto.Record {
 }
 
 func makeIntPrimaryKeyRecord(id int64, title string) *proto.Record {
-	record, _ := gestalt.RecordToProto(map[string]any{
+	record, _ := sdkcompat.RecordToProto(map[string]any{
 		"id":    id,
 		"title": title,
 	})

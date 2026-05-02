@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
@@ -155,7 +156,7 @@ func (s *store) getIndexDef(storeName, indexName string) (*indexDef, error) {
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -192,7 +193,7 @@ func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjec
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -222,7 +223,7 @@ func (p *Provider) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjec
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
 	record, err := p.store.getRecord(ctx, req.Store, req.Id)
 	if err != nil {
 		return nil, err
@@ -233,7 +234,7 @@ func (p *Provider) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 	return &proto.RecordResponse{Record: record}, nil
 }
 
-func (p *Provider) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
 	record, err := p.store.getRecord(ctx, req.Store, req.Id)
 	if err != nil {
 		return nil, err
@@ -244,7 +245,7 @@ func (p *Provider) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*
 	return &proto.KeyResponse{Key: req.Id}, nil
 }
 
-func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	st := p.store
 	id, err := extractID(req.Record)
 	if err != nil {
@@ -289,7 +290,7 @@ func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	st := p.store
 	id, err := extractID(req.Record)
 	if err != nil {
@@ -352,14 +353,14 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
 	if err := p.store.deleteRecordByID(ctx, req.Store, req.Id); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
 	st := p.store
 	prefixes := []string{req.Store}
 	if sc, ok := st.getSchema(req.Store); ok {
@@ -375,7 +376,7 @@ func (p *Provider) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest)
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
 	records, err := p.store.queryRecords(ctx, req.Store, req.Range)
 	if err != nil {
 		return nil, wrapErr(err)
@@ -383,7 +384,7 @@ func (p *Provider) GetAll(ctx context.Context, req *proto.ObjectStoreRangeReques
 	return &proto.RecordsResponse{Records: records}, nil
 }
 
-func (p *Provider) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
 	keys, err := p.store.queryKeys(ctx, req.Store, req.Range)
 	if err != nil {
 		return nil, wrapErr(err)
@@ -391,7 +392,7 @@ func (p *Provider) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRe
 	return &proto.KeysResponse{Keys: keys}, nil
 }
 
-func (p *Provider) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
+func (p *providerCore) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
 	count, err := p.store.queryCount(ctx, req.Store, req.Range)
 	if err != nil {
 		return nil, wrapErr(err)
@@ -399,7 +400,7 @@ func (p *Provider) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest
 	return &proto.CountResponse{Count: count}, nil
 }
 
-func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
 	st := p.store
 	keys, err := st.queryKeys(ctx, req.Store, req.Range)
 	if err != nil {
@@ -415,7 +416,7 @@ func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeR
 	return &proto.DeleteResponse{Deleted: deleted}, nil
 }
 
-func (p *Provider) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -426,7 +427,7 @@ func (p *Provider) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (
 	return &proto.RecordResponse{Record: entries[0].Record}, nil
 }
 
-func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -437,7 +438,7 @@ func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest
 	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
 }
 
-func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -449,7 +450,7 @@ func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest
 	return &proto.RecordsResponse{Records: records}, nil
 }
 
-func (p *Provider) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -461,7 +462,7 @@ func (p *Provider) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryReq
 	return &proto.KeysResponse{Keys: keys}, nil
 }
 
-func (p *Provider) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+func (p *providerCore) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -469,7 +470,7 @@ func (p *Provider) IndexCount(ctx context.Context, req *proto.IndexQueryRequest)
 	return &proto.CountResponse{Count: int64(len(entries))}, nil
 }
 
-func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
 	st := p.store
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
@@ -485,7 +486,7 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 	return &proto.DeleteResponse{Deleted: deleted}, nil
 }
 
-func (p *Provider) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
 	st := p.store
 	index, err := st.getIndexDef(req.Store, req.Index)
 	if err != nil {
@@ -521,7 +522,7 @@ func (p *Provider) queryIndexEntries(ctx context.Context, req *proto.IndexQueryR
 	return entries, nil
 }
 
-func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
 	st := p.store
 	index, err := st.getIndexDef(req.Store, req.Index)
 	if err != nil {
@@ -1265,7 +1266,7 @@ func parseData(item map[string]ddbtypes.AttributeValue) (*proto.Record, error) {
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return nil, err
 	}
-	return gestalt.RecordToProto(m)
+	return sdkcompat.RecordToProto(m)
 }
 
 func extractID(record *proto.Record) (string, error) {

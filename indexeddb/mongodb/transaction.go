@@ -22,11 +22,11 @@ func contextWithIndexMeta(ctx context.Context, schemas map[string]map[string]ind
 	return context.WithValue(ctx, indexMetaContextKey{}, schemas)
 }
 
-func (p *Provider) Transaction(stream proto.IndexedDB_TransactionServer) error {
+func (p *providerCore) Transaction(stream proto.IndexedDB_TransactionServer) error {
 	return txstream.Serve(stream, p.beginTransaction)
 }
 
-func (p *Provider) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
+func (p *providerCore) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -79,7 +79,7 @@ func copyMongoIndexMeta(in map[string]indexMeta) map[string]indexMeta {
 }
 
 type mongoTransaction struct {
-	provider *Provider
+	provider *providerCore
 	session  *mongo.Session
 	scope    map[string]struct{}
 	schemas  map[string]map[string]indexMeta

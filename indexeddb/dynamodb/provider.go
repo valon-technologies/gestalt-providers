@@ -23,11 +23,15 @@ type config struct {
 
 // Provider implements gestalt.IndexedDBProvider.
 type Provider struct {
+	*providerCore
+}
+
+type providerCore struct {
 	proto.UnimplementedIndexedDBServer
 	store *store
 }
 
-func New() *Provider { return &Provider{} }
+func New() *Provider { return &Provider{providerCore: &providerCore{}} }
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {
 	var cfg config

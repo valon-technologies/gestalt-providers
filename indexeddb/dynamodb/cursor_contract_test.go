@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	contracttest "github.com/valon-technologies/gestalt-providers/indexeddb/contracttest"
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -60,16 +60,17 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("Configure: %v", err)
 	}
 	defer provider.Close()
+	server := provider.providerCore
 
 	ctx := context.Background()
-	if _, err := provider.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
+	if _, err := server.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
 		Name:   "users",
 		Schema: uniqueEmailSchema(),
 	}); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
-	alice, err := gestalt.RecordToProto(map[string]any{
+	alice, err := sdkcompat.RecordToProto(map[string]any{
 		"id":    "a",
 		"name":  "Alice",
 		"email": "alice@test.com",
@@ -104,7 +105,7 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("PutItem(legacy unique row): %v", err)
 	}
 
-	keysResp, err := provider.IndexGetAllKeys(ctx, &proto.IndexQueryRequest{
+	keysResp, err := server.IndexGetAllKeys(ctx, &proto.IndexQueryRequest{
 		Store: "users",
 		Index: "by_email",
 		Values: []*proto.TypedValue{
@@ -118,7 +119,7 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("IndexGetAllKeys legacy keys = %#v, want %#v", keysResp.Keys, []string{"a"})
 	}
 
-	bob, err := gestalt.RecordToProto(map[string]any{
+	bob, err := sdkcompat.RecordToProto(map[string]any{
 		"id":    "b",
 		"name":  "Bob",
 		"email": "alice@test.com",
@@ -126,12 +127,12 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordToProto(bob): %v", err)
 	}
-	_, err = provider.Add(ctx, &proto.RecordRequest{Store: "users", Record: bob})
+	_, err = server.Add(ctx, &proto.RecordRequest{Store: "users", Record: bob})
 	if got := status.Code(err); got != codes.AlreadyExists {
 		t.Fatalf("Add duplicate error = %s, want %s", got, codes.AlreadyExists)
 	}
 
-	aliceUpdated, err := gestalt.RecordToProto(map[string]any{
+	aliceUpdated, err := sdkcompat.RecordToProto(map[string]any{
 		"id":    "a",
 		"name":  "Alice Updated",
 		"email": "alice@test.com",
@@ -139,7 +140,7 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordToProto(aliceUpdated): %v", err)
 	}
-	if _, err := provider.Put(ctx, &proto.RecordRequest{Store: "users", Record: aliceUpdated}); err != nil {
+	if _, err := server.Put(ctx, &proto.RecordRequest{Store: "users", Record: aliceUpdated}); err != nil {
 		t.Fatalf("Put(aliceUpdated): %v", err)
 	}
 
@@ -164,7 +165,7 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("unique index ref_id = %q, want %q", got, "a")
 	}
 
-	if _, err := provider.Delete(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "a"}); err != nil {
+	if _, err := server.Delete(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "a"}); err != nil {
 		t.Fatalf("Delete(alice): %v", err)
 	}
 
@@ -228,7 +229,7 @@ func (h *dynamoContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, 
 	}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
-	return provider, func() {
+	return provider.providerCore, func() {
 		_ = provider.Close()
 	}
 }

@@ -79,7 +79,7 @@ func (h *mongoContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, f
 		t.Fatalf("Configure: %v", err)
 	}
 
-	return provider, func() {
+	return provider.providerCore, func() {
 		_ = provider.Close()
 	}
 }

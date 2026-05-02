@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -19,7 +20,7 @@ import (
 
 type mongoCursor struct {
 	cursorutil.Snapshot
-	provider  *Provider
+	provider  *providerCore
 	storeName string
 	index     *indexMeta
 }
@@ -30,7 +31,7 @@ func (c *mongoCursor) SnapshotState() *cursorutil.Snapshot {
 	return &c.Snapshot
 }
 
-func (p *Provider) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClientMessage, proto.CursorResponse]) error {
+func (p *providerCore) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClientMessage, proto.CursorResponse]) error {
 	if _, err := p.configured(); err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
@@ -40,7 +41,7 @@ func (p *Provider) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClient
 	})
 }
 
-func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorRequest) (*mongoCursor, error) {
+func (p *providerCore) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorRequest) (*mongoCursor, error) {
 	cursor := &mongoCursor{
 		Snapshot:  cursorutil.NewSnapshot(req),
 		provider:  p,
@@ -70,7 +71,7 @@ func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursor
 	return cursor, nil
 }
 
-func (p *Provider) lookupIndexMeta(storeName, indexName string) (*indexMeta, error) {
+func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexMeta, error) {
 	store, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -91,7 +92,7 @@ func (p *Provider) lookupIndexMeta(storeName, indexName string) (*indexMeta, err
 	return &metaCopy, nil
 }
 
-func (p *Provider) cursorRecords(ctx context.Context, cursor *mongoCursor, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
+func (p *providerCore) cursorRecords(ctx context.Context, cursor *mongoCursor, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
 	docs, err := p.cursorDocuments(ctx, cursor, req)
 	if err != nil {
 		return nil, err
@@ -108,7 +109,7 @@ func (p *Provider) cursorRecords(ctx context.Context, cursor *mongoCursor, req *
 	return records, nil
 }
 
-func (p *Provider) cursorDocuments(ctx context.Context, cursor *mongoCursor, req *proto.OpenCursorRequest) ([]bson.M, error) {
+func (p *providerCore) cursorDocuments(ctx context.Context, cursor *mongoCursor, req *proto.OpenCursorRequest) ([]bson.M, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -254,7 +255,7 @@ func mongoRecordFieldAny(record *proto.Record, field string) (any, error) {
 		return nil, fmt.Errorf("record is required")
 	}
 
-	fields, err := gestalt.RecordFromProto(record)
+	fields, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		return nil, err
 	}

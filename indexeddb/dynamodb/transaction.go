@@ -21,11 +21,11 @@ import (
 
 const maxDynamoTransactWriteItems = 100
 
-func (p *Provider) Transaction(stream proto.IndexedDB_TransactionServer) error {
+func (p *providerCore) Transaction(stream proto.IndexedDB_TransactionServer) error {
 	return txstream.Serve(stream, p.beginTransaction)
 }
 
-func (p *Provider) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
+func (p *providerCore) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
 	if p.store == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dynamodb: not configured")
 	}

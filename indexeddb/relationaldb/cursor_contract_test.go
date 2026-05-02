@@ -75,7 +75,7 @@ func (h *relationalContractHarness) NewServer(t *testing.T) (proto.IndexedDBServ
 		t.Fatalf("Configure(%s): %v", h.name, err)
 	}
 
-	return provider, func() {
+	return provider.Store, func() {
 		_ = provider.Close()
 	}
 }

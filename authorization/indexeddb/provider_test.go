@@ -410,7 +410,7 @@ func newProviderSession(t *testing.T) *providerSession {
 	idbCtx, idbCancel := context.WithCancel(context.Background())
 	idbErrCh := make(chan error, 1)
 	go func() {
-		idbErrCh <- gestalt.ServeIndexedDBProvider(idbCtx, idbProvider)
+		idbErrCh <- gestalt.ServeIndexedDBProvider(idbCtx, authoredTestIndexedDBProvider{idbProvider})
 	}()
 	idbConn := newUnixConn(t, idbSocket)
 	_ = idbConn.Close()
@@ -609,6 +609,10 @@ type testIndexedDBProvider struct {
 	stores map[string]*testObjectStore
 }
 
+type authoredTestIndexedDBProvider struct {
+	*testIndexedDBProvider
+}
+
 type testObjectStore struct {
 	records map[string]*proto.Record
 	schema  *proto.ObjectStoreSchema
@@ -616,6 +620,238 @@ type testObjectStore struct {
 
 func newTestIndexedDBProvider() *testIndexedDBProvider {
 	return &testIndexedDBProvider{stores: make(map[string]*testObjectStore)}
+}
+
+func (p authoredTestIndexedDBProvider) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+	_, err := p.testIndexedDBProvider.CreateObjectStore(ctx, testCreateObjectStoreRequest(name, schema))
+	return err
+}
+
+func (p authoredTestIndexedDBProvider) DeleteObjectStore(ctx context.Context, name string) error {
+	_, err := p.testIndexedDBProvider.DeleteObjectStore(ctx, &proto.DeleteObjectStoreRequest{Name: name})
+	return err
+}
+
+func (p authoredTestIndexedDBProvider) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
+	resp, err := p.testIndexedDBProvider.Get(ctx, &proto.ObjectStoreRequest{Store: req.Store, Id: req.ID})
+	if err != nil {
+		return nil, err
+	}
+	return testRecordFromProto(resp.GetRecord())
+}
+
+func (p authoredTestIndexedDBProvider) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
+	resp, err := p.testIndexedDBProvider.GetKey(ctx, &proto.ObjectStoreRequest{Store: req.Store, Id: req.ID})
+	if err != nil {
+		return "", err
+	}
+	return resp.GetKey(), nil
+}
+
+func (p authoredTestIndexedDBProvider) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	record, err := testRecordToProto(req.Record)
+	if err != nil {
+		return err
+	}
+	_, err = p.testIndexedDBProvider.Add(ctx, &proto.RecordRequest{Store: req.Store, Record: record})
+	return err
+}
+
+func (p authoredTestIndexedDBProvider) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	record, err := testRecordToProto(req.Record)
+	if err != nil {
+		return err
+	}
+	_, err = p.testIndexedDBProvider.Put(ctx, &proto.RecordRequest{Store: req.Store, Record: record})
+	return err
+}
+
+func (p authoredTestIndexedDBProvider) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
+	_, err := p.testIndexedDBProvider.Delete(ctx, &proto.ObjectStoreRequest{Store: req.Store, Id: req.ID})
+	return err
+}
+
+func (p authoredTestIndexedDBProvider) Clear(ctx context.Context, store string) error {
+	_, err := p.testIndexedDBProvider.Clear(ctx, &proto.ObjectStoreNameRequest{Store: store})
+	return err
+}
+
+func (p authoredTestIndexedDBProvider) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
+	resp, err := p.testIndexedDBProvider.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.Store})
+	if err != nil {
+		return nil, err
+	}
+	return testRecordsFromProto(resp.GetRecords())
+}
+
+func (p authoredTestIndexedDBProvider) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
+	resp, err := p.testIndexedDBProvider.GetAllKeys(ctx, &proto.ObjectStoreRangeRequest{Store: req.Store})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetKeys(), nil
+}
+
+func (p authoredTestIndexedDBProvider) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	resp, err := p.testIndexedDBProvider.Count(ctx, &proto.ObjectStoreRangeRequest{Store: req.Store})
+	if err != nil {
+		return 0, err
+	}
+	return resp.GetCount(), nil
+}
+
+func (p authoredTestIndexedDBProvider) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	resp, err := p.testIndexedDBProvider.DeleteRange(ctx, &proto.ObjectStoreRangeRequest{Store: req.Store})
+	if err != nil {
+		return 0, err
+	}
+	return resp.GetDeleted(), nil
+}
+
+func (p authoredTestIndexedDBProvider) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
+	pbReq, err := testIndexQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.testIndexedDBProvider.IndexGet(ctx, pbReq)
+	if err != nil {
+		return nil, err
+	}
+	return testRecordFromProto(resp.GetRecord())
+}
+
+func (p authoredTestIndexedDBProvider) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
+	pbReq, err := testIndexQueryRequest(req)
+	if err != nil {
+		return "", err
+	}
+	resp, err := p.testIndexedDBProvider.IndexGetKey(ctx, pbReq)
+	if err != nil {
+		return "", err
+	}
+	return resp.GetKey(), nil
+}
+
+func (p authoredTestIndexedDBProvider) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
+	pbReq, err := testIndexQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.testIndexedDBProvider.IndexGetAll(ctx, pbReq)
+	if err != nil {
+		return nil, err
+	}
+	return testRecordsFromProto(resp.GetRecords())
+}
+
+func (p authoredTestIndexedDBProvider) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
+	pbReq, err := testIndexQueryRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.testIndexedDBProvider.IndexGetAllKeys(ctx, pbReq)
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetKeys(), nil
+}
+
+func (p authoredTestIndexedDBProvider) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	pbReq, err := testIndexQueryRequest(req)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := p.testIndexedDBProvider.IndexCount(ctx, pbReq)
+	if err != nil {
+		return 0, err
+	}
+	return resp.GetCount(), nil
+}
+
+func (p authoredTestIndexedDBProvider) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	pbReq, err := testIndexQueryRequest(req)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := p.testIndexedDBProvider.IndexDelete(ctx, pbReq)
+	if err != nil {
+		return 0, err
+	}
+	return resp.GetDeleted(), nil
+}
+
+func (p authoredTestIndexedDBProvider) OpenCursor(context.Context, gestalt.IndexedDBOpenCursorRequest) (gestalt.IndexedDBCursor, error) {
+	return nil, status.Error(codes.Unimplemented, "cursor not implemented")
+}
+
+func (p authoredTestIndexedDBProvider) BeginTransaction(context.Context, gestalt.IndexedDBBeginTransactionRequest) (gestalt.IndexedDBTransaction, error) {
+	return nil, status.Error(codes.Unimplemented, "transaction not implemented")
+}
+
+func testCreateObjectStoreRequest(name string, schema gestalt.ObjectStoreSchema) *proto.CreateObjectStoreRequest {
+	indexes := make([]*proto.IndexSchema, len(schema.Indexes))
+	for i, index := range schema.Indexes {
+		indexes[i] = &proto.IndexSchema{Name: index.Name, KeyPath: index.KeyPath, Unique: index.Unique}
+	}
+	columns := make([]*proto.ColumnDef, len(schema.Columns))
+	for i, column := range schema.Columns {
+		columns[i] = &proto.ColumnDef{
+			Name:       column.Name,
+			Type:       int32(column.Type),
+			PrimaryKey: column.PrimaryKey,
+			NotNull:    column.NotNull,
+			Unique:     column.Unique,
+		}
+	}
+	return &proto.CreateObjectStoreRequest{Name: name, Schema: &proto.ObjectStoreSchema{Indexes: indexes, Columns: columns}}
+}
+
+func testIndexQueryRequest(req gestalt.IndexedDBIndexQueryRequest) (*proto.IndexQueryRequest, error) {
+	values := make([]*proto.TypedValue, len(req.Values))
+	for i, value := range req.Values {
+		typed, err := gestalt.TypedValueFromAny(value)
+		if err != nil {
+			return nil, err
+		}
+		values[i] = typed
+	}
+	return &proto.IndexQueryRequest{Store: req.Store, Index: req.Index, Values: values}, nil
+}
+
+func testRecordToProto(record gestalt.Record) (*proto.Record, error) {
+	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
+	for key, value := range record {
+		typed, err := gestalt.TypedValueFromAny(value)
+		if err != nil {
+			return nil, err
+		}
+		out.Fields[key] = typed
+	}
+	return out, nil
+}
+
+func testRecordFromProto(record *proto.Record) (gestalt.Record, error) {
+	out := make(gestalt.Record, len(record.GetFields()))
+	for key, typed := range record.GetFields() {
+		value, err := gestalt.AnyFromTypedValue(typed)
+		if err != nil {
+			return nil, err
+		}
+		out[key] = value
+	}
+	return out, nil
+}
+
+func testRecordsFromProto(records []*proto.Record) ([]gestalt.Record, error) {
+	out := make([]gestalt.Record, len(records))
+	for i, record := range records {
+		decoded, err := testRecordFromProto(record)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = decoded
+	}
+	return out, nil
 }
 
 func (p *testIndexedDBProvider) Configure(context.Context, string, map[string]any) error { return nil }
