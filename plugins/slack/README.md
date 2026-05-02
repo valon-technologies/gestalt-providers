@@ -17,9 +17,10 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 [Configuration](https://gestaltd.ai/configuration).
 
 Slack Events API agent replies and declarative REST operations that run as the
-bot use the app's bot token. Configure it as both a provider secret-backed value
-for event helper code and an internal deployment-owned `bot` connection for
-runtime-only REST calls:
+bot use the app's bot token. Generic workflow event publishing does not require
+a bot token. Configure the token as both a provider secret-backed value for
+event helper code and an internal deployment-owned `bot` connection for
+runtime-only REST calls when agent replies or bot REST operations are enabled:
 
 ```yaml
 plugins:
@@ -197,6 +198,50 @@ Runtime output-delivery input:
 ```json
 {"reply_ref":"...","text":"I'll check that now."}
 ```
+
+To publish Slack Events API callbacks directly into Gestalt workflow events,
+configure `events.publish.routes`. Publish routes are independent from
+`agent.routes`; they do not require a linked Slack user or the Slack bot token:
+
+```yaml
+plugins:
+  slack:
+    source: https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.N/provider-release.yaml
+    authorizationPolicy: platform
+    config:
+      events:
+        publish:
+          routes:
+            - id: deployment-events
+              workflowProvider: local
+              workflowEventType: slack.event.received
+              source: slack
+              subject: route:deployment-events
+              match:
+                eventTypes:
+                  - message
+                subtypes: []
+                channelIds:
+                  - C0123456789
+```
+
+`workflowProvider` selects the Gestalt workflow provider that should receive the
+published event; if omitted, the route uses the top-level `workflow.provider`
+when configured, otherwise Gestalt publishes through the workflow manager's
+default behavior. `workflowEventType` defaults to `slack.event.received`,
+`source` defaults to `slack`, and `subject` defaults to `route:<routeId>`.
+Workflow triggers can match that subject exactly with
+`workflows.eventTriggers.match.subject`. Match rules support `eventTypes`,
+`subtypes`, `teamIds`, `channelIds`, `channelTypes`, `userIds`, `botIds`, and
+`includeBotEvents`. If `subtypes` is omitted, no subtype filter is applied. If
+`subtypes: []` is configured, only Slack events without a subtype match. Bot
+events are excluded unless `includeBotEvents: true` is set or `botIds` narrows
+the route to specific bots.
+
+Published workflow event data includes `routeId`, normalized Slack callback
+fields, and the raw Slack payload. Event IDs prefer Slack's `event_id` as
+`slack:<event_id>`; when Slack omits it, the provider uses a deterministic ID
+from the route, team, event type, subtype, channel, timestamps, and user or bot.
 
 Agent-facing event helper examples:
 

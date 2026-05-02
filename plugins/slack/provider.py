@@ -48,6 +48,10 @@ from internals.models import (
     SlackAgentEvent as SlackAgentEvent,
     SlackAgentRoute as SlackAgentRoute,
     SlackAgentRouteMatch as SlackAgentRouteMatch,
+    SlackEventPublishConfig as SlackEventPublishConfig,
+    SlackEventPublishRoute as SlackEventPublishRoute,
+    SlackEventPublishRouteMatch as SlackEventPublishRouteMatch,
+    SlackEventsConfig as SlackEventsConfig,
     SlackReplyRef as SlackReplyRef,
 )
 from internals.operations import (
@@ -395,7 +399,7 @@ def resolve_http_subject(
 @gestalt.operation(
     id=SLACK_EVENT_OPERATION,
     method="POST",
-    description="Handle Slack Events API callbacks and delegate supported user events to a Gestalt agent",
+    description="Handle Slack Events API callbacks for workflow event publishing and supported agent events",
     visible=False,
 )
 def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> OperationResult:

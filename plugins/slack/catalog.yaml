@@ -2,8 +2,8 @@ name: slack
 operations:
 - id: events.handle
   method: POST
-  description: Handle Slack Events API callbacks and delegate supported user events
-    to a Gestalt agent
+  description: Handle Slack Events API callbacks for workflow event publishing and
+    supported agent events
   visible: false
 - id: interactions.handle
   method: POST
