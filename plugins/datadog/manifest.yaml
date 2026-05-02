@@ -7,4 +7,10 @@ kind: plugin
 spec:
   surfaces:
     openapi:
+      connection: default
       document: openapi.yaml
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual

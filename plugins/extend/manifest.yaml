@@ -9,4 +9,10 @@ spec:
     x-extend-api-version: '2026-02-09'
   surfaces:
     openapi:
+      connection: default
       document: openapi.yaml
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
