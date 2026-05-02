@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -90,7 +91,7 @@ func (s *Store) Close() error {
 // IndexedDBServer implementation
 // ---------------------------------------------------------------------------
 
-func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -130,7 +131,7 @@ func (p *Provider) CreateObjectStore(ctx context.Context, req *proto.CreateObjec
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -146,7 +147,7 @@ func (p *Provider) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjec
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -166,7 +167,7 @@ func (p *Provider) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 	return &proto.RecordResponse{Record: rec}, nil
 }
 
-func (p *Provider) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -183,7 +184,7 @@ func (p *Provider) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*
 	return &proto.KeyResponse{Key: fmt.Sprint(doc["_id"])}, nil
 }
 
-func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -202,7 +203,7 @@ func (p *Provider) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -226,14 +227,14 @@ func (p *Provider) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
 	if err := p.deleteByIDValue(ctx, req.GetStore(), req.GetId()); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) deleteByIDValue(ctx context.Context, storeName string, id any) error {
+func (p *providerCore) deleteByIDValue(ctx context.Context, storeName string, id any) error {
 	s, err := p.configured()
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
@@ -245,7 +246,7 @@ func (p *Provider) deleteByIDValue(ctx context.Context, storeName string, id any
 	return nil
 }
 
-func (p *Provider) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -257,7 +258,7 @@ func (p *Provider) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest)
 	return &emptypb.Empty{}, nil
 }
 
-func (p *Provider) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -278,7 +279,7 @@ func (p *Provider) GetAll(ctx context.Context, req *proto.ObjectStoreRangeReques
 	return &proto.RecordsResponse{Records: records}, nil
 }
 
-func (p *Provider) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -304,7 +305,7 @@ func (p *Provider) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRe
 	return &proto.KeysResponse{Keys: keys}, nil
 }
 
-func (p *Provider) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
+func (p *providerCore) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -320,7 +321,7 @@ func (p *Provider) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest
 	return &proto.CountResponse{Count: count}, nil
 }
 
-func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -336,7 +337,7 @@ func (p *Provider) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeR
 	return &proto.DeleteResponse{Deleted: result.DeletedCount}, nil
 }
 
-func (p *Provider) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -347,7 +348,7 @@ func (p *Provider) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (
 	return &proto.RecordResponse{Record: entries[0].Record}, nil
 }
 
-func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -358,7 +359,7 @@ func (p *Provider) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest
 	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
 }
 
-func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -370,7 +371,7 @@ func (p *Provider) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest
 	return &proto.RecordsResponse{Records: records}, nil
 }
 
-func (p *Provider) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -382,7 +383,7 @@ func (p *Provider) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryReq
 	return &proto.KeysResponse{Keys: keys}, nil
 }
 
-func (p *Provider) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+func (p *providerCore) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -390,7 +391,7 @@ func (p *Provider) IndexCount(ctx context.Context, req *proto.IndexQueryRequest)
 	return &proto.CountResponse{Count: int64(len(entries))}, nil
 }
 
-func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -409,11 +410,11 @@ func (p *Provider) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest
 // Helpers
 // ---------------------------------------------------------------------------
 
-func (p *Provider) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
 	return p.queryIndexEntriesWithProjection(ctx, req, nil)
 }
 
-func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -425,7 +426,7 @@ func (p *Provider) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQue
 	return p.queryIndexEntriesWithProjection(ctx, req, indexProjection(meta.keyPath))
 }
 
-func (p *Provider) queryIndexEntriesWithProjection(ctx context.Context, req *proto.IndexQueryRequest, projection bson.M) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexEntriesWithProjection(ctx context.Context, req *proto.IndexQueryRequest, projection bson.M) ([]cursorutil.Entry, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -567,7 +568,7 @@ func protoToDoc(record *proto.Record) (bson.M, error) {
 	if record == nil {
 		return bson.M{}, nil
 	}
-	m, err := gestalt.RecordFromProto(record)
+	m, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +592,7 @@ func docToProto(doc bson.M) (*proto.Record, error) {
 			m[k] = toGestaltCompatible(v)
 		}
 	}
-	return gestalt.RecordToProto(m)
+	return sdkcompat.RecordToProto(m)
 }
 
 func cursorToProtos(ctx context.Context, cursor *mongo.Cursor) ([]*proto.Record, error) {

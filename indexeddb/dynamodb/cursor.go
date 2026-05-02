@@ -18,7 +18,7 @@ import (
 
 type dynamoCursor struct {
 	cursorutil.Snapshot
-	provider  *Provider
+	provider  *providerCore
 	storeName string
 	index     *indexDef
 }
@@ -29,7 +29,7 @@ func (c *dynamoCursor) SnapshotState() *cursorutil.Snapshot {
 	return &c.Snapshot
 }
 
-func (p *Provider) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClientMessage, proto.CursorResponse]) error {
+func (p *providerCore) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClientMessage, proto.CursorResponse]) error {
 	if p.store == nil {
 		return status.Error(codes.FailedPrecondition, "dynamodb: not configured")
 	}
@@ -39,7 +39,7 @@ func (p *Provider) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClient
 	})
 }
 
-func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorRequest) (*dynamoCursor, error) {
+func (p *providerCore) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorRequest) (*dynamoCursor, error) {
 	cursor := &dynamoCursor{
 		Snapshot:  cursorutil.NewSnapshot(req),
 		provider:  p,
@@ -77,14 +77,14 @@ func (p *Provider) openCursorSnapshot(ctx context.Context, req *proto.OpenCursor
 	return cursor, nil
 }
 
-func (p *Provider) cursorKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) cursorKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
 	if cursor.IndexCursor {
 		return p.cursorIndexKeys(ctx, cursor, req)
 	}
 	return p.cursorObjectStoreKeys(ctx, req)
 }
 
-func (p *Provider) cursorObjectStoreKeys(ctx context.Context, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) cursorObjectStoreKeys(ctx context.Context, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
 	cond, vals := buildKeyCondition(req.GetStore(), req.GetRange())
 	var entries []cursorutil.Entry
 	var startKey map[string]ddbtypes.AttributeValue
@@ -115,7 +115,7 @@ func (p *Provider) cursorObjectStoreKeys(ctx context.Context, req *proto.OpenCur
 	return entries, nil
 }
 
-func (p *Provider) cursorIndexKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) cursorIndexKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
 	cond, exprVals := buildIndexCondition(req.GetStore(), req.GetIndex(), req.GetValues())
 	var entries []cursorutil.Entry
 	var startKey map[string]ddbtypes.AttributeValue
@@ -171,7 +171,7 @@ func dynamoIndexKeyFromItem(item map[string]ddbtypes.AttributeValue, keyParts in
 	return key, nil
 }
 
-func (p *Provider) lookupIndexMeta(storeName, indexName string) (*indexDef, error) {
+func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexDef, error) {
 	if p.store == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dynamodb: not configured")
 	}
@@ -188,7 +188,7 @@ func (p *Provider) lookupIndexMeta(storeName, indexName string) (*indexDef, erro
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *Provider) cursorRecords(ctx context.Context, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
+func (p *providerCore) cursorRecords(ctx context.Context, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
 	if req.GetIndex() == "" {
 		resp, err := p.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore()})
 		if err != nil {

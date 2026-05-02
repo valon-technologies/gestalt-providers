@@ -47,5 +47,6 @@ vulture-ignore-names = [
   "files_get",
   "redirect_request",
   "Name",
+  "WorkflowEvent",
   "WorkflowRunStatus",
 ]

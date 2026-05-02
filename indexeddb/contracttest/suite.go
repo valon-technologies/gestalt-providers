@@ -1212,18 +1212,26 @@ func mustTxIndexCount(t *testing.T, tx *contractTransaction, store, index string
 
 func mustRecordProto(t *testing.T, record map[string]any) *proto.Record {
 	t.Helper()
-	out, err := gestalt.RecordToProto(record)
-	if err != nil {
-		t.Fatalf("RecordToProto(%#v): %v", record, err)
+	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
+	for key, value := range record {
+		typed, err := gestalt.TypedValueFromAny(value)
+		if err != nil {
+			t.Fatalf("TypedValueFromAny(%s=%#v): %v", key, value, err)
+		}
+		out.Fields[key] = typed
 	}
 	return out
 }
 
 func mustRecord(t *testing.T, record *proto.Record) map[string]any {
 	t.Helper()
-	out, err := gestalt.RecordFromProto(record)
-	if err != nil {
-		t.Fatalf("RecordFromProto: %v", err)
+	out := make(map[string]any, len(record.GetFields()))
+	for key, typed := range record.GetFields() {
+		value, err := gestalt.AnyFromTypedValue(typed)
+		if err != nil {
+			t.Fatalf("AnyFromTypedValue(%s): %v", key, err)
+		}
+		out[key] = value
 	}
 	return out
 }

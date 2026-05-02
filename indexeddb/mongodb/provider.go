@@ -20,11 +20,15 @@ type config struct {
 }
 
 type Provider struct {
+	*providerCore
+}
+
+type providerCore struct {
 	proto.UnimplementedIndexedDBServer
 	store *Store
 }
 
-func New() *Provider { return &Provider{} }
+func New() *Provider { return &Provider{providerCore: &providerCore{}} }
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {
 	var cfg config
@@ -79,6 +83,10 @@ func (p *Provider) Close() error {
 }
 
 func (p *Provider) configured() (*Store, error) {
+	return p.providerCore.configured()
+}
+
+func (p *providerCore) configured() (*Store, error) {
 	if p.store == nil {
 		return nil, fmt.Errorf("mongodb datastore: not configured")
 	}

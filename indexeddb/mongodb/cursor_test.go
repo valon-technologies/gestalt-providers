@@ -5,6 +5,7 @@ import (
 	"time"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -16,7 +17,7 @@ func mongoTestRecord(t *testing.T, id string, fields map[string]any) *proto.Reco
 	for key, value := range fields {
 		record[key] = value
 	}
-	pb, err := gestalt.RecordToProto(record)
+	pb, err := sdkcompat.RecordToProto(record)
 	if err != nil {
 		t.Fatalf("RecordToProto: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestMongoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 }
 
 func TestMongoEntryFromRecordPreservesNativeObjectStorePrimaryKey(t *testing.T) {
-	record, err := gestalt.RecordToProto(map[string]any{
+	record, err := sdkcompat.RecordToProto(map[string]any{
 		"id":   int64(10),
 		"name": "ten",
 	})
@@ -215,7 +216,7 @@ func TestMongoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 }
 
 func TestMongoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
-	updateRecord, err := gestalt.RecordToProto(map[string]any{
+	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
 		"name": "Alice Missing Status",
 	})
 	if err != nil {
@@ -227,7 +228,7 @@ func TestMongoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
 		t.Fatalf("CloneRecordWithField: %v", err)
 	}
 
-	decoded, err := gestalt.RecordFromProto(record)
+	decoded, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		t.Fatalf("RecordFromProto: %v", err)
 	}
@@ -240,7 +241,7 @@ func TestMongoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
 }
 
 func TestMongoPrepareUpdatedRecordPreservesNativePrimaryKeyType(t *testing.T) {
-	updateRecord, err := gestalt.RecordToProto(map[string]any{
+	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
 		"name": "updated",
 	})
 	if err != nil {
@@ -252,7 +253,7 @@ func TestMongoPrepareUpdatedRecordPreservesNativePrimaryKeyType(t *testing.T) {
 		t.Fatalf("CloneRecordWithField: %v", err)
 	}
 
-	decoded, err := gestalt.RecordFromProto(record)
+	decoded, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		t.Fatalf("RecordFromProto: %v", err)
 	}
@@ -306,7 +307,7 @@ func TestMongoCursorDocToProtoPreservesNativeIDType(t *testing.T) {
 		t.Fatalf("docToProto: %v", err)
 	}
 
-	decoded, err := gestalt.RecordFromProto(record)
+	decoded, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		t.Fatalf("RecordFromProto: %v", err)
 	}
