@@ -394,16 +394,39 @@ def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> 
         operation = str(getattr(ref, "operation", "") or "").strip()
         connection = str(getattr(ref, "connection", "") or "").strip()
         instance = str(getattr(ref, "instance", "") or "").strip()
-        if not operation:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].operation is required")
-        if "*" in {plugin, system, operation, connection, instance}:
+        title = str(getattr(ref, "title", "") or "").strip()
+        description = str(getattr(ref, "description", "") or "").strip()
+        if "*" in {system, operation, connection, instance}:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "wildcard tool_refs are not supported")
-        if bool(plugin) == bool(system):
-            context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}] must set exactly one of plugin or system"
-            )
-        if system and system != "workflow":
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported")
+        if plugin == "*":
+            if any([system, operation, connection, instance, title, description]):
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    f"tool_refs[{index}] global search ref cannot include operation, connection, instance, "
+                    "title, or description",
+                )
+            continue
+        if system:
+            if plugin:
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}] must set exactly one of plugin or system"
+                )
+            if system != "workflow":
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported"
+                )
+            if not operation:
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].operation is required for system tool refs"
+                )
+            if any([connection, instance, title, description]):
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    f"tool_refs[{index}] system refs cannot include connection, instance, title, or description",
+                )
+            continue
+        if not plugin:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].plugin is required")
 
 
 def _messages_to_dicts(messages: Any) -> list[dict[str, Any]]:
