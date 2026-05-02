@@ -1743,6 +1743,102 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 }
 
+func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) {
+	ctx := context.Background()
+	blocker := &blockingGetAllServer{
+		store:   storeSchedules,
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		blocker.IndexedDBServer = inner
+		return blocker
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	provider.now = func() time.Time {
+		return time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
+	}
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "100ms"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	const triggerID = "refresh-trigger"
+	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId: triggerID,
+		Match:     &proto.WorkflowEventMatch{Type: "task.updated", Source: "roadmap"},
+		Target:    protoBoundTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger: %v", err)
+	}
+
+	listDone := make(chan error, 1)
+	go func() {
+		_, err := provider.ListSchedules(ctx, &proto.ListWorkflowProviderSchedulesRequest{})
+		listDone <- err
+	}()
+	select {
+	case <-blocker.entered:
+	case <-time.After(time.Second):
+		t.Fatal("ListSchedules did not reach blocked backing-store call")
+	}
+	var releaseOnce sync.Once
+	releaseList := func() {
+		releaseOnce.Do(func() {
+			close(blocker.release)
+		})
+	}
+	defer releaseList()
+
+	publishDone := make(chan error, 1)
+	go func() {
+		_, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+			PluginName: "roadmap",
+			Event: &proto.WorkflowEvent{
+				Id:          "evt-while-listing",
+				Source:      "roadmap",
+				Type:        "task.updated",
+				SpecVersion: "1.0",
+				Data:        mustStruct(t, map[string]any{"taskId": "task-1"}),
+			},
+		})
+		publishDone <- err
+	}()
+	select {
+	case err := <-publishDone:
+		if err != nil {
+			t.Fatalf("PublishEvent: %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		releaseList()
+		<-listDone
+		err := <-publishDone
+		if err != nil {
+			t.Fatalf("PublishEvent after releasing ListSchedules: %v", err)
+		}
+		t.Fatal("PublishEvent waited for concurrent ListSchedules")
+	}
+
+	runID := eventRunID(triggerID, "roadmap", "evt-while-listing")
+	run, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: runID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
+		t.Fatalf("run status = %s, want pending", run.GetStatus())
+	}
+	if run.GetTrigger().GetEvent().GetTriggerId() != triggerID {
+		t.Fatalf("event trigger = %#v", run.GetTrigger())
+	}
+
+	releaseList()
+	if err := <-listDone; err != nil {
+		t.Fatalf("ListSchedules: %v", err)
+	}
+}
+
 func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -2802,6 +2898,32 @@ type indexedDBServerSpy struct {
 	missingSignalIndex       string
 	mu                       sync.Mutex
 	createObjectStores       map[string]int
+}
+
+type blockingGetAllServer struct {
+	proto.IndexedDBServer
+	store   string
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingGetAllServer) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+	if req.GetStore() == s.store {
+		block := false
+		s.once.Do(func() {
+			close(s.entered)
+			block = true
+		})
+		if block {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-s.release:
+			}
+		}
+	}
+	return s.IndexedDBServer.GetAll(ctx, req)
 }
 
 func (s *indexedDBServerSpy) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
