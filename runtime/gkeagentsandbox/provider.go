@@ -2,6 +2,7 @@ package gkeagentsandbox
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -21,7 +22,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.12"
+	providerVersion      = "0.0.1-alpha.13"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
 	sessionStateRunning  = "running"
@@ -36,7 +37,8 @@ type Provider struct {
 	cfg     Config
 	runtime sandboxRuntime
 
-	nextID uint64
+	instanceID string
+	nextID     uint64
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -69,7 +71,8 @@ type plugin struct {
 
 func New() *Provider {
 	return &Provider{
-		sessions: make(map[string]*session),
+		instanceID: newProviderInstanceID(),
+		sessions:   make(map[string]*session),
 	}
 }
 
@@ -147,7 +150,7 @@ func (p *Provider) StartSession(ctx context.Context, req *proto.StartPluginRunti
 	}
 
 	sessionID := p.newID("session")
-	resourceName := sandboxResourceName(req.GetPluginName(), sessionID)
+	resourceName := sandboxResourceName(req.GetPluginName(), p.runtimeInstanceID(), sessionID)
 	handle, err := runtime.Start(ctx, startSandboxRequest{
 		Name:       resourceName,
 		PluginName: req.GetPluginName(),
@@ -584,6 +587,23 @@ func (p *Provider) sessionLocked(sessionID string) (*session, error) {
 
 func (p *Provider) newID(prefix string) string {
 	return fmt.Sprintf("%s-%06d", prefix, atomic.AddUint64(&p.nextID, 1))
+}
+
+func (p *Provider) runtimeInstanceID() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if strings.TrimSpace(p.instanceID) == "" {
+		p.instanceID = newProviderInstanceID()
+	}
+	return p.instanceID
+}
+
+func newProviderInstanceID() string {
+	var bytes [4]byte
+	if _, err := rand.Read(bytes[:]); err == nil {
+		return fmt.Sprintf("%x", bytes[:])
+	}
+	return sanitizeDNSLabelValue(strconv.FormatInt(time.Now().UnixNano(), 36))
 }
 
 func cloneSession(s *session) *proto.PluginRuntimeSession {

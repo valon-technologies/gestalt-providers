@@ -30,6 +30,9 @@ must contain the tools required to launch the plugin process.
 - `StartSession` creates a direct `agents.x-k8s.io/v1alpha1` `Sandbox` when no
   template is configured. In this mode `execution.runtime.image` is required on
   the plugin or hosted agent provider.
+- Kubernetes resource names include a provider-instance suffix as well as the
+  session counter, so a rolling deploy can start replacement runtime sessions
+  while the previous `gestaltd` revision is still draining.
 - `StartPlugin` starts the manifest-derived command with
   `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix socket to
   `config.pluginPort` with `socat`, and opens the configured connection back to

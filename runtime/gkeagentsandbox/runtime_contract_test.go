@@ -132,6 +132,26 @@ func TestRuntimeContractHostnameEgressPolicyRestrictsDNSAndProxyTargets(t *testi
 	assertPolicyRule(t, policy.Spec.Egress[0], []string{"10.96.0.10/32", "169.254.20.10/32"}, 53, corev1.ProtocolUDP)
 	assertPolicyRule(t, policy.Spec.Egress[1], []string{"10.96.0.10/32", "169.254.20.10/32"}, 53, corev1.ProtocolTCP)
 	assertPolicyRule(t, policy.Spec.Egress[2], []string{"203.0.113.10/32"}, 9443, corev1.ProtocolTCP)
+
+	longName, err := runtime.EnsureHostnameEgressPolicy(context.Background(), sandboxHandle{
+		Name:      "gestalt-" + strings.Repeat("x", 55),
+		Namespace: "runtime-system",
+		PodName:   "sandbox-pod",
+	}, hostnameEgressConfig{
+		Endpoints: []hostnameEgressEndpoint{{
+			Host: "proxy.gestalt.example",
+			Port: 9443,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("EnsureHostnameEgressPolicy long name: %v", err)
+	}
+	if len(longName) > 63 {
+		t.Fatalf("long policy name length = %d, want <= 63: %q", len(longName), longName)
+	}
+	if !strings.HasSuffix(longName, "-egress") {
+		t.Fatalf("long policy name = %q, want -egress suffix", longName)
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
