@@ -1,0 +1,27 @@
+[package]
+name = "gestalt-agent-hermes"
+version = "0.0.1-alpha.1"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fake-acp"
+path = "tests/fixtures/fake_acp.rs"
+
+[dependencies]
+agent-client-protocol = "=0.11.1"
+agent-client-protocol-tokio = "=0.11.1"
+gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "1078359ceaf8d8fc30513ec6c3fdddb5918fc872" }
+prost-types = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tonic = "0.14"
+
+[dev-dependencies]
+tempfile = "3"
