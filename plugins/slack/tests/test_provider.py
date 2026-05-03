@@ -115,6 +115,7 @@ class FakeBoundWorkflowAgentTarget:
         self.output_delivery = output_delivery
         self.metadata = new_struct()
         self.model_options = new_struct()
+        self.provider_options = self.model_options
 
 
 class FakeBoundWorkflowPluginTarget:
@@ -386,6 +387,30 @@ class FakeWorkflowManager:
         if self.publish_event_error is not None:
             raise self.publish_event_error
         return request.event
+
+
+class DictWorkflowManager(FakeWorkflowManager):
+    def signal_or_start_run(self, request: Any) -> Any:
+        self.signal_or_start_requests.append(request)
+        return {
+            "providerName": request.provider_name or "local",
+            "run": {
+                "id": "run-123",
+                "status": workflow_pb2.WORKFLOW_RUN_STATUS_PENDING,
+                "workflowKey": request.workflow_key,
+            },
+            "signal": {"id": "signal-123"},
+            "startedRun": True,
+            "workflowKey": request.workflow_key,
+        }
+
+
+def agent_options(agent_target: Any) -> Any:
+    return getattr(
+        agent_target,
+        "provider_options",
+        getattr(agent_target, "model_options", new_struct()),
+    )
 
 
 class SlackProviderTests(unittest.TestCase):
@@ -809,7 +834,7 @@ class SlackProviderTests(unittest.TestCase):
             target_metadata["slack"]["root_message_ts"], "1712161829.000300"
         )
         self.assertNotIn("event_id", target_metadata["slack"])
-        model_options = json_format.MessageToDict(agent_target.model_options)
+        model_options = json_format.MessageToDict(agent_options(agent_target))
         self.assertEqual(model_options["temperature"], 0)
 
         signal = workflow_request.signal
@@ -849,6 +874,61 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_metadata["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_metadata["slack"]["user_id"], "U456")
         self.assertEqual(signal_metadata["slack"]["file_ids"], ["F123"])
+
+    def test_slack_event_handler_acks_dict_workflow_response(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = DictWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvDict",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> ack this",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "workflow_provider": "local",
+                "workflow_run_id": "run-123",
+                "workflow_key": "slack:T123:C789:1712161829.000300",
+                "workflow_signal_id": "signal-123",
+                "started_run": True,
+                "status": "WORKFLOW_RUN_STATUS_PENDING",
+            },
+        )
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
     def test_slack_event_handler_requires_bot_token_before_signaling_workflow(
         self,
@@ -1963,7 +2043,7 @@ class SlackProviderTests(unittest.TestCase):
 
         signal_metadata = json_format.MessageToDict(workflow_request.signal.metadata)
         self.assertEqual(signal_metadata["slack"]["agent_route_id"], "triage")
-        model_options = json_format.MessageToDict(agent_target.model_options)
+        model_options = json_format.MessageToDict(agent_options(agent_target))
         self.assertEqual(model_options["temperature"], 0)
         self.assertEqual(model_options["max_output_tokens"], 2000)
 
