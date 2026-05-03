@@ -67,6 +67,12 @@ func Error(err error) error {
 	return statusSentinelError{err: err, target: target}
 }
 
+const (
+	transactionDurabilityDefault = 0
+	transactionDurabilityStrict  = 1
+	transactionDurabilityRelaxed = 2
+)
+
 func RecordToProto(record gestalt.Record) (*proto.Record, error) {
 	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
 	for key, value := range record {
@@ -193,10 +199,19 @@ func OpenCursorRequest(req gestalt.IndexedDBOpenCursorRequest) (*proto.OpenCurso
 }
 
 func BeginTransactionRequest(req gestalt.IndexedDBBeginTransactionRequest) *proto.BeginTransactionRequest {
-	return &proto.BeginTransactionRequest{
+	pbReq := &proto.BeginTransactionRequest{
 		Stores: req.Stores,
 		Mode:   TransactionMode(req.Mode),
 	}
+	switch req.DurabilityHint {
+	case gestalt.TransactionDurabilityStrict:
+		pbReq.DurabilityHint = transactionDurabilityStrict
+	case gestalt.TransactionDurabilityRelaxed:
+		pbReq.DurabilityHint = transactionDurabilityRelaxed
+	default:
+		pbReq.DurabilityHint = transactionDurabilityDefault
+	}
+	return pbReq
 }
 
 func KeyRange(r *gestalt.KeyRange) (*proto.KeyRange, error) {

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/figma
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Figma
 description: Access files, components, comments, and team projects.
 iconFile: assets/icon.svg
@@ -8,6 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: default
       document: https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml
   connections:
     default:

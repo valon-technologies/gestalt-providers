@@ -811,6 +811,83 @@ func TestProviderProcessNextPendingRunClaimsRunAcrossProviders(t *testing.T) {
 	}
 }
 
+func TestProviderProcessNextPendingRunStartsUnkeyedRunWithClaim(t *testing.T) {
+	ctx := context.Background()
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	host.releaseCh = make(chan struct{})
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "unkeyed-pending-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "brain", "sources.slack.events.ingest", map[string]any{"sourceId": "slack-valon-public"}),
+		TriggerKind: triggerKindEvent,
+		CreatedAt:   now,
+	}
+	if err := provider.runStore.Add(ctx, run.toRecord()); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	type result struct {
+		processed bool
+		err       error
+	}
+	done := make(chan result, 1)
+	go func() {
+		processed, err := provider.processNextPendingRun(ctx, run.ID)
+		done <- result{processed: processed, err: err}
+	}()
+
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != run.ID {
+		t.Fatalf("run_id = %q, want %q", call.GetRunId(), run.ID)
+	}
+	started, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: run.ID})
+	if err != nil {
+		t.Fatalf("GetRun(started): %v", err)
+	}
+	if started.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING || started.GetStartedAt() == nil {
+		t.Fatalf("started run status = %s started_at=%v, want running with started_at", started.GetStatus(), started.GetStartedAt())
+	}
+	if _, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID); err != nil {
+		t.Fatalf("load run claim: %v", err)
+	} else if !found {
+		t.Fatalf("run claim for %q was not present while host invocation was running", run.ID)
+	}
+
+	close(host.releaseCh)
+	res := <-done
+	if res.err != nil {
+		t.Fatalf("processNextPendingRun: %v", res.err)
+	}
+	if !res.processed {
+		t.Fatal("processNextPendingRun processed = false, want true")
+	}
+	completed, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: run.ID})
+	if err != nil {
+		t.Fatalf("GetRun(completed): %v", err)
+	}
+	if completed.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("completed run status = %s, want succeeded", completed.GetStatus())
+	}
+	if _, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID); err != nil {
+		t.Fatalf("load completed run claim: %v", err)
+	} else if found {
+		t.Fatalf("run claim for %q still exists after completion", run.ID)
+	}
+}
+
 func TestProviderProcessNextPendingRunSkipsFreshClaimedRun(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -2606,6 +2683,175 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		if signal.StatusMessage != "workflow provider restarted while run was in progress" {
 			t.Fatalf("signal %q status_message = %q", signal.ID, signal.StatusMessage)
 		}
+	}
+}
+
+func TestRecoverStaleWorkflowRunsDeletesOrphanPendingClaims(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "orphan-claimed-pending-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "brain", "sources.sync", map[string]any{"sourceId": "slack-valon-public"}),
+		TriggerKind: triggerKindSchedule,
+		CreatedAt:   now.Add(-2 * time.Minute),
+	}
+	if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+		t.Fatalf("Put(run): %v", err)
+	}
+	claimedAt := now.Add(-nonRunningRunClaimGrace - time.Second)
+	putRunClaim(t, ctx, provider.runClaimStore, workflowRunClaimRecord{
+		ID:        run.ID,
+		RunID:     run.ID,
+		OwnerID:   "interrupted-provider",
+		ClaimedAt: claimedAt,
+		ExpiresAt: now.Add(time.Hour),
+	})
+
+	if err := recoverStaleWorkflowRuns(ctx, provider.db, provider.runStore, provider.runClaimStore, provider.workflowKeyStore, provider.signalStore, now); err != nil {
+		t.Fatalf("recoverStaleWorkflowRuns: %v", err)
+	}
+	if _, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID); err != nil {
+		t.Fatalf("load run claim: %v", err)
+	} else if found {
+		t.Fatalf("orphan claim for pending run %q still exists", run.ID)
+	}
+	reloaded, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: run.ID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if reloaded.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
+		t.Fatalf("run status = %s, want pending after orphan claim recovery", reloaded.GetStatus())
+	}
+}
+
+func TestRecoverStaleWorkflowRunsPreservesFreshAndKeyedPendingClaims(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	cases := []struct {
+		name      string
+		run       workflowRunRecord
+		claimedAt time.Time
+	}{
+		{
+			name: "fresh-unkeyed",
+			run: workflowRunRecord{
+				ID:          "fresh-claimed-pending-run",
+				Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+				Target:      protoBoundTarget(t, "brain", "sources.sync", nil),
+				TriggerKind: triggerKindSchedule,
+				CreatedAt:   now,
+			},
+			claimedAt: now.Add(-nonRunningRunClaimGrace / 2),
+		},
+		{
+			name: "keyed",
+			run: workflowRunRecord{
+				ID:          "keyed-claimed-pending-run",
+				Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+				Target:      protoAgentTarget("managed", "gpt-5.5", "Respond"),
+				TriggerKind: triggerKindManual,
+				WorkflowKey: "slack:T123:C123:1700000000.000001",
+				CreatedAt:   now.Add(-2 * time.Minute),
+			},
+			claimedAt: now.Add(-nonRunningRunClaimGrace - time.Second),
+		},
+	}
+	for _, tc := range cases {
+		if err := provider.runStore.Put(ctx, tc.run.toRecord()); err != nil {
+			t.Fatalf("%s: Put(run): %v", tc.name, err)
+		}
+		putRunClaim(t, ctx, provider.runClaimStore, workflowRunClaimRecord{
+			ID:        tc.run.ID,
+			RunID:     tc.run.ID,
+			OwnerID:   "active-provider",
+			ClaimedAt: tc.claimedAt,
+			ExpiresAt: now.Add(time.Hour),
+		})
+	}
+
+	if err := recoverStaleWorkflowRuns(ctx, provider.db, provider.runStore, provider.runClaimStore, provider.workflowKeyStore, provider.signalStore, now); err != nil {
+		t.Fatalf("recoverStaleWorkflowRuns: %v", err)
+	}
+	for _, tc := range cases {
+		if _, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, tc.run.ID); err != nil {
+			t.Fatalf("%s: load run claim: %v", tc.name, err)
+		} else if !found {
+			t.Fatalf("%s: claim for pending run %q was deleted", tc.name, tc.run.ID)
+		}
+	}
+}
+
+func TestDeleteInactiveRunClaimSkipsReplacedClaim(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Now().UTC()
+	run := workflowRunRecord{
+		ID:          "replaced-claim-pending-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "brain", "sources.sync", nil),
+		TriggerKind: triggerKindSchedule,
+		CreatedAt:   now.Add(-2 * time.Minute),
+	}
+	if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+		t.Fatalf("Put(run): %v", err)
+	}
+	observedClaim := workflowRunClaimRecord{
+		ID:        run.ID,
+		RunID:     run.ID,
+		OwnerID:   "interrupted-provider",
+		ClaimedAt: now.Add(-nonRunningRunClaimGrace - time.Second),
+		ExpiresAt: now.Add(time.Hour),
+	}
+	putRunClaim(t, ctx, provider.runClaimStore, observedClaim)
+	replacement := workflowRunClaimRecord{
+		ID:        run.ID,
+		RunID:     run.ID,
+		OwnerID:   "active-provider",
+		ClaimedAt: now,
+		ExpiresAt: now.Add(time.Hour),
+	}
+	putRunClaim(t, ctx, provider.runClaimStore, replacement)
+
+	deleted, err := deleteInactiveRunClaimIfRecoverable(ctx, provider.db, run, observedClaim, now)
+	if err != nil {
+		t.Fatalf("deleteInactiveRunClaimIfRecoverable: %v", err)
+	}
+	if deleted {
+		t.Fatal("deleteInactiveRunClaimIfRecoverable deleted replacement claim")
+	}
+	current, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID)
+	if err != nil {
+		t.Fatalf("load run claim: %v", err)
+	}
+	if !found || !sameRunClaim(current, replacement) {
+		t.Fatalf("current claim = %#v found=%v, want replacement %#v", current, found, replacement)
 	}
 }
 

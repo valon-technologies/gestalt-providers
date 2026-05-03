@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/asana
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Asana
 description: Manage tasks, projects, and workspaces.
 iconFile: assets/icon.svg
@@ -8,6 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: default
       document: https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/asana.com/1.0/openapi.yaml
   connections:
     default:

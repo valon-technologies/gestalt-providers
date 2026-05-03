@@ -30,7 +30,6 @@ type connectionConfig struct {
 
 type Provider struct {
 	Store *Store
-	sdkBackend
 }
 
 func New() *Provider {
@@ -41,7 +40,6 @@ func New() *Provider {
 
 func (p *Provider) setStore(store *Store) {
 	p.Store = store
-	p.sdkBackend = sdkBackend{backend: store}
 }
 
 func (p *Provider) Close() error {

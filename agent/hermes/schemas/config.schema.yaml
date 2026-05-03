@@ -1,0 +1,56 @@
+type: object
+additionalProperties: false
+required:
+  - hermesHome
+properties:
+  hermesHome:
+    type: string
+    description: Required Hermes home directory. The provider sets HERMES_HOME to this path for every Hermes ACP subprocess.
+  hermesCommand:
+    type: string
+    default: hermes
+    description: Command used to start Hermes ACP.
+  hermesArgs:
+    type: array
+    description: Arguments passed to hermesCommand.
+    items:
+      type: string
+    default:
+      - acp
+      - --accept-hooks
+  workingDirectory:
+    type: string
+    description: Working directory passed to ACP session/new and session/load. Defaults to the provider process working directory.
+  defaultModel:
+    type: string
+    description: Optional Hermes model id to set on each ACP turn when the request does not specify a model.
+  timeoutSeconds:
+    type: number
+    default: 600
+    exclusiveMinimum: 0
+    description: Timeout for Hermes ACP startup and prompt calls.
+  accessTokenCommand:
+    type: array
+    description: Command run before every turn to produce a fresh bearer token. Set to [] to skip token refresh and inherit environment.
+    items:
+      type: string
+    default:
+      - gcloud
+      - auth
+      - application-default
+      - print-access-token
+  accessTokenEnvVar:
+    type: string
+    default: OPENAI_API_KEY
+    description: Environment variable that receives accessTokenCommand stdout for Hermes.
+  extraEnv:
+    type: object
+    description: Additional environment variables passed to Hermes subprocesses.
+    additionalProperties:
+      type: string
+  autoApprovePermissions:
+    type: boolean
+    default: true
+    enum:
+      - true
+    description: v1 always auto-approves Hermes ACP permission requests.

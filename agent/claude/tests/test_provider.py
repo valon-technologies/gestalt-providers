@@ -265,7 +265,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _assert_invalid(provider_client, missing_grant, "tool_grant is required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
-        wildcard_ref.tool_refs[0].plugin = "*"
+        wildcard_ref.tool_refs[0].operation = "*"
         _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
 
         response_schema = struct_pb2.Struct()
@@ -285,6 +285,68 @@ class ClaudeProviderTests(unittest.TestCase):
         resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
         resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
         _assert_invalid(provider_client, resolved_tools, "resolved tools are not supported")
+
+    def test_create_turn_accepts_broad_catalog_tool_refs(self) -> None:
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-broad-refs"))
+
+        empty_refs = _turn_request(turn_id="turn-empty-refs", session_id="session-broad-refs")
+        del empty_refs.tool_refs[:]
+        self.assertEqual(provider_client.CreateTurn(empty_refs).status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+
+        plugin_only = _turn_request(turn_id="turn-plugin-only", session_id="session-broad-refs")
+        del plugin_only.tool_refs[1:]
+        plugin_only.tool_refs[0].operation = ""
+        self.assertEqual(provider_client.CreateTurn(plugin_only).status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+
+        global_ref = _turn_request(turn_id="turn-global-ref", session_id="session-broad-refs")
+        del global_ref.tool_refs[:]
+        global_ref.tool_refs.add(plugin="*")
+        self.assertEqual(provider_client.CreateTurn(global_ref).status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+
+        for turn_id in ("turn-empty-refs", "turn-plugin-only", "turn-global-ref"):
+            _wait_for_turn(provider_client, turn_id, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+    def test_create_turn_rejects_invalid_broad_catalog_tool_refs(self) -> None:
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-invalid-refs"))
+
+        for field in ("operation", "connection", "instance"):
+            request = _turn_request(turn_id=f"turn-wildcard-{field}", session_id="session-invalid-refs")
+            del request.tool_refs[1:]
+            setattr(request.tool_refs[0], field, "*")
+            _assert_invalid(provider_client, request, "wildcard tool_refs are not supported")
+
+        wildcard_system = _turn_request(turn_id="turn-wildcard-system", session_id="session-invalid-refs")
+        del wildcard_system.tool_refs[:]
+        wildcard_system.tool_refs.add(system="*", operation="run")
+        _assert_invalid(provider_client, wildcard_system, "wildcard tool_refs are not supported")
+
+        missing_plugin_or_system = _turn_request(turn_id="turn-missing-plugin", session_id="session-invalid-refs")
+        del missing_plugin_or_system.tool_refs[:]
+        missing_plugin_or_system.tool_refs.add(operation="issues")
+        _assert_invalid(provider_client, missing_plugin_or_system, "tool_refs[1].plugin is required")
+
+        system_without_operation = _turn_request(
+            turn_id="turn-system-missing-operation", session_id="session-invalid-refs"
+        )
+        del system_without_operation.tool_refs[:]
+        system_without_operation.tool_refs.add(system="workflow")
+        _assert_invalid(provider_client, system_without_operation, "operation is required for system tool refs")
+
+        for field in ("connection", "instance", "title", "description"):
+            request = _turn_request(turn_id=f"turn-system-ref-{field}", session_id="session-invalid-refs")
+            del request.tool_refs[:]
+            ref = request.tool_refs.add(system="workflow", operation="schedules.list")
+            setattr(ref, field, "value")
+            _assert_invalid(provider_client, request, "system refs cannot include")
+
+        for field in ("operation", "connection", "instance", "title", "description"):
+            request = _turn_request(turn_id=f"turn-global-ref-{field}", session_id="session-invalid-refs")
+            del request.tool_refs[:]
+            ref = request.tool_refs.add(plugin="*")
+            setattr(ref, field, "value")
+            _assert_invalid(provider_client, request, "global search ref cannot include")
 
     def test_cancel_turn_interrupts_sdk_client_and_terminal_status_wins(self) -> None:
         _FakeClaudeSDKClient.mode = "cancel"

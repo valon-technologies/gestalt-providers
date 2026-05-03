@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/twilio
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Twilio
 description: Send and receive SMS, voice calls, and messaging operations.
 iconFile: assets/icon.svg
@@ -7,6 +7,7 @@ kind: plugin
 spec:
   surfaces:
     openapi:
+      connection: default
       document: https://api.apis.guru/v2/specs/twilio.com/api/1.42.0/openapi.yaml
   connections:
     default:
