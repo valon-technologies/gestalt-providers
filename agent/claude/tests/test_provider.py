@@ -62,6 +62,17 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         response = agent_pb2.ListAgentToolsResponse()
         if request.page_token == "":
             tool = response.tools.add()
+            tool.id = "tool-ashby-candidates"
+            tool.mcp_name = "ashby__candidate_list"
+            tool.title = "List Ashby candidates"
+            tool.description = "List Ashby candidates"
+            tool.input_schema = '{"type":"object"}'
+            setattr(tool.annotations, "read_only_hint", True)
+            setattr(tool.ref, "plugin", "ashby")
+            setattr(tool.ref, "operation", "candidate.list")
+            response.next_page_token = "page-2"
+        elif request.page_token == "page-2":
+            tool = response.tools.add()
             tool.id = "tool-linear-issues"
             tool.mcp_name = "linear__issues"
             tool.title = "Search Linear issues"
@@ -70,8 +81,6 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             setattr(tool.annotations, "read_only_hint", True)
             setattr(tool.ref, "plugin", "linear")
             setattr(tool.ref, "operation", "searchIssues")
-            response.next_page_token = "page-2"
-        elif request.page_token == "page-2":
             tool = response.tools.add()
             tool.id = "tool-github-pulls"
             tool.mcp_name = "github__pulls_list"
@@ -147,7 +156,9 @@ class _FakeClaudeSDKClient:
             )
             return
 
-        self.tool_result = await _call_first_sdk_tool(self.options, arguments={"query": "AIT"})
+        visible_tools = await _visible_sdk_tools(self.options)
+        assert visible_tools == ["ashby__candidate_list", "linear__issues", "github__pulls_list"], visible_tools
+        self.tool_result = await _call_sdk_tool(self.options, name="linear__issues", arguments={"query": "AIT"})
         yield AssistantMessage(content=[TextBlock(text="assistant intermediate text")], model="fake-claude")
         yield ResultMessage(
             subtype="success",
@@ -220,9 +231,10 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.skills, [])
         self.assertEqual(fake_client.options.plugins, [])
         self.assertEqual(fake_client.options.env["ANTHROPIC_API_KEY"], "test-anthropic-key")
+        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "auto:5")
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
 
-        self.assertEqual([request["page_token"] for request in host.list_requests], [""])
+        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["tool_grant"], "grant-claude")
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "sdk-1")
         self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
@@ -235,7 +247,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
 
-    def test_sdk_mcp_bridge_preserves_list_tools_cursor(self) -> None:
+    def test_sdk_mcp_bridge_exposes_full_catalog_for_native_tool_search(self) -> None:
         host = _host_servicer
         assert host is not None
         _configure_provider()
@@ -247,11 +259,14 @@ class ClaudeProviderTests(unittest.TestCase):
 
         first, second = asyncio.run(_list_tools_through_sdk_bridge(options))
 
-        self.assertEqual(first["result"]["tools"][0]["name"], "linear__issues")
-        self.assertEqual(first["result"]["nextCursor"], "page-2")
-        self.assertEqual(second["result"]["tools"][0]["name"], "github__pulls_list")
+        self.assertEqual(
+            [tool["name"] for tool in first["result"]["tools"]],
+            ["ashby__candidate_list", "linear__issues", "github__pulls_list"],
+        )
+        self.assertNotIn("nextCursor", first["result"])
+        self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["linear__issues", "github__pulls_list"])
         self.assertNotIn("nextCursor", second["result"])
-        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
+        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2", "page-2"])
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
@@ -467,12 +482,16 @@ def _turn_request(
     return request
 
 
-async def _call_first_sdk_tool(options: Any, *, arguments: dict[str, Any]) -> Any:
+async def _visible_sdk_tools(options: Any) -> list[str]:
     server = options.mcp_servers["gestalt"]["instance"]
     list_result = await server.request_handlers[mcp_types.ListToolsRequest](mcp_types.ListToolsRequest())
-    tool_name = list_result.root.tools[0].name
+    return [tool.name for tool in list_result.root.tools]
+
+
+async def _call_sdk_tool(options: Any, *, name: str, arguments: dict[str, Any]) -> Any:
+    server = options.mcp_servers["gestalt"]["instance"]
     call_result = await server.request_handlers[mcp_types.CallToolRequest](
-        mcp_types.CallToolRequest(params=mcp_types.CallToolRequestParams(name=tool_name, arguments=arguments))
+        mcp_types.CallToolRequest(params=mcp_types.CallToolRequestParams(name=name, arguments=arguments))
     )
     return call_result.root
 

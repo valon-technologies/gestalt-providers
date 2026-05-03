@@ -26,8 +26,9 @@ struct_pb2: Any = _struct_pb2
 logger = logging.getLogger(__name__)
 
 MCP_SERVER_NAME = "gestalt"
-DEFAULT_PAGE_SIZE = 100
-MAX_PAGES = 100
+DEFAULT_PAGE_SIZE = 10_000
+MAX_PAGES = 1_000
+MAX_CATALOG_TOOLS = 10_000
 _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
@@ -48,6 +49,7 @@ class GestaltMCPBridge:
         self._turn_id = turn_id
         self._tool_grant = tool_grant
         self._entries: dict[str, ToolEntry] = {}
+        self._catalog_loaded = False
         self._execute_lock = asyncio.Lock()
         self._sequence = 0
         self.server = Server(MCP_SERVER_NAME)
@@ -64,7 +66,11 @@ class GestaltMCPBridge:
         page_token = ""
         if req.params is not None:
             page_token = str(req.params.cursor or "").strip()
-        entries, next_page_token = await asyncio.to_thread(self._list_entries, page_token)
+        if page_token:
+            entries, next_page_token = await asyncio.to_thread(self._list_entries, page_token)
+        else:
+            entries = await asyncio.to_thread(self._list_all_entries)
+            next_page_token = ""
         tools: list[Tool] = []
         for entry in entries:
             self._entries[entry.mcp_name] = entry
@@ -72,9 +78,13 @@ class GestaltMCPBridge:
         return ListToolsResult(tools=tools, nextCursor=next_page_token or None)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
-        entry = self._entries.get(str(name or "").strip())
+        tool_name = str(name or "").strip()
+        entry = self._entries.get(tool_name)
         if entry is None:
-            entry = await asyncio.to_thread(self._find_entry, str(name or "").strip())
+            entry = await asyncio.to_thread(self._find_entry, tool_name)
+        return await self._execute_entry(entry, arguments or {})
+
+    async def _execute_entry(self, entry: ToolEntry, arguments: dict[str, Any]) -> CallToolResult:
         async with self._execute_lock:
             self._sequence += 1
             tool_call_id = f"sdk-{self._sequence}"
@@ -93,11 +103,10 @@ class GestaltMCPBridge:
             body = "{}"
         return CallToolResult(content=[TextContent(type="text", text=body)], isError=status >= 400)
 
-    def _find_entry(self, mcp_name: str) -> ToolEntry:
-        if not mcp_name:
-            raise ValueError("tool name is required")
+    def _list_all_entries(self) -> list[ToolEntry]:
         page_token = ""
         seen_tokens: set[str] = set()
+        all_entries: list[ToolEntry] = []
         for _ in range(MAX_PAGES):
             if page_token in seen_tokens:
                 raise ValueError(f"ListTools repeated page token {page_token!r}")
@@ -105,11 +114,27 @@ class GestaltMCPBridge:
             entries, next_page_token = self._list_entries(page_token)
             for entry in entries:
                 self._entries[entry.mcp_name] = entry
-                if entry.mcp_name == mcp_name:
-                    return entry
+            all_entries.extend(entries)
+            if len(all_entries) > MAX_CATALOG_TOOLS:
+                raise ValueError(f"ListTools exceeded {MAX_CATALOG_TOOLS} tools")
             page_token = next_page_token
             if not page_token:
-                break
+                self._catalog_loaded = True
+                return all_entries
+        if page_token:
+            raise ValueError(f"ListTools exceeded {MAX_PAGES} pages")
+        return all_entries
+
+    def _find_entry(self, mcp_name: str) -> ToolEntry:
+        if not mcp_name:
+            raise ValueError("tool name is required")
+        if entry := self._entries.get(mcp_name):
+            return entry
+        if self._catalog_loaded:
+            raise ValueError(f"tool {mcp_name!r} is not available in the current grant")
+        for entry in self._list_all_entries():
+            if entry.mcp_name == mcp_name:
+                return entry
         raise ValueError(f"tool {mcp_name!r} is not available in the current grant")
 
     def _list_entries(self, page_token: str) -> tuple[list[ToolEntry], str]:
@@ -202,11 +227,7 @@ def _tool_to_json(tool: Tool) -> dict[str, Any]:
         input_schema_json = input_schema.model_dump()
     else:
         input_schema_json = input_schema or {}
-    out: dict[str, Any] = {
-        "name": tool.name,
-        "description": tool.description,
-        "inputSchema": input_schema_json,
-    }
+    out: dict[str, Any] = {"name": tool.name, "description": tool.description, "inputSchema": input_schema_json}
     if tool.annotations:
         out["annotations"] = tool.annotations.model_dump(exclude_none=True)
     if tool.meta:
@@ -279,9 +300,7 @@ def _schema_from_json(value: str) -> dict[str, Any]:
 def _annotations(value: Any, *, title: str) -> ToolAnnotations | None:
     if value is None:
         return ToolAnnotations(title=title) if title else None
-    payload: dict[str, str | bool | None] = {
-        "title": title or str(getattr(value, "title", "") or "").strip() or None,
-    }
+    payload: dict[str, str | bool | None] = {"title": title or str(getattr(value, "title", "") or "").strip() or None}
     for proto_name, sdk_name in (
         ("read_only_hint", "readOnlyHint"),
         ("destructive_hint", "destructiveHint"),
