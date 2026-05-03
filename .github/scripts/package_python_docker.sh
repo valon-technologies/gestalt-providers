@@ -26,16 +26,28 @@ esac
 
 echo "=== Packaging ${release_platform} (${base_image}) ==="
 
-docker run --rm --platform "${docker_platform}" \
-  -e UV_PYTHON=python3 \
-  -e UV_PYTHON_DOWNLOADS=never \
-  -e PYTHON_ENV_VAR="${python_env_var}" \
-  -e RELEASE_PLATFORM="${release_platform}" \
-  -e VERSION="${version}" \
-  -e INSTALL_CMD="${install_cmd}" \
-  -v "${PWD}:/workspace" \
-  -v "${RUNNER_TEMP}/bin/${gestaltd_bin}:/usr/local/bin/gestaltd:ro" \
-  -w "/workspace/${plugin_dir}" \
+docker_args=(
+  --rm
+  --platform "${docker_platform}"
+  -e UV_PYTHON=python3
+  -e UV_PYTHON_DOWNLOADS=never
+  -e PYTHON_ENV_VAR="${python_env_var}"
+  -e RELEASE_PLATFORM="${release_platform}"
+  -e VERSION="${version}"
+  -e INSTALL_CMD="${install_cmd}"
+  -v "${PWD}:/workspace"
+  -v "${RUNNER_TEMP}/bin/${gestaltd_bin}:/usr/local/bin/gestaltd:ro"
+  -w "/workspace/${plugin_dir}"
+)
+
+if [ -n "${GESTALT_CHECKOUT:-}" ] && [ -d "${GESTALT_CHECKOUT}/sdk/python" ]; then
+  docker_args+=(
+    -e GESTALT_LOCAL_SDK=/gestalt-sdk
+    -v "${GESTALT_CHECKOUT}/sdk/python:/gestalt-sdk"
+  )
+fi
+
+docker run "${docker_args[@]}" \
   "${base_image}" \
   sh -ceu '
     eval "${INSTALL_CMD}"
@@ -47,6 +59,9 @@ docker run --rm --platform "${docker_platform}" \
 
     rm -rf .venv
     uv sync --frozen --no-dev --python "${UV_PYTHON}"
+    if [ -n "${GESTALT_LOCAL_SDK:-}" ]; then
+      uv pip install "${GESTALT_LOCAL_SDK}"
+    fi
     export "${PYTHON_ENV_VAR}=$PWD/.venv/bin/python"
     gestaltd provider release --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
     chmod -R a+rX dist

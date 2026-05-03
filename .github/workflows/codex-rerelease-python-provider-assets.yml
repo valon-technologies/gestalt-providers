@@ -67,13 +67,15 @@ jobs:
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          echo "GESTALT_CHECKOUT=$toolchain_dir" >> "$GITHUB_ENV"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Build darwin/amd64 archive
         run: |
           set -euo pipefail
           cd "${{ steps.source.outputs.dir }}"
           rm -rf dist .venv
-          uv sync
+          uv sync --frozen --no-dev
+          uv pip install "$GESTALT_CHECKOUT/sdk/python"
           GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
             gestaltd provider release --version "${{ inputs.version }}" --platform darwin/amd64
       - name: Patch existing release assets
