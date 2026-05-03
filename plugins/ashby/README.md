@@ -20,8 +20,8 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 Declarative provider built on a local OpenAPI specification. Exposes operations
 for managing the full recruiting lifecycle including candidates, applications,
-jobs, offers, interviews, departments, locations, users, and reports. Supports
-cursor-based pagination.
+candidate file URLs, jobs, offers, interviews, interview stages, departments,
+locations, users, and reports. Supports cursor-based pagination.
 
 ## Documentation
 

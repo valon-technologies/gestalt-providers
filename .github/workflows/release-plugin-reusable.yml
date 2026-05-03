@@ -283,7 +283,7 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform linux/arm64/musl
+          gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform linux/arm64
       - uses: actions/upload-artifact@v4
         with:
           name: dist-linux-arm64
@@ -292,7 +292,7 @@ jobs:
 
   build-linux-armv7:
     needs: metadata
-    if: ${{ needs.metadata.outputs.source-language == 'go' || needs.metadata.outputs.source-language == 'rust' || (needs.metadata.outputs.source-language == 'python' && inputs.plugin-dir != 'agent/claude') }}
+    if: ${{ needs.metadata.outputs.source-language == 'go' || (needs.metadata.outputs.source-language == 'python' && inputs.plugin-dir != 'agent/claude') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -344,7 +344,7 @@ jobs:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
         run: |
           cd "${{ inputs.plugin-dir }}"
-          gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform linux/arm/musl
+          gestaltd provider release --version "${{ needs.metadata.outputs.version }}" --platform linux/arm
       - name: Package Python linux/arm artifact
         if: needs.metadata.outputs.source-language == 'python'
         env:
