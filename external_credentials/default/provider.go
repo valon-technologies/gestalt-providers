@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.3"
+const providerVersion = "0.0.1-alpha.4"
 
 type Provider struct {
 	mu    sync.RWMutex
