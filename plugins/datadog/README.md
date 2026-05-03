@@ -1,6 +1,6 @@
 # Datadog
 
-Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, and Synthetics.
+Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.
 
 ## Configuration
 
@@ -21,7 +21,8 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 Declarative provider built on a local OpenAPI specification. Exposes operations
 for managing Datadog dashboards, monitors, metric metadata, metric tag
 configurations, incidents, log queries, Real User Monitoring (RUM) data,
-CI Visibility pipeline events, and Synthetic tests.
+CI Visibility pipeline events, Synthetic tests, users, roles, and user
+invitations.
 
 Metric configuration operations:
 
@@ -41,6 +42,37 @@ gestalt invoke datadog create_metric_tag_configuration \
 gestalt invoke datadog update_metric_tag_configuration \
   -p metric_name=gestaltd.operation.duration \
   -p 'data:={"type":"manage_tags","id":"gestaltd.operation.duration","attributes":{"tags":["env","service","gestalt.provider","gestalt.operation"],"include_percentiles":true}}'
+```
+
+User management operations:
+
+```bash
+gestalt invoke datadog list_users
+gestalt invoke datadog get_user -p user_id=<USER_ID>
+
+gestalt invoke datadog create_user \
+  -p 'data:={"type":"users","attributes":{"email":"user@example.com","name":"Jane Doe","title":"Engineer"}}'
+
+gestalt invoke datadog update_user \
+  -p user_id=<USER_ID> \
+  -p 'data:={"type":"users","id":"<USER_ID>","attributes":{"name":"Jane Smith","disabled":false}}'
+
+gestalt invoke datadog disable_user -p user_id=<USER_ID>
+
+gestalt invoke datadog list_roles
+gestalt invoke datadog get_role -p role_id=<ROLE_ID>
+gestalt invoke datadog list_user_roles -p user_id=<USER_ID>
+```
+
+User invitation operations:
+
+```bash
+gestalt invoke datadog list_user_invitations
+
+gestalt invoke datadog create_user_invitations \
+  -p 'data:=[{"type":"user_invitations","attributes":{"email":"newuser@example.com"}}]'
+
+gestalt invoke datadog get_user_invitation -p user_invitation_uuid=<UUID>
 ```
 
 ## Documentation
