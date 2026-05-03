@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: NICE CXone OAuth client ID.
+  clientSecret:
+    type: string
+    description: NICE CXone OAuth client secret.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false

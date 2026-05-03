@@ -1,0 +1,629 @@
+{
+  "api_pages": [
+    "/API/AdminAPI",
+    "/API/AgentAPI",
+    "/API/AuthenticationAPI",
+    "/API/PatronAPI",
+    "/API/RealTimeDataAPI",
+    "/API/ReportingAPI",
+    "/API/UserHubAPI",
+    "/API/DataExtractionAPI",
+    "/API/MediaPlaybackAPI",
+    "/API/DigitalEngagementAPI",
+    "/API/BusinessDataAPI",
+    "/API/WFMAPI",
+    "/API/RecordingAPI",
+    "/API/InteractionAnalyticsAPI",
+    "/API/PrivacyAPI",
+    "/API/DataPolicyAPI"
+  ],
+  "base_url": "https://developer.niceincontact.com",
+  "expected": {
+    "operation_count": 600,
+    "source_document_count": 40
+  },
+  "source_documents": [
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-addressbook-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-agentmessage-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-agents-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-commitments-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-contacts-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-general-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-groups-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-lists-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-routingattributes-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-scriptschedules-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-skills-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-stationprofiles-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-stations-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-unavailablecodes-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/Admin/admin-workflowdata-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/agentphone-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/chatrequests-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/emails-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/personalcon-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/phonecalls-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/scheduledcallbacks-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/sessions-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/supervisor-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/voicemails-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/agent/workitems-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/authentication-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/AuthenticationAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/businessdata-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/BusinessDataAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/cxone-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/UserHubAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/dataextraction-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/DataExtractionAPI"
+    },
+    {
+      "api_host": "Digital",
+      "path": "/content/apis/digital-api-docs",
+      "path_prefix": "/dfo/3.0",
+      "source_page": "/API/DigitalEngagementAPI"
+    },
+    {
+      "api_host": "GlobalAuth",
+      "path": "/content/apis/global-authentication-api",
+      "path_prefix": "",
+      "source_page": "/API/AuthenticationAPI"
+    },
+    {
+      "api_host": "InteractionAnalytics",
+      "path": "/content/apis/interactionanalytics-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/InteractionAnalyticsAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/mediaplayback-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/MediaPlaybackAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/patron-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/PatronAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/policy-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/DataPolicyAPI"
+    },
+    {
+      "api_host": "Privacy",
+      "path": "/content/apis/privacy-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/PrivacyAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/realtimedata-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/RealTimeDataAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/recording-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/RecordingAPI"
+    },
+    {
+      "api_host": "ACD",
+      "path": "/content/apis/reporting-api-docs",
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "source_page": "/API/ReportingAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "path": "/content/apis/wfm-api-docs",
+      "path_prefix": "",
+      "source_page": "/API/WFMAPI"
+    }
+  ],
+  "sources": [
+    {
+      "api_host": "ACD",
+      "operation_count": 17,
+      "path": "/content/apis/Admin/admin-addressbook-api-docs",
+      "path_count": 13,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "ec410b4875f578a4e684c085f11ae313bd336bd971b09041d1d0a4f280b81b05",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 5,
+      "path": "/content/apis/Admin/admin-agentmessage-api-docs",
+      "path_count": 2,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "96ba509c38608877365ab535a0fb7200e48de27062b886a888d57d8114bdf0d1",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 53,
+      "path": "/content/apis/Admin/admin-agents-api-docs",
+      "path_count": 36,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "e1d8fdd5040bdd5fe9a27748da8cbd0b2a6c512afafe0649f89afd7e829592c4",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 5,
+      "path": "/content/apis/Admin/admin-commitments-api-docs",
+      "path_count": 4,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "9ca3ec4b4eb4c3cce56476a3b3013d4b22ec42a43ad8422388e5a47172a45949",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 16,
+      "path": "/content/apis/Admin/admin-contacts-api-docs",
+      "path_count": 16,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "8c8dfdbd8d5b940c748860db51f3d77017b4b324d86327ce8fae9aceef54768a",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 70,
+      "path": "/content/apis/Admin/admin-general-api-docs",
+      "path_count": 46,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "a87a972d146717e29fb7b0eb4dc3e74a274fb669693cbdc23967bfe0a5938491",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 7,
+      "path": "/content/apis/Admin/admin-groups-api-docs",
+      "path_count": 3,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "155b3f76b2548cf80066796c8c6a81d60782dc899ed2fe7d39918772afe0c093",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 25,
+      "path": "/content/apis/Admin/admin-lists-api-docs",
+      "path_count": 16,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "d1b25a14b1f0722b8e94fcf96f2fc2f1486ad261f77717e98cece5babfb7cb9b",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 7,
+      "path": "/content/apis/Admin/admin-routingattributes-api-docs",
+      "path_count": 5,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "5c8d77e1aa283d98ee753ed3bc9dbf55ff84361992bab1b6f442820ee50ff019",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 5,
+      "path": "/content/apis/Admin/admin-scriptschedules-api-docs",
+      "path_count": 5,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "f892406bafa48798ccccf5f2b00fb85d69694aaeb685df5ba395e7b78473b62c",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 56,
+      "path": "/content/apis/Admin/admin-skills-api-docs",
+      "path_count": 37,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "792ac7bddb62ac781d2624a235630e8b59b2f5e6858599634bd17528c1a8907b",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 6,
+      "path": "/content/apis/Admin/admin-stationprofiles-api-docs",
+      "path_count": 3,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "273f010dc69500c65529669df6709059e28f0edb1151028016b08acf0b1651d6",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 7,
+      "path": "/content/apis/Admin/admin-stations-api-docs",
+      "path_count": 5,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "87f70c186a0c6eb2960e813fe9858aeeab05406cbaade55a379f0e8cbb59bd59",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 9,
+      "path": "/content/apis/Admin/admin-unavailablecodes-api-docs",
+      "path_count": 5,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "a61d93ff56cff2fbff8c8adef928500fdf17c35b45c995261b3be6063b06b1d9",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 8,
+      "path": "/content/apis/Admin/admin-workflowdata-api-docs",
+      "path_count": 6,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "a0112b4b44a2b5e1c65ae82d697ff745c6c5181d28d9df55008ec93e0feba5f7",
+      "source_page": "/API/AdminAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 4,
+      "path": "/content/apis/agent/agentphone-api-docs",
+      "path_count": 4,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "4ed079fe922649b3909524c9b4ae9d7001b1a11620135354db8373ae3f162641",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 10,
+      "path": "/content/apis/agent/chatrequests-api-docs",
+      "path_count": 10,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "e212925e540c723c9c9b56037bd874b73b22149e340f519bbb04e0de12291a08",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 13,
+      "path": "/content/apis/agent/emails-api-docs",
+      "path_count": 13,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "bb5e481667d27b08bda37dc12516a6957d72fbc0eb1c79f1be9b4f25e6ca7577",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 3,
+      "path": "/content/apis/agent/personalcon-api-docs",
+      "path_count": 3,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "55b02c35746d7e3e541904503bf082c5ca48845b4ebfd5711566ba23f8610c3d",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 17,
+      "path": "/content/apis/agent/phonecalls-api-docs",
+      "path_count": 17,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "bd4e5f88d7cd0f63bdd68aefb9012c2b32561d5d8f005951ee8698bcd218a43a",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 3,
+      "path": "/content/apis/agent/scheduledcallbacks-api-docs",
+      "path_count": 3,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "71ce389207ee9cc43c1a1cb74a4a0e37ec06f1c3a5b928feb59910c65081251b",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 17,
+      "path": "/content/apis/agent/sessions-api-docs",
+      "path_count": 17,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "d7e88511e8792fc9f6e0b21a09d27b3328b88c80201274d024b961dd26757171",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 4,
+      "path": "/content/apis/agent/supervisor-api-docs",
+      "path_count": 4,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "75e11d716f09113ee9149befd464005603cccf594e8b47868ad14f093bc0abd2",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 5,
+      "path": "/content/apis/agent/voicemails-api-docs",
+      "path_count": 5,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "cb053556344f20bf9d78d4aef28e94610efb546e7c262b0aa2f86e3fc887a9c5",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 5,
+      "path": "/content/apis/agent/workitems-api-docs",
+      "path_count": 5,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "2b9b31611acc674c2c112d5dc56e8cb5f399e74aa46742e2842d05e2fac3fa6a",
+      "source_page": "/API/AgentAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 2,
+      "path": "/content/apis/authentication-api-docs",
+      "path_count": 2,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "11291720258614214c67d397931dc3faf19165cd19373a005789568c1262a212",
+      "source_page": "/API/AuthenticationAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 2,
+      "path": "/content/apis/businessdata-api-docs",
+      "path_count": 2,
+      "path_prefix": "",
+      "sha256": "cbffda75c289f5867fb73eb379a42dd17d98f4e33ccc47a76047ede704719141",
+      "source_page": "/API/BusinessDataAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 63,
+      "path": "/content/apis/cxone-api-docs",
+      "path_count": 46,
+      "path_prefix": "",
+      "sha256": "4d354e75814e1043d042bfe99453af8e992a1e55ca2dd8826fadb39cf92b3a5a",
+      "source_page": "/API/UserHubAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 3,
+      "path": "/content/apis/dataextraction-api-docs",
+      "path_count": 2,
+      "path_prefix": "",
+      "sha256": "6c6134d1d794de75fec9cb1935d6e788ffb6d9ee70d36106510c76fb78228a76",
+      "source_page": "/API/DataExtractionAPI"
+    },
+    {
+      "api_host": "Digital",
+      "operation_count": 58,
+      "path": "/content/apis/digital-api-docs",
+      "path_count": 48,
+      "path_prefix": "/dfo/3.0",
+      "sha256": "3b629029e4ab11a480c108b5b418a5345aeb5cfcaa00e6e297a9608177b72a12",
+      "source_page": "/API/DigitalEngagementAPI"
+    },
+    {
+      "api_host": "GlobalAuth",
+      "operation_count": 11,
+      "path": "/content/apis/global-authentication-api",
+      "path_count": 8,
+      "path_prefix": "",
+      "sha256": "297f67ee6f67404b249a39f6eadab4a4e54ece5ed7db7fd010d0fac35d729bae",
+      "source_page": "/API/AuthenticationAPI"
+    },
+    {
+      "api_host": "InteractionAnalytics",
+      "operation_count": 2,
+      "path": "/content/apis/interactionanalytics-api-docs",
+      "path_count": 2,
+      "path_prefix": "",
+      "sha256": "5368d206062e22e854dcddbc499ec4c85b8dc442ba69ddbea103b7e82ebfe0ed",
+      "source_page": "/API/InteractionAnalyticsAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 3,
+      "path": "/content/apis/mediaplayback-api-docs",
+      "path_count": 3,
+      "path_prefix": "",
+      "sha256": "6522bfe9f2b26059400bad24c8aa1d0336ae28f6bdf7132a4e8bc7cb17efb8c5",
+      "source_page": "/API/MediaPlaybackAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 12,
+      "path": "/content/apis/patron-api-docs",
+      "path_count": 11,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "f827072ad702a0013a1adfe00fa14fbbc97baf98f941a12bc66044a874b055db",
+      "source_page": "/API/PatronAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 7,
+      "path": "/content/apis/policy-api-docs",
+      "path_count": 7,
+      "path_prefix": "",
+      "sha256": "9a97de6ebe32d94d3db764da9d3439015167821905b76ee43ff9144c3507d664",
+      "source_page": "/API/DataPolicyAPI"
+    },
+    {
+      "api_host": "Privacy",
+      "operation_count": 1,
+      "path": "/content/apis/privacy-api-docs",
+      "path_count": 1,
+      "path_prefix": "",
+      "sha256": "49d0a46b6c4cbd29c4912949238dbdbf99770cb6a2849b4fbb0cabfa62a8e4ec",
+      "source_page": "/API/PrivacyAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 12,
+      "path": "/content/apis/realtimedata-api-docs",
+      "path_count": 11,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "b8376d88756a0b60ae1166360d9871f71586ee02c9fd352560d325d326555038",
+      "source_page": "/API/RealTimeDataAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 9,
+      "path": "/content/apis/recording-api-docs",
+      "path_count": 9,
+      "path_prefix": "",
+      "sha256": "24934f48988facab6ba89ab2951d831f876a44214c677417ab18e452cd25acd1",
+      "source_page": "/API/RecordingAPI"
+    },
+    {
+      "api_host": "ACD",
+      "operation_count": 35,
+      "path": "/content/apis/reporting-api-docs",
+      "path_count": 35,
+      "path_prefix": "/inContactAPI/services/v34.0",
+      "sha256": "1a2fcebe5c3c51bee783687c3d83ea776511884bca902a935b64cc4142b04637",
+      "source_page": "/API/ReportingAPI"
+    },
+    {
+      "api_host": "UserHub",
+      "operation_count": 3,
+      "path": "/content/apis/wfm-api-docs",
+      "path_count": 3,
+      "path_prefix": "",
+      "sha256": "e9cdf78c25353e1204bf133e69b4793b36f7340d8315c8d6421151b211d0ba1d",
+      "source_page": "/API/WFMAPI"
+    }
+  ]
+}
