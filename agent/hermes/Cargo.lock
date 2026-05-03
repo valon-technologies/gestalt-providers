@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "gestalt-agent-hermes"
-version = "0.0.1-alpha.6"
+version = "0.0.1-alpha.7"
 dependencies = [
  "agent-client-protocol",
  "agent-client-protocol-tokio",
@@ -529,7 +529,7 @@ dependencies = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1-alpha.1"
-source = "git+https://github.com/valon-technologies/gestalt.git?rev=c36528e84137b3bc164fb691401c62a869ed1052#c36528e84137b3bc164fb691401c62a869ed1052"
+source = "git+https://github.com/valon-technologies/gestalt.git?rev=93f295e17232ea7c855c68f334c492151d5682b3#93f295e17232ea7c855c68f334c492151d5682b3"
 dependencies = [
  "hyper-util",
  "libc",
