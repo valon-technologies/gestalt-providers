@@ -1,0 +1,2708 @@
+schema: gestaltd-provider-index
+schemaVersion: 1
+packages:
+  github.com/valon-technologies/gestalt-providers/agent/claude:
+    displayName: "Claude Agent SDK"
+    description: "Agent provider that runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools."
+    versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/agent/codex:
+    displayName: "Codex MCP Agent"
+    description: "Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/agent/cursor:
+    displayName: "Cursor Agent SDK"
+    description: "Agent provider that runs the Cursor Agent SDK with Gestalt MCP catalog tools exposed through a per-turn MCP server."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/cursor/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "linux/amd64"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/cursor/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "linux/amd64"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/agent/simple:
+    displayName: "Simple Agent"
+    description: "Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs."
+    versions:
+      "0.0.1-alpha.33":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.33/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.32":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.32/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.31":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.31/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.29":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.29/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.28":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.28/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.27":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.27/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.26":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.26/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.25":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.25/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.24":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.24/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.23":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.23/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.22":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.22/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.21":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.21/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.20":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.20/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.19":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.19/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.18":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.18/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.17":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.17/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/auth/oidc:
+    displayName: "OIDC"
+    description: "Authenticate users with an OpenID Connect provider."
+    versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/auth/oidc/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "authentication"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/auth/oidc/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "authentication"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/auth/oidc/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "auth"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/authorization/indexeddb:
+    displayName: "IndexedDB Authorization"
+    description: "Authorization provider backed by the host IndexedDB service."
+    versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "authorization"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "authorization"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "authorization"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/cache/valkey:
+    displayName: "Valkey"
+    description: "Valkey-backed cache provider."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/cache/valkey/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "cache"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/external_credentials/default:
+    displayName: "Default External Credentials"
+    description: "External credentials provider backed by the host IndexedDB service."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "external_credentials"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb:
+    displayName: "DynamoDB"
+    description: "Amazon DynamoDB datastore provider."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/dynamodb/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/indexeddb/mongodb:
+    displayName: "MongoDB"
+    description: "MongoDB datastore provider."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/mongodb/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb:
+    displayName: "RelationalDB"
+    description: "IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server."
+    versions:
+      "0.0.1-alpha.21":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.21/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.20":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.20/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.19":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.19/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.18":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.18/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.17":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.17/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.16":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.16/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.14":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.14/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/plugins/asana:
+    displayName: "Asana"
+    description: "Manage tasks, projects, and workspaces."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/asana/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/ashby:
+    displayName: "Ashby"
+    description: "Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/ashby/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/ashby/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/bigquery:
+    displayName: "BigQuery"
+    description: "Google BigQuery data warehouse"
+    versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/plugins/carta:
+    displayName: "Carta"
+    description: "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/carta/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/clickhouse:
+    displayName: "ClickHouse"
+    description: "Query and manage analytical databases."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/clickhouse/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/confluence:
+    displayName: "Confluence Cloud"
+    description: "Atlassian Confluence Cloud pages, spaces, and content search."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/confluence/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/datadog:
+    displayName: "Datadog"
+    description: "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, and Synthetics."
+    versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/datadog/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/datadog/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/datadog/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/dbt_cloud:
+    displayName: "dbt Cloud"
+    description: "Manage accounts, projects, jobs, and runs."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/dbt_cloud/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/extend:
+    displayName: "Extend"
+    description: "Document processing and extraction with Extend."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/extend/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/figma:
+    displayName: "Figma"
+    description: "Access files, components, comments, and team projects."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/figma/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/github:
+    displayName: "GitHub"
+    description: "Repository, issue, pull request, workflow, and code search operations."
+    versions:
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.14":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.14/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/gitlab:
+    displayName: "GitLab"
+    description: "Repository, issue, merge request, and pipeline operations."
+    versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gitlab/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gitlab/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gitlab/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/gmail:
+    displayName: "Gmail"
+    description: "Read, send, and manage Gmail messages, threads, drafts, and labels."
+    versions:
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/arm64"
+          - "generic"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/plugins/gong:
+    displayName: "Gong"
+    description: "Access the Gong public API v2 for calls, users, stats, settings, CRM, library, coaching, and data privacy workflows."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gong/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_calendar:
+    displayName: "Google Calendar"
+    description: "Read and manage Google calendars and events."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_calendar/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_docs:
+    displayName: "Google Docs"
+    description: "Read, create, and edit Google Docs documents."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_docs/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_drive:
+    displayName: "Google Drive"
+    description: "Read, create, update, and share files in Google Drive."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_drive/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_forms:
+    displayName: "Google Forms"
+    description: "Read and manage Google Forms and responses."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_forms/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_sheets:
+    displayName: "Google Sheets"
+    description: "Read and update Google Sheets spreadsheets and values."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_sheets/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_slides:
+    displayName: "Google Slides"
+    description: "Create and update Google Slides presentations."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_slides/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/granola:
+    displayName: "Granola"
+    description: "Read Granola meeting notes over REST and use the official Granola MCP server."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/granola/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/granola/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/hex:
+    displayName: "Hex"
+    description: "Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations."
+    versions:
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/httpbin:
+    displayName: "HTTPBin"
+    description: "Development/testing-only HTTP request and response service. Do not use with production or sensitive data."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/httpbin/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/httpbin/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/incident_io:
+    displayName: "incident.io"
+    description: "Manage incidents, schedules, users, severities, statuses, and incident.io MCP tools."
+    versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/incident_io/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/incident_io/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/incident_io/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/intercom:
+    displayName: "Intercom"
+    description: "Read and update contacts, companies, conversations, and notes."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/jira:
+    displayName: "Jira Cloud"
+    description: "Atlassian Jira Cloud project and issue management"
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/jira/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/launchdarkly:
+    displayName: "LaunchDarkly"
+    description: "Manage feature flags and targeting rules."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/launchdarkly/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/launchdarkly/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/linear:
+    displayName: "Linear"
+    description: "Manage issues, projects, and teams."
+    versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/linear/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/linear/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/linear/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/modern_treasury:
+    displayName: "Modern Treasury"
+    description: "Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/modern_treasury/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/modern_treasury/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/notion:
+    displayName: "Notion"
+    description: "Current Notion REST operations plus the official Notion MCP tool surface."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/notion/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/notion/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/pagerduty:
+    displayName: "PagerDuty"
+    description: "Manage incidents, services, and on-call schedules."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/pagerduty/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/quickbooks:
+    displayName: "QuickBooks Online"
+    description: "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/quickbooks/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/ramp:
+    displayName: "Ramp"
+    description: "Manage corporate cards, transactions, and reimbursements."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/ramp/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/rippling:
+    displayName: "Rippling"
+    description: "Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/rippling/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/rippling/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/sharepoint:
+    displayName: "Microsoft SharePoint"
+    description: "Browse SharePoint sites, document libraries, lists, pages, and file content through Microsoft Graph."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/sharepoint/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/sharepoint/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/slack:
+    displayName: "Slack"
+    description: "Read public and private conversations, DMs, and group DMs; send messages; and manage channels."
+    versions:
+      "0.0.1-alpha.35":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.35/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.33":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.33/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.32":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.32/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.31":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.31/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.30":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.30/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.29":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.29/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.28":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.28/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.27":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.27/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.26":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.26/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.25":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.25/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.24":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.24/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.23":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.23/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.22":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.22/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.21":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.21/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.20":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.20/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.19":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.19/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.18":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.18/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.17":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.17/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.16":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.16/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.14":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.14/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/plugins/teams:
+    displayName: "Microsoft Teams"
+    description: "Browse Microsoft Teams teams, channels, chats, members, and messages through Microsoft Graph."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/teams/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/trunk:
+    displayName: "Trunk"
+    description: "Manage Trunk Merge Queue and Flaky Tests APIs with an API token."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/trunk/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/trunk/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/twilio:
+    displayName: "Twilio"
+    description: "Send and receive SMS, voice calls, and messaging operations."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/twilio/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/vercel:
+    displayName: "Vercel"
+    description: "Manage Vercel projects and deployments, and read or write Vercel Blob storage."
+    versions:
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/runtime/gkeagentsandbox:
+    displayName: "GKE Agent Sandbox Runtime"
+    description: "Hosted executable-plugin runtime backed by GKE Agent Sandbox."
+    versions:
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/runtime/modal:
+    displayName: "Modal Runtime"
+    description: "Hosted executable-plugin runtime backed by Modal Sandboxes."
+    versions:
+      "0.0.1-alpha.14":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.14/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/runtime/nebius:
+    displayName: "Nebius Runtime"
+    description: "Hosted executable-plugin runtime backed by Nebius Compute VMs."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/nebius/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/nebius/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/s3/s3:
+    displayName: "S3"
+    description: "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/s3/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "s3"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/s3/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "s3"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/secrets/aws:
+    displayName: "AWS Secrets Manager"
+    description: "Resolves secrets from AWS Secrets Manager."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/aws/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/azure:
+    displayName: "Azure Key Vault"
+    description: "Resolves secrets from Azure Key Vault."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/azure/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/google:
+    displayName: "Google Secret Manager"
+    description: "Resolves secrets from Google Cloud Secret Manager."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/google/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/google/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/secrets/keeper:
+    displayName: "Keeper Secrets Manager"
+    description: "Resolves secrets from Keeper Secrets Manager."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/keeper/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/onepassword:
+    displayName: "1Password"
+    description: "Resolves secrets from 1Password Connect."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/onepassword/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/vault:
+    displayName: "HashiCorp Vault"
+    description: "Resolves secrets from HashiCorp Vault KV v2."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/vault/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/ui/default:
+    displayName: "Default UI"
+    description: "Default Gestalt UI bundle served at /."
+    versions:
+      "0.0.1-alpha.25":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.25/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.24":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.24/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.23":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.23/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.22":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.22/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.21":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.21/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.19":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.19/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.18":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.18/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.17":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.17/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.16":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.16/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.14":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.14/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/workflow/indexeddb:
+    displayName: "IndexedDB Workflow"
+    description: "IndexedDB-backed workflow provider with durable keyed signal dispatch."
+    versions:
+      "0.0.1-alpha.40":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.40/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.39":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.39/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.38":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.38/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.37":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.37/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.36":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.36/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.35":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.35/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.34":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.34/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.33":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.33/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.32":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.32/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.31":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.31/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.30":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.30/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.29":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.29/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.28":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.28/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.27":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.27/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.26":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.26/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.25":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.25/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.24":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.24/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.23":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.23/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.22":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.22/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.21":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.21/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.20":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.20/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.19":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.19/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.18":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.18/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.17":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.17/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.16":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.16/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.14":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.14/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.6":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.6/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"

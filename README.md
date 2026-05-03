@@ -25,6 +25,13 @@ Reference providers in your Gestalt configuration by source and version. See the
 [Getting Started](https://gestaltd.ai/getting-started) guide and
 [Configuration](https://gestaltd.ai/configuration) docs for examples.
 
+The repository publishes a generated provider index at `provider-index.yaml`.
+Refresh it after manifest changes with:
+
+```sh
+python3 .github/scripts/generate_provider_index.py
+```
+
 ## Developing Providers
 
 ### Repository Layout
