@@ -1,0 +1,268 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/google_admin
+version: 0.0.1-alpha.1
+displayName: Google Admin
+description: Manage Google Workspace users, groups, organizational units, devices, roles, resources, and data transfers.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: openapi.json
+  allowedOperations:
+    # Data Transfer
+    datatransfer.applications.list:
+      alias: applications.list
+    datatransfer.applications.get:
+      alias: applications.get
+    datatransfer.transfers.list:
+      alias: transfers.list
+    datatransfer.transfers.get:
+      alias: transfers.get
+    datatransfer.transfers.insert:
+      alias: transfers.insert
+    # Users
+    directory.users.list:
+      alias: users.list
+    directory.users.get:
+      alias: users.get
+    directory.users.insert:
+      alias: users.insert
+    directory.users.update:
+      alias: users.update
+    directory.users.patch:
+      alias: users.patch
+    directory.users.delete:
+      alias: users.delete
+    directory.users.undelete:
+      alias: users.undelete
+    directory.users.makeAdmin:
+      alias: users.makeAdmin
+    directory.users.signOut:
+      alias: users.signOut
+    directory.users.aliases.list:
+      alias: users.aliases.list
+    directory.users.aliases.insert:
+      alias: users.aliases.insert
+    directory.users.aliases.delete:
+      alias: users.aliases.delete
+    directory.asps.list:
+      alias: users.asps.list
+    directory.asps.get:
+      alias: users.asps.get
+    directory.asps.delete:
+      alias: users.asps.delete
+    directory.tokens.list:
+      alias: users.tokens.list
+    directory.tokens.get:
+      alias: users.tokens.get
+    directory.tokens.delete:
+      alias: users.tokens.delete
+    directory.verificationCodes.list:
+      alias: users.verificationCodes.list
+    directory.verificationCodes.generate:
+      alias: users.verificationCodes.generate
+    directory.verificationCodes.invalidate:
+      alias: users.verificationCodes.invalidate
+    directory.twoStepVerification.turnOff:
+      alias: users.twoStepVerification.turnOff
+    directory.users.photos.get:
+      alias: users.photos.get
+    directory.users.photos.patch:
+      alias: users.photos.patch
+    directory.users.photos.update:
+      alias: users.photos.update
+    directory.users.photos.delete:
+      alias: users.photos.delete
+    # Groups
+    directory.groups.list:
+      alias: groups.list
+    directory.groups.get:
+      alias: groups.get
+    directory.groups.insert:
+      alias: groups.insert
+    directory.groups.update:
+      alias: groups.update
+    directory.groups.patch:
+      alias: groups.patch
+    directory.groups.delete:
+      alias: groups.delete
+    directory.groups.aliases.list:
+      alias: groups.aliases.list
+    directory.groups.aliases.insert:
+      alias: groups.aliases.insert
+    directory.groups.aliases.delete:
+      alias: groups.aliases.delete
+    directory.members.list:
+      alias: groups.members.list
+    directory.members.get:
+      alias: groups.members.get
+    directory.members.insert:
+      alias: groups.members.insert
+    directory.members.patch:
+      alias: groups.members.patch
+    directory.members.update:
+      alias: groups.members.update
+    directory.members.delete:
+      alias: groups.members.delete
+    directory.members.hasMember:
+      alias: groups.members.hasMember
+    # Organizational Units
+    directory.orgunits.list:
+      alias: orgunits.list
+    directory.orgunits.get:
+      alias: orgunits.get
+    directory.orgunits.insert:
+      alias: orgunits.insert
+    directory.orgunits.update:
+      alias: orgunits.update
+    directory.orgunits.patch:
+      alias: orgunits.patch
+    directory.orgunits.delete:
+      alias: orgunits.delete
+    # Chrome OS Devices
+    directory.chromeosdevices.list:
+      alias: chromeosdevices.list
+    directory.chromeosdevices.get:
+      alias: chromeosdevices.get
+    directory.chromeosdevices.action:
+      alias: chromeosdevices.action
+    directory.chromeosdevices.update:
+      alias: chromeosdevices.update
+    directory.chromeosdevices.patch:
+      alias: chromeosdevices.patch
+    # Mobile Devices
+    directory.mobiledevices.list:
+      alias: mobiledevices.list
+    directory.mobiledevices.get:
+      alias: mobiledevices.get
+    directory.mobiledevices.action:
+      alias: mobiledevices.action
+    directory.mobiledevices.delete:
+      alias: mobiledevices.delete
+    # Domains
+    directory.domains.list:
+      alias: domains.list
+    directory.domains.get:
+      alias: domains.get
+    directory.domains.insert:
+      alias: domains.insert
+    directory.domains.delete:
+      alias: domains.delete
+    directory.domainAliases.list:
+      alias: domainAliases.list
+    directory.domainAliases.get:
+      alias: domainAliases.get
+    directory.domainAliases.insert:
+      alias: domainAliases.insert
+    directory.domainAliases.delete:
+      alias: domainAliases.delete
+    # Roles & Role Assignments
+    directory.roles.list:
+      alias: roles.list
+    directory.roles.get:
+      alias: roles.get
+    directory.roles.insert:
+      alias: roles.insert
+    directory.roles.update:
+      alias: roles.update
+    directory.roles.patch:
+      alias: roles.patch
+    directory.roles.delete:
+      alias: roles.delete
+    directory.roleAssignments.list:
+      alias: roleAssignments.list
+    directory.roleAssignments.get:
+      alias: roleAssignments.get
+    directory.roleAssignments.insert:
+      alias: roleAssignments.insert
+    directory.roleAssignments.delete:
+      alias: roleAssignments.delete
+    # Privileges
+    directory.privileges.list:
+      alias: privileges.list
+    # Schemas
+    directory.schemas.list:
+      alias: schemas.list
+    directory.schemas.get:
+      alias: schemas.get
+    directory.schemas.insert:
+      alias: schemas.insert
+    directory.schemas.update:
+      alias: schemas.update
+    directory.schemas.patch:
+      alias: schemas.patch
+    directory.schemas.delete:
+      alias: schemas.delete
+    # Resources (Buildings, Calendars, Features)
+    directory.resources.buildings.list:
+      alias: resources.buildings.list
+    directory.resources.buildings.get:
+      alias: resources.buildings.get
+    directory.resources.buildings.insert:
+      alias: resources.buildings.insert
+    directory.resources.buildings.update:
+      alias: resources.buildings.update
+    directory.resources.buildings.patch:
+      alias: resources.buildings.patch
+    directory.resources.buildings.delete:
+      alias: resources.buildings.delete
+    directory.resources.calendars.list:
+      alias: resources.calendars.list
+    directory.resources.calendars.get:
+      alias: resources.calendars.get
+    directory.resources.calendars.insert:
+      alias: resources.calendars.insert
+    directory.resources.calendars.update:
+      alias: resources.calendars.update
+    directory.resources.calendars.patch:
+      alias: resources.calendars.patch
+    directory.resources.calendars.delete:
+      alias: resources.calendars.delete
+    directory.resources.features.list:
+      alias: resources.features.list
+    directory.resources.features.get:
+      alias: resources.features.get
+    directory.resources.features.insert:
+      alias: resources.features.insert
+    directory.resources.features.update:
+      alias: resources.features.update
+    directory.resources.features.patch:
+      alias: resources.features.patch
+    directory.resources.features.rename:
+      alias: resources.features.rename
+    directory.resources.features.delete:
+      alias: resources.features.delete
+    # Customers
+    directory.customers.get:
+      alias: customers.get
+    directory.customers.update:
+      alias: customers.update
+    directory.customers.patch:
+      alias: customers.patch
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+          - https://www.googleapis.com/auth/admin.datatransfer
+          - https://www.googleapis.com/auth/admin.directory.customer
+          - https://www.googleapis.com/auth/admin.directory.device.chromeos
+          - https://www.googleapis.com/auth/admin.directory.device.mobile
+          - https://www.googleapis.com/auth/admin.directory.device.mobile.action
+          - https://www.googleapis.com/auth/admin.directory.domain
+          - https://www.googleapis.com/auth/admin.directory.group
+          - https://www.googleapis.com/auth/admin.directory.group.member
+          - https://www.googleapis.com/auth/admin.directory.orgunit
+          - https://www.googleapis.com/auth/admin.directory.resource.calendar
+          - https://www.googleapis.com/auth/admin.directory.rolemanagement
+          - https://www.googleapis.com/auth/admin.directory.user
+          - https://www.googleapis.com/auth/admin.directory.user.alias
+          - https://www.googleapis.com/auth/admin.directory.user.security
+          - https://www.googleapis.com/auth/admin.directory.userschema
+          - https://www.googleapis.com/auth/admin.chrome.printers
+        authorizationParams:
+          access_type: offline
+          prompt: consent
