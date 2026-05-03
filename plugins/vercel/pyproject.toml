@@ -15,7 +15,7 @@ dev = [
 package = false
 
 [tool.gestalt]
-plugin = "provider"
+provider = "provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
