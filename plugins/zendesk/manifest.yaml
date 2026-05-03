@@ -1,0 +1,323 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/zendesk
+version: 0.0.1-alpha.1
+displayName: Zendesk
+description: Support tickets, users, organizations, macros, automations, triggers, and SLA policies.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  defaultConnection: default
+  surfaces:
+    openapi:
+      connection: default
+      document: https://developer.zendesk.com/zendesk/oas.yaml
+  allowedOperations:
+    # Tickets
+    ListTickets:
+      alias: listTickets
+      paginate: true
+    ShowTicket:
+      alias: getTicket
+    CreateTicket:
+      alias: createTicket
+    UpdateTicket:
+      alias: updateTicket
+    DeleteTicket:
+      alias: deleteTicket
+    TicketsShowMany:
+      alias: getManyTickets
+    TicketsCreateMany:
+      alias: createManyTickets
+    TicketsUpdateMany:
+      alias: updateManyTickets
+    CountTickets: {}
+    ListRecentTickets: {}
+    ListDeletedTickets:
+      alias: listDeletedTickets
+      paginate: true
+    # Ticket comments
+    ListTicketComments:
+      alias: listTicketComments
+      paginate: true
+    ShowComment:
+      alias: getTicketComment
+    # Ticket audits
+    ListAuditsForTicket:
+      alias: listTicketAudits
+      paginate: true
+    ShowTicketAudit:
+      alias: getTicketAudit
+    # Ticket metrics
+    ListTicketMetrics:
+      alias: listTicketMetrics
+      paginate: true
+    ShowTicketMetrics:
+      alias: getTicketMetrics
+    ShowTicketMetricsByTicket:
+      alias: getTicketMetricsByTicket
+    # Ticket skips
+    ListTicketSkips:
+      alias: listTicketSkips
+      paginate: true
+    # Ticket fields / forms
+    ListTicketFields:
+      alias: listTicketFields
+      paginate: true
+    ShowTicketfield:
+      alias: getTicketField
+    ListTicketForms:
+      alias: listTicketForms
+      paginate: true
+    ShowTicketForm:
+      alias: getTicketForm
+    # Requests
+    ListRequests:
+      alias: listRequests
+      paginate: true
+    ShowRequest:
+      alias: getRequest
+    CreateRequest:
+      alias: createRequest
+    UpdateRequest:
+      alias: updateRequest
+    # Users
+    ListUsers:
+      alias: listUsers
+      paginate: true
+    ShowUser:
+      alias: getUser
+    CreateUser:
+      alias: createUser
+    UpdateUser:
+      alias: updateUser
+    DeleteUser:
+      alias: deleteUser
+    ShowManyUsers:
+      alias: getManyUsers
+    CreateManyUsers:
+      alias: createManyUsers
+    UpdateManyUsers:
+      alias: updateManyUsers
+    DestroyManyUsers:
+      alias: deleteManyUsers
+    CountUsers: {}
+    SearchUsers:
+      alias: searchUsers
+      paginate: true
+    # User identities
+    ListUserIdentities:
+      alias: listUserIdentities
+      paginate: true
+    CreateUserIdentity:
+      alias: createUserIdentity
+    UpdateUserIdentity:
+      alias: updateUserIdentity
+    DeleteUserIdentity:
+      alias: deleteUserIdentity
+    MakeUserIdentityPrimary:
+      alias: makeUserIdentityPrimary
+    VerifyUserIdentity:
+      alias: verifyUserIdentity
+    # User fields
+    ListUserFields:
+      alias: listUserFields
+      paginate: true
+    ShowUserField:
+      alias: getUserField
+    # Organizations
+    ListOrganizations:
+      alias: listOrganizations
+      paginate: true
+    ShowOrganization:
+      alias: getOrganization
+    CreateOrganization:
+      alias: createOrganization
+    UpdateOrganization:
+      alias: updateOrganization
+    DeleteOrganization:
+      alias: deleteOrganization
+    ShowManyOrganizations:
+      alias: getManyOrganizations
+    CreateManyOrganizations:
+      alias: createManyOrganizations
+    UpdateManyOrganizations:
+      alias: updateManyOrganizations
+    CountOrganizations: {}
+    SearchOrganizations:
+      alias: searchOrganizations
+      paginate: true
+    # Organization memberships
+    ListOrganizationMemberships:
+      alias: listOrganizationMemberships
+      paginate: true
+    CreateOrganizationMembership:
+      alias: createOrganizationMembership
+    DeleteOrganizationMembership:
+      alias: deleteOrganizationMembership
+    # Organization fields
+    ListOrganizationFields:
+      alias: listOrganizationFields
+      paginate: true
+    ShowOrganizationField:
+      alias: getOrganizationField
+    # Groups
+    ListGroups:
+      alias: listGroups
+      paginate: true
+    ShowGroupById:
+      alias: getGroup
+    CreateGroup:
+      alias: createGroup
+    UpdateGroup:
+      alias: updateGroup
+    DeleteGroup:
+      alias: deleteGroup
+    # Group memberships
+    ListGroupMemberships:
+      alias: listGroupMemberships
+      paginate: true
+    CreateGroupMembership:
+      alias: createGroupMembership
+    DeleteGroupMembership:
+      alias: deleteGroupMembership
+    # Views
+    ListViews:
+      alias: listViews
+      paginate: true
+    ShowView:
+      alias: getView
+    ExecuteView:
+      alias: executeView
+      paginate: true
+    ListTicketsFromView:
+      alias: listTicketsFromView
+      paginate: true
+    # Macros
+    ListMacros:
+      alias: listMacros
+      paginate: true
+    ShowMacro:
+      alias: getMacro
+    CreateMacro:
+      alias: createMacro
+    UpdateMacro:
+      alias: updateMacro
+    DeleteMacro:
+      alias: deleteMacro
+    ListActiveMacros:
+      alias: listActiveMacros
+      paginate: true
+    # Automations
+    ListAutomations:
+      alias: listAutomations
+      paginate: true
+    ShowAutomation:
+      alias: getAutomation
+    CreateAutomation:
+      alias: createAutomation
+    UpdateAutomation:
+      alias: updateAutomation
+    DeleteAutomation:
+      alias: deleteAutomation
+    ListActiveAutomations:
+      alias: listActiveAutomations
+      paginate: true
+    # Triggers
+    ListTriggers:
+      alias: listTriggers
+      paginate: true
+    GetTrigger:
+      alias: getTrigger
+    CreateTrigger:
+      alias: createTrigger
+    UpdateTrigger:
+      alias: updateTrigger
+    DeleteTrigger:
+      alias: deleteTrigger
+    ListActiveTriggers:
+      alias: listActiveTriggers
+      paginate: true
+    # SLA policies
+    ListSLAPolicies:
+      alias: listSLAPolicies
+      paginate: true
+    ShowSLAPolicy:
+      alias: getSLAPolicy
+    CreateSLAPolicy:
+      alias: createSLAPolicy
+    UpdateSLAPolicy:
+      alias: updateSLAPolicy
+    DeleteSLAPolicy:
+      alias: deleteSLAPolicy
+    # Search
+    ListSearchResults:
+      alias: search
+      paginate: true
+    CountSearchResults:
+      alias: countSearchResults
+    # Satisfaction ratings
+    ListSatisfactionRatings:
+      alias: listSatisfactionRatings
+      paginate: true
+    ShowSatisfactionRatings:
+      alias: getSatisfactionRating
+    CreateTicketSatisfactionRating:
+      alias: createSatisfactionRating
+    # Attachments
+    ShowAttachment:
+      alias: getAttachment
+    DeleteAttachment:
+      alias: deleteAttachment
+    # Brands
+    ListBrands:
+      alias: listBrands
+      paginate: true
+    ShowBrand:
+      alias: getBrand
+    # Suspended tickets
+    ListSuspendedTickets:
+      alias: listSuspendedTickets
+      paginate: true
+    RecoverSuspendedTicket:
+      alias: recoverSuspendedTicket
+    DeleteSuspendedTicket:
+      alias: deleteSuspendedTicket
+    # Audit logs
+    ListAuditLogs:
+      alias: listAuditLogs
+      paginate: true
+    ShowAuditLog:
+      alias: getAuditLog
+    # Account
+    ShowAccountSettings:
+      alias: getAccountSettings
+    UpdateAccountSettings:
+      alias: updateAccountSettings
+    # Redactions
+    RedactTicketCommentInAgentWorkspace:
+      alias: redactTicketComment
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+          - name: email
+            label: Email address
+            description: The email address of a Zendesk agent or admin account.
+          - name: api_token
+            label: API Token
+            description: Zendesk API token with read and write access. Create one in Admin Center > Apps and integrations > APIs > Zendesk API.
+        authMapping:
+          basic:
+            username:
+              valueFrom:
+                credentialFieldRef:
+                  name: email
+            password:
+              valueFrom:
+                credentialFieldRef:
+                  name: api_token
+      params:
+        subdomain:
+          required: true
+          description: Your Zendesk subdomain (e.g. mycompany in https://mycompany.zendesk.com).
