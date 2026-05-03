@@ -65,7 +65,10 @@ def workflow_agent_target(
     )
     agent.metadata.CopyFrom(agent_session_metadata(summary, policy))
     if model_options:
-        agent.model_options.CopyFrom(dict_to_struct(model_options))
+        target_options = getattr(agent, "model_options", None)
+        if target_options is None:
+            target_options = agent.provider_options
+        target_options.CopyFrom(dict_to_struct(model_options))
     return gestalt.BoundWorkflowTarget(agent=agent)
 
 
