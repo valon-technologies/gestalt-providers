@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-label="Looker">
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="54">
+    <path d="m285 178 104-104"/>
+    <path d="m287 248 56 139"/>
+  </g>
+  <g fill="currentColor" fill-rule="evenodd" clip-rule="evenodd">
+    <path d="M400 304a248 248 0 1 1 0 496 248 248 0 0 1 0-496Zm0 82a166 166 0 1 0 0 332 166 166 0 0 0 0-332Z"/>
+    <path d="M262 94a109 109 0 1 1 0 218 109 109 0 0 1 0-218Zm0 55a54 54 0 1 0 0 108 54 54 0 0 0 0-108Z"/>
+    <path d="M399 0a70 70 0 1 1 0 140A70 70 0 0 1 399 0Zm0 42a28 28 0 1 0 0 56 28 28 0 0 0 0-56Z"/>
+  </g>
+</svg>
