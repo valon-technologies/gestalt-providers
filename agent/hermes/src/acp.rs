@@ -24,9 +24,7 @@ pub struct AcpProcess {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct AcpInitializeResult {
-    pub mcp_http_supported: bool,
-}
+pub struct AcpInitializeResult;
 
 struct AcpProcessInner {
     writer: Arc<Mutex<ChildStdin>>,
@@ -131,19 +129,8 @@ impl AcpProcess {
                 timeout,
             )
             .await?;
-        Ok(AcpInitializeResult {
-            mcp_http_supported: result
-                .get("agentCapabilities")
-                .or_else(|| result.get("agent_capabilities"))
-                .and_then(|capabilities| {
-                    capabilities
-                        .get("mcpCapabilities")
-                        .or_else(|| capabilities.get("mcp_capabilities"))
-                })
-                .and_then(|mcp| mcp.get("http"))
-                .and_then(JsonValue::as_bool)
-                .unwrap_or(false),
-        })
+        let _ = result;
+        Ok(AcpInitializeResult)
     }
 
     pub async fn new_session(

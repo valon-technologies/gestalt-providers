@@ -228,37 +228,30 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_requires_acp_http_mcp_support() {
-    let fixture = Fixture::new("mcp-no-http");
+async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
+    let _env_lock = ENV_LOCK.lock().await;
+    let fixture = Fixture::new("mcp-call-no-cap");
+    let host = TestAgentHostService::default();
+    let socket_path = fixture.tmp.path().join("agent-host-no-cap.sock");
+    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
+    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_session(&provider).await;
-    create_mcp_turn(&provider, "turn-no-http").await;
+    create_mcp_turn(&provider, "turn-no-cap").await;
     let turn = wait_for_turn(
         &provider,
-        "turn-no-http",
-        proto::AgentExecutionStatus::Failed,
+        "turn-no-cap",
+        proto::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert!(
-        turn.status_message
-            .contains("does not advertise HTTP MCP server support"),
-        "{}",
-        turn.status_message
-    );
+    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
     let log = fixture.log_events();
-    assert_eq!(
-        log.iter()
-            .filter(|event| event["event"] == "prompt")
-            .count(),
-        0,
-        "{log:?}"
-    );
-    assert_eq!(
-        log.iter().filter(|event| event["event"] == "load").count(),
-        0,
-        "{log:?}"
-    );
+    assert!(log.iter().any(|event| event["event"] == "mcp_result"));
+
+    host_task.abort();
+    let _ = host_task.await;
 }
 
 #[tokio::test]
