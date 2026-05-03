@@ -223,6 +223,12 @@ jobs:
         if: matrix.plugin.has_python
       - uses: dtolnay/rust-toolchain@1.88.0
         if: matrix.plugin.has_rust
+      - name: Install Rust release target
+        if: matrix.plugin.has_rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
       - uses: actions/setup-go@v5
         if: matrix.plugin.has_go
         with:
