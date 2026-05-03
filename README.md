@@ -21,11 +21,47 @@ cross-platform artifact that `gestaltd` resolves at runtime.
 
 ## Usage
 
-Reference providers in your Gestalt configuration by source and version. See the
-[Getting Started](https://gestaltd.ai/getting-started) guide and
-[Configuration](https://gestaltd.ai/configuration) docs for examples.
+Use `gestaltd provider search` and `gestaltd provider add` to discover and add
+providers without hand-writing source metadata:
+
+```sh
+gestaltd provider search slack
+
+gestaltd provider add github.com/valon-technologies/gestalt-providers/plugins/slack \
+  --config gestaltd.yaml \
+  --name slack \
+  --version 0.0.1-alpha.37
+```
+
+The lifecycle commands write package sources by default. `provider add`
+validates the config and refreshes the lockfile before committing changes.
+
+```yaml
+plugins:
+  slack:
+    source:
+      package: github.com/valon-technologies/gestalt-providers/plugins/slack
+      version: 0.0.1-alpha.37
+```
+
+Use `provider list` to inspect configured providers and lock status, and
+`provider upgrade` or `provider remove` to maintain entries:
+
+```sh
+gestaltd provider list --config gestaltd.yaml
+gestaltd provider upgrade slack --config gestaltd.yaml --version 0.0.1-alpha.38
+gestaltd provider remove slack --config gestaltd.yaml --kind plugin
+```
+
+See the [Getting Started](https://gestaltd.ai/getting-started) guide and
+[Configuration](https://gestaltd.ai/configuration) docs for complete examples.
 
 The repository publishes a generated provider index at `provider-index.yaml`.
+Normal package resolution fetches this static YAML file directly; it does not
+call the GitHub Releases API while selecting package versions. Release metadata
+and archives still live in GitHub Releases and are fetched after a package
+version is selected.
+
 Refresh it after manifest changes with:
 
 ```sh
