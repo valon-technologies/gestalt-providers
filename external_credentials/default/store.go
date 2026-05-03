@@ -20,6 +20,9 @@ const (
 	indexBySubject           = "by_subject"
 	indexBySubjectConnection = "by_subject_connection"
 	indexByLookup            = "by_lookup"
+
+	legacyBackfillTimeout         = 10 * time.Minute
+	legacyBackfillShutdownTimeout = 2 * time.Second
 )
 
 var storeSchema = gestalt.ObjectStoreSchema{
@@ -46,9 +49,11 @@ var storeSchema = gestalt.ObjectStoreSchema{
 }
 
 type store struct {
-	client      *gestalt.IndexedDBClient
-	credentials *gestalt.ObjectStoreClient
-	encryptor   *aesgcmEncryptor
+	client         *gestalt.IndexedDBClient
+	credentials    *gestalt.ObjectStoreClient
+	encryptor      *aesgcmEncryptor
+	backfillCancel context.CancelFunc
+	backfillDone   chan struct{}
 }
 
 func openStore(ctx context.Context, cfg config) (*store, error) {
@@ -80,12 +85,23 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 		_ = client.Close()
 		return nil, err
 	}
+	st.startLegacyBackfill()
 	return st, nil
 }
 
 func (s *store) Close() error {
 	if s == nil || s.client == nil {
 		return nil
+	}
+	if s.backfillCancel != nil {
+		s.backfillCancel()
+	}
+	if s.backfillDone != nil {
+		select {
+		case <-s.backfillDone:
+		case <-time.After(legacyBackfillShutdownTimeout):
+			slog.Warn("timed out waiting for legacy external credentials backfill to stop")
+		}
 	}
 	return s.client.Close()
 }
@@ -94,10 +110,29 @@ func (s *store) ensure(ctx context.Context) error {
 	if err := s.client.CreateObjectStore(ctx, storeName, storeSchema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create object store %q: %w", storeName, err)
 	}
-	if err := s.backfillLegacyCredentials(ctx); err != nil {
-		return err
-	}
 	return nil
+}
+
+func (s *store) startLegacyBackfill() {
+	ctx, cancel := context.WithTimeout(context.Background(), legacyBackfillTimeout)
+	done := make(chan struct{})
+	s.backfillCancel = cancel
+	s.backfillDone = done
+
+	go func() {
+		defer close(done)
+		defer cancel()
+		if err := s.backfillLegacyCredentials(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				slog.Warn("legacy external credentials backfill timed out", "error", err)
+				return
+			}
+			slog.Warn("legacy external credentials backfill failed", "error", err)
+		}
+	}()
 }
 
 func (s *store) backfillLegacyCredentials(ctx context.Context) error {
