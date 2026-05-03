@@ -188,7 +188,7 @@ class SimpleAgentRuntimeProvider(
         context.abort(grpc.StatusCode.NOT_FOUND, f"agent interaction {request.interaction_id!r} was not found")
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, config = self._require_runtime(context)
+        _, _, config = self._require_runtime(context)
         return gestalt.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
@@ -197,7 +197,7 @@ class SimpleAgentRuntimeProvider(
             interactions=False,
             resumable_turns=config.resume.enabled,
             reasoning_summaries=False,
-            bounded_list_hydration=store.supports_bounded_list_hydration(),
+            bounded_list_hydration=True,
             supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
 
