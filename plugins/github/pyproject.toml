@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-github"
-version = "0.0.1a15"
+version = "0.0.1a16"
 requires-python = "==3.14.*"
 dependencies = [
   "cryptography==46.0.7",
@@ -26,6 +26,7 @@ provider = "provider"
 [tool.gestalt.ci]
 vulture-ignore-names = [
   "configure",
+  "post_connect",
   "resolve_http_subject",
   "github_events_handle",
   "bot_commit_files",

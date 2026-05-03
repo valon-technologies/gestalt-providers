@@ -7,6 +7,7 @@ from typing import Any, TypeAlias
 import gestalt
 
 from internals.agent import build_workflow_signal_or_start_request
+from internals.client import user_external_identity_metadata
 from internals.config import configure_from_mapping, get_github_config
 from internals.constants import (
     BOT_COMMIT_FILES_OPERATION,
@@ -59,6 +60,7 @@ plugin = gestalt.Plugin("github")
 logger = logging.getLogger(__name__)
 
 OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, str]]
+PostConnectMetadata: TypeAlias = dict[str, str]
 
 
 class FileChangeInput(gestalt.Model):
@@ -318,6 +320,13 @@ class ListWorkflowRunJobsInput(gestalt.Model):
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     configure_from_mapping(config)
+
+
+@gestalt.post_connect
+def post_connect(token: gestalt.ConnectedToken) -> PostConnectMetadata:
+    if token.connection != "default":
+        return {}
+    return user_external_identity_metadata(token.access_token)
 
 
 @plugin.http_subject
