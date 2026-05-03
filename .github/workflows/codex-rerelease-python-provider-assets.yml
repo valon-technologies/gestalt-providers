@@ -73,7 +73,7 @@ jobs:
           set -euo pipefail
           cd "${{ steps.source.outputs.dir }}"
           rm -rf dist .venv
-          uv sync
+          uv sync --frozen --no-dev
           GESTALT_PYTHON_DARWIN_AMD64="$PWD/.venv/bin/python" \
             gestaltd provider release --version "${{ inputs.version }}" --platform darwin/amd64
       - name: Patch existing release assets
