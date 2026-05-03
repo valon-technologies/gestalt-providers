@@ -662,7 +662,7 @@ export default function ManagedIdentityDetailView({
                     returnPath={connectionReturnPath}
                     readOnly={!canConnect}
                     disableNavigation
-                    connectionContext="managed_identity"
+                    connectionContext="managed_subject"
                   />
                 ))}
               </div>

@@ -14,7 +14,7 @@ import type {
   OwnerKind,
 } from "./api";
 
-export type ConnectionContext = "current_user" | "managed_identity";
+export type ConnectionContext = "current_user" | "managed_subject";
 export type StatusTone = "success" | "warning" | "danger" | "neutral";
 
 export type NormalizedConnection = {
@@ -45,7 +45,7 @@ export type NormalizedConnection = {
   isPlatformManaged: boolean;
   isNoAuth: boolean;
   isSubjectOwned: boolean;
-  isManagedIdentityOwned: boolean;
+  isManagedSubjectOwned: boolean;
   isMCPPassthrough: boolean;
   summaryLabel: string;
   statusLabel: string;
@@ -110,7 +110,6 @@ const CREDENTIAL_MODES: CredentialMode[] = ["none", "subject", "platform"];
 const OWNER_KINDS: OwnerKind[] = [
   "none",
   "current_user",
-  "managed_identity",
   "service_account",
   "platform",
   "unknown",
@@ -280,15 +279,14 @@ function normalizeConnection(
       validMode(raw.mode) === "none" ||
       validCredentialState(raw.credentialState) === "not_required" ||
       (authTypes.length === 0 && !hasExplicitOwnerMode));
-  const isManagedIdentityOwned =
-    ownerKind === "managed_identity" || context === "managed_identity";
+  const isManagedSubjectOwned =
+    ownerKind === "service_account" || context === "managed_subject";
   const isSubjectOwned =
     !isPlatformManaged &&
     !isNoAuth &&
     (credentialMode === "subject" ||
       mode === "user" ||
       ownerKind === "current_user" ||
-      ownerKind === "managed_identity" ||
       ownerKind === "service_account" ||
       authTypes.length > 0);
   const credentialState =
@@ -337,13 +335,13 @@ function normalizeConnection(
     credentialState,
     isPlatformManaged,
     isNoAuth,
-    isManagedIdentityOwned,
+    isManagedSubjectOwned,
   );
   const healthLabel = healthDisplayLabel(healthState);
   const ownerLabel = ownerDisplayLabel(
     isPlatformManaged,
     isNoAuth,
-    isManagedIdentityOwned,
+    isManagedSubjectOwned,
   );
   const isMCPPassthrough = raw.mcpPassthrough === true;
   const shouldShowCredentialDetail =
@@ -397,7 +395,7 @@ function normalizeConnection(
     isPlatformManaged,
     isNoAuth,
     isSubjectOwned,
-    isManagedIdentityOwned,
+    isManagedSubjectOwned,
     isMCPPassthrough,
     summaryLabel,
     statusLabel,
@@ -487,7 +485,7 @@ function resolveOwnerKind(
   if (explicit) return explicit;
   if (credentialMode === "platform") return "platform";
   if (credentialMode === "none") return "none";
-  return context === "managed_identity" ? "managed_identity" : "current_user";
+  return context === "managed_subject" ? "service_account" : "current_user";
 }
 
 function inferConnectionCredentialState(
@@ -620,7 +618,7 @@ function integrationSummaryLabel(
     return "Deployment configured";
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_identity" ? "Identity connected" : "Connected";
+    return context === "managed_subject" ? "Identity connected" : "Connected";
   }
   return statusDisplayLabel(status, context);
 }
@@ -639,7 +637,7 @@ function connectionSummaryLabel(
     return "Deployment configured";
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_identity" ? "Identity connected" : "Connected";
+    return context === "managed_subject" ? "Identity connected" : "Connected";
   }
   return statusDisplayLabel(status, context);
 }
@@ -654,7 +652,7 @@ function statusDisplayLabel(
     case "degraded":
       return "Degraded";
     case "needs_user_connection":
-      return context === "managed_identity"
+      return context === "managed_subject"
         ? "Identity connection required"
         : "Not connected";
     case "needs_instance_selection":
@@ -672,7 +670,7 @@ function credentialDisplayLabel(
   state: CredentialState,
   isPlatformManaged: boolean,
   isNoAuth: boolean,
-  isManagedIdentityOwned: boolean,
+  isManagedSubjectOwned: boolean,
 ): string {
   if (isNoAuth) return "No credentials required";
   if (isPlatformManaged) {
@@ -691,25 +689,25 @@ function credentialDisplayLabel(
   }
   switch (state) {
     case "connected":
-      return isManagedIdentityOwned
+      return isManagedSubjectOwned
         ? "Identity credentials connected"
         : "User credentials connected";
     case "configured":
-      return isManagedIdentityOwned
+      return isManagedSubjectOwned
         ? "Identity credentials configured"
         : "User credentials configured";
     case "missing":
-      return isManagedIdentityOwned
+      return isManagedSubjectOwned
         ? "Identity credentials missing"
         : "User credentials missing";
     case "invalid":
-      return isManagedIdentityOwned
+      return isManagedSubjectOwned
         ? "Identity credentials invalid"
         : "User credentials invalid";
     case "not_required":
       return "No credentials required";
     case "unknown":
-      return isManagedIdentityOwned
+      return isManagedSubjectOwned
         ? "Identity credential status unknown"
         : "Credential status unknown";
   }
@@ -733,11 +731,11 @@ function healthDisplayLabel(state: HealthState): string | undefined {
 function ownerDisplayLabel(
   isPlatformManaged: boolean,
   isNoAuth: boolean,
-  isManagedIdentityOwned: boolean,
+  isManagedSubjectOwned: boolean,
 ): string {
   if (isPlatformManaged) return "Deployment managed";
   if (isNoAuth) return "No credential owner";
-  return isManagedIdentityOwned ? "Managed identity owned" : "User owned";
+  return isManagedSubjectOwned ? "Managed identity owned" : "User owned";
 }
 
 function compact(values: (string | undefined)[]): string[] {

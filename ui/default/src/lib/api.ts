@@ -52,7 +52,6 @@ export type CredentialMode = "none" | "subject" | "platform";
 export type OwnerKind =
   | "none"
   | "current_user"
-  | "managed_identity"
   | "service_account"
   | "platform"
   | "unknown";
