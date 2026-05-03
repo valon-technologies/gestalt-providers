@@ -189,18 +189,67 @@ def _slack_interaction_log_context(
 
 
 def _workflow_response_log_context(response: Any) -> str:
-    run = getattr(response, "run", None)
-    signal = getattr(response, "signal", None)
+    fields = _workflow_signal_response_fields(response)
     return _log_context(
-        workflow_provider=getattr(response, "provider_name", "")
-        or _agent_config.workflow.provider_name,
-        workflow_run_id=getattr(run, "id", ""),
-        workflow_key=getattr(response, "workflow_key", "")
-        or getattr(run, "workflow_key", ""),
-        workflow_signal_id=getattr(signal, "id", ""),
-        workflow_started_run=bool(getattr(response, "started_run", False)),
-        workflow_status=_workflow_run_status_name(getattr(run, "status", 0)),
+        workflow_provider=fields["workflow_provider"],
+        workflow_run_id=fields["workflow_run_id"],
+        workflow_key=fields["workflow_key"],
+        workflow_signal_id=fields["workflow_signal_id"],
+        workflow_started_run=fields["started_run"],
+        workflow_status=fields["status"],
     )
+
+
+def _workflow_signal_response_fields(
+    response: Any, fallback_workflow_key: str = ""
+) -> dict[str, Any]:
+    run = _field_value(response, "run")
+    signal = _field_value(response, "signal")
+    return {
+        "workflow_provider": str(
+            _field_value(response, "provider_name", "providerName")
+            or _agent_config.workflow.provider_name
+        ),
+        "workflow_run_id": str(_field_value(run, "id") or ""),
+        "workflow_key": str(
+            _field_value(response, "workflow_key", "workflowKey")
+            or _field_value(run, "workflow_key", "workflowKey")
+            or fallback_workflow_key
+        ),
+        "workflow_signal_id": str(_field_value(signal, "id") or ""),
+        "started_run": _bool_field_value(
+            _field_value(response, "started_run", "startedRun")
+        ),
+        "status": _workflow_run_status_name(_field_value(run, "status")),
+    }
+
+
+def _field_value(source: Any, *names: str) -> Any:
+    if source is None:
+        return None
+    if isinstance(source, dict):
+        for name in names:
+            if name in source:
+                return source[name]
+        return None
+    for name in names:
+        try:
+            return getattr(source, name)
+        except AttributeError:
+            continue
+    return None
+
+
+def _bool_field_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no", ""}:
+            return False
+    return bool(value)
 
 
 _agent_config = SlackAgentConfig()
@@ -391,15 +440,9 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     )
     response = {
         "ok": True,
-        "workflow_provider": workflow_response.provider_name
-        or _agent_config.workflow.provider_name,
-        "workflow_run_id": workflow_response.run.id,
-        "workflow_key": workflow_response.workflow_key
-        or workflow_response.run.workflow_key
-        or _agent_session_ref(event),
-        "workflow_signal_id": workflow_response.signal.id,
-        "started_run": bool(workflow_response.started_run),
-        "status": _workflow_run_status_name(workflow_response.run.status),
+        **_workflow_signal_response_fields(
+            workflow_response, fallback_workflow_key=_agent_session_ref(event)
+        ),
     }
     if acknowledgement_reaction_error:
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
@@ -530,15 +573,9 @@ def handle_slack_interaction(
     )
     return {
         "ok": True,
-        "workflow_provider": workflow_response.provider_name
-        or _agent_config.workflow.provider_name,
-        "workflow_run_id": workflow_response.run.id,
-        "workflow_key": workflow_response.workflow_key
-        or workflow_response.run.workflow_key
-        or verified_ref.workflow_key,
-        "workflow_signal_id": workflow_response.signal.id,
-        "started_run": bool(workflow_response.started_run),
-        "status": _workflow_run_status_name(workflow_response.run.status),
+        **_workflow_signal_response_fields(
+            workflow_response, fallback_workflow_key=verified_ref.workflow_key
+        ),
         "action_id": verified_ref.action_id,
     }
 
@@ -1093,7 +1130,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -2015,8 +2052,15 @@ def _build_workflow_agent_target(
     agent.metadata.CopyFrom(_agent_session_metadata(event))
     model_options = _agent_model_options(route)
     if model_options:
-        agent.model_options.CopyFrom(_dict_to_struct(model_options))
+        _agent_options_struct(agent).CopyFrom(_dict_to_struct(model_options))
     return gestalt.BoundWorkflowTarget(agent=agent)
+
+
+def _agent_options_struct(agent: Any) -> Any:
+    options = getattr(agent, "provider_options", None)
+    if options is not None:
+        return options
+    return agent.model_options
 
 
 def _workflow_agent_prompt() -> str:
@@ -2376,8 +2420,15 @@ def _slack_client_msg_id(idempotency_key: str) -> str:
     return str(uuid.UUID(hex=digest[:32]))
 
 
-def _workflow_run_status_name(status: int) -> str:
-    return gestalt.workflow_run_status_name(status)
+def _workflow_run_status_name(status: Any) -> str:
+    if not status:
+        return ""
+    if isinstance(status, str):
+        return status
+    try:
+        return gestalt.workflow_run_status_name(int(status))
+    except TypeError, ValueError:
+        return str(status)
 
 
 def _workflow_manager_contract_available() -> bool:
