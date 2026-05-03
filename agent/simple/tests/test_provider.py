@@ -1539,15 +1539,15 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         self.assertTrue(capabilities.resumable_turns)
 
-    def test_capabilities_report_bounded_list_hydration_from_store(self) -> None:
+    def test_capabilities_do_not_touch_store(self) -> None:
+        _, provider_client = _configure_provider()
         with mock.patch.object(
-            provider_module.SimpleRunStore, "supports_bounded_list_hydration", return_value=False
-        ) as supports_bounded:
-            _, provider_client = _configure_provider()
+            provider_module.SimpleRunStore, "_object_store", side_effect=AssertionError("store should not be resolved")
+        ) as object_store:
             capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
 
-        supports_bounded.assert_called()
-        self.assertFalse(capabilities.bounded_list_hydration)
+        object_store.assert_not_called()
+        self.assertTrue(capabilities.bounded_list_hydration)
 
     def test_create_turn_completes_tool_loop_and_persists_turn(self) -> None:
         lifecycle, provider_client = _configure_provider()

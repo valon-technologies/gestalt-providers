@@ -931,9 +931,6 @@ class SimpleRunStore:
         records = self._turn_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
         return [turn for turn in (_record_to_turn_projection(record) for record in records) if turn is not None]
 
-    def supports_bounded_list_hydration(self) -> bool:
-        return self._session_projections.supports_cursor() and self._turn_projections.supports_cursor()
-
 
 def _turn_checkpoint_to_record(checkpoint: StoredTurnCheckpoint) -> dict[str, Any]:
     return {
@@ -1584,9 +1581,6 @@ class _RetryingObjectStore:
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return _call_with_busy_retry(lambda: self._store.get_all(key_range))
 
-    def supports_cursor(self) -> bool:
-        return callable(getattr(self._store, "open_cursor", None))
-
     def iter_records(
         self, key_range: Any | None = None, *, limit: int = 0, require_cursor: bool = False
     ) -> Iterator[dict[str, Any]]:
@@ -1631,9 +1625,6 @@ class _LazyObjectStore:
 
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return self._resolve().get_all(key_range)
-
-    def supports_cursor(self) -> bool:
-        return self._resolve().supports_cursor()
 
     def iter_records(
         self, key_range: Any | None = None, *, limit: int = 0, require_cursor: bool = False
