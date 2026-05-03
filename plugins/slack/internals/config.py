@@ -28,8 +28,8 @@ def agent_config_from_provider_config(
     system_prompt = _config_string(
         agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
     )
-    provider_options = _config_dict(
-        agent, "providerOptions", "provider_options", "agentProviderOptions"
+    model_options = _config_dict(
+        agent, "modelOptions", "model_options", "agentModelOptions"
     )
     routes = _agent_routes_from_provider_config(config, agent)
     events = _events_config_from_provider_config(config)
@@ -61,8 +61,8 @@ def agent_config_from_provider_config(
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
         agent_system_prompt=system_prompt
         or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
-        agent_provider_options=provider_options
-        or _config_dict(config, "agentProviderOptions", "agent_provider_options"),
+        agent_model_options=model_options
+        or _config_dict(config, "agentModelOptions", "agent_model_options"),
         routes=routes,
     )
 
@@ -116,9 +116,7 @@ def _assistant_config_from_provider_config(
 def _acknowledgement_config_from_provider_config(
     config: dict[str, Any], agent: dict[str, Any]
 ) -> SlackAcknowledgementConfig:
-    acknowledgement = _config_dict(
-        agent, "acknowledgement", "acknowledgment", "ack"
-    )
+    acknowledgement = _config_dict(agent, "acknowledgement", "acknowledgment", "ack")
     if not acknowledgement:
         acknowledgement = _config_dict(
             config, "acknowledgement", "acknowledgment", "ack"
@@ -188,8 +186,8 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
     system_prompt = _config_string(
         agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
     )
-    provider_options = _config_dict(
-        agent, "providerOptions", "provider_options", "agentProviderOptions"
+    model_options = _config_dict(
+        agent, "modelOptions", "model_options", "agentModelOptions"
     )
 
     return SlackAgentRoute(
@@ -201,8 +199,8 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
         or _config_string(config, "model", "agentModel", "agent_model"),
         agent_system_prompt=system_prompt
         or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
-        agent_provider_options=provider_options
-        or _config_dict(config, "providerOptions", "agentProviderOptions"),
+        agent_model_options=model_options
+        or _config_dict(config, "modelOptions", "agentModelOptions"),
     )
 
 

@@ -110,7 +110,7 @@ properties:
             systemPrompt:
               type: string
               description: Additional system prompt for this policy.
-            providerOptions:
+            modelOptions:
               type: object
               description: Provider-specific options for this policy.
               additionalProperties: true
@@ -172,7 +172,7 @@ properties:
       systemPrompt:
         type: string
         description: Additional system prompt appended for GitHub App webhook-triggered turns.
-      providerOptions:
+      modelOptions:
         type: object
         description: Provider-specific options for GitHub App webhook-triggered turns.
         additionalProperties: true

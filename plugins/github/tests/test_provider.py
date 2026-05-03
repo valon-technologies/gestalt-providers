@@ -221,7 +221,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "agent": {
                     "provider": "simple",
                     "model": "deep",
-                    "providerOptions": {"temperature": 0},
+                    "modelOptions": {"temperature": 0},
                 },
             },
         )

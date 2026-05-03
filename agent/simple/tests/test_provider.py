@@ -429,6 +429,9 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
         self.list_requests: list[dict[str, Any]] = []
+        self.connection_requests: list[dict[str, Any]] = []
+        self.connection_headers: dict[str, str] = {}
+        self.connection_params: dict[str, str] = {}
         self.tools: list[Any] = []
         self.load_ref_tools: list[Any] = []
         self.candidates: list[Any] = []
@@ -445,8 +448,8 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             "page_size": request.page_size,
             "page_token": request.page_token,
         }
-        if str(getattr(request, "tool_grant", "") or "").strip():
-            list_request["tool_grant"] = request.tool_grant
+        if str(getattr(request, "run_grant", "") or "").strip():
+            list_request["run_grant"] = request.run_grant
         self.list_requests.append(list_request)
         page_size = int(request.page_size or 100)
         offset = int(request.page_token or 0) if str(request.page_token or "").strip() else 0
@@ -467,14 +470,34 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             "arguments": arguments,
             "idempotency_key": getattr(request, "idempotency_key", ""),
         }
-        if str(getattr(request, "tool_grant", "") or "").strip():
-            recorded_request["tool_grant"] = request.tool_grant
+        if str(getattr(request, "run_grant", "") or "").strip():
+            recorded_request["run_grant"] = request.run_grant
         self.requests.append(recorded_request)
         if self.pause_on_lookup:
             self.wait_until_released.wait(timeout=5)
         if self.tool_responses:
             return self.tool_responses.pop(0)
         return agent_pb2.ExecuteAgentToolResponse(status=200, body=json.dumps({"echo": arguments}))
+
+    def ResolveConnection(self, request: Any, context: grpc.ServicerContext) -> Any:
+        del context
+        self.connection_requests.append(
+            {
+                "session_id": request.session_id,
+                "turn_id": request.turn_id,
+                "connection": request.connection,
+                "instance": request.instance,
+                "run_grant": request.run_grant,
+            }
+        )
+        return agent_pb2.ResolvedAgentConnection(
+            connection_id=f"{request.connection}:default",
+            connection=request.connection,
+            instance=request.instance,
+            mode="platform",
+            headers=dict(self.connection_headers),
+            params=dict(self.connection_params),
+        )
 
 
 def _fake_resolved_tool(*, name: str) -> Any:
@@ -703,12 +726,12 @@ def _fresh_socket(name: str) -> str:
 
 
 def _configure_provider(
-    *, default_model: str = "fast", provider_options: dict[str, Any] | None = None, resume: dict[str, Any] | None = None
+    *, default_model: str = "fast", model_options: dict[str, Any] | None = None, resume: dict[str, Any] | None = None
 ) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
-    _configure_runtime(lifecycle, default_model=default_model, provider_options=provider_options, resume=resume)
+    _configure_runtime(lifecycle, default_model=default_model, model_options=model_options, resume=resume)
     return lifecycle, provider_client
 
 
@@ -716,7 +739,7 @@ def _configure_runtime(
     lifecycle: Any,
     *,
     default_model: str = "fast",
-    provider_options: dict[str, Any] | None = None,
+    model_options: dict[str, Any] | None = None,
     resume: dict[str, Any] | None = None,
 ) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="simple", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
@@ -727,8 +750,8 @@ def _configure_runtime(
         "timeoutSeconds": 5,
         "systemPrompt": "Be concise.",
     }
-    if provider_options is not None:
-        config["providerOptions"] = provider_options
+    if model_options is not None:
+        config["modelOptions"] = model_options
     if resume is not None:
         config["resume"] = resume
     json_format.ParseDict(config, request.config)
@@ -760,18 +783,15 @@ def _direct_store() -> SimpleRunStore:
 
 
 def _resume_seed(
-    *,
-    messages: list[dict[str, Any]],
-    provider_options: dict[str, Any],
-    conversation: list[dict[str, Any]] | None = None,
+    *, messages: list[dict[str, Any]], model_options: dict[str, Any], conversation: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "phase": "model_next",
         "messages": messages,
         "conversation": conversation or [{"role": "user", "content": messages[0]["text"]}],
         "response_schema": {},
-        "provider_options": provider_options,
+        "model_options": model_options,
         "tool_specs": [
             {
                 "type": "function",
@@ -858,6 +878,9 @@ class SimpleAgentProviderTests(unittest.TestCase):
         assert _indexeddb_servicer is not None
         _host_servicer.requests.clear()
         _host_servicer.list_requests.clear()
+        _host_servicer.connection_requests.clear()
+        _host_servicer.connection_headers.clear()
+        _host_servicer.connection_params.clear()
         _host_servicer.tools = [
             _fake_listed_tool(tool_id="lookup", mcp_name="person_lookup", description="historical figure records")
         ]
@@ -975,7 +998,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 messages=[{"role": "user", "text": f"stream {suffix}"}],
                 created_by={"subject_id": "user-123"},
                 execution_ref="",
-                resume_seed=_resume_seed(messages=[{"role": "user", "text": f"stream {suffix}"}], provider_options={}),
+                resume_seed=_resume_seed(messages=[{"role": "user", "text": f"stream {suffix}"}], model_options={}),
                 start_event_source="simple",
             )
             if suffix == "a":
@@ -1098,7 +1121,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
+        model_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
         messages = [{"role": "user", "text": "Resume the seeded turn"}]
         store = _direct_store()
         self.addCleanup(store.close)
@@ -1120,7 +1143,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             messages=messages,
             created_by={},
             execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
+            resume_seed=_resume_seed(messages=messages, model_options=model_options),
         )
         self.assertIsNotNone(store.get_turn_checkpoint("turn-seed-resume"))
 
@@ -1159,12 +1182,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
             messages=messages,
             created_by={},
             execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options={}),
+            resume_seed=_resume_seed(messages=messages, model_options={}),
         )
         store.put_turn_checkpoint(
             StoredTurnCheckpoint(
                 turn_id=run.run_id,
-                schema_version=1,
+                schema_version=2,
                 provider_name=run.provider_name,
                 session_id=run.session_ref,
                 model=run.model,
@@ -1172,8 +1195,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 messages=messages,
                 conversation=[{"role": "user", "content": "Use the tool"}],
                 response_schema={},
-                provider_options={},
-                tool_grant="",
+                model_options={},
+                run_grant="",
                 tool_specs=[],
                 function_name_to_tool_id={},
                 loaded_tool_ids=[],
@@ -1227,12 +1250,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
             messages=messages,
             created_by={},
             execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options={"api_key": "test-key"}),
+            resume_seed=_resume_seed(messages=messages, model_options={"api_key": "test-key"}),
         )
         store.put_turn_checkpoint(
             StoredTurnCheckpoint(
                 turn_id=run.run_id,
-                schema_version=1,
+                schema_version=2,
                 provider_name=run.provider_name,
                 session_id=run.session_ref,
                 model=run.model,
@@ -1240,8 +1263,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 messages=messages,
                 conversation=[{"role": "user", "content": "Use the tool"}],
                 response_schema={},
-                provider_options={"api_key": "test-key"},
-                tool_grant="",
+                model_options={"api_key": "test-key"},
+                run_grant="",
                 tool_specs=[],
                 function_name_to_tool_id={},
                 loaded_tool_ids=[],
@@ -1283,12 +1306,12 @@ class SimpleAgentProviderTests(unittest.TestCase):
             messages=messages,
             created_by={},
             execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options={"api_key": "test-key"}),
+            resume_seed=_resume_seed(messages=messages, model_options={"api_key": "test-key"}),
         )
         store.put_turn_checkpoint(
             StoredTurnCheckpoint(
                 turn_id=run.run_id,
-                schema_version=1,
+                schema_version=2,
                 provider_name=run.provider_name,
                 session_id=run.session_ref,
                 model=run.model,
@@ -1296,8 +1319,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 messages=messages,
                 conversation=[{"role": "user", "content": "Use the tool"}],
                 response_schema={},
-                provider_options={"api_key": "test-key"},
-                tool_grant="",
+                model_options={"api_key": "test-key"},
+                run_grant="",
                 tool_specs=[
                     {
                         "type": "function",
@@ -1359,7 +1382,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         )
         fake_llm.start()
         self.addCleanup(fake_llm.close)
-        provider_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
+        model_options = {"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"}
         messages = [{"role": "user", "text": "Look up Ada"}]
         store = _direct_store()
         self.addCleanup(store.close)
@@ -1381,13 +1404,13 @@ class SimpleAgentProviderTests(unittest.TestCase):
             messages=messages,
             created_by={},
             execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options=provider_options),
+            resume_seed=_resume_seed(messages=messages, model_options=model_options),
         )
         tool_arguments = {"query": "Ada"}
         store.put_turn_checkpoint(
             StoredTurnCheckpoint(
                 turn_id=run.run_id,
-                schema_version=1,
+                schema_version=2,
                 provider_name=run.provider_name,
                 session_id=run.session_ref,
                 model=run.model,
@@ -1415,8 +1438,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "properties": {"posted": {"type": "boolean"}},
                     "required": ["posted"],
                 },
-                provider_options=provider_options,
-                tool_grant="",
+                model_options=model_options,
+                run_grant="",
                 tool_specs=[
                     {
                         "type": "function",
@@ -1490,7 +1513,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
             messages=messages,
             created_by={},
             execution_ref="",
-            resume_seed=_resume_seed(messages=messages, provider_options={}),
+            resume_seed=_resume_seed(messages=messages, model_options={}),
         )
 
         self.assertTrue(store.claim_turn_lease("turn-lease", owner="worker-a", lease_seconds=30))
@@ -1647,8 +1670,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key", "timeout": 7})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key", "timeout": 7})
 
         response_schema = struct_pb2.Struct()
         response_schema.update(
@@ -1676,8 +1699,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     )
                 ],
                 response_schema=response_schema,
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
                 execution_ref="exec-1",
                 created_by=actor,
             )
@@ -1832,7 +1855,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         assert _host_servicer is not None
         self.assertEqual([request["page_token"] for request in _host_servicer.list_requests], [""])
-        self.assertEqual(_host_servicer.list_requests[0]["tool_grant"], "grant-success")
+        self.assertEqual(_host_servicer.list_requests[0]["run_grant"], "grant-success")
         self.assertEqual(len(_host_servicer.requests), 2)
         self.assertEqual(
             _host_servicer.requests[0],
@@ -1843,7 +1866,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool_id": "lookup",
                 "arguments": {"query": "Ada Lovelace"},
                 "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-1"),
-                "tool_grant": "grant-success",
+                "run_grant": "grant-success",
             },
         )
         self.assertEqual(
@@ -1855,7 +1878,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 "tool_id": "lookup",
                 "arguments": {"query": "Analytical Engine"},
                 "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-success", tool_call_id="call-2"),
-                "tool_grant": "grant-success",
+                "run_grant": "grant-success",
             },
         )
 
@@ -1974,8 +1997,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key", "timeout": 7})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key", "timeout": 7})
 
         provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -1985,8 +2008,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-adaptive-search",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Find historical records.")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
         fetched = _wait_for_turn(provider_client, "turn-adaptive-search", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2062,8 +2085,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_anthropic.start()
         self.addCleanup(fake_anthropic.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key"})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key"})
 
         provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -2073,8 +2096,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-tool-schema-pass-through",
                 model="anthropic/claude-fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Post the message reply.")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
 
@@ -2096,7 +2119,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "idempotency_key": _expected_tool_idempotency_key(
                         turn_id="turn-tool-schema-pass-through", tool_call_id="toolu-message-reply"
                     ),
-                    "tool_grant": "grant-success",
+                    "run_grant": "grant-success",
                 }
             ],
         )
@@ -2136,8 +2159,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         _indexeddb_servicer.fail_next_busy(store=_SIMPLE_RUN_STORE, operation="put", count=12)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -2147,8 +2170,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-busy-retry",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Retry through SQLITE_BUSY")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
 
@@ -2191,8 +2214,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
             fake_llm.start()
             self.addCleanup(fake_llm.close)
 
-            provider_options = struct_pb2.Struct()
-            provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+            model_options = struct_pb2.Struct()
+            model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
             started = provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
@@ -2202,8 +2225,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     idempotency_key="idem-no-host",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Say something brief.")],
-                    provider_options=provider_options,
-                    tool_grant="grant-success",
+                    model_options=model_options,
+                    run_grant="grant-success",
                 )
             )
             fetched = _wait_for_turn(provider_client, "turn-no-host", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2280,8 +2303,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
             fake_llm.start()
             self.addCleanup(fake_llm.close)
 
-            provider_options = struct_pb2.Struct()
-            provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+            model_options = struct_pb2.Struct()
+            model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
             started = provider_client.CreateTurn(
                 agent_pb2.CreateAgentProviderTurnRequest(
@@ -2291,8 +2314,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     idempotency_key="idem-tcp",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Ping over tcp")],
-                    provider_options=provider_options,
-                    tool_grant="grant-success",
+                    model_options=model_options,
+                    run_grant="grant-success",
                 ),
                 timeout=5,
             )
@@ -2310,7 +2333,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(fetched.output_text, "pong over tcp")
         self.assertEqual(fetched.model, "openai/fake-model")
 
-    def test_create_turn_merges_config_provider_options_before_request_options(self) -> None:
+    def test_create_turn_merges_config_model_options_before_request_options(self) -> None:
         fake_llm = _FakeOpenAIChatServer(
             responses=[
                 {
@@ -2333,7 +2356,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.addCleanup(fake_llm.close)
 
         _, provider_client = _configure_provider(
-            provider_options={
+            model_options={
                 "litellm": {"presence_penalty": 1.5, "top_p": 0.1},
                 "top_p": 0.8,
                 "openai": {
@@ -2348,8 +2371,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
             provider_client, session_id="session-config-options", idempotency_key="session-idem-config-options"
         )
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"max_completion_tokens": 64, "openai": {"temperature": 0.7}})
+        model_options = struct_pb2.Struct()
+        model_options.update({"max_completion_tokens": 64, "openai": {"temperature": 0.7}})
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -2359,8 +2382,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-config-options",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Apply config options.")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
         fetched = _wait_for_turn(provider_client, "turn-config-options", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2429,7 +2452,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
         _, provider_client = _configure_provider(
             default_model="openai/gpt-5.5",
-            provider_options={
+            model_options={
                 "openai": {
                     "base_url": f"{fake_llm.base_url}/v1",
                     "api_key": "test-key",
@@ -2454,7 +2477,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 session_id="session-openai-responses",
                 idempotency_key="idem-openai-responses",
                 messages=[agent_pb2.AgentMessage(role="user", text="Use a tool.")],
-                tool_grant="grant-success",
+                run_grant="grant-success",
             )
         )
         fetched = _wait_for_turn(provider_client, "turn-openai-responses", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -2482,6 +2505,77 @@ class SimpleAgentProviderTests(unittest.TestCase):
         )
         self.assertTrue(any(item.get("type") == "function_call_output" for item in second_input))
         self.assertIn("person_lookup", [tool["name"] for tool in fake_llm.requests[1]["tools"]])
+
+    def test_create_turn_resolves_model_connection_for_openai_compatible_route(self) -> None:
+        assert _host_servicer is not None
+        fake_llm = _FakeOpenAIChatServer(
+            responses=[
+                {
+                    "id": "chatcmpl-vertex-1",
+                    "object": "chat.completion",
+                    "created": 1710000000,
+                    "model": "vertex/kimi-k2-6",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "connected model response"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7},
+                }
+            ]
+        )
+        fake_llm.start()
+        self.addCleanup(fake_llm.close)
+        _host_servicer.connection_params = {"baseUrl": f"{fake_llm.base_url}/v1"}
+        _host_servicer.connection_headers = {"authorization": "Bearer resolved-token"}
+
+        _, provider_client = _configure_provider(
+            default_model="vertex/kimi-k2-6", model_options={"vertex": {"connection": "model"}}
+        )
+        _create_session(
+            provider_client,
+            session_id="session-model-connection",
+            idempotency_key="session-idem-model-connection",
+            model="vertex/kimi-k2-6",
+        )
+        provider_client.CreateTurn(
+            agent_pb2.CreateAgentProviderTurnRequest(
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+                turn_id="turn-model-connection",
+                session_id="session-model-connection",
+                idempotency_key="idem-model-connection",
+                model="vertex/kimi-k2-6",
+                messages=[
+                    agent_pb2.AgentMessage(
+                        role="user",
+                        parts=[
+                            agent_pb2.AgentMessagePart(
+                                type=agent_pb2.AGENT_MESSAGE_PART_TYPE_TEXT, text="Use the connected model."
+                            )
+                        ],
+                    )
+                ],
+                run_grant="grant-model-connection",
+            )
+        )
+
+        fetched = _wait_for_turn(provider_client, "turn-model-connection", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "connected model response")
+        self.assertEqual(fake_llm.requests[0]["model"], "vertex/kimi-k2-6")
+        self.assertEqual(
+            _host_servicer.connection_requests,
+            [
+                {
+                    "session_id": "session-model-connection",
+                    "turn_id": "turn-model-connection",
+                    "connection": "model",
+                    "instance": "",
+                    "run_grant": "grant-model-connection",
+                }
+            ],
+        )
 
     def test_cancel_turn_marks_active_turn_canceled(self) -> None:
         assert _host_servicer is not None
@@ -2546,8 +2640,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
         _host_servicer.tools = [_fake_listed_tool(tool_id="lookup", mcp_name="lookup", description="person lookup")]
         _host_servicer.pause_on_lookup = True
@@ -2564,8 +2658,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     idempotency_key="idem-cancel",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Who is Grace Hopper?")],
-                    provider_options=provider_options,
-                    tool_grant="grant-success",
+                    model_options=model_options,
+                    run_grant="grant-success",
                 )
             )
 
@@ -2662,8 +2756,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": f"{fake_llm.base_url}/v1", "api_key": "test-key"})
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -2673,8 +2767,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-shared",
                 model="fast",
                 messages=[agent_pb2.AgentMessage(role="user", text="Say done.")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
         self.assertEqual(started.session_id, "session-a")
@@ -2689,8 +2783,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     idempotency_key="idem-other",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Say done.")],
-                    provider_options=provider_options,
-                    tool_grant="grant-success",
+                    model_options=model_options,
+                    run_grant="grant-success",
                 )
             )
         self.assertEqual(_rpc_error_code(turn_id_exc.exception), grpc.StatusCode.ALREADY_EXISTS)
@@ -2705,8 +2799,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     idempotency_key="idem-shared",
                     model="fast",
                     messages=[agent_pb2.AgentMessage(role="user", text="Say done.")],
-                    provider_options=provider_options,
-                    tool_grant="grant-success",
+                    model_options=model_options,
+                    run_grant="grant-success",
                 )
             )
         self.assertEqual(_rpc_error_code(idempotency_exc.exception), grpc.StatusCode.ALREADY_EXISTS)
@@ -2714,7 +2808,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
 
     def test_create_turn_completes_anthropic_tool_loop_and_persists_turn(self) -> None:
         _, provider_client = _configure_provider(
-            provider_options={"anthropic": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "medium"}}}
+            model_options={"anthropic": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "medium"}}}
         )
         _create_session(
             provider_client,
@@ -2784,8 +2878,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_anthropic.start()
         self.addCleanup(fake_anthropic.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key", "max_tokens": 256})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key", "max_tokens": 256})
 
         response_schema = struct_pb2.Struct()
         response_schema.update(
@@ -2801,8 +2895,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 model="anthropic/claude-fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Who is Ada Lovelace?")],
                 response_schema=response_schema,
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
 
@@ -2827,7 +2921,7 @@ class SimpleAgentProviderTests(unittest.TestCase):
                     "tool_id": "lookup",
                     "arguments": {"query": "Ada Lovelace"},
                     "idempotency_key": _expected_tool_idempotency_key(turn_id="turn-anthropic", tool_call_id="toolu-1"),
-                    "tool_grant": "grant-success",
+                    "run_grant": "grant-success",
                 }
             ],
         )
@@ -2910,8 +3004,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_anthropic.start()
         self.addCleanup(fake_anthropic.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key"})
+        model_options = struct_pb2.Struct()
+        model_options.update({"base_url": fake_anthropic.base_url, "api_key": "test-key"})
 
         started = provider_client.CreateTurn(
             agent_pb2.CreateAgentProviderTurnRequest(
@@ -2921,8 +3015,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-anthropic-tool-error",
                 model="anthropic/claude-fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Look up a person.")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
 
@@ -2972,8 +3066,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
         fake_llm.start()
         self.addCleanup(fake_llm.close)
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update(
+        model_options = struct_pb2.Struct()
+        model_options.update(
             {
                 "timeout": 7,
                 "litellm": {"frequency_penalty": 1.1, "temperature": 0.9},
@@ -2990,8 +3084,8 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 idempotency_key="idem-compat",
                 model="groq/fake-model",
                 messages=[agent_pb2.AgentMessage(role="user", text="Say something brief.")],
-                provider_options=provider_options,
-                tool_grant="grant-success",
+                model_options=model_options,
+                run_grant="grant-success",
             )
         )
 

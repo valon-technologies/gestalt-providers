@@ -45,6 +45,5 @@ Configuration fields:
 The provider owns the `external_credentials` store directly with these indexes:
 
 - `by_subject`
-- `by_subject_integration`
 - `by_subject_connection`
 - `by_lookup`

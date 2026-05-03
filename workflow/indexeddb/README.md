@@ -6,7 +6,7 @@ primitive for persistence and the workflow host socket for plugin callbacks.
 ## Configuration
 
 ```yaml
-apiVersion: gestaltd.config/v4
+apiVersion: gestaltd.config/v5
 
 providers:
   indexeddb:

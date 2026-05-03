@@ -41,12 +41,12 @@ class ToolExecutor:
         *,
         session_id: str,
         turn_id: str,
-        tool_grant: str,
+        run_grant: str,
         timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
         self._session_id = session_id
         self._turn_id = turn_id
-        self._tool_grant = tool_grant
+        self._run_grant = run_grant
         self._timeout_seconds = timeout_seconds
         self._lock = threading.Lock()
         self._sequence = 0
@@ -60,7 +60,7 @@ class ToolExecutor:
         return execute_tool(
             session_id=self._session_id,
             turn_id=self._turn_id,
-            tool_grant=self._tool_grant,
+            run_grant=self._run_grant,
             entry=entry,
             tool_call_id=tool_call_id,
             idempotency_key=idempotency_key,
@@ -70,7 +70,7 @@ class ToolExecutor:
 
 
 def list_tools(
-    *, session_id: str, turn_id: str, tool_grant: str, timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
+    *, session_id: str, turn_id: str, run_grant: str, timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
 ) -> list[ToolEntry]:
     page_token = ""
     seen_tokens: set[str] = set()
@@ -90,7 +90,7 @@ def list_tools(
                 turn_id=turn_id,
                 page_size=DEFAULT_PAGE_SIZE,
                 page_token=page_token,
-                tool_grant=tool_grant,
+                run_grant=run_grant,
             )
             response = _agent_host_call(
                 host=host, rpc_name="ListTools", request=request, timeout_seconds=timeout_seconds
@@ -134,7 +134,7 @@ def execute_tool(
     *,
     session_id: str,
     turn_id: str,
-    tool_grant: str,
+    run_grant: str,
     entry: ToolEntry,
     tool_call_id: str,
     idempotency_key: str,
@@ -150,7 +150,7 @@ def execute_tool(
             tool_call_id=tool_call_id,
             tool_id=entry.tool_id,
             arguments=struct,
-            tool_grant=tool_grant,
+            run_grant=run_grant,
             idempotency_key=idempotency_key,
         )
         return _agent_host_call(host=host, rpc_name="ExecuteTool", request=request, timeout_seconds=timeout_seconds)

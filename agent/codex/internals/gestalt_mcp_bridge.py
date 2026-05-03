@@ -15,7 +15,7 @@ from .tool_bridge import list_tools, mcp_tool, mcp_tool_result
 class BridgeContext:
     session_id: str
     turn_id: str
-    tool_grant: str
+    run_grant: str
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
 
 
@@ -25,7 +25,7 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
     executor = ToolExecutor(
         session_id=context.session_id,
         turn_id=context.turn_id,
-        tool_grant=context.tool_grant,
+        run_grant=context.run_grant,
         timeout_seconds=context.timeout_seconds,
     )
 
@@ -35,7 +35,7 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
             list_tools,
             session_id=context.session_id,
             turn_id=context.turn_id,
-            tool_grant=context.tool_grant,
+            run_grant=context.run_grant,
             timeout_seconds=context.timeout_seconds,
         )
         entries_by_name.clear()

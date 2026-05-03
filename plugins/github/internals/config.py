@@ -39,7 +39,7 @@ class GitHubWebhookPolicy:
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
-    agent_provider_options: dict[str, Any] | None = None
+    agent_model_options: dict[str, Any] | None = None
     action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
     allowed_operations: tuple[str, ...] = ()
 
@@ -59,7 +59,7 @@ class GitHubAppConfig:
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
-    agent_provider_options: dict[str, Any] = field(default_factory=dict)
+    agent_model_options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,9 +155,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
         agent_system_prompt=agent_config_string(
             config, "systemPrompt", "system_prompt", "prompt"
         ),
-        agent_provider_options=agent_config_dict(
-            config, "providerOptions", "provider_options"
-        ),
+        agent_model_options=agent_config_dict(config, "modelOptions", "model_options"),
     )
 
 
@@ -201,9 +199,9 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
         allowed_operations = policy_allowed_operations(
             action_config, action_mode, index
         )
-        provider_options = (
-            config_dict(agent_config, "providerOptions", "provider_options")
-            if "providerOptions" in agent_config or "provider_options" in agent_config
+        model_options = (
+            config_dict(agent_config, "modelOptions", "model_options")
+            if "modelOptions" in agent_config or "model_options" in agent_config
             else None
         )
         policies.append(
@@ -227,7 +225,7 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 agent_system_prompt=config_string(
                     agent_config, "systemPrompt", "system_prompt", "prompt"
                 ),
-                agent_provider_options=provider_options,
+                agent_model_options=model_options,
                 action_mode=action_mode,
                 allowed_operations=allowed_operations,
             )

@@ -36,7 +36,7 @@ export async function listGestaltTools(input: {
   host: GestaltAgentHostClient;
   sessionId: string;
   turnId: string;
-  toolGrant: string;
+  runGrant: string;
 }): Promise<ToolEntry[]> {
   let pageToken = "";
   const seenTokens = new Set<string>();
@@ -48,7 +48,9 @@ export async function listGestaltTools(input: {
       throw new CursorExecutionError(`ListTools exceeded ${MAX_PAGES} pages`);
     }
     if (seenTokens.has(pageToken)) {
-      throw new CursorExecutionError(`ListTools repeated page token ${JSON.stringify(pageToken)}`);
+      throw new CursorExecutionError(
+        `ListTools repeated page token ${JSON.stringify(pageToken)}`,
+      );
     }
     seenTokens.add(pageToken);
 
@@ -57,7 +59,7 @@ export async function listGestaltTools(input: {
       turnId: input.turnId,
       pageSize: DEFAULT_PAGE_SIZE,
       pageToken,
-      toolGrant: input.toolGrant,
+      runGrant: input.runGrant,
     } as ListAgentToolsRequest);
     for (const listed of response.tools) {
       const entry = toolEntry(listed);
@@ -69,7 +71,9 @@ export async function listGestaltTools(input: {
       seenNames.add(entry.mcpName);
       tools.push(entry);
       if (tools.length > MAX_LISTED_TOOLS) {
-        throw new CursorExecutionError(`ListTools returned more than ${MAX_LISTED_TOOLS} tools`);
+        throw new CursorExecutionError(
+          `ListTools returned more than ${MAX_LISTED_TOOLS} tools`,
+        );
       }
     }
     pageToken = (response.nextPageToken ?? "").trim();
@@ -79,7 +83,9 @@ export async function listGestaltTools(input: {
   }
 
   if (tools.length === 0) {
-    throw new CursorExecutionError("ListTools returned no tools for the requested grant");
+    throw new CursorExecutionError(
+      "ListTools returned no tools for the requested grant",
+    );
   }
   return tools;
 }
@@ -91,10 +97,14 @@ export function toolEntry(tool: ListedAgentTool): ToolEntry {
     throw new CursorExecutionError("ListTools returned a tool without an id");
   }
   if (!mcpName) {
-    throw new CursorExecutionError("ListTools returned a tool without an mcp_name");
+    throw new CursorExecutionError(
+      "ListTools returned a tool without an mcp_name",
+    );
   }
   if (!MCP_TOOL_NAME.test(mcpName)) {
-    throw new CursorExecutionError(`ListTools returned unsafe mcp_name ${JSON.stringify(mcpName)}`);
+    throw new CursorExecutionError(
+      `ListTools returned unsafe mcp_name ${JSON.stringify(mcpName)}`,
+    );
   }
 
   const annotations = annotationsFromTool(tool);
@@ -128,7 +138,9 @@ export function schemaFromJson(value: string): ObjectJsonSchema {
   return payload as ObjectJsonSchema;
 }
 
-function annotationsFromTool(tool: ListedAgentTool): ToolAnnotations | undefined {
+function annotationsFromTool(
+  tool: ListedAgentTool,
+): ToolAnnotations | undefined {
   const annotations = tool.annotations;
   const out: ToolAnnotations = {};
   if (tool.title?.trim()) {

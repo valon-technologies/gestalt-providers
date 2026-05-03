@@ -44,10 +44,10 @@ class ToolEntry:
 
 
 class GestaltMCPBridge:
-    def __init__(self, *, session_id: str, turn_id: str, tool_grant: str) -> None:
+    def __init__(self, *, session_id: str, turn_id: str, run_grant: str) -> None:
         self._session_id = session_id
         self._turn_id = turn_id
-        self._tool_grant = tool_grant
+        self._run_grant = run_grant
         self._entries: dict[str, ToolEntry] = {}
         self._catalog_loaded = False
         self._execute_lock = asyncio.Lock()
@@ -92,7 +92,7 @@ class GestaltMCPBridge:
                 _execute_tool,
                 session_id=self._session_id,
                 turn_id=self._turn_id,
-                tool_grant=self._tool_grant,
+                run_grant=self._run_grant,
                 entry=entry,
                 tool_call_id=tool_call_id,
                 arguments=arguments,
@@ -145,15 +145,15 @@ class GestaltMCPBridge:
                     turn_id=self._turn_id,
                     page_size=DEFAULT_PAGE_SIZE,
                     page_token=page_token,
-                    tool_grant=self._tool_grant,
+                    run_grant=self._run_grant,
                 )
             )
         return [_tool_entry(tool) for tool in response.tools], str(response.next_page_token or "").strip()
 
 
-def create_gestalt_sdk_mcp_server(*, session_id: str, turn_id: str, tool_grant: str) -> McpSdkServerConfig:
+def create_gestalt_sdk_mcp_server(*, session_id: str, turn_id: str, run_grant: str) -> McpSdkServerConfig:
     install_sdk_mcp_pagination_patch()
-    bridge = GestaltMCPBridge(session_id=session_id, turn_id=turn_id, tool_grant=tool_grant)
+    bridge = GestaltMCPBridge(session_id=session_id, turn_id=turn_id, run_grant=run_grant)
     return McpSdkServerConfig(type="sdk", name=MCP_SERVER_NAME, instance=bridge.server)
 
 
@@ -264,7 +264,7 @@ def _tool_entry(tool_proto: Any) -> ToolEntry:
 
 
 def _execute_tool(
-    *, session_id: str, turn_id: str, tool_grant: str, entry: ToolEntry, tool_call_id: str, arguments: dict[str, Any]
+    *, session_id: str, turn_id: str, run_grant: str, entry: ToolEntry, tool_call_id: str, arguments: dict[str, Any]
 ) -> Any:
     struct = struct_pb2.Struct()
     struct.update(arguments or {})
@@ -276,7 +276,7 @@ def _execute_tool(
                 tool_call_id=tool_call_id,
                 tool_id=entry.tool_id,
                 arguments=struct,
-                tool_grant=tool_grant,
+                run_grant=run_grant,
                 idempotency_key=f"agent/claude-sdk:{turn_id}:{tool_call_id}:{entry.mcp_name}",
             )
         )

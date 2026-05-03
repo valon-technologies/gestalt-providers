@@ -114,7 +114,7 @@ class FakeBoundWorkflowAgentTarget:
         self.tool_refs = tool_refs or []
         self.output_delivery = output_delivery
         self.metadata = new_struct()
-        self.provider_options = new_struct()
+        self.model_options = new_struct()
 
 
 class FakeBoundWorkflowPluginTarget:
@@ -249,9 +249,7 @@ class FakeWorkflowPb2:
     WorkflowOutputBinding = FakeWorkflowOutputBinding
     WorkflowOutputDelivery = FakeWorkflowOutputDelivery
     WorkflowOutputValueSource = FakeWorkflowOutputValueSource
-    WorkflowManagerSignalOrStartRunRequest = (
-        FakeWorkflowManagerSignalOrStartRunRequest
-    )
+    WorkflowManagerSignalOrStartRunRequest = FakeWorkflowManagerSignalOrStartRunRequest
     WorkflowManagerPublishEventRequest = FakeWorkflowManagerPublishEventRequest
 
 
@@ -425,7 +423,9 @@ class SlackProviderTests(unittest.TestCase):
             _catalog_parameter_names(catalog_ops["events.reply"]),
             ["reply_ref", "text"],
         )
-        self.assertIn("requires reply_ref and text", catalog_ops["events.reply"]["description"])
+        self.assertIn(
+            "requires reply_ref and text", catalog_ops["events.reply"]["description"]
+        )
         reply_parameters = {
             parameter["name"]: parameter
             for parameter in catalog_ops["events.reply"]["parameters"]
@@ -701,7 +701,7 @@ class SlackProviderTests(unittest.TestCase):
                 "workflow": {"provider": "local"},
                 "agentProvider": "simple",
                 "agentModel": "deep",
-                "agentProviderOptions": {"temperature": 0},
+                "agentModelOptions": {"temperature": 0},
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
@@ -809,8 +809,8 @@ class SlackProviderTests(unittest.TestCase):
             target_metadata["slack"]["root_message_ts"], "1712161829.000300"
         )
         self.assertNotIn("event_id", target_metadata["slack"])
-        provider_options = json_format.MessageToDict(agent_target.provider_options)
-        self.assertEqual(provider_options["temperature"], 0)
+        model_options = json_format.MessageToDict(agent_target.model_options)
+        self.assertEqual(model_options["temperature"], 0)
 
         signal = workflow_request.signal
         self.assertEqual(signal.name, "slack.event")
@@ -877,7 +877,9 @@ class SlackProviderTests(unittest.TestCase):
 
         result = provider_module.slack_events_handle(
             payload,
-            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123", kind="user")),
+            gestalt.Request(
+                subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+            ),
         )
 
         self.assertIsInstance(result, gestalt.Response)
@@ -1864,7 +1866,7 @@ class SlackProviderTests(unittest.TestCase):
                     "provider": "simple",
                     "model": "deep",
                     "systemPrompt": "Follow the global Slack policy.",
-                    "providerOptions": {"temperature": 0},
+                    "modelOptions": {"temperature": 0},
                     "routes": [
                         {
                             "id": "triage",
@@ -1874,7 +1876,7 @@ class SlackProviderTests(unittest.TestCase):
                             },
                             "agent": {
                                 "prompt": "Triage support requests.",
-                                "providerOptions": {"max_output_tokens": 2000},
+                                "modelOptions": {"max_output_tokens": 2000},
                             },
                         }
                     ],
@@ -1956,16 +1958,14 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn(
             "supportSlackbot.events.setAssistantStatus", agent_target.messages[0].text
         )
-        self.assertIn(
-            "Follow the global Slack policy.", agent_target.messages[0].text
-        )
+        self.assertIn("Follow the global Slack policy.", agent_target.messages[0].text)
         self.assertIn("Triage support requests.", agent_target.messages[0].text)
 
         signal_metadata = json_format.MessageToDict(workflow_request.signal.metadata)
         self.assertEqual(signal_metadata["slack"]["agent_route_id"], "triage")
-        provider_options = json_format.MessageToDict(agent_target.provider_options)
-        self.assertEqual(provider_options["temperature"], 0)
-        self.assertEqual(provider_options["max_output_tokens"], 2000)
+        model_options = json_format.MessageToDict(agent_target.model_options)
+        self.assertEqual(model_options["temperature"], 0)
+        self.assertEqual(model_options["max_output_tokens"], 2000)
 
     def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
         self,
@@ -2081,7 +2081,9 @@ class SlackProviderTests(unittest.TestCase):
 
         response = provider_module.slack_events_handle(
             payload,
-            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123", kind="user")),
+            gestalt.Request(
+                subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+            ),
         )
 
         self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})

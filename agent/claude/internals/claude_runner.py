@@ -59,13 +59,13 @@ class ClaudeSDKRunner:
         self._canceled_turns: set[str] = set()
 
     def run_turn(
-        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], tool_grant: str
+        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], run_grant: str
     ) -> str:
         try:
             return asyncio.run(
                 asyncio.wait_for(
                     self._run_turn(
-                        session_id=session_id, turn_id=turn_id, model=model, messages=messages, tool_grant=tool_grant
+                        session_id=session_id, turn_id=turn_id, model=model, messages=messages, run_grant=run_grant
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -94,7 +94,7 @@ class ClaudeSDKRunner:
                 _schedule_interrupt(active.loop, active.client)
 
     async def _run_turn(
-        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], tool_grant: str
+        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], run_grant: str
     ) -> str:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
@@ -105,7 +105,7 @@ class ClaudeSDKRunner:
                 raise ClaudeExecutionError("turn prompt is empty")
 
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
-                options = self._options(model=model, session_id=session_id, turn_id=turn_id, tool_grant=tool_grant)
+                options = self._options(model=model, session_id=session_id, turn_id=turn_id, run_grant=run_grant)
                 _set_config_dir(options, config_dir)
                 client = self._client_factory(options=options)
                 self._register_active_client(turn_id, client)
@@ -177,7 +177,7 @@ class ClaudeSDKRunner:
             return "\n".join(tool_blocks).strip()
         return ""
 
-    def _options(self, *, model: str, session_id: str, turn_id: str, tool_grant: str) -> Any:
+    def _options(self, *, model: str, session_id: str, turn_id: str, run_grant: str) -> Any:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
@@ -186,7 +186,7 @@ class ClaudeSDKRunner:
             allowed_tools=allowed_gestalt_mcp_tools(),
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
-                    session_id=session_id, turn_id=turn_id, tool_grant=tool_grant
+                    session_id=session_id, turn_id=turn_id, run_grant=run_grant
                 )
             },
             model=model,

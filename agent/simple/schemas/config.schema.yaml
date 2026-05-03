@@ -8,9 +8,9 @@ properties:
     description: Optional model aliases resolved before dispatch.
     additionalProperties:
       type: string
-  providerOptions:
+  modelOptions:
     type: object
-    description: Default backend request options merged before per-turn provider_options. Nested `openai`, `anthropic`, and provider-prefix blocks are supported.
+    description: Default backend request options merged before per-turn model_options. Nested `openai`, `anthropic`, and provider-prefix blocks are supported. Set `connection` inside a block to resolve a local agent connection for that model backend.
     additionalProperties: true
   maxSteps:
     type: integer

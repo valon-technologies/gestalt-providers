@@ -99,7 +99,7 @@ class SlackAgentRoute:
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
-    agent_provider_options: dict[str, Any] = field(default_factory=dict)
+    agent_model_options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +221,7 @@ class SlackAgentConfig:
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
-    agent_provider_options: dict[str, Any] = field(default_factory=dict)
+    agent_model_options: dict[str, Any] = field(default_factory=dict)
     routes: tuple[SlackAgentRoute, ...] = ()
 
 
@@ -257,24 +257,19 @@ class SlackInteractionRef:
 
 
 class WorkflowManager(Protocol):
-    def __enter__(self) -> WorkflowManager:
-        ...
+    def __enter__(self) -> WorkflowManager: ...
 
     def __exit__(
         self,
         _exc_type: type[BaseException] | None,
         _exc: BaseException | None,
         _tb: TracebackType | None,
-    ) -> bool | None:
-        ...
+    ) -> bool | None: ...
 
-    def signal_or_start_run(self, request: Any) -> Any:
-        ...
+    def signal_or_start_run(self, request: Any) -> Any: ...
 
-    def publish_event(self, request: Any) -> Any:
-        ...
+    def publish_event(self, request: Any) -> Any: ...
 
 
 class WorkflowManagerFactory(Protocol):
-    def __call__(self) -> WorkflowManager:
-        ...
+    def __call__(self) -> WorkflowManager: ...

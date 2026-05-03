@@ -105,8 +105,7 @@ func (p *Provider) GetCredential(ctx context.Context, req *gestalt.GetExternalCr
 	return st.getCredential(
 		ctx,
 		strings.TrimSpace(lookup.GetSubjectId()),
-		strings.TrimSpace(lookup.GetIntegration()),
-		strings.TrimSpace(lookup.GetConnection()),
+		strings.TrimSpace(lookup.GetConnectionId()),
 		strings.TrimSpace(lookup.GetInstance()),
 	)
 }
@@ -129,8 +128,7 @@ func (p *Provider) ListCredentials(ctx context.Context, req *gestalt.ListExterna
 	credentials, err := st.listCredentials(
 		ctx,
 		subjectID,
-		strings.TrimSpace(req.GetIntegration()),
-		strings.TrimSpace(req.GetConnection()),
+		strings.TrimSpace(req.GetConnectionId()),
 		strings.TrimSpace(req.GetInstance()),
 	)
 	if err != nil {

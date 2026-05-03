@@ -46,20 +46,38 @@ export type CursorAgentProviderDependencies = {
   runnerFactory?: (config: CursorAgentConfig) => CursorSDKRunner;
 };
 
-type AgentSessionInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createSession"]>>>;
-type AgentSessionListInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["listSessions"]>>>;
-type AgentTurnInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>>;
-type AgentTurnListInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["listTurns"]>>>;
-type AgentTurnEventListInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>>;
-type AgentInteractionInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["getInteraction"]>>>;
-type AgentInteractionListInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["listInteractions"]>>>;
-type AgentCapabilitiesInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["getCapabilities"]>>>;
+type AgentSessionInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["createSession"]>>
+>;
+type AgentSessionListInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["listSessions"]>>
+>;
+type AgentTurnInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>
+>;
+type AgentTurnListInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["listTurns"]>>
+>;
+type AgentTurnEventListInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>
+>;
+type AgentInteractionInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["getInteraction"]>>
+>;
+type AgentInteractionListInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["listInteractions"]>>
+>;
+type AgentCapabilitiesInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["getCapabilities"]>>
+>;
 
 export class CursorAgentProvider extends SDKAgentProvider {
   private config?: CursorAgentConfig;
   private runner?: CursorSDKRunner;
   private readonly store: InMemoryRunStore;
-  private readonly runnerFactory: ((config: CursorAgentConfig) => CursorSDKRunner) | undefined;
+  private readonly runnerFactory:
+    | ((config: CursorAgentConfig) => CursorSDKRunner)
+    | undefined;
 
   constructor(dependencies: CursorAgentProviderDependencies = {}) {
     super({
@@ -93,7 +111,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
       return [];
     }
     if (!config.cursorApiKey && !process.env.CURSOR_API_KEY) {
-      return ["set config.cursorApiKey or CURSOR_API_KEY before running live Cursor turns"];
+      return [
+        "set config.cursorApiKey or CURSOR_API_KEY before running live Cursor turns",
+      ];
     }
     return [];
   }
@@ -107,9 +127,6 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: CreateAgentProviderSessionRequest,
   ): Promise<AgentSessionInit> {
     const { config } = this.requireRuntime();
-    if (hasObjectData(request.providerOptions)) {
-      throw invalidArgument("provider_options are not supported by agent/cursor");
-    }
     const model = modelFor(config, request.model);
     try {
       const { session } = this.store.createSession({
@@ -133,7 +150,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
     this.requireRuntime();
     const session = this.store.getSession(request.sessionId);
     if (!session) {
-      throw notFound(`agent session ${JSON.stringify(request.sessionId)} was not found`);
+      throw notFound(
+        `agent session ${JSON.stringify(request.sessionId)} was not found`,
+      );
     }
     return sessionToProto(session);
   }
@@ -163,20 +182,29 @@ export class CursorAgentProvider extends SDKAgentProvider {
       sessionId: request.sessionId,
       clientRef: request.clientRef,
       state: request.state || undefined,
-      metadata: request.metadata === undefined ? undefined : objectOrEmpty(request.metadata),
+      metadata:
+        request.metadata === undefined
+          ? undefined
+          : objectOrEmpty(request.metadata),
     });
     if (!session) {
-      throw notFound(`agent session ${JSON.stringify(request.sessionId)} was not found`);
+      throw notFound(
+        `agent session ${JSON.stringify(request.sessionId)} was not found`,
+      );
     }
     return sessionToProto(session);
   }
 
-  async createTurn(request: CreateAgentProviderTurnRequest): Promise<AgentTurnInit> {
+  async createTurn(
+    request: CreateAgentProviderTurnRequest,
+  ): Promise<AgentTurnInit> {
     const { config, runner } = this.requireRuntime();
     validateCreateTurnRequest(request);
     const session = this.store.getSession(request.sessionId);
     if (!session) {
-      throw notFound(`agent session ${JSON.stringify(request.sessionId)} was not found`);
+      throw notFound(
+        `agent session ${JSON.stringify(request.sessionId)} was not found`,
+      );
     }
     if (request.messages.length === 0) {
       throw invalidArgument("messages must contain at least one entry");
@@ -212,7 +240,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         sessionId: turn.sessionId,
         model,
         messages: turn.messages,
-        toolGrant: request.toolGrant.trim(),
+        runGrant: request.runGrant.trim(),
       });
     }
     return turnToProto(turn);
@@ -222,7 +250,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
     this.requireRuntime();
     const turn = this.store.getTurn(request.turnId);
     if (!turn) {
-      throw notFound(`agent turn ${JSON.stringify(request.turnId)} was not found`);
+      throw notFound(
+        `agent turn ${JSON.stringify(request.turnId)} was not found`,
+      );
     }
     return turnToProto(turn);
   }
@@ -245,11 +275,15 @@ export class CursorAgentProvider extends SDKAgentProvider {
       .map((turn) => turnToProto(turn, request.summaryOnly));
   }
 
-  async cancelTurn(request: CancelAgentProviderTurnRequest): Promise<AgentTurnInit> {
+  async cancelTurn(
+    request: CancelAgentProviderTurnRequest,
+  ): Promise<AgentTurnInit> {
     const { runner } = this.requireRuntime();
     const turn = this.store.cancelTurn(request.turnId, request.reason);
     if (!turn) {
-      throw notFound(`agent turn ${JSON.stringify(request.turnId)} was not found`);
+      throw notFound(
+        `agent turn ${JSON.stringify(request.turnId)} was not found`,
+      );
     }
     if (turn.status === AgentExecutionStatus.CANCELED) {
       void runner.cancelTurn(turn.turnId);
@@ -274,7 +308,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: GetAgentProviderInteractionRequest,
   ): Promise<AgentInteractionInit> {
     this.requireRuntime();
-    throw notFound(`agent interaction ${JSON.stringify(request.interactionId)} was not found`);
+    throw notFound(
+      `agent interaction ${JSON.stringify(request.interactionId)} was not found`,
+    );
   }
 
   async listInteractions(
@@ -288,7 +324,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: ResolveAgentProviderInteractionRequest,
   ): Promise<AgentInteractionInit> {
     this.requireRuntime();
-    throw notFound(`agent interaction ${JSON.stringify(request.interactionId)} was not found`);
+    throw notFound(
+      `agent interaction ${JSON.stringify(request.interactionId)} was not found`,
+    );
   }
 
   async getCapabilities(
@@ -308,9 +346,15 @@ export class CursorAgentProvider extends SDKAgentProvider {
     };
   }
 
-  private requireRuntime(): { config: CursorAgentConfig; runner: CursorSDKRunner } {
+  private requireRuntime(): {
+    config: CursorAgentConfig;
+    runner: CursorSDKRunner;
+  } {
     if (!this.config || !this.runner) {
-      throw new ConnectError("agent provider has not been configured", Code.FailedPrecondition);
+      throw new ConnectError(
+        "agent provider has not been configured",
+        Code.FailedPrecondition,
+      );
     }
     return { config: this.config, runner: this.runner };
   }
@@ -321,7 +365,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     sessionId: string;
     model: string;
     messages: CreateAgentProviderTurnRequest["messages"];
-    toolGrant: string;
+    runGrant: string;
   }): Promise<void> {
     try {
       const output = await input.runner.runTurn({
@@ -329,7 +373,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         turnId: input.turnId,
         model: input.model,
         messages: input.messages,
-        toolGrant: input.toolGrant,
+        runGrant: input.runGrant,
         onEvent: (eventType, data) => {
           this.store.appendEvent({
             turnId: input.turnId,
@@ -362,26 +406,32 @@ export function createCursorAgentProvider(
 
 export const provider = createCursorAgentProvider();
 
-function validateCreateTurnRequest(request: CreateAgentProviderTurnRequest): void {
+function validateCreateTurnRequest(
+  request: CreateAgentProviderTurnRequest,
+): void {
   if (request.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
     throw invalidArgument("agent/cursor requires toolSource mcp_catalog");
   }
-  if (!request.toolGrant.trim()) {
-    throw invalidArgument("tool_grant is required");
+  if (!request.runGrant.trim()) {
+    throw invalidArgument("run_grant is required");
   }
   if (request.tools.length > 0) {
-    throw invalidArgument("resolved tools are not supported; use tool_refs with mcp_catalog");
+    throw invalidArgument(
+      "resolved tools are not supported; use tool_refs with mcp_catalog",
+    );
   }
   if (hasObjectData(request.responseSchema)) {
     throw invalidArgument("response_schema is not supported by agent/cursor");
   }
-  if (hasObjectData(request.providerOptions)) {
-    throw invalidArgument("provider_options are not supported by agent/cursor");
+  if (hasObjectData(request.modelOptions)) {
+    throw invalidArgument("model_options are not supported by agent/cursor");
   }
   validateToolRefs(request.toolRefs);
 }
 
-function validateToolRefs(toolRefs: CreateAgentProviderTurnRequest["toolRefs"]): void {
+function validateToolRefs(
+  toolRefs: CreateAgentProviderTurnRequest["toolRefs"],
+): void {
   if (toolRefs.length === 0) {
     throw invalidArgument("tool_refs are required for mcp_catalog turns");
   }
@@ -399,10 +449,14 @@ function validateToolRefs(toolRefs: CreateAgentProviderTurnRequest["toolRefs"]):
       throw invalidArgument("wildcard tool_refs are not supported");
     }
     if (Boolean(plugin) === Boolean(system)) {
-      throw invalidArgument(`${label} must set exactly one of plugin or system`);
+      throw invalidArgument(
+        `${label} must set exactly one of plugin or system`,
+      );
     }
     if (system && system !== "workflow") {
-      throw invalidArgument(`${label}.system ${JSON.stringify(system)} is not supported`);
+      throw invalidArgument(
+        `${label}.system ${JSON.stringify(system)} is not supported`,
+      );
     }
   });
 }

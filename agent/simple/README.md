@@ -35,7 +35,7 @@ export ANTHROPIC_API_KEY=...
 Then point a Gestalt config at both the IndexedDB backend and this provider:
 
 ```yaml
-apiVersion: gestaltd.config/v4
+apiVersion: gestaltd.config/v5
 server:
   public:
     port: 18080
@@ -66,7 +66,7 @@ providers:
         aliases:
           fast: openai/gpt-4.1-mini
           deep: anthropic/claude-sonnet-4-20250514
-        providerOptions:
+        modelOptions:
           openai:
             reasoning_effort: medium
           anthropic:
@@ -76,6 +76,39 @@ providers:
               effort: medium
         maxSteps: 8
         timeoutSeconds: 120
+```
+
+OpenAI-compatible custom model endpoints should be modeled as Gestalt
+connections and referenced from `modelOptions`. For a Vertex AI endpoint that
+uses OAuth client credentials:
+
+```yaml
+apiVersion: gestaltd.config/v5
+
+connections:
+  vertex-kimi:
+    mode: platform
+    auth:
+      type: oauth2
+      grantType: client_credentials
+      tokenUrl: https://oauth2.googleapis.com/token
+      clientId: ${VERTEX_CLIENT_ID}
+      clientSecret: ${VERTEX_CLIENT_SECRET}
+    params:
+      baseUrl: https://YOUR_VERTEX_OPENAI_COMPATIBLE_BASE_URL/v1
+
+providers:
+  agent:
+    simple:
+      source: /absolute/path/to/gestalt-providers/agent/simple/manifest.yaml
+      connections:
+        model:
+          ref: vertex-kimi
+      config:
+        defaultModel: vertex/kimi-k2-6
+        modelOptions:
+          vertex:
+            connection: model
 ```
 
 Bring the server up from the `gestalt` repo:
@@ -109,7 +142,7 @@ telemetry once in `gestaltd`, and the host injects standard `OTEL_*` environment
 into this provider process before the SDK runtime starts serving.
 
 ```yaml
-apiVersion: gestaltd.config/v4
+apiVersion: gestaltd.config/v5
 server:
   encryptionKey: ${GESTALT_ENCRYPTION_KEY}
   providers:
@@ -190,7 +223,7 @@ providers:
         aliases:
           fast: openai/gpt-4.1-mini
           deep: anthropic/claude-sonnet-4-20250514
-        providerOptions:
+        modelOptions:
           openai:
             reasoning_effort: medium
           anthropic:
@@ -228,13 +261,19 @@ Supported model families today are:
 - `anthropic/<model>`
 
 Other prefixed model IDs are still forwarded through the OpenAI-compatible
-path with the full model string preserved. Use config `providerOptions` for
-provider-wide defaults and per-turn `provider_options` for request-specific
+path with the full model string preserved. Use config `modelOptions` for
+provider-wide defaults and per-turn `model_options` for request-specific
 overrides. Both support top-level generic request options and
-`providerOptions.<prefix>` for provider-specific values.
+`modelOptions.<prefix>` for provider-specific values.
 
-When targeting Anthropic, set `providerOptions.max_tokens` (or
-`providerOptions.anthropic.max_tokens`) to control the response budget. If you
+Set `modelOptions.<prefix>.connection` to the local agent connection binding
+name when the backend should use credentials resolved by Gestalt. The resolved
+connection may provide `params.baseUrl` / `params.base_url` and OAuth bearer
+headers; bearer tokens are passed to OpenAI-compatible clients as the request
+API key.
+
+When targeting Anthropic, set `modelOptions.max_tokens` (or
+`modelOptions.anthropic.max_tokens`) to control the response budget. If you
 omit it, the provider defaults to `1024`.
 
 ## JSON request and response

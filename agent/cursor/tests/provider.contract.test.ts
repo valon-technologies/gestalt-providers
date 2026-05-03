@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { connectNodeAdapter, createGrpcTransport } from "@connectrpc/connect-node";
+import {
+  connectNodeAdapter,
+  createGrpcTransport,
+} from "@connectrpc/connect-node";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -27,10 +30,16 @@ import {
   ENV_AGENT_HOST_SOCKET,
   ENV_AGENT_HOST_SOCKET_TOKEN,
 } from "../src/agent_host.ts";
-import { DEFAULT_TIMEOUT_SECONDS, type CursorAgentConfig } from "../src/config.ts";
+import {
+  DEFAULT_TIMEOUT_SECONDS,
+  type CursorAgentConfig,
+} from "../src/config.ts";
 import { createCursorPlatformOptions } from "../src/cursor_platform.ts";
 import { startMcpBridge } from "../src/mcp_bridge.ts";
-import { createCursorAgentProvider, type CursorAgentProvider } from "../src/provider.ts";
+import {
+  createCursorAgentProvider,
+  type CursorAgentProvider,
+} from "../src/provider.ts";
 import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import type { ToolEntry } from "../src/tools.ts";
 
@@ -67,7 +76,9 @@ afterEach(async () => {
 
 describe("Cursor agent provider contract", () => {
   test("package metadata declares an agent provider target", () => {
-    const pkg = JSON.parse(readFileSync(resolve(import.meta.dir, "../package.json"), "utf8")) as {
+    const pkg = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../package.json"), "utf8"),
+    ) as {
       gestalt?: { provider?: { kind?: string; target?: string } };
     };
     expect(pkg.gestalt?.provider?.kind).toBe("agent");
@@ -123,7 +134,9 @@ describe("Cursor agent provider contract", () => {
       expect(capabilities.structuredOutput).toBe(false);
       expect(capabilities.interactions).toBe(false);
       expect(capabilities.resumableTurns).toBe(false);
-      expect(capabilities.supportedToolSources).toEqual([AgentToolSourceMode.MCP_CATALOG]);
+      expect(capabilities.supportedToolSources).toEqual([
+        AgentToolSourceMode.MCP_CATALOG,
+      ]);
     } finally {
       await closeHttp2(server);
       await rm(socketDir, { recursive: true, force: true });
@@ -147,7 +160,7 @@ describe("Cursor agent provider contract", () => {
           ],
         },
       ],
-      executeBody: "{\"forecast\":\"sunny\"}",
+      executeBody: '{"forecast":"sunny"}',
     });
     activeHosts.push(host);
     process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
@@ -196,7 +209,8 @@ describe("Cursor agent provider contract", () => {
     });
     const provider = await configuredProvider({
       config: { systemPrompt: "Be concise." },
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: cursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
     });
     const session = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
@@ -212,11 +226,15 @@ describe("Cursor agent provider contract", () => {
         idempotencyKey: "turn-key",
         messages: [{ role: "user", text: "weather?" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant-1",
+        runGrant: "grant-1",
         toolRefs: [{ plugin: "weather-plugin", operation: "forecast" }],
       }),
     );
-    const turn = await waitForTurn(provider, "turn-1", AgentExecutionStatus.SUCCEEDED);
+    const turn = await waitForTurn(
+      provider,
+      "turn-1",
+      AgentExecutionStatus.SUCCEEDED,
+    );
     expect(turn.outputText).toBe("Forecast: sunny");
     expect(host.relayTokens).toContain("relay-token");
     expect(host.listRequests).toHaveLength(1);
@@ -232,23 +250,38 @@ describe("Cursor agent provider contract", () => {
   test("configured sandbox flag is forwarded and absent when unset", async () => {
     const cursor = new FakeCursorAgentFactory(async (options) => {
       expect(options.local?.sandboxOptions).toEqual({ enabled: true });
-      return [{ type: "assistant", agent_id: "a", run_id: "r", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } }];
+      return [
+        {
+          type: "assistant",
+          agent_id: "a",
+          run_id: "r",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "ok" }],
+          },
+        },
+      ];
     });
-    const host = await FakeAgentHost.start({ pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }] });
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    });
     activeHosts.push(host);
     process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
     const provider = await configuredProvider({
       config: { sandboxEnabled: true },
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: cursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }));
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
+    );
     await provider.createTurn(
       create(CreateAgentProviderTurnRequestSchema, {
         turnId: "t",
         sessionId: "s",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
@@ -258,7 +291,9 @@ describe("Cursor agent provider contract", () => {
   test("invalid reconfiguration preserves the active runtime state", async () => {
     const provider = await configuredProvider();
     await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "keep-session" }),
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "keep-session",
+      }),
     );
 
     await expect(
@@ -269,7 +304,9 @@ describe("Cursor agent provider contract", () => {
     ).rejects.toThrow("workingDirectory");
 
     const session = await provider.getSession(
-      create(GetAgentProviderSessionRequestSchema, { sessionId: "keep-session" }),
+      create(GetAgentProviderSessionRequestSchema, {
+        sessionId: "keep-session",
+      }),
     );
     expect(session.id).toBe("keep-session");
     expect((await provider.warnings())[0]).toContain("CURSOR_API_KEY");
@@ -277,47 +314,80 @@ describe("Cursor agent provider contract", () => {
 
   test("rejects unsupported session and turn inputs", async () => {
     const provider = await configuredProvider();
-    await expect(
-      provider.createSession(
-        create(CreateAgentProviderSessionRequestSchema, {
-          sessionId: "bad-session",
-          providerOptions: { unsupported: true },
-        }),
-      ),
-    ).rejects.toThrow("provider_options are not supported");
-
-    await provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }));
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
+    );
     const base = {
       turnId: "turn",
       sessionId: "s",
       messages: [{ role: "user", text: "hi" }],
       toolSource: AgentToolSourceMode.MCP_CATALOG,
-      toolGrant: "grant",
+      runGrant: "grant",
       toolRefs: [{ plugin: "p", operation: "o" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
-      ["wrong source", { toolSource: 999 as AgentToolSourceMode }, "requires toolSource"],
-      ["missing grant", { toolGrant: "" }, "tool_grant is required"],
+      [
+        "wrong source",
+        { toolSource: 999 as AgentToolSourceMode },
+        "requires toolSource",
+      ],
+      ["missing grant", { runGrant: "" }, "run_grant is required"],
       ["missing refs", { toolRefs: [] }, "tool_refs are required"],
-      ["wildcard ref", { toolRefs: [{ plugin: "p", operation: "*" }] }, "wildcard"],
-      ["missing operation", { toolRefs: [{ plugin: "p" }] }, "operation is required"],
-      ["missing plugin system", { toolRefs: [{ operation: "o" }] }, "exactly one"],
-      ["both plugin system", { toolRefs: [{ plugin: "p", system: "workflow", operation: "o" }] }, "exactly one"],
-      ["bad system", { toolRefs: [{ system: "not-workflow", operation: "o" }] }, "not supported"],
-      ["resolved tools", { tools: [{ id: "resolved" }] }, "resolved tools are not supported"],
-      ["response schema", { responseSchema: { type: "object" } }, "response_schema"],
-      ["provider options", { providerOptions: { unsupported: true } }, "provider_options"],
+      [
+        "wildcard ref",
+        { toolRefs: [{ plugin: "p", operation: "*" }] },
+        "wildcard",
+      ],
+      [
+        "missing operation",
+        { toolRefs: [{ plugin: "p" }] },
+        "operation is required",
+      ],
+      [
+        "missing plugin system",
+        { toolRefs: [{ operation: "o" }] },
+        "exactly one",
+      ],
+      [
+        "both plugin system",
+        { toolRefs: [{ plugin: "p", system: "workflow", operation: "o" }] },
+        "exactly one",
+      ],
+      [
+        "bad system",
+        { toolRefs: [{ system: "not-workflow", operation: "o" }] },
+        "not supported",
+      ],
+      [
+        "resolved tools",
+        { tools: [{ id: "resolved" }] },
+        "resolved tools are not supported",
+      ],
+      [
+        "response schema",
+        { responseSchema: { type: "object" } },
+        "response_schema",
+      ],
+      [
+        "model options",
+        { modelOptions: { unsupported: true } },
+        "model_options",
+      ],
     ];
     for (const [name, patch, message] of invalidCases) {
       await expect(
-        provider.createTurn(create(CreateAgentProviderTurnRequestSchema, { ...base, ...patch })),
+        provider.createTurn(
+          create(CreateAgentProviderTurnRequestSchema, { ...base, ...patch }),
+        ),
         name,
       ).rejects.toThrow(message);
     }
   });
 
   test("maps Cursor failures, timeouts, and cancellations onto terminal turns", async () => {
-    const host = await FakeAgentHost.start({ pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }] });
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }],
+    });
     activeHosts.push(host);
     process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
 
@@ -326,7 +396,8 @@ describe("Cursor agent provider contract", () => {
       waitStatus: "error",
     }));
     const failureProvider = await configuredProvider({
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: failingCursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: failingCursor }),
     });
     await failureProvider.createSession(
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "failure" }),
@@ -337,11 +408,15 @@ describe("Cursor agent provider contract", () => {
         sessionId: "failure",
         messages: [{ role: "user", text: "fail" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
-    const failed = await waitForTurn(failureProvider, "failure-turn", AgentExecutionStatus.FAILED);
+    const failed = await waitForTurn(
+      failureProvider,
+      "failure-turn",
+      AgentExecutionStatus.FAILED,
+    );
     expect(failed.statusMessage).toContain("status error");
 
     const timeoutCursor = new FakeCursorAgentFactory(async () => ({
@@ -350,14 +425,18 @@ describe("Cursor agent provider contract", () => {
           type: "assistant",
           agent_id: "a",
           run_id: "r",
-          message: { role: "assistant", content: [{ type: "text", text: "late" }] },
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "late" }],
+          },
         },
       ],
       streamDelayMs: 100,
     }));
     const timeoutProvider = await configuredProvider({
       config: { timeoutSeconds: 0.01 },
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: timeoutCursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: timeoutCursor }),
     });
     await timeoutProvider.createSession(
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "timeout" }),
@@ -368,21 +447,30 @@ describe("Cursor agent provider contract", () => {
         sessionId: "timeout",
         messages: [{ role: "user", text: "timeout" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
-    const timedOut = await waitForTurn(timeoutProvider, "timeout-turn", AgentExecutionStatus.CANCELED);
+    const timedOut = await waitForTurn(
+      timeoutProvider,
+      "timeout-turn",
+      AgentExecutionStatus.CANCELED,
+    );
     expect(timedOut.statusMessage).toContain("timed out");
 
     const preRunCursor = new FakeCursorAgentFactory(async () => {
-      throw new Error("Cursor agent should not be created after pre-run cancellation");
+      throw new Error(
+        "Cursor agent should not be created after pre-run cancellation",
+      );
     });
     const preRunProvider = await configuredProvider({
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: preRunCursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: preRunCursor }),
     });
     await preRunProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "pre-run-cancel" }),
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "pre-run-cancel",
+      }),
     );
     await preRunProvider.createTurn(
       create(CreateAgentProviderTurnRequestSchema, {
@@ -390,7 +478,7 @@ describe("Cursor agent provider contract", () => {
         sessionId: "pre-run-cancel",
         messages: [{ role: "user", text: "cancel" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
@@ -418,10 +506,13 @@ describe("Cursor agent provider contract", () => {
         }),
     );
     const pendingSendProvider = await configuredProvider({
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: pendingSendCursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: pendingSendCursor }),
     });
     await pendingSendProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "send-cancel" }),
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "send-cancel",
+      }),
     );
     await pendingSendProvider.createTurn(
       create(CreateAgentProviderTurnRequestSchema, {
@@ -429,7 +520,7 @@ describe("Cursor agent provider contract", () => {
         sessionId: "send-cancel",
         messages: [{ role: "user", text: "cancel while sending" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
@@ -446,7 +537,10 @@ describe("Cursor agent provider contract", () => {
           type: "assistant",
           agent_id: "a",
           run_id: "r",
-          message: { role: "assistant", content: [{ type: "text", text: "late" }] },
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "late" }],
+          },
         },
       ],
     });
@@ -464,16 +558,22 @@ describe("Cursor agent provider contract", () => {
           type: "assistant",
           agent_id: "a",
           run_id: "r",
-          message: { role: "assistant", content: [{ type: "text", text: "late" }] },
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "late" }],
+          },
         },
       ],
       streamDelayMs: 100,
     }));
     const liveProvider = await configuredProvider({
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: liveCursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: liveCursor }),
     });
     await liveProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "live-cancel" }),
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "live-cancel",
+      }),
     );
     await liveProvider.createTurn(
       create(CreateAgentProviderTurnRequestSchema, {
@@ -481,7 +581,7 @@ describe("Cursor agent provider contract", () => {
         sessionId: "live-cancel",
         messages: [{ role: "user", text: "cancel" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
@@ -493,12 +593,18 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     await waitUntil(() => liveCursor.runs[0]?.canceled === true);
-    const liveCanceled = await waitForTurn(liveProvider, "live-turn", AgentExecutionStatus.CANCELED);
+    const liveCanceled = await waitForTurn(
+      liveProvider,
+      "live-turn",
+      AgentExecutionStatus.CANCELED,
+    );
     expect(liveCanceled.statusMessage).toBe("client canceled");
   });
 
   test("close waits for active turn cancellation and cleanup", async () => {
-    const host = await FakeAgentHost.start({ pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }] });
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }],
+    });
     activeHosts.push(host);
     process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
     const cursor = new FakeCursorAgentFactory(async () => ({
@@ -507,23 +613,29 @@ describe("Cursor agent provider contract", () => {
           type: "assistant",
           agent_id: "a",
           run_id: "r",
-          message: { role: "assistant", content: [{ type: "text", text: "late" }] },
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "late" }],
+          },
         },
       ],
       streamDelayMs: 25,
       cancelRejects: true,
     }));
     const provider = await configuredProvider({
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: cursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: "close" }));
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, { sessionId: "close" }),
+    );
     await provider.createTurn(
       create(CreateAgentProviderTurnRequestSchema, {
         turnId: "close-turn",
         sessionId: "close",
         messages: [{ role: "user", text: "close" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
@@ -539,38 +651,94 @@ describe("Cursor agent provider contract", () => {
 
   test("handles ListTools paging errors without invoking tools", async () => {
     const cases: Array<
-      [string, Array<{ tools: ListedAgentTool[]; nextPageToken?: string }>, string]
+      [
+        string,
+        Array<{ tools: ListedAgentTool[]; nextPageToken?: string }>,
+        string,
+      ]
     > = [
       ["empty", [{ tools: [] }], "no tools"],
-      ["duplicate", [{ tools: [tool({ id: "a", mcpName: "dup" }), tool({ id: "b", mcpName: "dup" })] }], "duplicate"],
-      ["unsafe", [{ tools: [tool({ id: "a", mcpName: "bad name" })] }], "unsafe"],
-      ["unsafe slash", [{ tools: [tool({ id: "a", mcpName: "bad/name" })] }], "unsafe"],
-      ["unsafe colon", [{ tools: [tool({ id: "a", mcpName: "bad:name" })] }], "unsafe"],
-      ["unsafe unicode", [{ tools: [tool({ id: "a", mcpName: "å" })] }], "unsafe"],
-      ["unsafe length", [{ tools: [tool({ id: "a", mcpName: "a".repeat(129) })] }], "unsafe"],
-      ["missing id", [{ tools: [tool({ id: "", mcpName: "ok" })] }], "without an id"],
-      ["missing mcp", [{ tools: [tool({ id: "a", mcpName: "" })] }], "without an mcp_name"],
-      ["repeated token", [{ tools: [], nextPageToken: "again" }], "repeated page token"],
+      [
+        "duplicate",
+        [
+          {
+            tools: [
+              tool({ id: "a", mcpName: "dup" }),
+              tool({ id: "b", mcpName: "dup" }),
+            ],
+          },
+        ],
+        "duplicate",
+      ],
+      [
+        "unsafe",
+        [{ tools: [tool({ id: "a", mcpName: "bad name" })] }],
+        "unsafe",
+      ],
+      [
+        "unsafe slash",
+        [{ tools: [tool({ id: "a", mcpName: "bad/name" })] }],
+        "unsafe",
+      ],
+      [
+        "unsafe colon",
+        [{ tools: [tool({ id: "a", mcpName: "bad:name" })] }],
+        "unsafe",
+      ],
+      [
+        "unsafe unicode",
+        [{ tools: [tool({ id: "a", mcpName: "å" })] }],
+        "unsafe",
+      ],
+      [
+        "unsafe length",
+        [{ tools: [tool({ id: "a", mcpName: "a".repeat(129) })] }],
+        "unsafe",
+      ],
+      [
+        "missing id",
+        [{ tools: [tool({ id: "", mcpName: "ok" })] }],
+        "without an id",
+      ],
+      [
+        "missing mcp",
+        [{ tools: [tool({ id: "a", mcpName: "" })] }],
+        "without an mcp_name",
+      ],
+      [
+        "repeated token",
+        [{ tools: [], nextPageToken: "again" }],
+        "repeated page token",
+      ],
     ];
     for (const [name, pages, message] of cases) {
       const host = await FakeAgentHost.start({ pages });
       activeHosts.push(host);
       process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
       const provider = await configuredProvider({
-        runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: new FakeCursorAgentFactory() }),
+        runnerFactory: (config) =>
+          new CursorSDKRunner(config, {
+            agentFactory: new FakeCursorAgentFactory(),
+          }),
       });
-      await provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: name }));
+      await provider.createSession(
+        create(CreateAgentProviderSessionRequestSchema, { sessionId: name }),
+      );
       await provider.createTurn(
         create(CreateAgentProviderTurnRequestSchema, {
           turnId: `turn-${name}`,
           sessionId: name,
           messages: [{ role: "user", text: "hi" }],
           toolSource: AgentToolSourceMode.MCP_CATALOG,
-          toolGrant: "grant",
+          runGrant: "grant",
           toolRefs: [{ plugin: "p", operation: "o" }],
         }),
       );
-      const turn = await waitForTurn(provider, `turn-${name}`, AgentExecutionStatus.FAILED);
+      const turn = await waitForTurn(
+        provider,
+        `turn-${name}`,
+        AgentExecutionStatus.FAILED,
+      );
       expect(turn.statusMessage).toContain(message);
       await host.close();
       activeHosts.pop();
@@ -598,11 +766,18 @@ describe("Cursor agent provider contract", () => {
       await expect(callMcpTools(bridge.url, {})).rejects.toThrow();
       const listed = await listMcpTools(bridge.url, bridge.headers);
       expect(listed.tools.map((entry) => entry.name)).toEqual(["raw_tool"]);
-      const result = await callMcpTool(bridge.url, bridge.headers, "raw_tool", { value: 1 });
+      const result = await callMcpTool(bridge.url, bridge.headers, "raw_tool", {
+        value: 1,
+      });
       expect(result.isError).toBe(true);
-      expect((result as any).content[0]).toEqual({ type: "text", text: "nope" });
+      expect((result as any).content[0]).toEqual({
+        type: "text",
+        text: "nope",
+      });
       expect(calls).toEqual([{ callId: "sdk-1", args: { value: 1 } }]);
-      await expect(callMcpTool(bridge.url, bridge.headers, "missing", {})).rejects.toThrow();
+      await expect(
+        callMcpTool(bridge.url, bridge.headers, "missing", {}),
+      ).rejects.toThrow();
     } finally {
       await bridge.close();
     }
@@ -610,43 +785,72 @@ describe("Cursor agent provider contract", () => {
 
   test("interaction stubs and turn events match the in-memory contract", async () => {
     const provider = await configuredProvider();
-    await expect(provider.getInteraction({ interactionId: "missing" } as never)).rejects.toThrow("was not found");
-    expect(await provider.listInteractions({ turnId: "turn" } as never)).toEqual([]);
-    await expect(provider.resolveInteraction({ interactionId: "missing" } as never)).rejects.toThrow("was not found");
+    await expect(
+      provider.getInteraction({ interactionId: "missing" } as never),
+    ).rejects.toThrow("was not found");
+    expect(
+      await provider.listInteractions({ turnId: "turn" } as never),
+    ).toEqual([]);
+    await expect(
+      provider.resolveInteraction({ interactionId: "missing" } as never),
+    ).rejects.toThrow("was not found");
 
-    await provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }));
-    const host = await FakeAgentHost.start({ pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }] });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }),
+    );
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    });
     activeHosts.push(host);
     process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
     const cursor = new FakeCursorAgentFactory(async () => [
-      { type: "assistant", agent_id: "a", run_id: "r", message: { role: "assistant", content: [{ type: "text", text: "done" }] } },
+      {
+        type: "assistant",
+        agent_id: "a",
+        run_id: "r",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+      },
     ]);
     const eventProvider = await configuredProvider({
-      runnerFactory: (config) => new CursorSDKRunner(config, { agentFactory: cursor }),
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await eventProvider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }));
+    await eventProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }),
+    );
     await eventProvider.createTurn(
       create(CreateAgentProviderTurnRequestSchema, {
         turnId: "events-turn",
         sessionId: "events",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolGrant: "grant",
+        runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
       }),
     );
-    await waitForTurn(eventProvider, "events-turn", AgentExecutionStatus.SUCCEEDED);
+    await waitForTurn(
+      eventProvider,
+      "events-turn",
+      AgentExecutionStatus.SUCCEEDED,
+    );
     const events = await eventProvider.listTurnEvents(
-      create(ListAgentProviderTurnEventsRequestSchema, { turnId: "events-turn" }),
+      create(ListAgentProviderTurnEventsRequestSchema, {
+        turnId: "events-turn",
+      }),
     );
     expect(events.map((event) => event.type)).toContain("turn.completed");
   });
 });
 
-async function configuredProvider(input: {
-  config?: Record<string, unknown>;
-  runnerFactory?: (config: CursorAgentConfig) => CursorSDKRunner;
-} = {}): Promise<CursorAgentProvider> {
+async function configuredProvider(
+  input: {
+    config?: Record<string, unknown>;
+    runnerFactory?: (config: CursorAgentConfig) => CursorSDKRunner;
+  } = {},
+): Promise<CursorAgentProvider> {
   const provider = createCursorAgentProvider(
     input.runnerFactory ? { runnerFactory: input.runnerFactory } : {},
   );
@@ -671,7 +875,8 @@ function tool(input: {
     mcpName: input.mcpName,
     title: input.title ?? "",
     description: input.description ?? "",
-    inputSchema: input.inputSchema ?? "{\"type\":\"object\",\"additionalProperties\":true}",
+    inputSchema:
+      input.inputSchema ?? '{"type":"object","additionalProperties":true}',
   });
 }
 
@@ -681,13 +886,17 @@ async function waitForTurn(
   status: AgentExecutionStatus,
 ): Promise<Awaited<ReturnType<CursorAgentProvider["getTurn"]>>> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
-    const turn = await provider.getTurn(create(GetAgentProviderTurnRequestSchema, { turnId }));
+    const turn = await provider.getTurn(
+      create(GetAgentProviderTurnRequestSchema, { turnId }),
+    );
     if (turn.status === status) {
       return turn;
     }
     await new Promise((resolveTimer) => setTimeout(resolveTimer, 10));
   }
-  return await provider.getTurn(create(GetAgentProviderTurnRequestSchema, { turnId }));
+  return await provider.getTurn(
+    create(GetAgentProviderTurnRequestSchema, { turnId }),
+  );
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
@@ -720,11 +929,18 @@ class FakeCursorAgentFactory implements CursorAgentFactory {
       options: import("@cursor/sdk").AgentOptions,
       prompt: string,
     ) => Promise<FakeCursorResponse> = async () => [
-      { type: "assistant", agent_id: "fake-agent", run_id: "fake-run", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+      {
+        type: "assistant",
+        agent_id: "fake-agent",
+        run_id: "fake-run",
+        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      },
     ],
   ) {}
 
-  async create(options: import("@cursor/sdk").AgentOptions): Promise<import("@cursor/sdk").SDKAgent> {
+  async create(
+    options: import("@cursor/sdk").AgentOptions,
+  ): Promise<import("@cursor/sdk").SDKAgent> {
     this.options.push(options);
     if (typeof options.platform?.stateRoot === "string") {
       this.stateRoots.push(options.platform.stateRoot);
@@ -778,7 +994,10 @@ class FakeRun {
 
   constructor(
     private readonly messages: import("@cursor/sdk").SDKMessage[],
-    private readonly options: Exclude<FakeCursorResponse, import("@cursor/sdk").SDKMessage[]> = {},
+    private readonly options: Exclude<
+      FakeCursorResponse,
+      import("@cursor/sdk").SDKMessage[]
+    > = {},
   ) {}
 
   supports(): boolean {
@@ -790,7 +1009,9 @@ class FakeRun {
   async *stream(): AsyncGenerator<import("@cursor/sdk").SDKMessage, void> {
     for (const message of this.messages) {
       if (this.options.streamDelayMs) {
-        await new Promise((resolveTimer) => setTimeout(resolveTimer, this.options.streamDelayMs));
+        await new Promise((resolveTimer) =>
+          setTimeout(resolveTimer, this.options.streamDelayMs),
+        );
       }
       if (this.canceled) {
         this.status = "cancelled";
@@ -812,7 +1033,9 @@ class FakeRun {
     return [];
   }
   async wait(): Promise<import("@cursor/sdk").RunResult> {
-    const status = this.canceled ? "cancelled" : (this.options.waitStatus ?? "finished");
+    const status = this.canceled
+      ? "cancelled"
+      : (this.options.waitStatus ?? "finished");
     this.status = status;
     return {
       id: this.id,
@@ -858,12 +1081,17 @@ class FakeAgentHost {
         routes(router) {
           router.service(AgentHostService, {
             listTools(request: any, context: any) {
-              host.relayTokens.push(context.requestHeader.get(AGENT_HOST_RELAY_TOKEN_HEADER) ?? "");
+              host.relayTokens.push(
+                context.requestHeader.get(AGENT_HOST_RELAY_TOKEN_HEADER) ?? "",
+              );
               host.listRequests.push(request);
               const pageIndex = request.pageToken
-                ? input.pages.findIndex((page) => page.nextPageToken === request.pageToken) + 1
+                ? input.pages.findIndex(
+                    (page) => page.nextPageToken === request.pageToken,
+                  ) + 1
                 : 0;
-              const page = input.pages[pageIndex] ?? input.pages[input.pages.length - 1] ?? { tools: [] };
+              const page = input.pages[pageIndex] ??
+                input.pages[input.pages.length - 1] ?? { tools: [] };
               return create(ListAgentToolsResponseSchema, {
                 tools: page.tools,
                 nextPageToken: page.nextPageToken ?? "",
@@ -898,12 +1126,18 @@ async function callFirstMcpTool(
 ): Promise<unknown> {
   const listed = await listMcpTools(url, headers);
   expect(listed.tools[0]?.name).toBe("weather");
-  const result = await callMcpTool(url, headers, listed.tools[0]?.name ?? "", { city: "Oakland" });
+  const result = await callMcpTool(url, headers, listed.tools[0]?.name ?? "", {
+    city: "Oakland",
+  });
   return (result as any).content[0];
 }
 
 async function listMcpTools(url: string, headers: Record<string, string>) {
-  return await callMcpTools(url, headers, async (client) => await client.listTools());
+  return await callMcpTools(
+    url,
+    headers,
+    async (client) => await client.listTools(),
+  );
 }
 
 async function callMcpTool(
@@ -912,13 +1146,18 @@ async function callMcpTool(
   name: string,
   args: Record<string, unknown>,
 ) {
-  return await callMcpTools(url, headers, async (client) => await client.callTool({ name, arguments: args }));
+  return await callMcpTools(
+    url,
+    headers,
+    async (client) => await client.callTool({ name, arguments: args }),
+  );
 }
 
 async function callMcpTools<T>(
   url: string,
   headers: Record<string, string>,
-  fn: (client: McpClient) => Promise<T> = async (client) => (await client.listTools()) as T,
+  fn: (client: McpClient) => Promise<T> = async (client) =>
+    (await client.listTools()) as T,
 ): Promise<T> {
   const client = new McpClient({ name: "fake-cursor", version: "0.0.0" });
   const transport = new StreamableHTTPClientTransport(new URL(url), {
@@ -932,7 +1171,10 @@ async function callMcpTools<T>(
   }
 }
 
-async function listenUnix(server: Http2Server, socketPath: string): Promise<void> {
+async function listenUnix(
+  server: Http2Server,
+  socketPath: string,
+): Promise<void> {
   await new Promise<void>((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(socketPath, () => {
