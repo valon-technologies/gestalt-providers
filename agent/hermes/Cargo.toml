@@ -1,6 +1,6 @@
 [package]
 name = "gestalt-agent-hermes"
-version = "0.0.1-alpha.6"
+version = "0.0.1-alpha.7"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -16,7 +16,7 @@ path = "tests/fixtures/fake_acp.rs"
 agent-client-protocol = "=0.11.1"
 agent-client-protocol-tokio = "=0.11.1"
 axum = "0.8"
-gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "c36528e84137b3bc164fb691401c62a869ed1052" }
+gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "93f295e17232ea7c855c68f334c492151d5682b3" }
 getrandom = "0.4"
 prost-types = "0.14"
 rmcp = { version = "1.6", features = ["transport-streamable-http-server"] }
