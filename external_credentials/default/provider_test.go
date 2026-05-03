@@ -267,6 +267,105 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 	}
 }
 
+func TestExternalCredentialProviderBackfillsLegacyConnectionRecords(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	const encryptionKey = "provider-legacy-connection-key"
+	db, err := gestalt.IndexedDB()
+	if err != nil {
+		t.Fatalf("IndexedDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	if err := db.CreateObjectStore(ctx, legacyStoreName, legacyExternalCredentialSchema()); err != nil {
+		t.Fatalf("CreateObjectStore(%s): %v", legacyStoreName, err)
+	}
+
+	key := deriveKey(encryptionKey)
+	createdAt := time.Date(2026, time.May, 3, 4, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(time.Minute)
+	bigqueryAccess := mustEncryptWithNonce(t, key, []byte("legacybqacc1"), "bigquery-access-token")
+	bigqueryRefresh := mustEncryptWithNonce(t, key, []byte("legacybqref1"), "bigquery-refresh-token")
+	slackAccess := mustEncryptWithNonce(t, key, []byte("legacyslack1"), "slack-access-token")
+	if err := db.ObjectStore(legacyStoreName).Put(ctx, gestalt.Record{
+		"id":                      "legacy-bigquery",
+		"subject_id":              "user:user-legacy",
+		"integration":             "bigquery",
+		"connection":              "default",
+		"instance":                "default",
+		"access_token_encrypted":  bigqueryAccess,
+		"refresh_token_encrypted": bigqueryRefresh,
+		"scopes":                  "https://www.googleapis.com/auth/bigquery",
+		"metadata_json":           `{"source":"legacy"}`,
+		"created_at":              createdAt,
+		"updated_at":              updatedAt,
+	}); err != nil {
+		t.Fatalf("Put(legacy bigquery): %v", err)
+	}
+	if err := db.ObjectStore(legacyStoreName).Put(ctx, gestalt.Record{
+		"id":                     "legacy-slack",
+		"subject_id":             "user:user-legacy",
+		"integration":            "slack",
+		"connection":             "default",
+		"instance":               "workspace-1",
+		"access_token_encrypted": slackAccess,
+		"created_at":             createdAt,
+		"updated_at":             updatedAt,
+	}); err != nil {
+		t.Fatalf("Put(legacy slack): %v", err)
+	}
+
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": encryptionKey,
+	})
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": encryptionKey,
+	})
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	listed, err := client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
+		SubjectId:    "user:user-legacy",
+		ConnectionId: "bigquery:default",
+	})
+	if err != nil {
+		t.Fatalf("ListCredentials(bigquery): %v", err)
+	}
+	if len(listed.GetCredentials()) != 1 {
+		t.Fatalf("bigquery credentials len = %d, want 1", len(listed.GetCredentials()))
+	}
+	got := listed.GetCredentials()[0]
+	if got.GetId() != "legacy-bigquery" {
+		t.Fatalf("credential id = %q, want legacy-bigquery", got.GetId())
+	}
+	if got.GetAccessToken() != "bigquery-access-token" || got.GetRefreshToken() != "bigquery-refresh-token" {
+		t.Fatalf("tokens = access:%q refresh:%q", got.GetAccessToken(), got.GetRefreshToken())
+	}
+	if got.GetConnectionId() != "bigquery:default" || got.GetInstance() != "default" {
+		t.Fatalf("lookup = connection:%q instance:%q", got.GetConnectionId(), got.GetInstance())
+	}
+
+	all, err := client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
+		SubjectId: "user:user-legacy",
+	})
+	if err != nil {
+		t.Fatalf("ListCredentials(subject): %v", err)
+	}
+	if len(all.GetCredentials()) != 2 {
+		t.Fatalf("subject credentials len = %d, want 2", len(all.GetCredentials()))
+	}
+	if _, err := db.ObjectStore(legacyStoreName).Get(ctx, "legacy-bigquery"); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("legacy bigquery Get error = %v, want %v", err, gestalt.ErrNotFound)
+	}
+}
+
 func TestExternalCredentialProviderValidation(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	lifecycle, providerConn := startTestProviderServer(t)
@@ -373,6 +472,33 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 	})
 
 	t.Setenv(envName, socketPath)
+}
+
+func legacyExternalCredentialSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_subject", KeyPath: []string{"subject_id"}},
+			{Name: "by_subject_integration", KeyPath: []string{"subject_id", "integration"}},
+			{Name: "by_subject_connection", KeyPath: []string{"subject_id", "integration", "connection"}},
+			{Name: "by_lookup", KeyPath: []string{"subject_id", "integration", "connection", "instance"}, Unique: true},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "integration", Type: gestalt.TypeString, NotNull: true},
+			{Name: "connection", Type: gestalt.TypeString, NotNull: true},
+			{Name: "instance", Type: gestalt.TypeString},
+			{Name: "access_token_encrypted", Type: gestalt.TypeString},
+			{Name: "refresh_token_encrypted", Type: gestalt.TypeString},
+			{Name: "scopes", Type: gestalt.TypeString},
+			{Name: "expires_at", Type: gestalt.TypeTime},
+			{Name: "last_refreshed_at", Type: gestalt.TypeTime},
+			{Name: "refresh_error_count", Type: gestalt.TypeInt},
+			{Name: "metadata_json", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+		},
+	}
 }
 
 func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc.ClientConn) {

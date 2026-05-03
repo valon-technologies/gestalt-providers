@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -14,7 +15,8 @@ import (
 )
 
 const (
-	storeName                = "external_credentials"
+	legacyStoreName          = "external_credentials"
+	storeName                = "external_credentials_v2"
 	indexBySubject           = "by_subject"
 	indexBySubjectConnection = "by_subject_connection"
 	indexByLookup            = "by_lookup"
@@ -92,7 +94,107 @@ func (s *store) ensure(ctx context.Context) error {
 	if err := s.client.CreateObjectStore(ctx, storeName, storeSchema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create object store %q: %w", storeName, err)
 	}
+	if err := s.backfillLegacyCredentials(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *store) backfillLegacyCredentials(ctx context.Context) error {
+	legacy := s.client.ObjectStore(legacyStoreName)
+	records, err := legacy.GetAll(ctx, nil)
+	switch {
+	case errors.Is(err, gestalt.ErrNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("list legacy external credentials: %w", err)
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	sort.Slice(records, func(i, j int) bool {
+		return credentialRecordLess(records[i], records[j])
+	})
+
+	var created, skipped, deleted int
+	for _, record := range records {
+		credential, ok, err := s.legacyRecordToCredential(record)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			skipped++
+			continue
+		}
+		if _, err := s.credentialRecord(ctx, credential.GetSubjectId(), credential.GetConnectionId(), credential.GetInstance()); err == nil {
+			skipped++
+		} else if !errors.Is(err, gestalt.ErrExternalCredentialNotFound) {
+			return fmt.Errorf("check migrated external credential: %w", err)
+		} else if _, err := s.upsertCredential(ctx, credential, true, time.Now().UTC()); err != nil {
+			return fmt.Errorf("migrate legacy external credential: %w", err)
+		} else {
+			created++
+		}
+		removed, err := s.deleteLegacyCredentialRecord(ctx, record)
+		if err != nil {
+			return err
+		}
+		if removed {
+			deleted++
+		}
+	}
+	if created > 0 || skipped > 0 || deleted > 0 {
+		slog.InfoContext(ctx, "backfilled legacy external credentials", "created", created, "skipped", skipped, "deleted", deleted)
+	}
+	return nil
+}
+
+func (s *store) legacyRecordToCredential(record gestalt.Record) (*gestalt.ExternalCredential, bool, error) {
+	subjectID := credentialRecordSubjectID(record)
+	integration := strings.TrimSpace(recordString(record, "integration"))
+	connection := strings.TrimSpace(recordString(record, "connection"))
+	instance := recordString(record, "instance")
+	if subjectID == "" || integration == "" || connection == "" {
+		return nil, false, nil
+	}
+
+	accessToken, refreshToken, err := s.encryptor.DecryptTokenPair(
+		recordString(record, "access_token_encrypted"),
+		recordString(record, "refresh_token_encrypted"),
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("decrypt legacy credential pair: %w", err)
+	}
+	return &gestalt.ExternalCredential{
+		Id:                recordString(record, "id"),
+		SubjectId:         subjectID,
+		ConnectionId:      legacyConnectionID(integration, connection),
+		Instance:          instance,
+		AccessToken:       accessToken,
+		RefreshToken:      refreshToken,
+		Scopes:            recordString(record, "scopes"),
+		ExpiresAt:         timeToProto(recordTimePtr(record, "expires_at")),
+		LastRefreshedAt:   timeToProto(recordTimePtr(record, "last_refreshed_at")),
+		RefreshErrorCount: int32(recordInt(record, "refresh_error_count")),
+		MetadataJson:      recordString(record, "metadata_json"),
+		CreatedAt:         timeToProto(recordTimePtr(record, "created_at")),
+		UpdatedAt:         timeToProto(recordTimePtr(record, "updated_at")),
+	}, true, nil
+}
+
+func legacyConnectionID(integration, connection string) string {
+	return strings.TrimSpace(integration) + ":" + strings.TrimSpace(connection)
+}
+
+func (s *store) deleteLegacyCredentialRecord(ctx context.Context, record gestalt.Record) (bool, error) {
+	id := recordString(record, "id")
+	if id == "" {
+		return false, nil
+	}
+	if err := s.client.ObjectStore(legacyStoreName).Delete(ctx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+		return false, fmt.Errorf("delete legacy external credential %q: %w", id, err)
+	}
+	return true, nil
 }
 
 func (s *store) upsertCredential(ctx context.Context, credential *gestalt.ExternalCredential, preserveTimestamps bool, now time.Time) (*gestalt.ExternalCredential, error) {
