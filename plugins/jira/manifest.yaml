@@ -91,6 +91,58 @@ spec:
           type: object
           in: body
           required: true
+      - name: get_issue_properties
+        description: Get all properties for an issue
+        method: GET
+        path: /issue/{issueIdOrKey}/properties
+        parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+      - name: get_issue_property
+        description: Get the value of an issue property by key
+        method: GET
+        path: /issue/{issueIdOrKey}/properties/{propertyKey}
+        parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+        - name: propertyKey
+          type: string
+          in: path
+          required: true
+      - name: set_issue_property
+        description: Set the value of an issue property
+        method: PUT
+        path: /issue/{issueIdOrKey}/properties/{propertyKey}
+        parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+        - name: propertyKey
+          type: string
+          in: path
+          required: true
+        - name: value
+          type: object
+          in: body
+          required: true
+      - name: delete_issue_property
+        description: Delete an issue property
+        method: DELETE
+        path: /issue/{issueIdOrKey}/properties/{propertyKey}
+        parameters:
+        - name: issueIdOrKey
+          type: string
+          in: path
+          required: true
+        - name: propertyKey
+          type: string
+          in: path
+          required: true
   connections:
     default:
       auth:
