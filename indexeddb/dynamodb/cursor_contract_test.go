@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -11,10 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	contracttest "github.com/valon-technologies/gestalt-providers/indexeddb/contracttest"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 type dynamoContractHarness struct {
@@ -60,17 +58,13 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("Configure: %v", err)
 	}
 	defer provider.Close()
-	server := provider.providerCore
 
 	ctx := context.Background()
-	if _, err := server.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name:   "users",
-		Schema: uniqueEmailSchema(),
-	}); err != nil {
+	if err := provider.CreateObjectStore(ctx, "users", uniqueEmailSchema()); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
-	alice, err := sdkcompat.RecordToProto(map[string]any{
+	alice, err := gestalt.RecordToProto(gestalt.Record{
 		"id":    "a",
 		"name":  "Alice",
 		"email": "alice@test.com",
@@ -105,42 +99,34 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("PutItem(legacy unique row): %v", err)
 	}
 
-	keysResp, err := server.IndexGetAllKeys(ctx, &proto.IndexQueryRequest{
-		Store: "users",
-		Index: "by_email",
-		Values: []*proto.TypedValue{
-			{Kind: &proto.TypedValue_StringValue{StringValue: "alice@test.com"}},
-		},
+	keys, err := provider.IndexGetAllKeys(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store:  "users",
+		Index:  "by_email",
+		Values: []any{"alice@test.com"},
 	})
 	if err != nil {
 		t.Fatalf("IndexGetAllKeys(legacy row): %v", err)
 	}
-	if len(keysResp.Keys) != 1 || keysResp.Keys[0] != "a" {
-		t.Fatalf("IndexGetAllKeys legacy keys = %#v, want %#v", keysResp.Keys, []string{"a"})
+	if len(keys) != 1 || keys[0] != "a" {
+		t.Fatalf("IndexGetAllKeys legacy keys = %#v, want %#v", keys, []string{"a"})
 	}
 
-	bob, err := sdkcompat.RecordToProto(map[string]any{
+	bob := gestalt.Record{
 		"id":    "b",
 		"name":  "Bob",
 		"email": "alice@test.com",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto(bob): %v", err)
 	}
-	_, err = server.Add(ctx, &proto.RecordRequest{Store: "users", Record: bob})
-	if got := status.Code(err); got != codes.AlreadyExists {
-		t.Fatalf("Add duplicate error = %s, want %s", got, codes.AlreadyExists)
+	err = provider.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "users", Record: bob})
+	if !errors.Is(err, gestalt.ErrAlreadyExists) {
+		t.Fatalf("Add duplicate error = %v, want ErrAlreadyExists", err)
 	}
 
-	aliceUpdated, err := sdkcompat.RecordToProto(map[string]any{
+	aliceUpdated := gestalt.Record{
 		"id":    "a",
 		"name":  "Alice Updated",
 		"email": "alice@test.com",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto(aliceUpdated): %v", err)
 	}
-	if _, err := server.Put(ctx, &proto.RecordRequest{Store: "users", Record: aliceUpdated}); err != nil {
+	if err := provider.Put(ctx, gestalt.IndexedDBRecordRequest{Store: "users", Record: aliceUpdated}); err != nil {
 		t.Fatalf("Put(aliceUpdated): %v", err)
 	}
 
@@ -165,7 +151,7 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("unique index ref_id = %q, want %q", got, "a")
 	}
 
-	if _, err := server.Delete(ctx, &proto.ObjectStoreRequest{Store: "users", Id: "a"}); err != nil {
+	if err := provider.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "users", ID: "a"}); err != nil {
 		t.Fatalf("Delete(alice): %v", err)
 	}
 
@@ -218,7 +204,7 @@ func (h *dynamoContractHarness) Capabilities() contracttest.Capabilities {
 	return contracttest.Capabilities{UnreadablePayloadRow: true}
 }
 
-func (h *dynamoContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, func()) {
+func (h *dynamoContractHarness) NewProvider(t *testing.T) (gestalt.IndexedDBProvider, func()) {
 	t.Helper()
 
 	provider := New()
@@ -229,7 +215,7 @@ func (h *dynamoContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, 
 	}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
-	return provider.providerCore, func() {
+	return provider, func() {
 		_ = provider.Close()
 	}
 }
@@ -262,15 +248,15 @@ func (h *dynamoContractHarness) InsertUnreadablePayloadRow(t *testing.T, storeNa
 	}
 }
 
-func uniqueEmailSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func uniqueEmailSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
 		},
-		Columns: []*proto.ColumnDef{
-			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
-			{Name: "name", Type: 0},
-			{Name: "email", Type: 0},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true, NotNull: true},
+			{Name: "name", Type: gestalt.TypeString},
+			{Name: "email", Type: gestalt.TypeString},
 		},
 	}
 }

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	contracttest "github.com/valon-technologies/gestalt-providers/indexeddb/contracttest"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -68,7 +68,7 @@ func (h *mongoContractHarness) Capabilities() contracttest.Capabilities {
 	}
 }
 
-func (h *mongoContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, func()) {
+func (h *mongoContractHarness) NewProvider(t *testing.T) (gestalt.IndexedDBProvider, func()) {
 	t.Helper()
 
 	provider := New()
@@ -79,7 +79,7 @@ func (h *mongoContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, f
 		t.Fatalf("Configure: %v", err)
 	}
 
-	return provider.providerCore, func() {
+	return provider, func() {
 		_ = provider.Close()
 	}
 }

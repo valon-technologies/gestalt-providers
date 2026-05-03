@@ -3,29 +3,24 @@ package contracttest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
 )
 
 const (
-	bufSize = 1024 * 1024
+	envProviderSocket = "GESTALT_PLUGIN_SOCKET"
 
-	typeString int32 = 0
-	typeInt    int32 = 1
-	typeTime   int32 = 4
-	typeBytes  int32 = 5
+	typeString gestalt.ColumnType = gestalt.TypeString
+	typeInt    gestalt.ColumnType = gestalt.TypeInt
+	typeTime   gestalt.ColumnType = gestalt.TypeTime
+	typeBytes  gestalt.ColumnType = gestalt.TypeBytes
 )
 
 type Capabilities struct {
@@ -37,14 +32,20 @@ type Capabilities struct {
 type Harness interface {
 	Name() string
 	Capabilities() Capabilities
-	NewServer(t *testing.T) (proto.IndexedDBServer, func())
+	NewProvider(t *testing.T) (gestalt.IndexedDBProvider, func())
 	InsertUnreadablePayloadRow(t *testing.T, store, id, status string)
 }
 
 type session struct {
 	harness Harness
-	client  proto.IndexedDBClient
+	client  *gestalt.IndexedDBClient
 	close   func()
+}
+
+type cursorEntry struct {
+	Key        any
+	PrimaryKey string
+	Record     gestalt.Record
 }
 
 func Run(t *testing.T, harness Harness) {
@@ -79,8 +80,8 @@ func Run(t *testing.T, harness Harness) {
 		runBulkConsistency(t, harness)
 	})
 
-	t.Run("ExplicitTransactionWireContract", func(t *testing.T) {
-		runExplicitTransactionWireContract(t, harness)
+	t.Run("ExplicitTransactionSDKContract", func(t *testing.T) {
+		runExplicitTransactionSDKContract(t, harness)
 	})
 
 	t.Run("TypedDeleteRangeFidelity", func(t *testing.T) {
@@ -123,7 +124,7 @@ func runTypedPrimaryKeyFidelity(t *testing.T, harness Harness) {
 	cases := []struct {
 		name       string
 		store      string
-		columnType int32
+		columnType gestalt.ColumnType
 		ids        []any
 		rangeWant  []any
 		lower      any
@@ -189,24 +190,20 @@ func runTypedPrimaryKeyFidelity(t *testing.T, harness Harness) {
 			wantIDs := sortedValues(append([]any(nil), tc.ids...))
 			assertValueSliceEqual(t, gotIDs, wantIDs)
 
-			ranged := mustGetAll(t, sess.client, tc.store, &proto.KeyRange{
-				Lower: mustTypedValue(t, tc.lower),
-				Upper: mustTypedValue(t, tc.upper),
-			})
+			ranged := mustGetAll(t, sess.client, tc.store, &gestalt.KeyRange{Lower: tc.lower, Upper: tc.upper})
 			gotRangeIDs := sortedRecordIDs(t, ranged)
 			wantRangeIDs := sortedValues(append([]any(nil), tc.rangeWant...))
 			assertValueSliceEqual(t, gotRangeIDs, wantRangeIDs)
 
-			entries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+			entries := collectCursorEntries(t, sess.client, &cursorRequest{
 				Store:     tc.store,
-				Direction: proto.CursorDirection_CURSOR_NEXT,
+				Direction: gestalt.CursorNext,
 			})
 			gotCursorIDs := make([]any, 0, len(entries))
 			gotCursorKeys := make([]any, 0, len(entries))
 			for _, entry := range entries {
 				gotCursorKeys = append(gotCursorKeys, cursorScalarKey(t, entry))
-				record := mustRecord(t, entry.GetRecord())
-				gotCursorIDs = append(gotCursorIDs, record["id"])
+				gotCursorIDs = append(gotCursorIDs, entry.Record["id"])
 			}
 			assertValueSliceEqual(t, gotCursorIDs, wantIDs)
 			assertValueSliceEqual(t, gotCursorKeys, wantIDs)
@@ -223,9 +220,9 @@ func runTypedIndexRangeFidelity(t *testing.T, harness Harness) {
 	store := "typed_index_range_fidelity"
 	mustSeedNumericIndexItems(t, sess.client, store)
 
-	rangeReq := &proto.KeyRange{
-		Lower: mustTypedValue(t, int64(9007199254740993)),
-		Upper: mustTypedValue(t, int64(9007199254741001)),
+	rangeReq := &gestalt.KeyRange{
+		Lower: int64(9007199254740993),
+		Upper: int64(9007199254741001),
 	}
 
 	records := mustIndexGetAllWithRange(t, sess.client, store, "by_rank", rangeReq)
@@ -244,10 +241,10 @@ func runTypedIndexRangeFidelity(t *testing.T, harness Harness) {
 		t.Fatalf("IndexCount by_rank = %d, want 2", count)
 	}
 
-	entries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+	entries := collectCursorEntries(t, sess.client, &cursorRequest{
 		Store:     store,
 		Index:     "by_rank",
-		Direction: proto.CursorDirection_CURSOR_NEXT,
+		Direction: gestalt.CursorNext,
 		Range:     rangeReq,
 	})
 	if got := cursorPrimaryKeys(entries); !stringSlicesEqual(got, []string{"b", "c"}) {
@@ -270,48 +267,42 @@ func runKeyOnlyCursorSkipsUnreadableValues(t *testing.T, harness Harness) {
 	mustCreateObjectStore(t, sess.client, store, unreadablePayloadSchema())
 	harness.InsertUnreadablePayloadRow(t, store, "broken", "active")
 
-	objectStoreEntries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+	objectStoreEntries := collectCursorEntries(t, sess.client, &cursorRequest{
 		Store:     store,
-		Direction: proto.CursorDirection_CURSOR_NEXT,
+		Direction: gestalt.CursorNext,
 		KeysOnly:  true,
 	})
 	if len(objectStoreEntries) != 1 {
 		t.Fatalf("object-store key cursor entry count = %d, want 1", len(objectStoreEntries))
 	}
-	if got := objectStoreEntries[0].GetPrimaryKey(); got != "broken" {
+	if got := objectStoreEntries[0].PrimaryKey; got != "broken" {
 		t.Fatalf("object-store key cursor primary key = %q, want %q", got, "broken")
 	}
-	if objectStoreEntries[0].GetRecord() != nil {
-		t.Fatalf("object-store key cursor returned record: %+v", objectStoreEntries[0].GetRecord())
+	if objectStoreEntries[0].Record != nil {
+		t.Fatalf("object-store key cursor returned record: %+v", objectStoreEntries[0].Record)
 	}
 
-	indexEntries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+	indexEntries := collectCursorEntries(t, sess.client, &cursorRequest{
 		Store:     store,
 		Index:     "by_status",
-		Direction: proto.CursorDirection_CURSOR_NEXT,
-		Range: &proto.KeyRange{
-			Lower: mustTypedValue(t, "active"),
-			Upper: mustTypedValue(t, "active"),
-		},
-		KeysOnly: true,
+		Direction: gestalt.CursorNext,
+		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
+		KeysOnly:  true,
 	})
 	if len(indexEntries) != 1 {
 		t.Fatalf("index key cursor entry count = %d, want 1", len(indexEntries))
 	}
-	if got := indexEntries[0].GetPrimaryKey(); got != "broken" {
+	if got := indexEntries[0].PrimaryKey; got != "broken" {
 		t.Fatalf("index key cursor primary key = %q, want %q", got, "broken")
 	}
-	if indexEntries[0].GetRecord() != nil {
-		t.Fatalf("index key cursor returned record: %+v", indexEntries[0].GetRecord())
+	if indexEntries[0].Record != nil {
+		t.Fatalf("index key cursor returned record: %+v", indexEntries[0].Record)
 	}
 	if got := cursorKeyValues(t, indexEntries[0]); len(got) != 1 || got[0] != "active" {
 		t.Fatalf("index key cursor key = %#v, want [\"active\"]", got)
 	}
 
-	rangeReq := &proto.KeyRange{
-		Lower: mustTypedValue(t, "active"),
-		Upper: mustTypedValue(t, "active"),
-	}
+	rangeReq := &gestalt.KeyRange{Lower: "active", Upper: "active"}
 	keys := mustIndexGetAllKeysWithRange(t, sess.client, store, "by_status", rangeReq)
 	if !stringSlicesEqual(keys, []string{"broken"}) {
 		t.Fatalf("IndexGetAllKeys unreadable ids = %#v, want %#v", keys, []string{"broken"})
@@ -334,7 +325,7 @@ func runCursorMutationWithTypedKeys(t *testing.T, harness Harness) {
 
 	cases := []struct {
 		name       string
-		columnType int32
+		columnType gestalt.ColumnType
 		id         any
 	}{
 		{name: "Numeric", columnType: typeInt, id: int64(42)},
@@ -350,21 +341,17 @@ func runCursorMutationWithTypedKeys(t *testing.T, harness Harness) {
 			mustCreateObjectStore(t, sess.client, store, typedPrimaryKeySchema(tc.columnType))
 			mustAddRecord(t, sess.client, store, map[string]any{"id": tc.id, "name": "before"})
 
-			stream := openCursorStream(t, sess.client, &proto.OpenCursorRequest{
+			cursor := mustOpenCursor(t, sess.client, &cursorRequest{
 				Store:     store,
-				Direction: proto.CursorDirection_CURSOR_NEXT,
+				Direction: gestalt.CursorNext,
 			})
-			t.Cleanup(func() { _ = closeCursorStream(stream) })
+			t.Cleanup(func() { _ = cursor.Close() })
 
-			_ = cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
-				Command: &proto.CursorCommand_Next{Next: true},
-			}))
-
-			deleteResp := sendCursorCommand(t, stream, &proto.CursorCommand{
-				Command: &proto.CursorCommand_Delete{Delete: true},
-			})
-			if cursorDoneFromResponse(t, deleteResp) {
-				t.Fatal("delete ack unexpectedly marked cursor exhausted")
+			if !cursor.Continue() {
+				t.Fatalf("cursor exhausted before delete: %v", cursor.Err())
+			}
+			if err := cursor.Delete(); err != nil {
+				t.Fatalf("cursor Delete: %v", err)
 			}
 
 			records := mustGetAll(t, sess.client, store, nil)
@@ -381,21 +368,20 @@ func runCursorMutationWithTypedKeys(t *testing.T, harness Harness) {
 			mustCreateObjectStore(t, sess.client, store, typedPrimaryKeySchema(tc.columnType))
 			mustAddRecord(t, sess.client, store, map[string]any{"id": tc.id, "name": "before"})
 
-			stream := openCursorStream(t, sess.client, &proto.OpenCursorRequest{
+			cursor := mustOpenCursor(t, sess.client, &cursorRequest{
 				Store:     store,
-				Direction: proto.CursorDirection_CURSOR_NEXT,
+				Direction: gestalt.CursorNext,
 			})
-			t.Cleanup(func() { _ = closeCursorStream(stream) })
+			t.Cleanup(func() { _ = cursor.Close() })
 
-			_ = cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
-				Command: &proto.CursorCommand_Next{Next: true},
-			}))
+			if !cursor.Continue() {
+				t.Fatalf("cursor exhausted before update: %v", cursor.Err())
+			}
 
-			update := mustRecordProto(t, map[string]any{"name": "after"})
-			resp := sendCursorCommand(t, stream, &proto.CursorCommand{
-				Command: &proto.CursorCommand_Update{Update: update},
-			})
-			updated := mustRecord(t, cursorEntryFromResponse(t, resp).GetRecord())
+			if err := cursor.Update(map[string]any{"name": "after"}); err != nil {
+				t.Fatalf("cursor Update: %v", err)
+			}
+			updated := cursorEntryFromCursor(t, cursor, false).Record
 			assertValueEqual(t, updated["id"], tc.id)
 			if got := updated["name"]; got != "after" {
 				t.Fatalf("updated name = %#v, want %q", got, "after")
@@ -405,9 +391,8 @@ func runCursorMutationWithTypedKeys(t *testing.T, harness Harness) {
 			if len(records) != 1 {
 				t.Fatalf("record count after update = %d, want 1", len(records))
 			}
-			decoded := mustRecord(t, records[0])
-			assertValueEqual(t, decoded["id"], tc.id)
-			if got := decoded["name"]; got != "after" {
+			assertValueEqual(t, records[0]["id"], tc.id)
+			if got := records[0]["name"]; got != "after" {
 				t.Fatalf("persisted name = %#v, want %q", got, "after")
 			}
 		})
@@ -424,9 +409,9 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		store := "bulk_object_store_range"
 		mustSeedBulkItems(t, sess.client, store)
 
-		rangeReq := &proto.KeyRange{
-			Lower: mustTypedValue(t, "b"),
-			Upper: mustTypedValue(t, "c"),
+		rangeReq := &gestalt.KeyRange{
+			Lower: "b",
+			Upper: "c",
 		}
 		records := mustGetAll(t, sess.client, store, rangeReq)
 		keys := mustGetAllKeys(t, sess.client, store, rangeReq)
@@ -461,7 +446,7 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		store := "bulk_index_query"
 		mustSeedBulkItems(t, sess.client, store)
 
-		values := []*proto.TypedValue{mustTypedValue(t, "active")}
+		values := []any{"active"}
 		records := mustIndexGetAll(t, sess.client, store, "by_status", values)
 		keys := mustIndexGetAllKeys(t, sess.client, store, "by_status", values)
 		count := mustIndexCount(t, sess.client, store, "by_status", values)
@@ -495,10 +480,7 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		store := "bulk_index_range"
 		mustSeedBulkItems(t, sess.client, store)
 
-		rangeReq := &proto.KeyRange{
-			Lower: mustTypedValue(t, "active"),
-			Upper: mustTypedValue(t, "active"),
-		}
+		rangeReq := &gestalt.KeyRange{Lower: "active", Upper: "active"}
 		records := mustIndexGetAllWithRange(t, sess.client, store, "by_status", rangeReq)
 		keys := mustIndexGetAllKeysWithRange(t, sess.client, store, "by_status", rangeReq)
 		count := mustIndexCountWithRange(t, sess.client, store, "by_status", rangeReq)
@@ -526,15 +508,15 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 	})
 }
 
-func runExplicitTransactionWireContract(t *testing.T, harness Harness) {
+func runExplicitTransactionSDKContract(t *testing.T, harness Harness) {
 	t.Helper()
 
 	sess := newSession(t, harness)
 	t.Cleanup(sess.Close)
 
-	store := "explicit_transaction_wire_contract"
-	mustCreateObjectStore(t, sess.client, store, &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+	store := "explicit_transaction_sdk_contract"
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
 	})
@@ -544,7 +526,7 @@ func runExplicitTransactionWireContract(t *testing.T, harness Harness) {
 		"status": "active",
 	})
 
-	tx := mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READWRITE)
+	tx := mustBeginTransaction(t, sess.client, []string{store}, gestalt.TransactionReadwrite)
 	if err := txPut(t, tx, store, map[string]any{"id": "b", "name": "Beta", "status": "active"}); err != nil {
 		t.Fatalf("transaction Put(b): %v", err)
 	}
@@ -555,49 +537,39 @@ func runExplicitTransactionWireContract(t *testing.T, harness Harness) {
 	if got := mustTxIndexCount(t, tx, store, "by_status", "active"); got != 2 {
 		t.Fatalf("transaction IndexCount(active) = %d, want 2", got)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(context.Background()); err != nil {
 		t.Fatalf("transaction Commit: %v", err)
 	}
-	tx.Close()
 	mustGet(t, sess.client, store, "b")
 
-	tx = mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READWRITE)
+	tx = mustBeginTransaction(t, sess.client, []string{store}, gestalt.TransactionReadwrite)
 	if err := txPut(t, tx, store, map[string]any{"id": "c", "name": "Gamma", "status": "pending"}); err != nil {
 		t.Fatalf("transaction Put(c): %v", err)
 	}
 	if err := txDelete(t, tx, store, "b"); err != nil {
 		t.Fatalf("transaction Delete(b): %v", err)
 	}
-	if err := tx.Abort(); err != nil {
+	if err := tx.Abort(context.Background()); err != nil {
 		t.Fatalf("transaction Abort: %v", err)
 	}
-	tx.Close()
 	mustGet(t, sess.client, store, "b")
 	mustGetNotFound(t, sess.client, store, "c")
 
-	tx = mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READONLY)
+	tx = mustBeginTransaction(t, sess.client, []string{store}, gestalt.TransactionReadonly)
 	err := txPut(t, tx, store, map[string]any{"id": "readonly", "name": "Read Only", "status": "active"})
-	if got := status.Code(err); got != codes.FailedPrecondition {
-		t.Fatalf("readonly transaction Put error = %v (%s), want %s", err, got, codes.FailedPrecondition)
+	if !errors.Is(err, gestalt.ErrReadOnly) {
+		t.Fatalf("readonly transaction Put error = %v, want ErrReadOnly", err)
 	}
-	if err := tx.ExpectAbort(); err != nil {
-		t.Fatalf("readonly transaction abort response: %v", err)
-	}
-	tx.Close()
 	mustGetNotFound(t, sess.client, store, "readonly")
 
-	tx = mustBeginTransaction(t, sess.client, []string{store}, proto.TransactionMode_TRANSACTION_READWRITE)
+	tx = mustBeginTransaction(t, sess.client, []string{store}, gestalt.TransactionReadwrite)
 	if err := txPut(t, tx, store, map[string]any{"id": "d", "name": "Delta", "status": "active"}); err != nil {
 		t.Fatalf("transaction Put(d): %v", err)
 	}
 	err = txAdd(t, tx, store, map[string]any{"id": "a", "name": "Duplicate", "status": "active"})
-	if got := status.Code(err); got != codes.AlreadyExists {
-		t.Fatalf("duplicate Add error = %v (%s), want %s", err, got, codes.AlreadyExists)
+	if !errors.Is(err, gestalt.ErrAlreadyExists) {
+		t.Fatalf("duplicate Add error = %v, want ErrAlreadyExists", err)
 	}
-	if err := tx.ExpectAbort(); err != nil {
-		t.Fatalf("operation-error transaction abort response: %v", err)
-	}
-	tx.Close()
 	mustGetNotFound(t, sess.client, store, "d")
 }
 
@@ -614,7 +586,7 @@ func runTypedDeleteRangeFidelity(t *testing.T, harness Harness) {
 	cases := []struct {
 		name       string
 		store      string
-		columnType int32
+		columnType gestalt.ColumnType
 		ids        []any
 		lower      any
 		upper      any
@@ -659,10 +631,7 @@ func runTypedDeleteRangeFidelity(t *testing.T, harness Harness) {
 				})
 			}
 
-			deleted := mustDeleteRange(t, sess.client, tc.store, &proto.KeyRange{
-				Lower: mustTypedValue(t, tc.lower),
-				Upper: mustTypedValue(t, tc.upper),
-			})
+			deleted := mustDeleteRange(t, sess.client, tc.store, &gestalt.KeyRange{Lower: tc.lower, Upper: tc.upper})
 			if deleted != 2 {
 				t.Fatalf("DeleteRange deleted = %d, want 2", deleted)
 			}
@@ -683,7 +652,7 @@ func runRestartReconfigurePersistsIndexes(t *testing.T, harness Harness) {
 	mustSeedBulkItems(t, sess.client, store)
 	sess.Restart(t)
 
-	values := []*proto.TypedValue{mustTypedValue(t, "active")}
+	values := []any{"active"}
 	records := mustIndexGetAll(t, sess.client, store, "by_status", values)
 	gotIDs := sortedStrings(recordPrimaryKeys(t, records))
 	want := []string{"a", "b", "d"}
@@ -691,14 +660,11 @@ func runRestartReconfigurePersistsIndexes(t *testing.T, harness Harness) {
 		t.Fatalf("IndexGetAll ids after restart = %#v, want %#v", gotIDs, want)
 	}
 
-	entries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+	entries := collectCursorEntries(t, sess.client, &cursorRequest{
 		Store:     store,
 		Index:     "by_status",
-		Direction: proto.CursorDirection_CURSOR_NEXT,
-		Range: &proto.KeyRange{
-			Lower: mustTypedValue(t, "active"),
-			Upper: mustTypedValue(t, "active"),
-		},
+		Direction: gestalt.CursorNext,
+		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
 	})
 	if got := sortedStrings(cursorPrimaryKeys(entries)); !stringSlicesEqual(got, want) {
 		t.Fatalf("index cursor ids after restart = %#v, want %#v", got, want)
@@ -724,46 +690,38 @@ func runMissingIndexFieldExclusion(t *testing.T, harness Harness) {
 		"status": "active",
 	})
 
-	stream := openCursorStream(t, sess.client, &proto.OpenCursorRequest{
+	cursor := mustOpenCursor(t, sess.client, &cursorRequest{
 		Store:     store,
 		Index:     "by_status",
-		Direction: proto.CursorDirection_CURSOR_NEXT,
-		Range: &proto.KeyRange{
-			Lower: mustTypedValue(t, "active"),
-			Upper: mustTypedValue(t, "active"),
-		},
+		Direction: gestalt.CursorNext,
+		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
 	})
-	t.Cleanup(func() { _ = closeCursorStream(stream) })
+	t.Cleanup(func() { _ = cursor.Close() })
 
-	first := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
-		Command: &proto.CursorCommand_Next{Next: true},
-	}))
-	if got := first.GetPrimaryKey(); got != "a" {
+	if !cursor.Continue() {
+		t.Fatalf("cursor exhausted before update: %v", cursor.Err())
+	}
+	first := cursorEntryFromCursor(t, cursor, false)
+	if got := first.PrimaryKey; got != "a" {
 		t.Fatalf("first active cursor id = %q, want %q", got, "a")
 	}
 
-	update := mustRecordProto(t, map[string]any{
-		"name": "Alice",
-	})
-	_ = cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
-		Command: &proto.CursorCommand_Update{Update: update},
-	}))
+	if err := cursor.Update(map[string]any{"name": "Alice"}); err != nil {
+		t.Fatalf("cursor Update(clear indexed field): %v", err)
+	}
 
-	values := []*proto.TypedValue{mustTypedValue(t, "active")}
+	values := []any{"active"}
 	records := mustIndexGetAll(t, sess.client, store, "by_status", values)
 	gotIDs := sortedStrings(recordPrimaryKeys(t, records))
 	if !stringSlicesEqual(gotIDs, []string{"b"}) {
 		t.Fatalf("active ids after clearing indexed field = %#v, want %#v", gotIDs, []string{"b"})
 	}
 
-	entries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+	entries := collectCursorEntries(t, sess.client, &cursorRequest{
 		Store:     store,
 		Index:     "by_status",
-		Direction: proto.CursorDirection_CURSOR_NEXT,
-		Range: &proto.KeyRange{
-			Lower: mustTypedValue(t, "active"),
-			Upper: mustTypedValue(t, "active"),
-		},
+		Direction: gestalt.CursorNext,
+		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
 	})
 	if got := cursorPrimaryKeys(entries); !stringSlicesEqual(got, []string{"b"}) {
 		t.Fatalf("active cursor ids after clearing indexed field = %#v, want %#v", got, []string{"b"})
@@ -789,25 +747,22 @@ func runUniqueIndexConflictOnCursorUpdate(t *testing.T, harness Harness) {
 		"email": "bob@test.com",
 	})
 
-	stream := openCursorStream(t, sess.client, &proto.OpenCursorRequest{
+	cursor := mustOpenCursor(t, sess.client, &cursorRequest{
 		Store:     store,
-		Direction: proto.CursorDirection_CURSOR_NEXT,
+		Direction: gestalt.CursorNext,
 	})
-	t.Cleanup(func() { _ = closeCursorStream(stream) })
+	t.Cleanup(func() { _ = cursor.Close() })
 
-	_ = cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
-		Command: &proto.CursorCommand_Advance{Advance: 1},
-	}))
+	if !cursor.Advance(1) {
+		t.Fatalf("cursor exhausted before conflict update: %v", cursor.Err())
+	}
 
-	update := mustRecordProto(t, map[string]any{
+	err := cursor.Update(map[string]any{
 		"name":  "Bob",
 		"email": "alice@test.com",
 	})
-	err := sendCursorCommandExpectError(t, stream, &proto.CursorCommand{
-		Command: &proto.CursorCommand_Update{Update: update},
-	})
-	if got := status.Code(err); got != codes.AlreadyExists {
-		t.Fatalf("cursor update error code = %s, want %s", got, codes.AlreadyExists)
+	if !errors.Is(err, gestalt.ErrAlreadyExists) {
+		t.Fatalf("cursor update error = %v, want ErrAlreadyExists", err)
 	}
 }
 
@@ -818,8 +773,8 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 	t.Cleanup(sess.Close)
 
 	store := "nested_index_paths"
-	mustCreateObjectStore(t, sess.client, store, &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_profile_name", KeyPath: []string{"profile.name"}},
 		},
 	})
@@ -832,19 +787,16 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 		"profile": map[string]any{"name": "Bob"},
 	})
 
-	entries := collectCursorEntries(t, sess.client, &proto.OpenCursorRequest{
+	entries := collectCursorEntries(t, sess.client, &cursorRequest{
 		Store:     store,
 		Index:     "by_profile_name",
-		Direction: proto.CursorDirection_CURSOR_NEXT,
-		Range: &proto.KeyRange{
-			Lower: mustTypedValue(t, "Alice"),
-			Upper: mustTypedValue(t, "Alice"),
-		},
+		Direction: gestalt.CursorNext,
+		Range:     &gestalt.KeyRange{Lower: "Alice", Upper: "Alice"},
 	})
 	if len(entries) != 1 {
 		t.Fatalf("nested index entry count = %d, want 1", len(entries))
 	}
-	if got := entries[0].GetPrimaryKey(); got != "a" {
+	if got := entries[0].PrimaryKey; got != "a" {
 		t.Fatalf("nested index primary key = %q, want %q", got, "a")
 	}
 	if got := cursorKeyValues(t, entries[0]); len(got) != 1 || got[0] != "Alice" {
@@ -855,16 +807,100 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 func newSession(t *testing.T, harness Harness) *session {
 	t.Helper()
 
-	serverImpl, providerClose := harness.NewServer(t)
-	client, grpcClose := newBufconnClient(t, serverImpl)
+	provider, providerClose := harness.NewProvider(t)
+	tempDir, err := os.MkdirTemp("/tmp", "gestalt-indexeddb-contract-")
+	if err != nil {
+		t.Fatalf("create socket temp dir: %v", err)
+	}
+	socket := filepath.Join(tempDir, "s")
+
+	prevProviderSocket, hadProviderSocket := os.LookupEnv(envProviderSocket)
+	prevIndexedDBSocket, hadIndexedDBSocket := os.LookupEnv(gestalt.EnvIndexedDBSocket)
+	if err := os.Setenv(envProviderSocket, socket); err != nil {
+		t.Fatalf("set %s: %v", envProviderSocket, err)
+	}
+	if err := os.Setenv(gestalt.EnvIndexedDBSocket, "unix://"+socket); err != nil {
+		restoreEnv(envProviderSocket, prevProviderSocket, hadProviderSocket)
+		t.Fatalf("set %s: %v", gestalt.EnvIndexedDBSocket, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- gestalt.ServeIndexedDBProvider(ctx, provider)
+	}()
+
+	cleanup := func(client *gestalt.IndexedDBClient) {
+		if client != nil {
+			_ = client.Close()
+		}
+		cancel()
+		select {
+		case err := <-serveErr:
+			if err != nil {
+				t.Logf("ServeIndexedDBProvider stopped: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("ServeIndexedDBProvider did not stop")
+		}
+		providerClose()
+		_ = os.RemoveAll(tempDir)
+		restoreEnv(envProviderSocket, prevProviderSocket, hadProviderSocket)
+		restoreEnv(gestalt.EnvIndexedDBSocket, prevIndexedDBSocket, hadIndexedDBSocket)
+	}
+
+	var client *gestalt.IndexedDBClient
+	success := false
+	defer func() {
+		if !success {
+			cleanup(client)
+		}
+	}()
+
+	client = connectIndexedDBClient(t, socket, serveErr)
+	success = true
 	return &session{
 		harness: harness,
 		client:  client,
 		close: func() {
-			grpcClose()
-			providerClose()
+			cleanup(client)
 		},
 	}
+}
+
+func connectIndexedDBClient(t *testing.T, socket string, serveErr chan error) *gestalt.IndexedDBClient {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(socket); err == nil {
+			break
+		}
+		select {
+		case err := <-serveErr:
+			serveErr <- err
+			t.Fatalf("ServeIndexedDBProvider exited before socket was ready: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("indexeddb socket %s was not created", socket)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	client, err := gestalt.IndexedDB()
+	if err != nil {
+		t.Fatalf("IndexedDB connect: %v", err)
+	}
+	return client
+}
+
+func restoreEnv(key, value string, ok bool) {
+	if ok {
+		_ = os.Setenv(key, value)
+		return
+	}
+	_ = os.Unsetenv(key)
 }
 
 func (s *session) Restart(t *testing.T) {
@@ -882,171 +918,29 @@ func (s *session) Close() {
 	}
 }
 
-func newBufconnClient(t *testing.T, serverImpl proto.IndexedDBServer) (proto.IndexedDBClient, func()) {
-	t.Helper()
-
-	listener := bufconn.Listen(bufSize)
-	server := grpc.NewServer()
-	proto.RegisterIndexedDBServer(server, serverImpl)
-	go func() {
-		_ = server.Serve(listener)
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn, err := grpc.DialContext(
-		ctx,
-		"bufnet",
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return listener.DialContext(ctx)
-		}),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
-	cancel()
-	if err != nil {
-		server.Stop()
-		_ = listener.Close()
-		t.Fatalf("DialContext: %v", err)
-	}
-
-	return proto.NewIndexedDBClient(conn), func() {
-		_ = conn.Close()
-		server.Stop()
-		_ = listener.Close()
-	}
+type cursorRequest struct {
+	Store     string
+	Range     *gestalt.KeyRange
+	Direction gestalt.CursorDirection
+	KeysOnly  bool
+	Index     string
+	Values    []any
 }
 
-type contractTransaction struct {
-	stream proto.IndexedDB_TransactionClient
-	cancel context.CancelFunc
-	nextID uint64
-}
-
-func mustBeginTransaction(t *testing.T, client proto.IndexedDBClient, stores []string, mode proto.TransactionMode) *contractTransaction {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	stream, err := client.Transaction(ctx)
-	if err != nil {
-		cancel()
-		t.Fatalf("Transaction: %v", err)
-	}
-	if err := stream.Send(&proto.TransactionClientMessage{
-		Msg: &proto.TransactionClientMessage_Begin{Begin: &proto.BeginTransactionRequest{
-			Stores: stores,
-			Mode:   mode,
-		}},
-	}); err != nil {
-		cancel()
-		t.Fatalf("Transaction send begin: %v", err)
-	}
-	resp, err := stream.Recv()
-	if err != nil {
-		cancel()
-		t.Fatalf("Transaction recv begin: %v", err)
-	}
-	if resp.GetBegin() == nil {
-		cancel()
-		t.Fatalf("Transaction begin response = %T, want begin", resp.GetMsg())
-	}
-	return &contractTransaction{stream: stream, cancel: cancel}
-}
-
-func (tx *contractTransaction) Close() {
-	if tx.stream != nil {
-		_ = tx.stream.CloseSend()
-		tx.stream = nil
-	}
-	if tx.cancel != nil {
-		tx.cancel()
-		tx.cancel = nil
-	}
-}
-
-func (tx *contractTransaction) Operation(op *proto.TransactionOperation) (*proto.TransactionOperationResponse, error) {
-	tx.nextID++
-	op.RequestId = tx.nextID
-	if err := tx.stream.Send(&proto.TransactionClientMessage{
-		Msg: &proto.TransactionClientMessage_Operation{Operation: op},
-	}); err != nil {
-		return nil, err
-	}
-	resp, err := tx.stream.Recv()
-	if err != nil {
-		return nil, err
-	}
-	opResp := resp.GetOperation()
-	if opResp == nil {
-		return nil, fmt.Errorf("transaction response = %T, want operation", resp.GetMsg())
-	}
-	if opResp.GetRequestId() != op.GetRequestId() {
-		return nil, fmt.Errorf("transaction response request id = %d, want %d", opResp.GetRequestId(), op.GetRequestId())
-	}
-	if err := transactionStatusErr(opResp.GetError()); err != nil {
-		return nil, err
-	}
-	return opResp, nil
-}
-
-func (tx *contractTransaction) Commit() error {
-	if err := tx.stream.Send(&proto.TransactionClientMessage{
-		Msg: &proto.TransactionClientMessage_Commit{Commit: &proto.TransactionCommitRequest{}},
-	}); err != nil {
-		return err
-	}
-	resp, err := tx.stream.Recv()
-	if err != nil {
-		return err
-	}
-	commit := resp.GetCommit()
-	if commit == nil {
-		return fmt.Errorf("transaction response = %T, want commit", resp.GetMsg())
-	}
-	return transactionStatusErr(commit.GetError())
-}
-
-func (tx *contractTransaction) Abort() error {
-	if err := tx.stream.Send(&proto.TransactionClientMessage{
-		Msg: &proto.TransactionClientMessage_Abort{Abort: &proto.TransactionAbortRequest{}},
-	}); err != nil {
-		return err
-	}
-	return tx.ExpectAbort()
-}
-
-func (tx *contractTransaction) ExpectAbort() error {
-	resp, err := tx.stream.Recv()
-	if err != nil {
-		return err
-	}
-	abort := resp.GetAbort()
-	if abort == nil {
-		return fmt.Errorf("transaction response = %T, want abort", resp.GetMsg())
-	}
-	return transactionStatusErr(abort.GetError())
-}
-
-func transactionStatusErr(st *rpcstatus.Status) error {
-	if st == nil || st.GetCode() == int32(codes.OK) {
-		return nil
-	}
-	return status.Error(codes.Code(st.GetCode()), st.GetMessage())
-}
-
-func bulkItemsSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func bulkItemsSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
 	}
 }
 
-func unreadablePayloadSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func unreadablePayloadSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
-		Columns: []*proto.ColumnDef{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: typeString, PrimaryKey: true, NotNull: true},
 			{Name: "status", Type: typeString},
 			{Name: "payload", Type: typeInt},
@@ -1054,36 +948,36 @@ func unreadablePayloadSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func uniqueEmailSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func uniqueEmailSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
 		},
 	}
 }
 
-func numericIndexSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func numericIndexSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_rank", KeyPath: []string{"rank"}},
 		},
 	}
 }
 
-func typedPrimaryKeySchema(columnType int32) *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Columns: []*proto.ColumnDef{
+func typedPrimaryKeySchema(columnType gestalt.ColumnType) gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: columnType, PrimaryKey: true, NotNull: true},
 			{Name: "name", Type: typeString},
 		},
 	}
 }
 
-func mustSeedBulkItems(t *testing.T, client proto.IndexedDBClient, store string) {
+func mustSeedBulkItems(t *testing.T, client *gestalt.IndexedDBClient, store string) {
 	t.Helper()
 
 	mustCreateObjectStore(t, client, store, bulkItemsSchema())
-	for _, record := range []map[string]any{
+	for _, record := range []gestalt.Record{
 		{"id": "a", "name": "Alice", "status": "active"},
 		{"id": "b", "name": "Bob", "status": "active"},
 		{"id": "c", "name": "Carol", "status": "inactive"},
@@ -1093,11 +987,11 @@ func mustSeedBulkItems(t *testing.T, client proto.IndexedDBClient, store string)
 	}
 }
 
-func mustSeedNumericIndexItems(t *testing.T, client proto.IndexedDBClient, store string) {
+func mustSeedNumericIndexItems(t *testing.T, client *gestalt.IndexedDBClient, store string) {
 	t.Helper()
 
 	mustCreateObjectStore(t, client, store, numericIndexSchema())
-	for _, record := range []map[string]any{
+	for _, record := range []gestalt.Record{
 		{"id": "a", "name": "Alpha", "rank": int64(9007199254740991)},
 		{"id": "b", "name": "Beta", "rank": int64(9007199254740993)},
 		{"id": "c", "name": "Gamma", "rank": int64(9007199254741001)},
@@ -1107,409 +1001,247 @@ func mustSeedNumericIndexItems(t *testing.T, client proto.IndexedDBClient, store
 	}
 }
 
-func mustCreateObjectStore(t *testing.T, client proto.IndexedDBClient, store string, schema *proto.ObjectStoreSchema) {
+func mustCreateObjectStore(t *testing.T, client *gestalt.IndexedDBClient, store string, schema gestalt.ObjectStoreSchema) {
 	t.Helper()
-	if _, err := client.CreateObjectStore(context.Background(), &proto.CreateObjectStoreRequest{
-		Name:   store,
-		Schema: schema,
-	}); err != nil {
+	if err := client.CreateObjectStore(context.Background(), store, schema); err != nil {
 		t.Fatalf("CreateObjectStore(%s): %v", store, err)
 	}
 }
 
-func mustAddRecord(t *testing.T, client proto.IndexedDBClient, store string, record map[string]any) {
+func mustAddRecord(t *testing.T, client *gestalt.IndexedDBClient, store string, record gestalt.Record) {
 	t.Helper()
-	if _, err := client.Add(context.Background(), &proto.RecordRequest{
-		Store:  store,
-		Record: mustRecordProto(t, record),
-	}); err != nil {
+	if err := client.ObjectStore(store).Add(context.Background(), record); err != nil {
 		t.Fatalf("Add(%s): %v", store, err)
 	}
 }
 
-func mustGet(t *testing.T, client proto.IndexedDBClient, store, id string) map[string]any {
+func mustGet(t *testing.T, client *gestalt.IndexedDBClient, store, id string) gestalt.Record {
 	t.Helper()
-	resp, err := client.Get(context.Background(), &proto.ObjectStoreRequest{Store: store, Id: id})
+	record, err := client.ObjectStore(store).Get(context.Background(), id)
 	if err != nil {
 		t.Fatalf("Get(%s/%s): %v", store, id, err)
 	}
-	return mustRecord(t, resp.GetRecord())
+	return record
 }
 
-func mustGetNotFound(t *testing.T, client proto.IndexedDBClient, store, id string) {
+func mustGetNotFound(t *testing.T, client *gestalt.IndexedDBClient, store, id string) {
 	t.Helper()
-	_, err := client.Get(context.Background(), &proto.ObjectStoreRequest{Store: store, Id: id})
-	if got := status.Code(err); got != codes.NotFound {
-		t.Fatalf("Get(%s/%s) error = %v (%s), want %s", store, id, err, got, codes.NotFound)
+	_, err := client.ObjectStore(store).Get(context.Background(), id)
+	if !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("Get(%s/%s) error = %v, want ErrNotFound", store, id, err)
 	}
 }
 
-func txAdd(t *testing.T, tx *contractTransaction, store string, record map[string]any) error {
+func mustBeginTransaction(t *testing.T, client *gestalt.IndexedDBClient, stores []string, mode gestalt.TransactionMode) *gestalt.Transaction {
 	t.Helper()
-	_, err := tx.Operation(&proto.TransactionOperation{
-		Operation: &proto.TransactionOperation_Add{Add: &proto.RecordRequest{
-			Store:  store,
-			Record: mustRecordProto(t, record),
-		}},
-	})
-	return err
+	tx, err := client.Transaction(context.Background(), stores, mode, gestalt.TransactionOptions{})
+	if err != nil {
+		t.Fatalf("Transaction: %v", err)
+	}
+	return tx
 }
 
-func txPut(t *testing.T, tx *contractTransaction, store string, record map[string]any) error {
+func txAdd(t *testing.T, tx *gestalt.Transaction, store string, record gestalt.Record) error {
 	t.Helper()
-	_, err := tx.Operation(&proto.TransactionOperation{
-		Operation: &proto.TransactionOperation_Put{Put: &proto.RecordRequest{
-			Store:  store,
-			Record: mustRecordProto(t, record),
-		}},
-	})
-	return err
+	return tx.ObjectStore(store).Add(context.Background(), record)
 }
 
-func txDelete(t *testing.T, tx *contractTransaction, store, id string) error {
+func txPut(t *testing.T, tx *gestalt.Transaction, store string, record gestalt.Record) error {
 	t.Helper()
-	_, err := tx.Operation(&proto.TransactionOperation{
-		Operation: &proto.TransactionOperation_Delete{Delete: &proto.ObjectStoreRequest{
-			Store: store,
-			Id:    id,
-		}},
-	})
-	return err
+	return tx.ObjectStore(store).Put(context.Background(), record)
 }
 
-func mustTxGet(t *testing.T, tx *contractTransaction, store, id string) map[string]any {
+func txDelete(t *testing.T, tx *gestalt.Transaction, store, id string) error {
 	t.Helper()
-	resp, err := tx.Operation(&proto.TransactionOperation{
-		Operation: &proto.TransactionOperation_Get{Get: &proto.ObjectStoreRequest{
-			Store: store,
-			Id:    id,
-		}},
-	})
+	return tx.ObjectStore(store).Delete(context.Background(), id)
+}
+
+func mustTxGet(t *testing.T, tx *gestalt.Transaction, store, id string) gestalt.Record {
+	t.Helper()
+	record, err := tx.ObjectStore(store).Get(context.Background(), id)
 	if err != nil {
 		t.Fatalf("transaction Get(%s/%s): %v", store, id, err)
 	}
-	return mustRecord(t, resp.GetRecord().GetRecord())
+	return record
 }
 
-func mustTxIndexCount(t *testing.T, tx *contractTransaction, store, index string, values ...any) int64 {
+func mustTxIndexCount(t *testing.T, tx *gestalt.Transaction, store, index string, values ...any) int64 {
 	t.Helper()
-	typedValues := make([]*proto.TypedValue, 0, len(values))
-	for _, value := range values {
-		typedValues = append(typedValues, mustTypedValue(t, value))
-	}
-	resp, err := tx.Operation(&proto.TransactionOperation{
-		Operation: &proto.TransactionOperation_IndexCount{IndexCount: &proto.IndexQueryRequest{
-			Store:  store,
-			Index:  index,
-			Values: typedValues,
-		}},
-	})
+	count, err := tx.ObjectStore(store).Index(index).Count(context.Background(), nil, values...)
 	if err != nil {
 		t.Fatalf("transaction IndexCount(%s/%s): %v", store, index, err)
 	}
-	return resp.GetCount().GetCount()
+	return count
 }
 
-func mustRecordProto(t *testing.T, record map[string]any) *proto.Record {
+func mustGetAll(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) []gestalt.Record {
 	t.Helper()
-	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
-	for key, value := range record {
-		typed, err := gestalt.TypedValueFromAny(value)
-		if err != nil {
-			t.Fatalf("TypedValueFromAny(%s=%#v): %v", key, value, err)
-		}
-		out.Fields[key] = typed
-	}
-	return out
-}
-
-func mustRecord(t *testing.T, record *proto.Record) map[string]any {
-	t.Helper()
-	out := make(map[string]any, len(record.GetFields()))
-	for key, typed := range record.GetFields() {
-		value, err := gestalt.AnyFromTypedValue(typed)
-		if err != nil {
-			t.Fatalf("AnyFromTypedValue(%s): %v", key, err)
-		}
-		out[key] = value
-	}
-	return out
-}
-
-func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
-	t.Helper()
-	out, err := gestalt.TypedValueFromAny(value)
-	if err != nil {
-		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
-	}
-	return out
-}
-
-func mustGetAll(t *testing.T, client proto.IndexedDBClient, store string, keyRange *proto.KeyRange) []*proto.Record {
-	t.Helper()
-	resp, err := client.GetAll(context.Background(), &proto.ObjectStoreRangeRequest{
-		Store: store,
-		Range: keyRange,
-	})
+	records, err := client.ObjectStore(store).GetAll(context.Background(), keyRange)
 	if err != nil {
 		t.Fatalf("GetAll(%s): %v", store, err)
 	}
-	return resp.GetRecords()
+	return records
 }
 
-func mustGetAllKeys(t *testing.T, client proto.IndexedDBClient, store string, keyRange *proto.KeyRange) []string {
+func mustGetAllKeys(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) []string {
 	t.Helper()
-	resp, err := client.GetAllKeys(context.Background(), &proto.ObjectStoreRangeRequest{
-		Store: store,
-		Range: keyRange,
-	})
+	keys, err := client.ObjectStore(store).GetAllKeys(context.Background(), keyRange)
 	if err != nil {
 		t.Fatalf("GetAllKeys(%s): %v", store, err)
 	}
-	return resp.GetKeys()
+	return keys
 }
 
-func mustCount(t *testing.T, client proto.IndexedDBClient, store string, keyRange *proto.KeyRange) int64 {
+func mustCount(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) int64 {
 	t.Helper()
-	resp, err := client.Count(context.Background(), &proto.ObjectStoreRangeRequest{
-		Store: store,
-		Range: keyRange,
-	})
+	count, err := client.ObjectStore(store).Count(context.Background(), keyRange)
 	if err != nil {
 		t.Fatalf("Count(%s): %v", store, err)
 	}
-	return resp.GetCount()
+	return count
 }
 
-func mustDeleteRange(t *testing.T, client proto.IndexedDBClient, store string, keyRange *proto.KeyRange) int64 {
+func mustDeleteRange(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) int64 {
 	t.Helper()
-	resp, err := client.DeleteRange(context.Background(), &proto.ObjectStoreRangeRequest{
-		Store: store,
-		Range: keyRange,
-	})
+	if keyRange == nil {
+		t.Fatalf("DeleteRange(%s) requires a key range", store)
+	}
+	deleted, err := client.ObjectStore(store).DeleteRange(context.Background(), *keyRange)
 	if err != nil {
 		t.Fatalf("DeleteRange(%s): %v", store, err)
 	}
-	return resp.GetDeleted()
+	return deleted
 }
 
-func mustIndexGetAll(t *testing.T, client proto.IndexedDBClient, store, index string, values []*proto.TypedValue) []*proto.Record {
+func mustIndexGetAll(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) []gestalt.Record {
 	t.Helper()
 	return mustIndexGetAllWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexGetAllWithRange(t *testing.T, client proto.IndexedDBClient, store, index string, keyRange *proto.KeyRange, values ...*proto.TypedValue) []*proto.Record {
+func mustIndexGetAllWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) []gestalt.Record {
 	t.Helper()
-	resp, err := client.IndexGetAll(context.Background(), &proto.IndexQueryRequest{
-		Store:  store,
-		Index:  index,
-		Values: values,
-		Range:  keyRange,
-	})
+	records, err := client.ObjectStore(store).Index(index).GetAll(context.Background(), keyRange, values...)
 	if err != nil {
 		t.Fatalf("IndexGetAll(%s/%s): %v", store, index, err)
 	}
-	return resp.GetRecords()
+	return records
 }
 
-func mustIndexGetAllKeys(t *testing.T, client proto.IndexedDBClient, store, index string, values []*proto.TypedValue) []string {
+func mustIndexGetAllKeys(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) []string {
 	t.Helper()
 	return mustIndexGetAllKeysWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexGetAllKeysWithRange(t *testing.T, client proto.IndexedDBClient, store, index string, keyRange *proto.KeyRange, values ...*proto.TypedValue) []string {
+func mustIndexGetAllKeysWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) []string {
 	t.Helper()
-	resp, err := client.IndexGetAllKeys(context.Background(), &proto.IndexQueryRequest{
-		Store:  store,
-		Index:  index,
-		Values: values,
-		Range:  keyRange,
-	})
+	keys, err := client.ObjectStore(store).Index(index).GetAllKeys(context.Background(), keyRange, values...)
 	if err != nil {
 		t.Fatalf("IndexGetAllKeys(%s/%s): %v", store, index, err)
 	}
-	return resp.GetKeys()
+	return keys
 }
 
-func mustIndexCount(t *testing.T, client proto.IndexedDBClient, store, index string, values []*proto.TypedValue) int64 {
+func mustIndexCount(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) int64 {
 	t.Helper()
 	return mustIndexCountWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexCountWithRange(t *testing.T, client proto.IndexedDBClient, store, index string, keyRange *proto.KeyRange, values ...*proto.TypedValue) int64 {
+func mustIndexCountWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
 	t.Helper()
-	resp, err := client.IndexCount(context.Background(), &proto.IndexQueryRequest{
-		Store:  store,
-		Index:  index,
-		Values: values,
-		Range:  keyRange,
-	})
+	count, err := client.ObjectStore(store).Index(index).Count(context.Background(), keyRange, values...)
 	if err != nil {
 		t.Fatalf("IndexCount(%s/%s): %v", store, index, err)
 	}
-	return resp.GetCount()
+	return count
 }
 
-func mustIndexDelete(t *testing.T, client proto.IndexedDBClient, store, index string, values []*proto.TypedValue) int64 {
+func mustIndexDelete(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) int64 {
 	t.Helper()
 	return mustIndexDeleteWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexDeleteWithRange(t *testing.T, client proto.IndexedDBClient, store, index string, keyRange *proto.KeyRange, values ...*proto.TypedValue) int64 {
+func mustIndexDeleteWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
 	t.Helper()
-	resp, err := client.IndexDelete(context.Background(), &proto.IndexQueryRequest{
-		Store:  store,
-		Index:  index,
-		Values: values,
-		Range:  keyRange,
-	})
+	deleted, err := client.ObjectStore(store).Index(index).DeleteRange(context.Background(), keyRange, values...)
 	if err != nil {
 		t.Fatalf("IndexDelete(%s/%s): %v", store, index, err)
 	}
-	return resp.GetDeleted()
+	return deleted
 }
 
-func openCursorStream(t *testing.T, client proto.IndexedDBClient, req *proto.OpenCursorRequest) proto.IndexedDB_OpenCursorClient {
+func mustOpenCursor(t *testing.T, client *gestalt.IndexedDBClient, req *cursorRequest) *gestalt.Cursor {
 	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	stream, err := client.OpenCursor(ctx)
-	if err != nil {
-		cancel()
-		t.Fatalf("OpenCursor: %v", err)
+	direction := req.Direction
+	if direction == "" {
+		direction = gestalt.CursorNext
 	}
 
-	if err := stream.Send(&proto.CursorClientMessage{
-		Msg: &proto.CursorClientMessage_Open{Open: req},
-	}); err != nil {
-		cancel()
-		t.Fatalf("Send(open): %v", err)
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		cancel()
-		t.Fatalf("Recv(open ack): %v", err)
-	}
-	done, ok := resp.GetResult().(*proto.CursorResponse_Done)
-	if !ok || done.Done {
-		cancel()
-		t.Fatalf("open ack = %T %+v, want done=false", resp.GetResult(), resp)
-	}
-
-	return &cursorStream{
-		IndexedDB_OpenCursorClient: stream,
-		cancel:                     cancel,
-	}
-}
-
-type cursorStream struct {
-	proto.IndexedDB_OpenCursorClient
-	cancel context.CancelFunc
-}
-
-func (c *cursorStream) CloseSend() error {
-	if c.cancel != nil {
-		defer c.cancel()
-	}
-	return c.IndexedDB_OpenCursorClient.CloseSend()
-}
-
-func closeCursorStream(stream proto.IndexedDB_OpenCursorClient) error {
-	if stream == nil {
-		return nil
-	}
-	_ = stream.Send(&proto.CursorClientMessage{
-		Msg: &proto.CursorClientMessage_Command{
-			Command: &proto.CursorCommand{Command: &proto.CursorCommand_Close{Close: true}},
-		},
-	})
-	return stream.CloseSend()
-}
-
-func sendCursorCommand(t *testing.T, stream proto.IndexedDB_OpenCursorClient, cmd *proto.CursorCommand) *proto.CursorResponse {
-	t.Helper()
-
-	if err := stream.Send(&proto.CursorClientMessage{
-		Msg: &proto.CursorClientMessage_Command{Command: cmd},
-	}); err != nil {
-		t.Fatalf("Send(command): %v", err)
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("Recv(command): %v", err)
-	}
-	return resp
-}
-
-func sendCursorCommandExpectError(t *testing.T, stream proto.IndexedDB_OpenCursorClient, cmd *proto.CursorCommand) error {
-	t.Helper()
-
-	if err := stream.Send(&proto.CursorClientMessage{
-		Msg: &proto.CursorClientMessage_Command{Command: cmd},
-	}); err != nil {
-		t.Fatalf("Send(command): %v", err)
-	}
-
-	_, err := stream.Recv()
-	if err == nil {
-		t.Fatal("Recv(command) = nil, want error")
-	}
-	return err
-}
-
-func collectCursorEntries(t *testing.T, client proto.IndexedDBClient, req *proto.OpenCursorRequest) []*proto.CursorEntry {
-	t.Helper()
-
-	stream := openCursorStream(t, client, req)
-	defer closeCursorStream(stream)
-
-	var entries []*proto.CursorEntry
-	for {
-		resp := sendCursorCommand(t, stream, &proto.CursorCommand{
-			Command: &proto.CursorCommand_Next{Next: true},
-		})
-		if _, ok := resp.GetResult().(*proto.CursorResponse_Done); ok {
-			if !cursorDoneFromResponse(t, resp) {
-				t.Fatal("expected exhausted cursor response")
-			}
-			return entries
+	store := client.ObjectStore(req.Store)
+	var (
+		cursor *gestalt.Cursor
+		err    error
+	)
+	if req.Index != "" {
+		index := store.Index(req.Index)
+		if req.KeysOnly {
+			cursor, err = index.OpenKeyCursor(context.Background(), req.Range, direction, req.Values...)
+		} else {
+			cursor, err = index.OpenCursor(context.Background(), req.Range, direction, req.Values...)
 		}
-		entries = append(entries, cursorEntryFromResponse(t, resp))
+	} else if req.KeysOnly {
+		cursor, err = store.OpenKeyCursor(context.Background(), req.Range, direction)
+	} else {
+		cursor, err = store.OpenCursor(context.Background(), req.Range, direction)
 	}
-}
-
-func cursorEntryFromResponse(t *testing.T, resp *proto.CursorResponse) *proto.CursorEntry {
-	t.Helper()
-
-	entry, ok := resp.GetResult().(*proto.CursorResponse_Entry)
-	if !ok {
-		t.Fatalf("response = %T %+v, want entry", resp.GetResult(), resp)
-	}
-	return entry.Entry
-}
-
-func cursorDoneFromResponse(t *testing.T, resp *proto.CursorResponse) bool {
-	t.Helper()
-
-	done, ok := resp.GetResult().(*proto.CursorResponse_Done)
-	if !ok {
-		t.Fatalf("response = %T %+v, want done", resp.GetResult(), resp)
-	}
-	return done.Done
-}
-
-func cursorKeyValues(t *testing.T, entry *proto.CursorEntry) []any {
-	t.Helper()
-	values, err := gestalt.KeyValuesToAny(entry.GetKey())
 	if err != nil {
-		t.Fatalf("KeyValuesToAny: %v", err)
+		t.Fatalf("OpenCursor(%s/%s): %v", req.Store, req.Index, err)
 	}
-	return values
+	return cursor
 }
 
-func cursorScalarKey(t *testing.T, entry *proto.CursorEntry) any {
+func collectCursorEntries(t *testing.T, client *gestalt.IndexedDBClient, req *cursorRequest) []cursorEntry {
+	t.Helper()
+
+	cursor := mustOpenCursor(t, client, req)
+	defer func() { _ = cursor.Close() }()
+
+	var entries []cursorEntry
+	for cursor.Continue() {
+		entries = append(entries, cursorEntryFromCursor(t, cursor, req.KeysOnly))
+	}
+	if err := cursor.Err(); err != nil {
+		t.Fatalf("cursor iteration: %v", err)
+	}
+	return entries
+}
+
+func cursorEntryFromCursor(t *testing.T, cursor *gestalt.Cursor, keysOnly bool) cursorEntry {
+	t.Helper()
+
+	var record gestalt.Record
+	if !keysOnly {
+		var err error
+		record, err = cursor.Value()
+		if err != nil {
+			t.Fatalf("cursor Value: %v", err)
+		}
+	}
+	return cursorEntry{
+		Key:        cursor.Key(),
+		PrimaryKey: cursor.PrimaryKey(),
+		Record:     record,
+	}
+}
+
+func cursorKeyValues(t *testing.T, entry cursorEntry) []any {
+	t.Helper()
+	if values, ok := entry.Key.([]any); ok {
+		return values
+	}
+	return []any{entry.Key}
+}
+
+func cursorScalarKey(t *testing.T, entry cursorEntry) any {
 	t.Helper()
 	values := cursorKeyValues(t, entry)
 	if len(values) != 1 {
@@ -1518,30 +1250,28 @@ func cursorScalarKey(t *testing.T, entry *proto.CursorEntry) any {
 	return values[0]
 }
 
-func cursorPrimaryKeys(entries []*proto.CursorEntry) []string {
+func cursorPrimaryKeys(entries []cursorEntry) []string {
 	keys := make([]string, len(entries))
 	for i, entry := range entries {
-		keys[i] = entry.GetPrimaryKey()
+		keys[i] = entry.PrimaryKey
 	}
 	return keys
 }
 
-func recordPrimaryKeys(t *testing.T, records []*proto.Record) []string {
+func recordPrimaryKeys(t *testing.T, records []gestalt.Record) []string {
 	t.Helper()
 	keys := make([]string, len(records))
 	for i, record := range records {
-		decoded := mustRecord(t, record)
-		keys[i] = fmt.Sprint(decoded["id"])
+		keys[i] = fmt.Sprint(record["id"])
 	}
 	return keys
 }
 
-func sortedRecordIDs(t *testing.T, records []*proto.Record) []any {
+func sortedRecordIDs(t *testing.T, records []gestalt.Record) []any {
 	t.Helper()
 	ids := make([]any, len(records))
 	for i, record := range records {
-		decoded := mustRecord(t, record)
-		ids[i] = decoded["id"]
+		ids[i] = record["id"]
 	}
 	return sortedValues(ids)
 }
