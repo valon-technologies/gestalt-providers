@@ -1511,6 +1511,16 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/nice_incontact:
+    displayName: "NICE CXone"
+    description: "Access NICE CXone / NICE inContact Admin, Agent, Reporting, Digital Engagement, WFM, and related public REST APIs."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/nice_incontact/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/notion:
     displayName: "Notion"
     description: "Current Notion REST operations plus the official Notion MCP tool surface."
