@@ -35,6 +35,8 @@ pub struct StoredTurn {
     pub started_at: Option<Timestamp>,
     pub completed_at: Option<Timestamp>,
     pub execution_ref: String,
+    pub tool_source: i32,
+    pub run_grant: String,
 }
 
 #[derive(Clone)]
@@ -265,6 +267,8 @@ impl Store {
             started_at: Some(now.clone()),
             completed_at: None,
             execution_ref: req.execution_ref.trim().to_string(),
+            tool_source: req.tool_source,
+            run_grant: req.run_grant.trim().to_string(),
         };
         self.turns.insert(turn.id.clone(), turn.clone());
         if !idempotency_key.is_empty() {
