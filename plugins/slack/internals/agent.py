@@ -315,11 +315,7 @@ def resolve_slack_http_subject(
         user_id=user_id,
     )
     if subject is None:
-        if has_publish_route:
-            return None
-        raise gestalt.http_subject_error(
-            HTTPStatus.FORBIDDEN, "Slack user is not linked to a Gestalt subject"
-        )
+        return None
     return subject
 
 
@@ -348,9 +344,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         if publish_response is not None:
             return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
-        return gestalt.Response(
-            status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
-        )
+        _notify_unlinked_slack_user_for_event(event, req)
+        return {"ok": True, "unlinked": True}
     if not _agent_config.bot.token:
         if publish_response is not None:
             return publish_response
@@ -524,9 +519,8 @@ def handle_slack_interaction(
         logger.warning(
             "rejected Slack interaction without linked subject %s", log_context
         )
-        return gestalt.Response(
-            status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
-        )
+        _notify_unlinked_slack_user_for_interaction(payload, req)
+        return {"ok": True, "unlinked": True}
     if not _agent_config.workflow.provider_name:
         logger.error(
             "Slack interaction workflow provider is not configured %s", log_context
@@ -1089,6 +1083,88 @@ def _handle_assistant_thread_event(event: SlackAgentEvent) -> OperationResult:
         "suggested_prompts_set": True,
         "suggested_prompt_count": len(assistant.suggested_prompts),
     }
+
+
+def _notify_unlinked_slack_user_for_event(
+    event: SlackAgentEvent, req: gestalt.Request
+) -> None:
+    thread_ts = event.reply_thread_ts or event.message_ts
+    _notify_unlinked_slack_user(
+        req,
+        channel_id=event.channel_id,
+        thread_ts=thread_ts,
+        log_context=_slack_event_log_context(event, req, None),
+    )
+
+
+def _notify_unlinked_slack_user_for_interaction(
+    payload: dict[str, Any], req: gestalt.Request
+) -> None:
+    container = map_field(payload, "container")
+    thread_ts = (
+        string_field(container, "thread_ts")
+        or string_field(container, "message_ts")
+        or string_field(payload, "message_ts")
+    )
+    _notify_unlinked_slack_user(
+        req,
+        channel_id=_interaction_channel_id(payload),
+        thread_ts=thread_ts,
+        log_context=_slack_interaction_log_context(payload, req),
+    )
+
+
+def _notify_unlinked_slack_user(
+    req: gestalt.Request, *, channel_id: str, thread_ts: str, log_context: str
+) -> None:
+    token = _agent_config.bot.token
+    if not token:
+        logger.warning(
+            "cannot notify unlinked Slack user without bot token %s", log_context
+        )
+        return
+    if not channel_id:
+        logger.warning(
+            "cannot notify unlinked Slack user without channel id %s", log_context
+        )
+        return
+    try:
+        post_message(
+            token,
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=_unlinked_slack_user_message(req),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except SlackAPIError as err:
+        logger.warning(
+            "failed to notify unlinked Slack user %s status=%s error=%s",
+            log_context,
+            err.status,
+            err.body,
+        )
+    except SlackClientError as err:
+        logger.warning(
+            "failed to notify unlinked Slack user %s error=%s",
+            log_context,
+            err,
+        )
+
+
+def _unlinked_slack_user_message(req: gestalt.Request) -> str:
+    base_url = str(
+        getattr(getattr(req, "host", None), "public_base_url", "") or ""
+    ).strip()
+    if base_url:
+        return (
+            "Your Slack account is not yet connected at "
+            f"{base_url.rstrip('/')}, please connect it first before trying again."
+        )
+    return (
+        "Your Slack account is not yet connected to Gestalt, please connect it "
+        "first before trying again."
+    )
 
 
 def _normalized_string_list(values: list[str], *, max_items: int) -> list[str]:
