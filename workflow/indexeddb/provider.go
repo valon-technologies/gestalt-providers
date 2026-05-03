@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.43"
+	providerVersion           = "0.0.1-alpha.44"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -40,6 +40,8 @@ const (
 	defaultRunClaimRenewEvery = defaultRunClaimTTL / 3
 	defaultStaleRecoveryEvery = time.Minute
 	nonRunningRunClaimGrace   = time.Minute
+	defaultAgentRunTimeout    = 5 * time.Minute
+	agentRunStaleGrace        = time.Minute
 	maxSignalAddRetries       = 4096
 
 	storeSchedules     = "schedules"
@@ -2908,6 +2910,9 @@ func workflowRunRecoverablyStale(ctx context.Context, claimStore recordGetter, r
 	if err != nil {
 		return false, err
 	}
+	if workflowRunExceededAgentDeadline(run, now) {
+		return true, nil
+	}
 	if found {
 		return !claim.ExpiresAt.After(now), nil
 	}
@@ -2922,10 +2927,24 @@ func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore *gestalt.Tran
 	if err != nil {
 		return false, err
 	}
+	if workflowRunExceededAgentDeadline(run, now) {
+		return true, nil
+	}
 	if found {
 		return !claim.ExpiresAt.After(now), nil
 	}
 	return workflowRunMissingClaimExpired(run, now), nil
+}
+
+func workflowRunExceededAgentDeadline(run workflowRunRecord, now time.Time) bool {
+	if run.StartedAt == nil || run.Target == nil || run.Target.GetAgent() == nil {
+		return false
+	}
+	timeout := defaultAgentRunTimeout
+	if seconds := run.Target.GetAgent().GetTimeoutSeconds(); seconds > 0 {
+		timeout = time.Duration(seconds) * time.Second
+	}
+	return !run.StartedAt.Add(timeout + agentRunStaleGrace).After(now)
 }
 
 func workflowRunMissingClaimExpired(run workflowRunRecord, now time.Time) bool {
