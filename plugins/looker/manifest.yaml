@@ -1,36 +1,31 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/looker
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Looker
 description: Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker.
 iconFile: assets/icon.svg
 kind: plugin
 spec:
-  surfaces:
-    openapi:
-      connection: default
-      document: https://raw.githubusercontent.com/looker-open-source/sdk-codegen/d3b299010e95efd86c01f11a7935cccf56063188/spec/Looker.4.0.oas.json
-      baseUrl: https://{host}/api/4.0
   connections:
     default:
       mode: user
       auth:
         type: manual
         credentials:
-        - name: authorization
-          label: Authorization header
+        - name: client_id
+          label: Client ID
           description: >-
-            Full Looker authorization header value, for example `token <access_token>`.
-            Obtain an access token from `POST /api/4.0/login` with your Looker API
-            client ID and client secret.
-        authMapping:
-          headers:
-            Authorization:
-              valueFrom:
-                credentialFieldRef:
-                  name: authorization
+            Looker API client ID for the user or service account. Create API
+            credentials in Looker Admin, then connect with the client ID and
+            client secret; the plugin exchanges them for short-lived API tokens.
+        - name: client_secret
+          label: Client Secret
+          description: >-
+            Looker API client secret for the same API credential. The plugin
+            sends this to `POST /api/4.0/login` in the request body and uses the
+            returned access token for API calls.
       params:
         host:
           required: true
           description: >-
             Looker API host for your instance, without the scheme
-            (for example, `company.cloud.looker.com` or `looker.example.com:19999`).
+            (for example, `company.cloud.looker.com`).

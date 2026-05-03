@@ -19,11 +19,13 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built from Looker's official OpenAPI 3.0 API 4.0
+Runtime provider built from Looker's official OpenAPI 3.0 API 4.0
 specification, referenced from a pinned
 [`looker-open-source/sdk-codegen`](https://github.com/looker-open-source/sdk-codegen)
-artifact. The manifest overrides the spec server URL to use a connection-scoped
-Looker instance host:
+artifact. The provider uses the spec to generate its operation catalog and to
+proxy requests to a connection-scoped Looker instance host. The raw Looker
+`/login` and `/logout` endpoints are not exposed as operations because the
+provider owns that exchange for connection authentication.
 
 ```yaml
 plugins:
@@ -36,16 +38,11 @@ plugins:
 
 ## Authentication
 
-Looker API requests use an authorization header in this exact form:
-
-```text
-Authorization: token <access_token>
-```
-
-Create API credentials for a Looker user in the Looker Admin console, then call
-`POST /api/4.0/login` with the client ID and client secret to obtain the
-short-lived `access_token`. Store the full header value, including the `token`
-prefix, in the `authorization` credential:
+Create API credentials for a Looker user or service account in the Looker Admin
+console. Connect the provider with the API credential's `client_id` and
+`client_secret`; the plugin sends them to `POST /api/4.0/login` in the request
+body, caches the short-lived `access_token`, and sends API requests with
+Looker's required `Authorization: token <access_token>` header.
 
 ```yaml
 plugins:
@@ -55,9 +52,10 @@ plugins:
         auth:
           type: manual
           credentials:
-            - name: authorization
-              label: Authorization header
-              description: Full Looker authorization header value, for example `token <access_token>`.
+            - name: client_id
+              label: Client ID
+            - name: client_secret
+              label: Client Secret
 ```
 
 ## Documentation
