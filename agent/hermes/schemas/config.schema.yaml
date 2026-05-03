@@ -24,6 +24,10 @@ properties:
   defaultModel:
     type: string
     description: Optional Hermes model id to set on each ACP turn when the request does not specify a model.
+  modelSwitchingEnabled:
+    type: boolean
+    default: true
+    description: Whether to call ACP session/set_model for Gestalt model overrides. Set false for fixed-profile Hermes homes where the configured Hermes model should always be used.
   timeoutSeconds:
     type: number
     default: 600

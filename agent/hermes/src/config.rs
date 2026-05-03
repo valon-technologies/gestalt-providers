@@ -20,6 +20,7 @@ pub struct HermesConfig {
     pub hermes_args: Vec<String>,
     pub working_directory: PathBuf,
     pub default_model: String,
+    pub model_switching_enabled: bool,
     pub timeout: Duration,
     pub access_token_command: Vec<String>,
     pub access_token_env_var: String,
@@ -81,6 +82,8 @@ impl HermesConfig {
             )?,
             working_directory,
             default_model: trimmed_text(raw.get("defaultModel")).unwrap_or_default(),
+            model_switching_enabled: optional_bool(raw.get("modelSwitchingEnabled"))?
+                .unwrap_or(true),
             timeout: Duration::from_secs_f64(timeout_seconds),
             access_token_command: string_list(
                 raw.get("accessTokenCommand"),
@@ -105,6 +108,10 @@ impl HermesConfig {
         } else {
             requested.to_string()
         }
+    }
+
+    pub fn should_set_model(&self, model: &str) -> bool {
+        self.model_switching_enabled && !model.trim().is_empty()
     }
 
     pub async fn fresh_access_token(&self) -> Result<Option<String>, String> {
@@ -183,6 +190,14 @@ impl HermesConfig {
 fn trimmed_text(raw: Option<&JsonValue>) -> Option<String> {
     let value = raw?.as_str()?.trim().to_string();
     if value.is_empty() { None } else { Some(value) }
+}
+
+fn optional_bool(raw: Option<&JsonValue>) -> Result<Option<bool>, String> {
+    match raw {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::Bool(value)) => Ok(Some(*value)),
+        _ => Err("modelSwitchingEnabled must be a boolean".to_string()),
+    }
 }
 
 fn string_list(

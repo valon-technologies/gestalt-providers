@@ -78,6 +78,12 @@ fn main() {
                     }
                     continue;
                 }
+                if mode == "stderr-fail" {
+                    update("agent_thought_chunk", "thinking");
+                    eprintln!("Non-retryable client error: Error code: 403 - permission denied");
+                    respond(&request, json!({"stopReason": "end_turn"}));
+                    continue;
+                }
                 update("agent_thought_chunk", "thinking");
                 update("agent_message_chunk", "Hermes says hi");
                 tool_update("tool-call-1", "completed");

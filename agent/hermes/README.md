@@ -17,6 +17,7 @@ providers:
         hermesArgs: ["acp", "--accept-hooks"]
         workingDirectory: /Users/hugh/src/gestalt-providers
         defaultModel: kimi-k2.6
+        modelSwitchingEnabled: false
         accessTokenCommand:
           - gcloud
           - auth
@@ -38,6 +39,11 @@ Google ADC access tokens while keeping Hermes conversation state in ACP.
 
 Set `accessTokenCommand: []` to skip refresh and rely on inherited environment
 or `extraEnv`.
+
+Set `modelSwitchingEnabled: false` for fixed Hermes profiles, such as a custom
+Vertex endpoint configured in `HERMES_HOME/config.yaml`. In that mode Gestalt
+still records the requested model, but the provider does not call ACP
+`session/set_model`; Hermes uses the model already configured in its home.
 
 ## Scope
 

@@ -113,6 +113,59 @@ async fn auto_approves_acp_permission_requests() {
 }
 
 #[tokio::test]
+async fn fixed_profile_mode_skips_acp_model_switching() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider_with_model_switching(false).await;
+
+    let session = create_session(&provider).await;
+    assert_eq!(session.model, "kimi-k2.6");
+    create_turn(&provider, "turn-fixed-profile").await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-fixed-profile",
+        proto::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    assert_eq!(turn.output_text, "Hermes says hi");
+
+    let log = fixture.log_events();
+    assert_eq!(
+        log.iter()
+            .filter(|event| event["event"] == "set_model")
+            .count(),
+        0,
+        "{log:?}"
+    );
+}
+
+#[tokio::test]
+async fn terminal_hermes_stderr_marks_turn_failed() {
+    let fixture = Fixture::new("stderr-fail");
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    create_turn(&provider, "turn-stderr-fail").await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-stderr-fail",
+        proto::AgentExecutionStatus::Failed,
+    )
+    .await;
+    assert!(
+        turn.status_message
+            .contains("Hermes reported a terminal error"),
+        "{}",
+        turn.status_message
+    );
+    assert!(
+        turn.status_message.contains("Non-retryable client error"),
+        "{}",
+        turn.status_message
+    );
+    assert_turn_event(&provider, "turn-stderr-fail", "turn.failed").await;
+}
+
+#[tokio::test]
 async fn rejects_gestalt_tooling_and_structured_options() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
@@ -295,6 +348,13 @@ impl Fixture {
     }
 
     async fn configure_provider(&self) -> HermesAgentProvider {
+        self.configure_provider_with_model_switching(true).await
+    }
+
+    async fn configure_provider_with_model_switching(
+        &self,
+        model_switching_enabled: bool,
+    ) -> HermesAgentProvider {
         let provider = HermesAgentProvider::default();
         let mut extra_env = serde_json::Map::new();
         extra_env.insert(
@@ -320,6 +380,7 @@ impl Fixture {
             "accessTokenCommand": [
                 self.token_script.to_string_lossy()
             ],
+            "modelSwitchingEnabled": model_switching_enabled,
             "extraEnv": JsonValue::Object(extra_env),
             "autoApprovePermissions": true
         }));
