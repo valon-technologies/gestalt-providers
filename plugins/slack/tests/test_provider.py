@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import pathlib
+import types
 import unittest
 import urllib.error
 import urllib.parse
@@ -721,6 +722,32 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(resolved.kind, "user")
         self.assertEqual(resolved.display_name, "ada@example.com")
 
+    def test_http_subject_defers_unlinked_slack_user_to_handler(self) -> None:
+        authorization = FakeAuthorization([])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvUnlinked",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNone(resolved)
+        self.assertEqual(len(authorization.requests), 1)
+
     def test_slack_event_handler_signals_workflow_with_user_tool_search(self) -> None:
         provider_module.configure(
             "slack",
@@ -877,6 +904,65 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_metadata["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_metadata["slack"]["user_id"], "U456")
         self.assertEqual(signal_metadata["slack"]["file_ids"], ["F123"])
+
+    def test_slack_event_handler_notifies_unlinked_user(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvUnlinked",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            body = json.loads(cast(bytes, request.data).decode("utf-8"))
+            calls.append((parsed.path, body))
+            return FakeHTTPResponse('{"ok": true}')
+
+        request = types.SimpleNamespace(
+            subject=gestalt.Subject(id="system:http_binding:slack:events"),
+            host=types.SimpleNamespace(public_base_url="https://gestalt.example.test/"),
+        )
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = provider_module.slack_events_handle(payload, cast(Any, request))
+
+        self.assertEqual(response, {"ok": True, "unlinked": True})
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/chat.postMessage",
+                    {
+                        "channel": "C789",
+                        "text": (
+                            "Your Slack account is not yet connected at "
+                            "https://gestalt.example.test, please connect it "
+                            "first before trying again."
+                        ),
+                        "thread_ts": "1712161829.000300",
+                        "unfurl_links": False,
+                        "unfurl_media": False,
+                    },
+                )
+            ],
+        )
 
     def test_slack_event_handler_acks_dict_workflow_response(self) -> None:
         provider_module.configure(
