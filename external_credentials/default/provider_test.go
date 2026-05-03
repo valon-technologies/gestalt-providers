@@ -367,18 +367,18 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 
-	lis, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatalf("Listen(indexeddb): %v", err)
-	}
-	server := grpc.NewServer()
-	proto.RegisterIndexedDBServer(server, store.Store)
-	go func() { _ = server.Serve(lis) }()
+	t.Setenv(proto.EnvProviderSocket, socketPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- gestalt.ServeIndexedDBProvider(ctx, store)
+	}()
+	conn := newUnixConn(t, socketPath)
+	_ = conn.Close()
 	t.Cleanup(func() {
-		server.GracefulStop()
-		_ = lis.Close()
+		cancel()
+		waitServeResult(t, errCh)
 		_ = os.Remove(socketPath)
-		_ = store.Close()
 	})
 
 	t.Setenv(envName, socketPath)
