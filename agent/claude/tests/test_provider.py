@@ -300,9 +300,11 @@ class ClaudeProviderTests(unittest.TestCase):
             model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
         )
 
-        visible_tools = asyncio.run(_visible_sdk_tools(options))
+        sdk_tools = asyncio.run(_sdk_tools(options))
+        visible_tools = [tool.name for tool in sdk_tools]
 
         self.assertEqual(visible_tools, ["gestalt_catalog_search", "gestalt_catalog_execute"])
+        self.assertNotIn("anyOf", sdk_tools[1].inputSchema)
         self.assertEqual([request["page_token"] for request in host.list_requests], [""])
 
         search_result = asyncio.run(
@@ -540,9 +542,13 @@ def _turn_request(
 
 
 async def _visible_sdk_tools(options: Any) -> list[str]:
+    return [tool.name for tool in await _sdk_tools(options)]
+
+
+async def _sdk_tools(options: Any) -> list[Any]:
     server = options.mcp_servers["gestalt"]["instance"]
     list_result = await server.request_handlers[mcp_types.ListToolsRequest](mcp_types.ListToolsRequest())
-    return [tool.name for tool in list_result.root.tools]
+    return list(list_result.root.tools)
 
 
 async def _call_sdk_tool(options: Any, *, name: str, arguments: dict[str, Any]) -> Any:

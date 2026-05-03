@@ -46,7 +46,7 @@ class ClaudeCodeAgentProvider(
             name=self._name,
             display_name="Claude Agent SDK",
             description="Runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.",
-            version="0.0.1-alpha.8",
+            version="0.0.1-alpha.9",
         )
 
     def warnings(self) -> list[str]:

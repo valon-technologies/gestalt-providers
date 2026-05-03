@@ -400,7 +400,6 @@ def _catalog_tools() -> list[Tool]:
                     },
                 },
                 "required": ["arguments"],
-                "anyOf": [{"required": ["tool_id"]}, {"required": ["mcp_name"]}],
                 "additionalProperties": False,
             },
             annotations=ToolAnnotations(title="Execute Gestalt MCP catalog tool", openWorldHint=True),
