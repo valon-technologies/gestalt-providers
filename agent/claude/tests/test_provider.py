@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
 import tempfile
@@ -43,10 +44,12 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
     def __init__(self) -> None:
         self.list_requests: list[dict[str, Any]] = []
         self.execute_requests: list[dict[str, Any]] = []
+        self.large_catalog = False
 
     def reset(self) -> None:
         self.list_requests.clear()
         self.execute_requests.clear()
+        self.large_catalog = False
 
     def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -60,6 +63,20 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             }
         )
         response = agent_pb2.ListAgentToolsResponse()
+        if self.large_catalog:
+            if request.page_token:
+                return response
+            for index in range(60):
+                plugin = "github" if index % 2 == 0 else "linear"
+                tool = response.tools.add()
+                tool.id = f"tool-{plugin}-{index}"
+                tool.mcp_name = f"{plugin}__operation_{index}"
+                tool.title = f"{plugin.title()} operation {index}"
+                tool.description = f"{plugin.title()} catalog operation {index}"
+                tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
+                setattr(tool.ref, "plugin", plugin)
+                setattr(tool.ref, "operation", f"operation{index}")
+            return response
         if request.page_token == "":
             tool = response.tools.add()
             tool.id = "tool-ashby-candidates"
@@ -231,10 +248,11 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.skills, [])
         self.assertEqual(fake_client.options.plugins, [])
         self.assertEqual(fake_client.options.env["ANTHROPIC_API_KEY"], "test-anthropic-key")
-        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "true")
+        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "false")
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
         self.assertIn("Gestalt MCP catalog tools", fake_client.options.system_prompt)
         self.assertIn("Linear", fake_client.options.system_prompt)
+        self.assertIn("gestalt_catalog_search", fake_client.options.system_prompt)
         self.assertIn("Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt)
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
@@ -250,7 +268,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
 
-    def test_sdk_mcp_bridge_exposes_full_catalog_for_native_tool_search(self) -> None:
+    def test_sdk_mcp_bridge_exposes_direct_tools_for_small_grants(self) -> None:
         host = _host_servicer
         assert host is not None
         _configure_provider()
@@ -270,6 +288,42 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["linear__issues", "github__pulls_list"])
         self.assertNotIn("nextCursor", second["result"])
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2", "page-2"])
+
+    def test_sdk_mcp_bridge_uses_catalog_tools_for_large_grants(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        host.large_catalog = True
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        options = runner._options(
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
+        )
+
+        visible_tools = asyncio.run(_visible_sdk_tools(options))
+
+        self.assertEqual(visible_tools, ["gestalt_catalog_search", "gestalt_catalog_execute"])
+        self.assertEqual([request["page_token"] for request in host.list_requests], [""])
+
+        search_result = asyncio.run(
+            _call_sdk_tool(options, name="gestalt_catalog_search", arguments={"query": "find my prs"})
+        )
+        search_body = json.loads(search_result.content[0].text)
+        self.assertTrue(search_body["tools"])
+        self.assertEqual(search_body["tools"][0]["mcp_name"], "github__operation_0")
+        self.assertEqual([request["page_token"] for request in host.list_requests], [""])
+
+        execute_result = asyncio.run(
+            _call_sdk_tool(
+                options,
+                name="gestalt_catalog_execute",
+                arguments={"tool_id": "tool-github-0", "arguments": {"query": "mine"}},
+            )
+        )
+
+        self.assertEqual(execute_result.content[0].text, '{"ok":true}')
+        self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
+        self.assertEqual(host.execute_requests[-1]["arguments"], {"query": "mine"})
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
