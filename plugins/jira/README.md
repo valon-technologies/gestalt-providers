@@ -20,7 +20,7 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 Declarative REST provider for Atlassian Jira Cloud. Exposes operations for
 listing projects, getting and creating issues, searching with JQL, adding
-comments, and transitioning issue statuses. The Jira Cloud site identifier
+comments, transitioning issue statuses, and managing issue properties. The Jira Cloud site identifier
 is discovered automatically during the OAuth flow.
 
 Authenticates with Atlassian OAuth 2.0.
