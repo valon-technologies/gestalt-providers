@@ -292,7 +292,7 @@ jobs:
 
   build-linux-armv7:
     needs: metadata
-    if: ${{ needs.metadata.outputs.source-language == 'go' || needs.metadata.outputs.source-language == 'rust' || (needs.metadata.outputs.source-language == 'python' && inputs.plugin-dir != 'agent/claude') }}
+    if: ${{ needs.metadata.outputs.source-language == 'go' || (needs.metadata.outputs.source-language == 'python' && inputs.plugin-dir != 'agent/claude') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
