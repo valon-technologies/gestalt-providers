@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--refresh-releases",
         action="store_true",
-        help="Refresh historical versions from GitHub release metadata",
+        help="Refresh historical versions from git tags and release asset metadata",
     )
     return parser.parse_args()
 
@@ -206,6 +206,10 @@ def release_platforms(package_dir: pathlib.Path, language: str, runtime: str) ->
 
 def release_metadata_url(package_dir: pathlib.Path, version: str) -> str:
     tag = f"{package_dir.as_posix()}/v{version}"
+    return release_metadata_url_for_tag(tag)
+
+
+def release_metadata_url_for_tag(tag: str) -> str:
     return f"https://github.com/{REPOSITORY}/releases/download/{tag}/provider-release.yaml"
 
 
@@ -277,33 +281,12 @@ def refresh_github_releases(repo_root: pathlib.Path, packages: dict[str, dict[st
         for root_name in PACKAGE_ROOTS
         for manifest in sorted((repo_root / root_name).glob("*/manifest.yaml"))
     }
-    result = subprocess.run(
-        [
-            "gh",
-            "release",
-            "list",
-            "--repo",
-            REPOSITORY,
-            "--limit",
-            "1000",
-            "--json",
-            "tagName,isDraft",
-        ],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    releases = json.loads(result.stdout)
-    for release in releases:
-        if release.get("isDraft"):
-            continue
-        tag = str(release.get("tagName") or "")
+    for tag in list_release_tags():
         match = TAG_PATTERN.match(tag)
-        if not match:
-            continue
+        assert match is not None
         package_dir = match.group("dir")
         manifest = manifests.get(package_dir)
-        metadata_url = f"https://github.com/{REPOSITORY}/releases/download/{tag}/provider-release.yaml"
+        metadata_url = release_metadata_url_for_tag(tag)
         metadata = fetch_release_metadata(tag)
         if metadata is None:
             print(f"warning: skipping {tag}; provider-release.yaml not found", file=sys.stderr)
@@ -347,26 +330,54 @@ def refresh_github_releases(repo_root: pathlib.Path, packages: dict[str, dict[st
         )
 
 
-def fetch_release_metadata(tag: str) -> dict[str, object] | None:
+def list_release_tags() -> list[str]:
     result = subprocess.run(
         [
-            "gh",
-            "release",
-            "download",
-            tag,
-            "--repo",
-            REPOSITORY,
-            "--pattern",
-            "provider-release.yaml",
-            "--output",
-            "-",
+            "git",
+            "ls-remote",
+            "--tags",
+            "--refs",
+            f"https://github.com/{REPOSITORY}.git",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    tags: list[str] = []
+    for line in result.stdout.splitlines():
+        _, _, ref = line.partition("\t")
+        prefix = "refs/tags/"
+        if not ref.startswith(prefix):
+            continue
+        tag = ref[len(prefix) :]
+        match = TAG_PATTERN.match(tag)
+        if match and match.group("dir").split("/", 1)[0] in PACKAGE_ROOTS:
+            tags.append(tag)
+    return sorted(tags)
+
+
+def fetch_release_metadata(tag: str) -> dict[str, object] | None:
+    metadata_url = release_metadata_url_for_tag(tag)
+    result = subprocess.run(
+        [
+            "curl",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--retry",
+            "3",
+            metadata_url,
         ],
         check=False,
         text=True,
         capture_output=True,
     )
     if result.returncode != 0:
-        return None
+        if "404" in result.stderr:
+            return None
+        message = result.stderr.strip() or f"curl exited with {result.returncode}"
+        raise SystemExit(f"{metadata_url}: {message}")
     data = result.stdout
     fields: dict[str, object] = {"platforms": []}
     in_artifacts = False

@@ -53,9 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate provider index
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/generate_provider_index.py --refresh-releases --check
+        run: python3 .github/scripts/generate_provider_index.py --check
 
   discover:
     runs-on: ubuntu-latest
