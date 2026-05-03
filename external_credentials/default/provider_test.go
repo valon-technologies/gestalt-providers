@@ -331,13 +331,18 @@ func TestExternalCredentialProviderBackfillsLegacyConnectionRecords(t *testing.T
 	}
 	defer func() { _ = client.Close() }()
 
-	listed, err := client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
-		SubjectId:    "user:user-legacy",
-		ConnectionId: "bigquery:default",
+	var listed *gestalt.ListExternalCredentialsResponse
+	waitForCondition(t, 2*time.Second, func() (bool, error) {
+		var listErr error
+		listed, listErr = client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
+			SubjectId:    "user:user-legacy",
+			ConnectionId: "bigquery:default",
+		})
+		if listErr != nil {
+			return false, listErr
+		}
+		return len(listed.GetCredentials()) == 1, nil
 	})
-	if err != nil {
-		t.Fatalf("ListCredentials(bigquery): %v", err)
-	}
 	if len(listed.GetCredentials()) != 1 {
 		t.Fatalf("bigquery credentials len = %d, want 1", len(listed.GetCredentials()))
 	}
@@ -352,18 +357,31 @@ func TestExternalCredentialProviderBackfillsLegacyConnectionRecords(t *testing.T
 		t.Fatalf("lookup = connection:%q instance:%q", got.GetConnectionId(), got.GetInstance())
 	}
 
-	all, err := client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
-		SubjectId: "user:user-legacy",
+	var all *gestalt.ListExternalCredentialsResponse
+	waitForCondition(t, 2*time.Second, func() (bool, error) {
+		var listErr error
+		all, listErr = client.ListCredentials(ctx, &proto.ListExternalCredentialsRequest{
+			SubjectId: "user:user-legacy",
+		})
+		if listErr != nil {
+			return false, listErr
+		}
+		return len(all.GetCredentials()) == 2, nil
 	})
-	if err != nil {
-		t.Fatalf("ListCredentials(subject): %v", err)
-	}
 	if len(all.GetCredentials()) != 2 {
 		t.Fatalf("subject credentials len = %d, want 2", len(all.GetCredentials()))
 	}
-	if _, err := db.ObjectStore(legacyStoreName).Get(ctx, "legacy-bigquery"); !errors.Is(err, gestalt.ErrNotFound) {
-		t.Fatalf("legacy bigquery Get error = %v, want %v", err, gestalt.ErrNotFound)
-	}
+	waitForCondition(t, 2*time.Second, func() (bool, error) {
+		_, err := db.ObjectStore(legacyStoreName).Get(ctx, "legacy-bigquery")
+		switch {
+		case errors.Is(err, gestalt.ErrNotFound):
+			return true, nil
+		case err != nil:
+			return false, err
+		default:
+			return false, nil
+		}
+	})
 }
 
 func TestExternalCredentialProviderValidation(t *testing.T) {
@@ -558,6 +576,29 @@ func mustEncryptWithNonce(t *testing.T, key, nonce []byte, plaintext string) str
 	}
 	ciphertext := gcm.Seal(append([]byte{}, nonce...), nonce, []byte(plaintext), nil)
 	return base64.StdEncoding.EncodeToString(ciphertext)
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, fn func() (bool, error)) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		ok, err := fn()
+		if ok {
+			return
+		}
+		if err != nil {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				t.Fatalf("condition was not met within %s: %v", timeout, lastErr)
+			}
+			t.Fatalf("condition was not met within %s", timeout)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 func newSocketPath(t *testing.T, name string) string {
