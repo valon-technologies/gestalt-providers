@@ -33,19 +33,28 @@ fn main() {
             .and_then(Value::as_str)
             .unwrap_or_default();
         match method {
-            "initialize" => respond(
-                &request,
-                json!({
-                    "protocolVersion": 1,
-                    "agentCapabilities": {
-                        "loadSession": true,
-                        "mcpCapabilities": {
-                            "http": mode != "mcp-no-http",
-                            "sse": false
-                        }
+            "initialize" => {
+                let mut agent_capabilities = json!({
+                    "loadSession": true,
+                    "mcpCapabilities": {
+                        "http": true,
+                        "sse": false
                     }
-                }),
-            ),
+                });
+                if mode == "mcp-call-no-cap" {
+                    agent_capabilities
+                        .as_object_mut()
+                        .expect("agent capabilities object")
+                        .remove("mcpCapabilities");
+                }
+                respond(
+                    &request,
+                    json!({
+                        "protocolVersion": 1,
+                        "agentCapabilities": agent_capabilities
+                    }),
+                )
+            }
             "session/new" => {
                 log_event(json!({"event": "new", "params": request.get("params")}));
                 respond(&request, json!({"sessionId": "acp-session-1"}));
@@ -102,7 +111,7 @@ fn main() {
                     continue;
                 }
                 update("agent_thought_chunk", "thinking");
-                if mode == "mcp-call" {
+                if mode == "mcp-call" || mode == "mcp-call-no-cap" {
                     match exercise_mcp_server(mcp_server.as_ref()) {
                         Ok(result) => {
                             log_event(json!({"event": "mcp_result", "result": result}));

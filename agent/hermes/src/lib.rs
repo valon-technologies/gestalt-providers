@@ -564,14 +564,8 @@ impl HermesAgentProvider {
             if self.is_turn_canceled(turn_id).await {
                 return Err("turn canceled".to_string());
             }
-            let initialize_result = process.initialize(config.timeout).await?;
+            let _initialize_result = process.initialize(config.timeout).await?;
             let mcp_servers = if mcp_catalog_enabled {
-                if !initialize_result.mcp_http_supported {
-                    return Err(
-                        "Hermes ACP does not advertise HTTP MCP server support; install Hermes with MCP support and retry"
-                            .to_string(),
-                    );
-                }
                 let bridge = mcp_bridge::start_bridge(
                     session_id.clone(),
                     turn_id.to_string(),
