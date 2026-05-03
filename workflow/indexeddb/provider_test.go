@@ -3014,6 +3014,321 @@ func TestProviderTickProcessesPreferredRunBeforeStaleRecovery(t *testing.T) {
 	}
 }
 
+func TestProviderTickPrioritizesPluginEventWhenPreferredWakeLost(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 17, 0, 0, 0, time.UTC)
+	clock := newFakeClock(start)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	provider.now = clock.Now
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	for i := 0; i < 3; i++ {
+		run := workflowRunRecord{
+			ID:          fmt.Sprintf("old-agent-backlog-%d", i),
+			Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+			Target:      protoAgentTarget("managed", "gpt-5.5", "Process backlog"),
+			TriggerKind: triggerKindManual,
+			CreatedAt:   start.Add(-time.Hour).Add(time.Duration(i) * time.Second),
+		}
+		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+			t.Fatalf("Put(%s): %v", run.ID, err)
+		}
+	}
+
+	const triggerID = "slack-message-ingest"
+	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerId: triggerID,
+		Match:     &proto.WorkflowEventMatch{Type: "message", Source: "slack"},
+		Target:    protoBoundTarget(t, "brain", "sources.slack.events.ingest", map[string]any{"source": "slack"}),
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger: %v", err)
+	}
+	clock.Set(start.Add(time.Minute))
+	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		Event: &proto.WorkflowEvent{
+			Id:          "evt-lost-wake",
+			Source:      "slack",
+			Type:        "message",
+			SpecVersion: "1.0",
+			Data:        mustStruct(t, map[string]any{"channel": "C123"}),
+		},
+	}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+
+	if err := provider.tick(ctx, ""); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	wantRunID := eventRunID(triggerID, "slack", "evt-lost-wake")
+	if call.GetRunId() != wantRunID {
+		t.Fatalf("run_id = %q, want plugin event run %q", call.GetRunId(), wantRunID)
+	}
+}
+
+func TestProviderTickPreservesFIFOWithinDispatchPriority(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 17, 30, 0, 0, time.UTC)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	oldAgent := workflowRunRecord{
+		ID:          "older-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Process backlog"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   start.Add(-time.Hour),
+	}
+	firstEvent := workflowRunRecord{
+		ID:          "first-plugin-event",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "brain", "sources.slack.events.ingest", nil),
+		TriggerKind: triggerKindEvent,
+		CreatedAt:   start,
+	}
+	secondEvent := firstEvent
+	secondEvent.ID = "second-plugin-event"
+	secondEvent.CreatedAt = start.Add(time.Second)
+	for _, run := range []workflowRunRecord{oldAgent, secondEvent, firstEvent} {
+		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+			t.Fatalf("Put(%s): %v", run.ID, err)
+		}
+	}
+
+	if err := provider.tick(ctx, ""); err != nil {
+		t.Fatalf("tick(first): %v", err)
+	}
+	firstCall, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(first): %v", err)
+	}
+	if firstCall.GetRunId() != firstEvent.ID {
+		t.Fatalf("first run_id = %q, want %q", firstCall.GetRunId(), firstEvent.ID)
+	}
+
+	if err := provider.tick(ctx, ""); err != nil {
+		t.Fatalf("tick(second): %v", err)
+	}
+	secondCall, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall(second): %v", err)
+	}
+	if secondCall.GetRunId() != secondEvent.ID {
+		t.Fatalf("second run_id = %q, want %q", secondCall.GetRunId(), secondEvent.ID)
+	}
+}
+
+func TestProviderTickPreferredRunStillWinsOverDispatchPriority(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 18, 0, 0, 0, time.UTC)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	preferred := workflowRunRecord{
+		ID:          "preferred-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Respond to explicit wake"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   start.Add(-time.Minute),
+	}
+	pluginEvent := workflowRunRecord{
+		ID:          "higher-priority-plugin-event",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "brain", "sources.slack.events.ingest", nil),
+		TriggerKind: triggerKindEvent,
+		CreatedAt:   start,
+	}
+	for _, run := range []workflowRunRecord{pluginEvent, preferred} {
+		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+			t.Fatalf("Put(%s): %v", run.ID, err)
+		}
+	}
+
+	if err := provider.tick(ctx, preferred.ID); err != nil {
+		t.Fatalf("tick(preferred): %v", err)
+	}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != preferred.ID {
+		t.Fatalf("run_id = %q, want preferred run %q", call.GetRunId(), preferred.ID)
+	}
+}
+
+func TestProviderTickPrioritizesKeyedSignalContinuation(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 18, 30, 0, 0, time.UTC)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	oldAgent := workflowRunRecord{
+		ID:          "old-unkeyed-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Process backlog"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   start.Add(-time.Hour),
+	}
+	workflowKey := "slack:T123:C123:1700000000.000001"
+	continuation := workflowRunRecord{
+		ID:           "terminal-keyed-agent-run",
+		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
+		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond to Slack thread"),
+		TriggerKind:  triggerKindManual,
+		WorkflowKey:  workflowKey,
+		CreatedAt:    start,
+		StartedAt:    timePtr(start.Add(time.Second)),
+		CompletedAt:  timePtr(start.Add(2 * time.Second)),
+		ExecutionRef: "agent-ref",
+	}
+	for _, run := range []workflowRunRecord{oldAgent, continuation} {
+		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+			t.Fatalf("Put(%s): %v", run.ID, err)
+		}
+	}
+	signal := protoWorkflowSignal(t, "signal-keyed-continuation", "evt-keyed-continuation", "new Slack reply")
+	if err := provider.signalStore.Put(ctx, workflowSignalRecord{
+		ID:             signal.GetId(),
+		RunID:          continuation.ID,
+		WorkflowKey:    workflowKey,
+		State:          signalStatePending,
+		Signal:         signal,
+		IdempotencyKey: signal.GetIdempotencyKey(),
+		Sequence:       1,
+		CreatedAt:      start.Add(3 * time.Second),
+	}.toRecord()); err != nil {
+		t.Fatalf("Put(signal): %v", err)
+	}
+
+	if err := provider.tick(ctx, ""); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != continuation.ID {
+		t.Fatalf("run_id = %q, want keyed continuation %q", call.GetRunId(), continuation.ID)
+	}
+	if len(call.GetSignals()) != 1 || call.GetSignals()[0].GetId() != signal.GetId() {
+		t.Fatalf("signals = %#v, want keyed continuation signal %q", call.GetSignals(), signal.GetId())
+	}
+}
+
+func TestProviderRunClaimTTLConfigAppliesToClaimAndRenewal(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 19, 0, 0, 0, time.UTC)
+	clock := newFakeClock(start)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	host.releaseCh = make(chan struct{})
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	provider.now = clock.Now
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{
+		"pollInterval":       "1h",
+		"runClaimTTL":        "30s",
+		"runClaimRenewEvery": "10s",
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	run := workflowRunRecord{
+		ID:          "configured-ttl-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "brain", "sources.slack.events.ingest", nil),
+		TriggerKind: triggerKindEvent,
+		CreatedAt:   start,
+	}
+	if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+		t.Fatalf("Put(run): %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		processed, err := provider.processNextPendingRun(ctx, "")
+		if err == nil && !processed {
+			err = errors.New("processNextPendingRun processed no run")
+		}
+		done <- err
+	}()
+	if _, err := host.waitForCall(time.Second); err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	claim, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID)
+	if err != nil {
+		t.Fatalf("loadRunClaimRecord(initial): %v", err)
+	}
+	if !found {
+		t.Fatalf("claim for %q not found", run.ID)
+	}
+	if want := start.Add(30 * time.Second); !claim.ExpiresAt.Equal(want) {
+		t.Fatalf("initial expires_at = %v, want %v", claim.ExpiresAt, want)
+	}
+
+	clock.Set(start.Add(10 * time.Second))
+	renewed, err := provider.renewWorkflowRunClaim(ctx, run.ID, provider.claimOwnerID)
+	if err != nil {
+		t.Fatalf("renewWorkflowRunClaim: %v", err)
+	}
+	if !renewed {
+		t.Fatal("renewWorkflowRunClaim returned false")
+	}
+	claim, found, err = loadRunClaimRecord(ctx, provider.runClaimStore, run.ID)
+	if err != nil {
+		t.Fatalf("loadRunClaimRecord(renewed): %v", err)
+	}
+	if !found {
+		t.Fatalf("claim for %q not found after renewal", run.ID)
+	}
+	if want := start.Add(40 * time.Second); !claim.ExpiresAt.Equal(want) {
+		t.Fatalf("renewed expires_at = %v, want %v", claim.ExpiresAt, want)
+	}
+
+	close(host.releaseCh)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("processNextPendingRun: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("processNextPendingRun did not finish after host release")
+	}
+}
+
 func TestProviderTickRecoversRunningRunAfterClaimExpires(t *testing.T) {
 	ctx := context.Background()
 	start := time.Date(2026, time.April, 30, 12, 0, 0, 0, time.UTC)

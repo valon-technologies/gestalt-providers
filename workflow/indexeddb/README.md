@@ -17,15 +17,22 @@ providers:
 
   workflow:
     local:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.43/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.45/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
         pollInterval: 1s
+        workerCount: 4
+        runClaimTTL: 10m
+        runClaimRenewEvery: 3m20s
 ```
 
 `pollInterval` controls how often workers scan for due cron schedules
-and pending runs.
+and pending runs. `workerCount` controls how many local poll workers this
+provider starts after lifecycle start. `runClaimTTL` controls how long another
+provider instance must wait before recovering a run claim that stopped
+renewing; live workers renew claims every `runClaimRenewEvery`, which defaults
+to one third of `runClaimTTL`.
 
 Poll workers start only when the host calls
 `ProviderLifecycle.StartProvider`, after agents, authorization, plugin
@@ -43,8 +50,11 @@ providers, and workflow host services are ready.
 - pending-only cancellation
 - startup recovers stale `running` runs without blocking provider readiness
 - missed cron ticks collapse to one run
-- `PublishEvent` enqueues runs for matching event triggers
+- `PublishEvent` enqueues runs for matching event triggers; the local
+  preferred wake is an optimization, and fallback dispatch durably prioritizes
+  plugin event ingress ahead of generic agent backlog when the wake is lost
 - `SignalOrStartRun` keeps one active run per workflow key and appends durable
-  signal records for same-run re-invocation
+  signal records for same-run re-invocation; keyed continuations are also
+  prioritized ahead of generic agent backlog
 - agent tool reference validation happens in the workflow host; this provider
   only validates the runnable agent fields needed for storage and dispatch

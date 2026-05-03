@@ -32,11 +32,11 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.44"
+	providerVersion           = "0.0.1-alpha.45"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
-	defaultRunClaimTTL        = 2 * time.Hour
+	defaultRunClaimTTL        = 10 * time.Minute
 	defaultRunClaimRenewEvery = defaultRunClaimTTL / 3
 	defaultStaleRecoveryEvery = time.Minute
 	nonRunningRunClaimGrace   = time.Minute
@@ -80,7 +80,10 @@ const (
 )
 
 type config struct {
-	PollInterval time.Duration `yaml:"pollInterval"`
+	PollInterval       time.Duration `yaml:"pollInterval"`
+	WorkerCount        int           `yaml:"workerCount"`
+	RunClaimTTL        time.Duration `yaml:"runClaimTTL"`
+	RunClaimRenewEvery time.Duration `yaml:"runClaimRenewEvery"`
 }
 
 type Provider struct {
@@ -325,7 +328,8 @@ func (p *Provider) Start(ctx context.Context) error {
 	}
 
 	startedAt := p.clock().UTC()
-	p.wake = make(chan string, max(128, defaultWorkerCount*8))
+	workerCount := state.workerCount
+	p.wake = make(chan string, max(128, workerCount*8))
 	p.pollDone = make(chan struct{})
 	loopCtx, cancel := context.WithCancel(context.Background())
 	p.pollCancel = cancel
@@ -333,17 +337,17 @@ func (p *Provider) Start(ctx context.Context) error {
 	wake := p.wake
 	pollInterval := p.cfg.PollInterval
 	var wg sync.WaitGroup
-	wg.Add(defaultWorkerCount + 1)
+	wg.Add(workerCount + 1)
 	go func() {
 		defer wg.Done()
 		defer p.workerMu.Unlock()
-		if err := recoverStaleWorkflowRuns(loopCtx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC()); err != nil && loopCtx.Err() == nil {
+		if err := recoverStaleWorkflowRunsWithTTL(loopCtx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC(), state.runClaimTTL); err != nil && loopCtx.Err() == nil {
 			slog.WarnContext(loopCtx, "indexeddb workflow: recover stale workflow runs failed", "error", err)
 			return
 		}
 		p.lastStaleRecovery = p.clock().UTC()
 	}()
-	for range defaultWorkerCount {
+	for range workerCount {
 		go func() {
 			defer wg.Done()
 			p.pollLoop(loopCtx, pollInterval, wake)
@@ -503,7 +507,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "load workflow key: %v", err)
 		}
-		stale, err := workflowRunRecoverablyStale(ctx, state.runClaimStore, active, now)
+		stale, err := workflowRunRecoverablyStale(ctx, state.runClaimStore, active, now, state.runClaimTTL)
 		if err != nil {
 			p.mu.Unlock()
 			return nil, status.Errorf(codes.Internal, "load workflow run claim: %v", err)
@@ -813,7 +817,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 			return nil, status.Errorf(codes.Internal, "start signal transaction: %v", err)
 		}
 
-		resp, signalID, err := signalOrStartRunInTransaction(ctx, stores, target, req, workflowKey, signal, now)
+		resp, signalID, err := signalOrStartRunInTransaction(ctx, stores, target, req, workflowKey, signal, now, state.runClaimTTL)
 		if err != nil {
 			_ = tx.Abort(ctx)
 			var conflict *workflowSignalAddConflictError
@@ -1519,14 +1523,14 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, signal, false)
 }
 
-func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, now time.Time) (*proto.SignalWorkflowRunResponse, string, error) {
+func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, now time.Time, runClaimTTL time.Duration) (*proto.SignalWorkflowRunResponse, string, error) {
 	startedRun := false
 	enqueueSignal := signal
 	run, active, err := activeWorkflowKeyRunInTransaction(ctx, stores.workflowKeyStore, stores.runStore, workflowKey)
 	if err != nil {
 		return nil, "", status.Errorf(codes.Internal, "load workflow key: %v", err)
 	}
-	stale, err := workflowRunRecoverablyStaleTx(ctx, stores.runClaimStore, run, now)
+	stale, err := workflowRunRecoverablyStaleTx(ctx, stores.runClaimStore, run, now, runClaimTTL)
 	if err != nil {
 		return nil, "", status.Errorf(codes.Internal, "load workflow run claim: %v", err)
 	}
@@ -1909,7 +1913,7 @@ func (p *Provider) recoverStaleWorkflowRunsLocked(ctx context.Context, onlyIfDue
 		return nil
 	}
 	p.lastStaleRecovery = now
-	return recoverStaleWorkflowRuns(ctx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, now)
+	return recoverStaleWorkflowRunsWithTTL(ctx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, now, state.runClaimTTL)
 }
 
 func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
@@ -2001,6 +2005,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		return false, nil
 	}
 	claimOwnerID := state.claimOwnerID
+	runClaimRenewEvery := state.runClaimRenewEvery
 	releaseUninvokedClaim := func(retErr error) error {
 		if err := state.runClaimStore.Delete(ctx, pending.ID); err != nil {
 			return errors.Join(retErr, fmt.Errorf("release workflow run claim %q: %w", pending.ID, err))
@@ -2055,7 +2060,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	host := state.host
 	releaseWorker()
 
-	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID)
+	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
 	resp, invokeErr := host.InvokeOperation(ctx, &proto.InvokeWorkflowOperationRequest{
 		Target:       cloneTarget(pending.Target),
 		RunId:        pending.ID,
@@ -2081,12 +2086,15 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	return true, status.Errorf(codes.Aborted, "could not complete workflow run %q after %d attempts", pending.ID, maxSignalAddRetries)
 }
 
-func (p *Provider) startRunClaimRenewal(ctx context.Context, runID, ownerID string) func() {
+func (p *Provider) startRunClaimRenewal(ctx context.Context, runID, ownerID string, renewEvery time.Duration) func() {
 	renewCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(defaultRunClaimRenewEvery)
+		if renewEvery <= 0 {
+			renewEvery = defaultRunClaimRenewEvery
+		}
+		ticker := time.NewTicker(renewEvery)
 		defer ticker.Stop()
 		for {
 			select {
@@ -2117,7 +2125,7 @@ func (p *Provider) renewWorkflowRunClaim(ctx context.Context, runID, ownerID str
 	if err != nil {
 		return false, err
 	}
-	return renewWorkflowRunClaim(ctx, state.db, runID, ownerID, p.clock().UTC())
+	return renewWorkflowRunClaim(ctx, state.db, runID, ownerID, p.clock().UTC(), state.runClaimTTL)
 }
 
 func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *proto.InvokeWorkflowOperationResponse, invokeErr error) error {
@@ -2227,18 +2235,21 @@ func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
 		return nil, errors.New("indexeddb workflow: provider is not configured")
 	}
 	return &configuredState{
-		db:                p.db,
-		host:              p.host,
-		scheduleStore:     p.scheduleStore,
-		eventTriggerStore: p.eventTriggerStore,
-		runStore:          p.runStore,
-		runClaimStore:     p.runClaimStore,
-		idempotencyStore:  p.idempotencyStore,
-		executionRefStore: p.executionRefStore,
-		workflowKeyStore:  p.workflowKeyStore,
-		signalStore:       p.signalStore,
-		claimOwnerID:      p.claimOwnerID,
-		startedAt:         p.startedAt,
+		db:                 p.db,
+		host:               p.host,
+		scheduleStore:      p.scheduleStore,
+		eventTriggerStore:  p.eventTriggerStore,
+		runStore:           p.runStore,
+		runClaimStore:      p.runClaimStore,
+		idempotencyStore:   p.idempotencyStore,
+		executionRefStore:  p.executionRefStore,
+		workflowKeyStore:   p.workflowKeyStore,
+		signalStore:        p.signalStore,
+		claimOwnerID:       p.claimOwnerID,
+		startedAt:          p.startedAt,
+		workerCount:        p.cfg.WorkerCount,
+		runClaimTTL:        p.cfg.RunClaimTTL,
+		runClaimRenewEvery: p.cfg.RunClaimRenewEvery,
 	}, nil
 }
 
@@ -2278,18 +2289,21 @@ func (p *Provider) providerName() string {
 }
 
 type configuredState struct {
-	db                *gestalt.IndexedDBClient
-	host              *gestalt.WorkflowHostClient
-	scheduleStore     *gestalt.ObjectStoreClient
-	eventTriggerStore *gestalt.ObjectStoreClient
-	runStore          *gestalt.ObjectStoreClient
-	runClaimStore     *gestalt.ObjectStoreClient
-	idempotencyStore  *gestalt.ObjectStoreClient
-	executionRefStore *gestalt.ObjectStoreClient
-	workflowKeyStore  *gestalt.ObjectStoreClient
-	signalStore       *gestalt.ObjectStoreClient
-	claimOwnerID      string
-	startedAt         time.Time
+	db                 *gestalt.IndexedDBClient
+	host               *gestalt.WorkflowHostClient
+	scheduleStore      *gestalt.ObjectStoreClient
+	eventTriggerStore  *gestalt.ObjectStoreClient
+	runStore           *gestalt.ObjectStoreClient
+	runClaimStore      *gestalt.ObjectStoreClient
+	idempotencyStore   *gestalt.ObjectStoreClient
+	executionRefStore  *gestalt.ObjectStoreClient
+	workflowKeyStore   *gestalt.ObjectStoreClient
+	signalStore        *gestalt.ObjectStoreClient
+	claimOwnerID       string
+	startedAt          time.Time
+	workerCount        int
+	runClaimTTL        time.Duration
+	runClaimRenewEvery time.Duration
 }
 
 type recordGetter interface {
@@ -2400,11 +2414,12 @@ func (s *configuredState) runCompletionTransaction(ctx context.Context) (*gestal
 	}, nil
 }
 
-func claimWorkflowRun(ctx context.Context, db *gestalt.IndexedDBClient, runID, ownerID string, now time.Time) (bool, error) {
+func claimWorkflowRun(ctx context.Context, db *gestalt.IndexedDBClient, runID, ownerID string, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return false, errors.New("workflow run claim requires run id")
 	}
+	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID == "" {
 		ownerID = "unknown"
@@ -2450,7 +2465,7 @@ func claimWorkflowRun(ctx context.Context, db *gestalt.IndexedDBClient, runID, o
 		RunID:     runID,
 		OwnerID:   ownerID,
 		ClaimedAt: now.UTC(),
-		ExpiresAt: now.Add(defaultRunClaimTTL).UTC(),
+		ExpiresAt: now.Add(runClaimTTL).UTC(),
 	}
 	if err := store.Add(ctx, claim.toRecord()); err != nil {
 		if indexedDBRetryableConflict(err) {
@@ -2468,11 +2483,12 @@ func claimWorkflowRun(ctx context.Context, db *gestalt.IndexedDBClient, runID, o
 	return true, nil
 }
 
-func claimAndStartPendingRun(ctx context.Context, db *gestalt.IndexedDBClient, expected workflowRunRecord, ownerID string, now time.Time) (workflowRunRecord, bool, error) {
+func claimAndStartPendingRun(ctx context.Context, db *gestalt.IndexedDBClient, expected workflowRunRecord, ownerID string, now time.Time, runClaimTTL time.Duration) (workflowRunRecord, bool, error) {
 	runID := strings.TrimSpace(expected.ID)
 	if runID == "" {
 		return workflowRunRecord{}, false, errors.New("workflow run claim requires run id")
 	}
+	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID == "" {
 		ownerID = "unknown"
@@ -2535,7 +2551,7 @@ func claimAndStartPendingRun(ctx context.Context, db *gestalt.IndexedDBClient, e
 		RunID:     runID,
 		OwnerID:   ownerID,
 		ClaimedAt: now.UTC(),
-		ExpiresAt: now.Add(defaultRunClaimTTL).UTC(),
+		ExpiresAt: now.Add(runClaimTTL).UTC(),
 	}
 	if err := claimStore.Add(ctx, claim.toRecord()); err != nil {
 		if indexedDBRetryableConflict(err) {
@@ -2563,12 +2579,13 @@ func claimAndStartPendingRun(ctx context.Context, db *gestalt.IndexedDBClient, e
 	return run, true, nil
 }
 
-func renewWorkflowRunClaim(ctx context.Context, db *gestalt.IndexedDBClient, runID, ownerID string, now time.Time) (bool, error) {
+func renewWorkflowRunClaim(ctx context.Context, db *gestalt.IndexedDBClient, runID, ownerID string, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	ownerID = strings.TrimSpace(ownerID)
 	if runID == "" || ownerID == "" {
 		return false, nil
 	}
+	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	tx, err := db.Transaction(ctx, []string{storeRunClaims}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
 	if err != nil {
 		if indexedDBRetryableConflict(err) {
@@ -2597,7 +2614,7 @@ func renewWorkflowRunClaim(ctx context.Context, db *gestalt.IndexedDBClient, run
 		committed = true
 		return false, nil
 	}
-	claim.ExpiresAt = now.Add(defaultRunClaimTTL).UTC()
+	claim.ExpiresAt = now.Add(runClaimTTL).UTC()
 	if err := store.Put(ctx, claim.toRecord()); err != nil {
 		if indexedDBRetryableConflict(err) {
 			return true, nil
@@ -2626,7 +2643,30 @@ func decodeConfig(raw map[string]any) (config, error) {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
+	if cfg.WorkerCount <= 0 {
+		cfg.WorkerCount = defaultWorkerCount
+	}
+	cfg.RunClaimTTL = normalizeRunClaimTTL(cfg.RunClaimTTL)
+	cfg.RunClaimRenewEvery = normalizeRunClaimRenewEvery(cfg.RunClaimTTL, cfg.RunClaimRenewEvery)
 	return cfg, nil
+}
+
+func normalizeRunClaimTTL(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return defaultRunClaimTTL
+	}
+	return ttl
+}
+
+func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
+	ttl = normalizeRunClaimTTL(ttl)
+	if renewEvery <= 0 || renewEvery >= ttl {
+		renewEvery = ttl / 3
+	}
+	if renewEvery <= 0 {
+		return ttl
+	}
+	return renewEvery
 }
 
 func ensureWorkflowStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
@@ -2789,6 +2829,11 @@ func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
 }
 
 func recoverStaleWorkflowRuns(ctx context.Context, db *gestalt.IndexedDBClient, runStore, runClaimStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
+	return recoverStaleWorkflowRunsWithTTL(ctx, db, runStore, runClaimStore, workflowKeyStore, signalStore, now, defaultRunClaimTTL)
+}
+
+func recoverStaleWorkflowRunsWithTTL(ctx context.Context, db *gestalt.IndexedDBClient, runStore, runClaimStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time, runClaimTTL time.Duration) error {
+	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	cursor, err := runStore.OpenKeyCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
 		return err
@@ -2809,7 +2854,7 @@ func recoverStaleWorkflowRuns(ctx context.Context, db *gestalt.IndexedDBClient, 
 		if !found {
 			continue
 		}
-		stale, err := workflowRunRecoverablyStale(ctx, runClaimStore, run, now)
+		stale, err := workflowRunRecoverablyStale(ctx, runClaimStore, run, now, runClaimTTL)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("load run claim %q: %w", run.ID, err))
 			continue
@@ -2902,10 +2947,11 @@ func inactiveRunClaimRecoverable(run workflowRunRecord, claim workflowRunClaimRe
 	return !claim.ClaimedAt.Add(nonRunningRunClaimGrace).After(now)
 }
 
-func workflowRunRecoverablyStale(ctx context.Context, claimStore recordGetter, run workflowRunRecord, now time.Time) (bool, error) {
+func workflowRunRecoverablyStale(ctx context.Context, claimStore recordGetter, run workflowRunRecord, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
 		return false, nil
 	}
+	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	claim, found, err := loadRunClaimRecord(ctx, claimStore, run.ID)
 	if err != nil {
 		return false, err
@@ -2916,13 +2962,14 @@ func workflowRunRecoverablyStale(ctx context.Context, claimStore recordGetter, r
 	if found {
 		return !claim.ExpiresAt.After(now), nil
 	}
-	return workflowRunMissingClaimExpired(run, now), nil
+	return workflowRunMissingClaimExpired(run, now, runClaimTTL), nil
 }
 
-func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore *gestalt.TransactionObjectStore, run workflowRunRecord, now time.Time) (bool, error) {
+func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore *gestalt.TransactionObjectStore, run workflowRunRecord, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
 		return false, nil
 	}
+	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	claim, found, err := loadRunClaimRecordTx(ctx, claimStore, run.ID)
 	if err != nil {
 		return false, err
@@ -2933,7 +2980,7 @@ func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore *gestalt.Tran
 	if found {
 		return !claim.ExpiresAt.After(now), nil
 	}
-	return workflowRunMissingClaimExpired(run, now), nil
+	return workflowRunMissingClaimExpired(run, now, runClaimTTL), nil
 }
 
 func workflowRunExceededAgentDeadline(run workflowRunRecord, now time.Time) bool {
@@ -2947,11 +2994,11 @@ func workflowRunExceededAgentDeadline(run workflowRunRecord, now time.Time) bool
 	return !run.StartedAt.Add(timeout + agentRunStaleGrace).After(now)
 }
 
-func workflowRunMissingClaimExpired(run workflowRunRecord, now time.Time) bool {
+func workflowRunMissingClaimExpired(run workflowRunRecord, now time.Time, runClaimTTL time.Duration) bool {
 	if run.StartedAt == nil {
 		return true
 	}
-	return !run.StartedAt.Add(defaultRunClaimTTL).After(now)
+	return !run.StartedAt.Add(normalizeRunClaimTTL(runClaimTTL)).After(now)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -3305,6 +3352,7 @@ func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferr
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
+	runs = sortRunRecordsForDispatch(runs)
 	for _, run := range runs {
 		if triedPreferred != "" && run.ID == triedPreferred {
 			continue
@@ -3320,15 +3368,51 @@ func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferr
 	return workflowRunRecord{}, false, nil
 }
 
+func sortRunRecordsForDispatch(runs []workflowRunRecord) []workflowRunRecord {
+	if len(runs) == 0 {
+		return nil
+	}
+	sorted := append([]workflowRunRecord(nil), runs...)
+	slices.SortFunc(sorted, func(a, b workflowRunRecord) int {
+		if pa, pb := workflowRunDispatchPriority(a), workflowRunDispatchPriority(b); pa != pb {
+			return pa - pb
+		}
+		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return sorted
+}
+
+func workflowRunDispatchPriority(run workflowRunRecord) int {
+	if run.TriggerKind == triggerKindEvent && run.Target != nil && run.Target.GetPlugin() != nil {
+		return 0
+	}
+	if strings.TrimSpace(run.WorkflowKey) != "" {
+		return 10
+	}
+	if run.Target != nil && run.Target.GetPlugin() != nil {
+		return 20
+	}
+	if run.TriggerKind == triggerKindEvent {
+		return 30
+	}
+	if run.Target != nil && run.Target.GetAgent() != nil {
+		return 40
+	}
+	return 50
+}
+
 func claimRunnableRun(ctx context.Context, state *configuredState, run workflowRunRecord, now time.Time) (workflowRunRecord, bool, error) {
 	runnable, err := workflowRunRunnable(ctx, state.signalStore, run)
 	if err != nil || !runnable {
 		return workflowRunRecord{}, false, err
 	}
 	if run.Status == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING && strings.TrimSpace(run.WorkflowKey) == "" {
-		return claimAndStartPendingRun(ctx, state.db, run, state.claimOwnerID, now)
+		return claimAndStartPendingRun(ctx, state.db, run, state.claimOwnerID, now, state.runClaimTTL)
 	}
-	claimed, err := claimWorkflowRun(ctx, state.db, run.ID, state.claimOwnerID, now)
+	claimed, err := claimWorkflowRun(ctx, state.db, run.ID, state.claimOwnerID, now, state.runClaimTTL)
 	if err != nil || !claimed {
 		return workflowRunRecord{}, false, err
 	}
@@ -3355,6 +3439,7 @@ func nextRunnableRun(ctx context.Context, runStore, signalStore *gestalt.ObjectS
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
+	runs = sortRunRecordsForDispatch(runs)
 	for _, run := range runs {
 		runnable, err := workflowRunRunnable(ctx, signalStore, run)
 		if err != nil {
