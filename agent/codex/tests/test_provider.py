@@ -62,7 +62,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "page_size": request.page_size,
                 "page_token": request.page_token,
-                "tool_grant": request.tool_grant,
+                "run_grant": request.run_grant,
             }
         )
         if self.mode == "list-slow":
@@ -119,7 +119,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "tool_call_id": request.tool_call_id,
                 "tool_id": request.tool_id,
-                "tool_grant": request.tool_grant,
+                "run_grant": request.run_grant,
                 "idempotency_key": request.idempotency_key,
                 "arguments": dict(request.arguments),
             }
@@ -273,7 +273,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertNotIn("test-openai-key", repr(fake_server.called_arguments))
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.list_requests[0]["tool_grant"], "grant-codex")
+        self.assertEqual(host.list_requests[0]["run_grant"], "grant-codex")
 
     def test_enabled_tools_come_from_list_tools_not_tool_refs(self) -> None:
         _, provider_client = _configure_provider()
@@ -320,8 +320,8 @@ class CodexProviderTests(unittest.TestCase):
         bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
 
-        missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", tool_grant="")
-        _assert_invalid(provider_client, missing_grant, "tool_grant is required")
+        missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", run_grant="")
+        _assert_invalid(provider_client, missing_grant, "run_grant is required")
 
         missing_refs = _turn_request(turn_id="turn-missing-refs", session_id="session-validation")
         del missing_refs.tool_refs[:]
@@ -338,12 +338,12 @@ class CodexProviderTests(unittest.TestCase):
         )
         _assert_invalid(provider_client, bad_schema, "response_schema is not supported")
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"temperature": 0.2})
+        model_options = struct_pb2.Struct()
+        model_options.update({"temperature": 0.2})
         bad_options = _turn_request(
-            turn_id="turn-provider-options", session_id="session-validation", provider_options=provider_options
+            turn_id="turn-provider-options", session_id="session-validation", model_options=model_options
         )
-        _assert_invalid(provider_client, bad_options, "provider_options are not supported")
+        _assert_invalid(provider_client, bad_options, "model_options are not supported")
 
         resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
         resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
@@ -416,7 +416,7 @@ class CodexProviderTests(unittest.TestCase):
                 host.reset()
                 host.mode = mode
                 with self.assertRaisesRegex(ToolBridgeError, message):
-                    list_tools(session_id="session-list", turn_id="turn-list", tool_grant="grant-list")
+                    list_tools(session_id="session-list", turn_id="turn-list", run_grant="grant-list")
 
     def test_list_tools_uses_agent_host_grpc_deadline(self) -> None:
         host = _host_servicer
@@ -428,7 +428,7 @@ class CodexProviderTests(unittest.TestCase):
             list_tools(
                 session_id="session-list-deadline",
                 turn_id="turn-list-deadline",
-                tool_grant="grant-list-deadline",
+                run_grant="grant-list-deadline",
                 timeout_seconds=0.05,
             )
         self.assertLess(time.monotonic() - started_at, 0.5)
@@ -441,7 +441,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "mcp-1")
         self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["tool_grant"], "grant-bridge")
+        self.assertEqual(host.execute_requests[0]["run_grant"], "grant-bridge")
         self.assertEqual(host.execute_requests[0]["idempotency_key"], "agent/codex-mcp:turn-bridge:1:linear__issues")
         self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
 
@@ -529,10 +529,10 @@ def _turn_request(
     session_id: str,
     model: str = "",
     messages: list[Any] | None = None,
-    tool_grant: str = "grant-codex",
+    run_grant: str = "grant-codex",
     execution_ref: str = "",
     response_schema: Any | None = None,
-    provider_options: Any | None = None,
+    model_options: Any | None = None,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
         turn_id=turn_id,
@@ -540,7 +540,7 @@ def _turn_request(
         model=model,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
         tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        tool_grant=tool_grant,
+        run_grant=run_grant,
         execution_ref=execution_ref,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
     )
@@ -552,14 +552,14 @@ def _turn_request(
     github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)
-    if provider_options is not None:
-        request.provider_options.CopyFrom(provider_options)
+    if model_options is not None:
+        request.model_options.CopyFrom(model_options)
     return request
 
 
 async def _exercise_bridge_http_server() -> None:
     bridge_server = BridgeHTTPServer(
-        BridgeContext(session_id="session-bridge", turn_id="turn-bridge", tool_grant="grant-bridge")
+        BridgeContext(session_id="session-bridge", turn_id="turn-bridge", run_grant="grant-bridge")
     )
     bridge_server.start()
     bridge = MCPServerStreamableHttp(
@@ -585,7 +585,7 @@ async def _exercise_bridge_execute_deadline() -> None:
         BridgeContext(
             session_id="session-bridge-deadline",
             turn_id="turn-bridge-deadline",
-            tool_grant="grant-bridge-deadline",
+            run_grant="grant-bridge-deadline",
             timeout_seconds=0.05,
         )
     )

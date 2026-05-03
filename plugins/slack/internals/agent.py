@@ -1098,7 +1098,9 @@ def _json_payload_from_http_request(
     return payload if isinstance(payload, dict) else {}
 
 
-def _slack_interaction_payload_from_input(input: dict[str, Any]) -> dict[str, Any] | None:
+def _slack_interaction_payload_from_input(
+    input: dict[str, Any],
+) -> dict[str, Any] | None:
     raw_payload = input.get("payload") if isinstance(input, dict) else None
     if isinstance(raw_payload, dict):
         return raw_payload
@@ -1385,7 +1387,10 @@ def _publish_matching_workflow_events(
                 )
                 workflow_response = workflow_manager.publish_event(workflow_request)
                 workflow_event_ids.append(
-                    str(getattr(workflow_response, "id", "") or workflow_request.event.id)
+                    str(
+                        getattr(workflow_response, "id", "")
+                        or workflow_request.event.id
+                    )
                 )
                 route_ids.append(route.id)
     except Exception as err:
@@ -1448,7 +1453,9 @@ def _slack_publish_callback_from_payload(
     )
     event_ts = string_field(event, "event_ts")
     text = string_field(event, "text") or string_field(nested_message, "text")
-    files = tuple(map_slice(event.get("files")) or map_slice(nested_message.get("files")))
+    files = tuple(
+        map_slice(event.get("files")) or map_slice(nested_message.get("files"))
+    )
     return (
         SlackEventPublishCallback(
             callback_type=callback_type,
@@ -2006,9 +2013,9 @@ def _build_workflow_agent_target(
         output_delivery=_workflow_output_delivery(),
     )
     agent.metadata.CopyFrom(_agent_session_metadata(event))
-    provider_options = _agent_provider_options(route)
-    if provider_options:
-        agent.provider_options.CopyFrom(_dict_to_struct(provider_options))
+    model_options = _agent_model_options(route)
+    if model_options:
+        agent.model_options.CopyFrom(_dict_to_struct(model_options))
     return gestalt.BoundWorkflowTarget(agent=agent)
 
 
@@ -2038,9 +2045,7 @@ def _workflow_output_delivery() -> Any:
             ),
             gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(
-                    signal_payload="reply_ref"
-                ),
+                value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
             ),
         ],
     )
@@ -2261,10 +2266,10 @@ def _agent_model(route: SlackAgentRoute | None) -> str:
     return _agent_config.agent_model
 
 
-def _agent_provider_options(route: SlackAgentRoute | None) -> dict[str, Any]:
-    options = dict(_agent_config.agent_provider_options)
-    if route is not None and route.agent_provider_options:
-        options.update(route.agent_provider_options)
+def _agent_model_options(route: SlackAgentRoute | None) -> dict[str, Any]:
+    options = dict(_agent_config.agent_model_options)
+    if route is not None and route.agent_model_options:
+        options.update(route.agent_model_options)
     return options
 
 

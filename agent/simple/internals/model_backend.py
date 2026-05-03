@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+import gestalt
 from gestalt import telemetry
 from anthropic import Anthropic
 from openai import OpenAI
@@ -63,14 +64,20 @@ class ModelBackend:
         self,
         *,
         model: str,
+        session_id: str,
+        turn_id: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
-        provider_options: dict[str, Any],
+        model_options: dict[str, Any],
+        run_grant: str,
         disable_tools: bool = False,
     ) -> BackendStep:
         route = self._resolve_model(model)
         request_options = self._request_options(
-            option_provider_names=route.option_provider_names, provider_options=provider_options
+            option_provider_names=route.option_provider_names, model_options=model_options
+        )
+        self._apply_model_connection_options(
+            request_options=request_options, session_id=session_id, turn_id=turn_id, run_grant=run_grant
         )
         if disable_tools:
             request_options = self._request_options_without_tools(request_options)
@@ -203,6 +210,9 @@ class ModelBackend:
         base_url = self._pop_string_option(request_options, "base_url")
         if base_url:
             client_options["base_url"] = base_url
+        default_headers = self._pop_dict_option(request_options, "default_headers")
+        if default_headers:
+            client_options["default_headers"] = default_headers
         return client_options
 
     def _anthropic_client_options(self, request_options: dict[str, Any], timeout: Any) -> dict[str, Any]:
@@ -216,6 +226,9 @@ class ModelBackend:
             if normalized_base_url.endswith("/v1"):
                 normalized_base_url = normalized_base_url.removesuffix("/v1")
             client_options["base_url"] = normalized_base_url
+        default_headers = self._pop_dict_option(request_options, "default_headers")
+        if default_headers:
+            client_options["default_headers"] = default_headers
         return client_options
 
     def _assistant_message_from_openai_message(self, message: Any) -> dict[str, Any]:
@@ -550,11 +563,11 @@ class ModelBackend:
         return calls
 
     def _request_options(
-        self, *, option_provider_names: tuple[str, ...], provider_options: dict[str, Any]
+        self, *, option_provider_names: tuple[str, ...], model_options: dict[str, Any]
     ) -> dict[str, Any]:
         options: dict[str, Any] = {}
-        self._merge_request_options(options, self._config.provider_options, option_provider_names=option_provider_names)
-        self._merge_request_options(options, provider_options, option_provider_names=option_provider_names)
+        self._merge_request_options(options, self._config.model_options, option_provider_names=option_provider_names)
+        self._merge_request_options(options, model_options, option_provider_names=option_provider_names)
         return options
 
     def _request_options_without_tools(self, options: dict[str, Any]) -> dict[str, Any]:
@@ -605,15 +618,70 @@ class ModelBackend:
         return bool(tools) or "reasoning_effort" in request_options or "reasoning" in request_options
 
     def _merge_request_options(
-        self, options: dict[str, Any], provider_options: dict[str, Any], *, option_provider_names: tuple[str, ...]
+        self, options: dict[str, Any], model_options: dict[str, Any], *, option_provider_names: tuple[str, ...]
     ) -> None:
-        for key, value in provider_options.items():
+        for key, value in model_options.items():
             if not isinstance(value, dict):
                 options[key] = deepcopy(value)
         for provider_name in option_provider_names:
-            nested = provider_options.get(provider_name)
+            nested = model_options.get(provider_name)
             if isinstance(nested, dict):
                 options.update(deepcopy(nested))
+
+    def _apply_model_connection_options(
+        self, *, request_options: dict[str, Any], session_id: str, turn_id: str, run_grant: str
+    ) -> None:
+        connection = self._pop_string_option(request_options, "connection")
+        if not connection:
+            return
+        instance = self._pop_string_option(request_options, "connectionInstance")
+        if not instance:
+            instance = self._pop_string_option(request_options, "connection_instance")
+        with gestalt.AgentHost() as host:
+            resolved = host.resolve_connection(
+                gestalt.ResolveAgentConnectionRequest(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    connection=connection,
+                    instance=instance,
+                    run_grant=run_grant,
+                )
+            )
+        self._merge_connection_params(request_options, dict(getattr(resolved, "params", {}) or {}))
+        self._merge_connection_headers(request_options, dict(getattr(resolved, "headers", {}) or {}))
+
+    def _merge_connection_params(self, request_options: dict[str, Any], params: dict[str, str]) -> None:
+        normalized: dict[str, Any] = {}
+        for key, value in params.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            option_key = {"baseUrl": "base_url", "apiKey": "api_key"}.get(clean_key, clean_key)
+            normalized[option_key] = str(value or "")
+        for key, value in normalized.items():
+            request_options.setdefault(key, value)
+
+    def _merge_connection_headers(self, request_options: dict[str, Any], headers: dict[str, str]) -> None:
+        clean_headers = {str(key): str(value) for key, value in headers.items() if str(key or "").strip()}
+        if not clean_headers:
+            return
+        existing = request_options.get("default_headers")
+        merged_headers = dict(clean_headers)
+        if isinstance(existing, dict):
+            merged_headers.update({str(key): str(value) for key, value in existing.items()})
+        request_options["default_headers"] = merged_headers
+        token = self._bearer_token_from_headers(clean_headers)
+        if token:
+            request_options.setdefault("api_key", token)
+
+    def _bearer_token_from_headers(self, headers: dict[str, str]) -> str:
+        for key, value in headers.items():
+            if key.lower() != "authorization":
+                continue
+            scheme, _, token = str(value or "").strip().partition(" ")
+            if scheme.lower() == "bearer" and token.strip():
+                return token.strip()
+        return ""
 
     def _resolve_model(self, model: str) -> ModelRoute:
         raw_model = model.strip()
@@ -683,6 +751,12 @@ class ModelBackend:
 
     def _pop_string_option(self, options: dict[str, Any], key: str) -> str:
         return str(options.pop(key, "") or "").strip()
+
+    def _pop_dict_option(self, options: dict[str, Any], key: str) -> dict[str, str]:
+        raw_value = options.pop(key, None)
+        if not isinstance(raw_value, dict):
+            return {}
+        return {str(raw_key): str(raw_item) for raw_key, raw_item in raw_value.items()}
 
     def _block_type(self, block: Any) -> str:
         if isinstance(block, dict):

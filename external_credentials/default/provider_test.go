@@ -60,17 +60,15 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	lookup := &proto.ExternalCredentialLookup{
-		SubjectId:   "user:user-123",
-		Integration: "slack",
-		Connection:  "default",
-		Instance:    "workspace-1",
+		SubjectId:    "user:user-123",
+		ConnectionId: "slack:default",
+		Instance:     "workspace-1",
 	}
 
 	created, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
 		Credential: &proto.ExternalCredential{
 			SubjectId:         lookup.GetSubjectId(),
-			Integration:       lookup.GetIntegration(),
-			Connection:        lookup.GetConnection(),
+			ConnectionId:      lookup.GetConnectionId(),
 			Instance:          lookup.GetInstance(),
 			AccessToken:       "xoxb-123",
 			RefreshToken:      "refresh-123",
@@ -120,8 +118,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
 		Credential: &proto.ExternalCredential{
 			SubjectId:    lookup.GetSubjectId(),
-			Integration:  lookup.GetIntegration(),
-			Connection:   lookup.GetConnection(),
+			ConnectionId: lookup.GetConnectionId(),
 			Instance:     "workspace-2",
 			AccessToken:  "xoxb-456",
 			RefreshToken: "refresh-456",
@@ -132,9 +129,8 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	}
 
 	listed, err := client.ListCredentials(context.Background(), &proto.ListExternalCredentialsRequest{
-		SubjectId:   lookup.GetSubjectId(),
-		Integration: lookup.GetIntegration(),
-		Connection:  lookup.GetConnection(),
+		SubjectId:    lookup.GetSubjectId(),
+		ConnectionId: lookup.GetConnectionId(),
 	})
 	if err != nil {
 		t.Fatalf("ListCredentials(connection): %v", err)
@@ -144,10 +140,9 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	}
 
 	filtered, err := client.ListCredentials(context.Background(), &proto.ListExternalCredentialsRequest{
-		SubjectId:   lookup.GetSubjectId(),
-		Integration: lookup.GetIntegration(),
-		Connection:  lookup.GetConnection(),
-		Instance:    lookup.GetInstance(),
+		SubjectId:    lookup.GetSubjectId(),
+		ConnectionId: lookup.GetConnectionId(),
+		Instance:     lookup.GetInstance(),
 	})
 	if err != nil {
 		t.Fatalf("ListCredentials(instance): %v", err)
@@ -190,14 +185,13 @@ func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
 	stored, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
 		PreserveTimestamps: true,
 		Credential: &proto.ExternalCredential{
-			Id:          "cred-restore-1",
-			SubjectId:   "user:user-restore",
-			Integration: "github",
-			Connection:  "default",
-			Instance:    "org-1",
-			AccessToken: "gho_123",
-			CreatedAt:   timestamppb.New(createdAt),
-			UpdatedAt:   timestamppb.New(updatedAt),
+			Id:           "cred-restore-1",
+			SubjectId:    "user:user-restore",
+			ConnectionId: "github:default",
+			Instance:     "org-1",
+			AccessToken:  "gho_123",
+			CreatedAt:    timestamppb.New(createdAt),
+			UpdatedAt:    timestamppb.New(updatedAt),
 		},
 	})
 	if err != nil {
@@ -236,8 +230,7 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 	if err := db.ObjectStore(storeName).Put(context.Background(), gestalt.Record{
 		"id":                      "cred-seeded-1",
 		"subject_id":              "user:user-seeded",
-		"integration":             "slack",
-		"connection":              "default",
+		"connection_id":           "slack:default",
 		"instance":                "workspace-1",
 		"access_token_encrypted":  accessEnc,
 		"refresh_token_encrypted": refreshEnc,
@@ -258,10 +251,9 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 
 	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
 		Lookup: &proto.ExternalCredentialLookup{
-			SubjectId:   "user:user-seeded",
-			Integration: "slack",
-			Connection:  "default",
-			Instance:    "workspace-1",
+			SubjectId:    "user:user-seeded",
+			ConnectionId: "slack:default",
+			Instance:     "workspace-1",
 		},
 	})
 	if err != nil {
@@ -316,11 +308,10 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 
 	created, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
 		Credential: &proto.ExternalCredential{
-			SubjectId:   "user:user-named-indexeddb",
-			Integration: "github",
-			Connection:  "default",
-			Instance:    "org-1",
-			AccessToken: "gho_named",
+			SubjectId:    "user:user-named-indexeddb",
+			ConnectionId: "github:default",
+			Instance:     "org-1",
+			AccessToken:  "gho_named",
 		},
 	})
 	if err != nil {

@@ -26,7 +26,7 @@ class SimpleAgentConfig:
     idempotency_store: str
     default_model: str
     aliases: dict[str, str] = field(default_factory=dict)
-    provider_options: dict[str, Any] = field(default_factory=dict)
+    model_options: dict[str, Any] = field(default_factory=dict)
     max_steps: int = DEFAULT_MAX_STEPS
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     system_prompt: str = ""
@@ -55,7 +55,7 @@ class SimpleAgentConfig:
             idempotency_store=idempotency_store,
             default_model=default_model,
             aliases=aliases,
-            provider_options=_coerce_provider_options(raw_config.get("providerOptions")),
+            model_options=_coerce_model_options(raw_config.get("modelOptions")),
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
             system_prompt=_trimmed_text(raw_config.get("systemPrompt")),
@@ -94,17 +94,17 @@ def _coerce_aliases(raw_value: Any) -> dict[str, str]:
     return aliases
 
 
-def _coerce_provider_options(raw_value: Any) -> dict[str, Any]:
+def _coerce_model_options(raw_value: Any) -> dict[str, Any]:
     if raw_value is None:
         return {}
     if not isinstance(raw_value, dict):
-        raise ValueError("providerOptions must be an object")
+        raise ValueError("modelOptions must be an object")
 
     options: dict[str, Any] = {}
     for raw_key, raw_option in raw_value.items():
         key = str(raw_key).strip()
         if not key:
-            raise ValueError("providerOptions must contain only non-empty keys")
+            raise ValueError("modelOptions must contain only non-empty keys")
         options[key] = deepcopy(raw_option)
     return options
 

@@ -41,6 +41,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
+  GESTALT_REF: main
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:
@@ -196,7 +197,7 @@ jobs:
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - uses: actions/upload-artifact@v4
         with:
@@ -238,12 +239,12 @@ jobs:
       - name: Install Python
         if: matrix.plugin.has_python
         run: uv python install 3.13 3.14
-      - name: Prepare sibling Gestalt checkout for Go provider validation
-        if: matrix.plugin.has_go
+      - name: Prepare sibling Gestalt checkout for local SDK validation
+        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.has_typescript
         run: |
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "main"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           echo "GESTALT_CHECKOUT=$toolchain_dir" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
@@ -287,7 +288,12 @@ jobs:
           fi
 
           if [ "${{ matrix.plugin.has_typescript }}" = "true" ]; then
-            (cd "$plugin_dir" && bun install --frozen-lockfile && bun run check)
+            (cd "${GESTALT_CHECKOUT}/sdk/typescript" && bun install --frozen-lockfile)
+            (cd "$plugin_dir" && bun install --frozen-lockfile)
+            rm -rf "${plugin_dir}/node_modules/@valon-technologies/gestalt"
+            mkdir -p "${plugin_dir}/node_modules/@valon-technologies"
+            ln -s "${GESTALT_CHECKOUT}/sdk/typescript" "${plugin_dir}/node_modules/@valon-technologies/gestalt"
+            (cd "$plugin_dir" && bun run check)
           fi
 
           rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
@@ -375,7 +381,7 @@ jobs:
         run: |
           set -euo pipefail
           gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "main"
+          .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "$GESTALT_REF"
 
           # Build UI from this repo
           (cd ui/default && npm ci && npm run build)
@@ -394,7 +400,7 @@ jobs:
           (cd external_credentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
-          apiVersion: gestaltd.config/v4
+          apiVersion: gestaltd.config/v5
           server:
             public:
               port: 8080

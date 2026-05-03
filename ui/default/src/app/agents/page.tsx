@@ -42,7 +42,7 @@ interface AgentRunFormState {
   idempotencyKey: string;
   responseSchemaJSON: string;
   metadataJSON: string;
-  providerOptionsJSON: string;
+  modelOptionsJSON: string;
   toolMode: AgentToolMode;
   tools: AgentToolForm[];
 }
@@ -59,7 +59,9 @@ export default function AgentsPage() {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const [runsError, setRunsError] = useState<string | null>(null);
-  const [integrationsError, setIntegrationsError] = useState<string | null>(null);
+  const [integrationsError, setIntegrationsError] = useState<string | null>(
+    null,
+  );
 
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<AgentRun | null>(null);
@@ -73,7 +75,9 @@ export default function AgentsPage() {
   const deferredQuery = useDeferredValue(query);
 
   const [formMode, setFormMode] = useState<AgentRunFormMode>(null);
-  const [form, setForm] = useState<AgentRunFormState>(() => defaultAgentRunForm());
+  const [form, setForm] = useState<AgentRunFormState>(() =>
+    defaultAgentRunForm(),
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -147,7 +151,9 @@ export default function AgentsPage() {
 
   useEffect(() => {
     setSelectedRunID((current) =>
-      current && runs.some((run) => run.id === current) ? current : runs[0]?.id ?? null,
+      current && runs.some((run) => run.id === current)
+        ? current
+        : (runs[0]?.id ?? null),
     );
   }, [runs]);
 
@@ -192,12 +198,21 @@ export default function AgentsPage() {
   async function ensureOperationsLoaded(pluginName: string): Promise<void> {
     const normalized = pluginName.trim();
     if (!normalized) return;
-    if (operationsByPlugin[normalized] || operationsLoadingByPlugin[normalized]) {
+    if (
+      operationsByPlugin[normalized] ||
+      operationsLoadingByPlugin[normalized]
+    ) {
       return;
     }
 
-    setOperationsLoadingByPlugin((current) => ({ ...current, [normalized]: true }));
-    setOperationErrorsByPlugin((current) => ({ ...current, [normalized]: undefined }));
+    setOperationsLoadingByPlugin((current) => ({
+      ...current,
+      [normalized]: true,
+    }));
+    setOperationErrorsByPlugin((current) => ({
+      ...current,
+      [normalized]: undefined,
+    }));
 
     try {
       const operations = await getIntegrationOperations(normalized);
@@ -211,7 +226,10 @@ export default function AgentsPage() {
         [normalized]: errorMessage(err, "Failed to load plugin operations"),
       }));
     } finally {
-      setOperationsLoadingByPlugin((current) => ({ ...current, [normalized]: false }));
+      setOperationsLoadingByPlugin((current) => ({
+        ...current,
+        [normalized]: false,
+      }));
     }
   }
 
@@ -316,10 +334,12 @@ export default function AgentsPage() {
           <div className="animate-fade-in-up flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <span className="label-text">Orchestration</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">Agents</h1>
+              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+                Agents
+              </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted">
-                Start agent runs, inspect model messages, and manage active execution
-                across configured agent providers.
+                Start agent runs, inspect model messages, and manage active
+                execution across configured agent providers.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -371,8 +391,12 @@ export default function AgentsPage() {
                 <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
                   <div className="flex items-center justify-between gap-4 border-b border-alpha px-5 py-4">
                     <div>
-                      <h2 className="text-sm font-medium text-primary">Agent Runs</h2>
-                      <p className="mt-1 text-xs text-faint">{filteredRuns.length} shown</p>
+                      <h2 className="text-sm font-medium text-primary">
+                        Agent Runs
+                      </h2>
+                      <p className="mt-1 text-xs text-faint">
+                        {filteredRuns.length} shown
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -384,7 +408,9 @@ export default function AgentsPage() {
                   </div>
 
                   {runsError ? (
-                    <p className="px-5 py-8 text-sm text-ember-500">{runsError}</p>
+                    <p className="px-5 py-8 text-sm text-ember-500">
+                      {runsError}
+                    </p>
                   ) : (
                     <div className="divide-y divide-alpha">
                       {filteredRuns.length === 0 ? (
@@ -393,7 +419,8 @@ export default function AgentsPage() {
                         </div>
                       ) : (
                         filteredRuns.map((run) => {
-                          const isActive = run.id === selectedRunID && !formMode;
+                          const isActive =
+                            run.id === selectedRunID && !formMode;
                           return (
                             <button
                               key={run.id}
@@ -411,17 +438,26 @@ export default function AgentsPage() {
                                   <span className="truncate text-sm font-medium text-primary">
                                     {agentRunLabel(run)}
                                   </span>
-                                  <span className={runStatusClassName(run.status)}>
+                                  <span
+                                    className={runStatusClassName(run.status)}
+                                  >
                                     {run.status || "unknown"}
                                   </span>
                                 </div>
-                                <p className="mt-1 truncate text-xs text-faint">{run.id}</p>
+                                <p className="mt-1 truncate text-xs text-faint">
+                                  {run.id}
+                                </p>
                                 <p className="mt-2 truncate text-xs text-muted">
-                                  {run.provider || "default"} / {run.model || "default model"}
+                                  {run.provider || "default"} /{" "}
+                                  {run.model || "default model"}
                                 </p>
                               </div>
                               <div className="shrink-0 text-right text-xs text-faint">
-                                {formatDate(run.startedAt || run.completedAt || run.createdAt)}
+                                {formatDate(
+                                  run.startedAt ||
+                                    run.completedAt ||
+                                    run.createdAt,
+                                )}
                               </div>
                             </button>
                           );
@@ -435,7 +471,9 @@ export default function AgentsPage() {
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <h2 className="text-sm font-medium text-primary">
-                        {formMode === "create" ? "Start Agent Run" : "Run Details"}
+                        {formMode === "create"
+                          ? "Start Agent Run"
+                          : "Run Details"}
                       </h2>
                       <p className="mt-1 text-xs text-faint">
                         {formMode === "create"
@@ -455,7 +493,9 @@ export default function AgentsPage() {
                     ) : selectedRun ? (
                       <div className="flex flex-wrap items-center gap-2">
                         {selectedRun.status ? (
-                          <span className={runStatusClassName(selectedRun.status)}>
+                          <span
+                            className={runStatusClassName(selectedRun.status)}
+                          >
                             {selectedRun.status}
                           </span>
                         ) : null}
@@ -478,8 +518,12 @@ export default function AgentsPage() {
                       {notice}
                     </p>
                   ) : null}
-                  {actionError ? <p className="mt-4 text-sm text-ember-500">{actionError}</p> : null}
-                  {detailError ? <p className="mt-4 text-sm text-ember-500">{detailError}</p> : null}
+                  {actionError ? (
+                    <p className="mt-4 text-sm text-ember-500">{actionError}</p>
+                  ) : null}
+                  {detailError ? (
+                    <p className="mt-4 text-sm text-ember-500">{detailError}</p>
+                  ) : null}
 
                   {formMode === "create" ? (
                     <AgentRunForm
@@ -496,11 +540,15 @@ export default function AgentsPage() {
                       ensureOperationsLoaded={ensureOperationsLoaded}
                     />
                   ) : detailLoading && !selectedRun ? (
-                    <p className="mt-6 text-sm text-faint">Loading details...</p>
+                    <p className="mt-6 text-sm text-faint">
+                      Loading details...
+                    </p>
                   ) : selectedRun ? (
                     <AgentRunDetails run={selectedRun} />
                   ) : (
-                    <p className="mt-6 text-sm text-faint">Select an agent run to inspect it.</p>
+                    <p className="mt-6 text-sm text-faint">
+                      Select an agent run to inspect it.
+                    </p>
                   )}
                 </section>
               </div>
@@ -574,7 +622,10 @@ function AgentRunForm({
           <input
             value={form.provider}
             onChange={(event) =>
-              setForm((current) => ({ ...current, provider: event.target.value }))
+              setForm((current) => ({
+                ...current,
+                provider: event.target.value,
+              }))
             }
             placeholder="default"
             className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
@@ -599,7 +650,10 @@ function AgentRunForm({
         <textarea
           value={form.systemPrompt}
           onChange={(event) =>
-            setForm((current) => ({ ...current, systemPrompt: event.target.value }))
+            setForm((current) => ({
+              ...current,
+              systemPrompt: event.target.value,
+            }))
           }
           rows={3}
           className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
@@ -611,7 +665,10 @@ function AgentRunForm({
         <textarea
           value={form.userPrompt}
           onChange={(event) =>
-            setForm((current) => ({ ...current, userPrompt: event.target.value }))
+            setForm((current) => ({
+              ...current,
+              userPrompt: event.target.value,
+            }))
           }
           rows={5}
           required
@@ -625,7 +682,10 @@ function AgentRunForm({
           <input
             value={form.sessionRef}
             onChange={(event) =>
-              setForm((current) => ({ ...current, sessionRef: event.target.value }))
+              setForm((current) => ({
+                ...current,
+                sessionRef: event.target.value,
+              }))
             }
             className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
           />
@@ -636,7 +696,10 @@ function AgentRunForm({
           <input
             value={form.idempotencyKey}
             onChange={(event) =>
-              setForm((current) => ({ ...current, idempotencyKey: event.target.value }))
+              setForm((current) => ({
+                ...current,
+                idempotencyKey: event.target.value,
+              }))
             }
             className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
           />
@@ -675,13 +738,13 @@ function AgentRunForm({
           <div className="mt-4 space-y-4">
             {form.tools.map((tool, index) => {
               const operations = tool.pluginName
-                ? operationsByPlugin[tool.pluginName] ?? EMPTY_OPERATIONS
+                ? (operationsByPlugin[tool.pluginName] ?? EMPTY_OPERATIONS)
                 : EMPTY_OPERATIONS;
               const operationsLoading = tool.pluginName
                 ? Boolean(operationsLoadingByPlugin[tool.pluginName])
                 : false;
               const operationsError = tool.pluginName
-                ? operationErrorsByPlugin[tool.pluginName] ?? null
+                ? (operationErrorsByPlugin[tool.pluginName] ?? null)
                 : null;
               return (
                 <div
@@ -702,7 +765,10 @@ function AgentRunForm({
                       >
                         <option value="">Select plugin</option>
                         {integrations.map((integration) => (
-                          <option key={integration.name} value={integration.name}>
+                          <option
+                            key={integration.name}
+                            value={integration.name}
+                          >
                             {integrationLabel(integration)}
                           </option>
                         ))}
@@ -720,7 +786,9 @@ function AgentRunForm({
                         className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
                       >
                         <option value="">
-                          {operationsLoading ? "Loading operations..." : "Select operation"}
+                          {operationsLoading
+                            ? "Loading operations..."
+                            : "Select operation"}
                         </option>
                         {operations.map((operation) => (
                           <option key={operation.id} value={operation.id}>
@@ -732,7 +800,9 @@ function AgentRunForm({
                   </div>
 
                   {operationsError ? (
-                    <p className="mt-3 text-sm text-ember-500">{operationsError}</p>
+                    <p className="mt-3 text-sm text-ember-500">
+                      {operationsError}
+                    </p>
                   ) : null}
 
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -816,13 +886,15 @@ function AgentRunForm({
         <JsonTextarea
           label="Metadata JSON"
           value={form.metadataJSON}
-          onChange={(value) => setForm((current) => ({ ...current, metadataJSON: value }))}
+          onChange={(value) =>
+            setForm((current) => ({ ...current, metadataJSON: value }))
+          }
         />
         <JsonTextarea
-          label="Provider options JSON"
-          value={form.providerOptionsJSON}
+          label="Model options JSON"
+          value={form.modelOptionsJSON}
           onChange={(value) =>
-            setForm((current) => ({ ...current, providerOptionsJSON: value }))
+            setForm((current) => ({ ...current, modelOptionsJSON: value }))
           }
         />
       </div>
@@ -950,7 +1022,7 @@ function defaultAgentRunForm(): AgentRunFormState {
     idempotencyKey: "",
     responseSchemaJSON: "",
     metadataJSON: "",
-    providerOptionsJSON: "",
+    modelOptionsJSON: "",
     toolMode: "none",
     tools: [emptyAgentToolForm()],
   };
@@ -986,17 +1058,25 @@ function agentRunFormToCreate(form: AgentRunFormState): AgentRunCreate {
   assignTrimmed(body, "sessionRef", form.sessionRef);
   assignTrimmed(body, "idempotencyKey", form.idempotencyKey);
 
-  const responseSchema = parseOptionalObject(form.responseSchemaJSON, "Response schema");
+  const responseSchema = parseOptionalObject(
+    form.responseSchemaJSON,
+    "Response schema",
+  );
   const metadata = parseOptionalObject(form.metadataJSON, "Metadata");
-  const providerOptions = parseOptionalObject(form.providerOptionsJSON, "Provider options");
+  const modelOptions = parseOptionalObject(
+    form.modelOptionsJSON,
+    "Model options",
+  );
   if (responseSchema) body.responseSchema = responseSchema;
   if (metadata) body.metadata = metadata;
-  if (providerOptions) body.providerOptions = providerOptions;
+  if (modelOptions) body.modelOptions = modelOptions;
 
   if (form.toolMode === "explicit") {
     const toolRefs = agentToolRefsFromForm(form.tools);
     if (toolRefs.length === 0) {
-      throw new Error("At least one plugin operation is required for explicit tools");
+      throw new Error(
+        "At least one plugin operation is required for explicit tools",
+      );
     }
     body.toolSource = "explicit";
     body.toolRefs = toolRefs;
@@ -1039,7 +1119,10 @@ function stripToolForm(tool: AgentToolForm): AgentToolForm {
   };
 }
 
-function parseOptionalObject(value: string, label: string): Record<string, unknown> | undefined {
+function parseOptionalObject(
+  value: string,
+  label: string,
+): Record<string, unknown> | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
 
@@ -1066,7 +1149,11 @@ function assignTrimmed(
   }
 }
 
-function filterRuns(runs: AgentRun[], query: string, status: string): AgentRun[] {
+function filterRuns(
+  runs: AgentRun[],
+  query: string,
+  status: string,
+): AgentRun[] {
   const normalizedQuery = query.trim().toLowerCase();
   return runs.filter((run) => {
     if (status !== "all" && run.status !== status) {
@@ -1083,7 +1170,8 @@ function filterRuns(runs: AgentRun[], query: string, status: string): AgentRun[]
       run.sessionRef,
       run.outputText,
       run.statusMessage,
-      ...(run.messages?.map((message) => `${message.role} ${message.text}`) ?? []),
+      ...(run.messages?.map((message) => `${message.role} ${message.text}`) ??
+        []),
     ]
       .filter(Boolean)
       .join(" ")
@@ -1127,14 +1215,20 @@ function isCancelableStatus(status?: string): boolean {
   return status === "pending" || status === "running";
 }
 
-function sortOperations(operations: IntegrationOperation[]): IntegrationOperation[] {
+function sortOperations(
+  operations: IntegrationOperation[],
+): IntegrationOperation[] {
   return operations
     .filter((operation) => operation.visible !== false)
     .slice()
     .sort((left, right) =>
-      (left.title || left.id).localeCompare(right.title || right.id, undefined, {
-        sensitivity: "base",
-      }),
+      (left.title || left.id).localeCompare(
+        right.title || right.id,
+        undefined,
+        {
+          sensitivity: "base",
+        },
+      ),
     );
 }
 
@@ -1155,7 +1249,9 @@ function formatDate(value?: string): string {
 }
 
 function truncate(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength - 1)}...`
+    : value;
 }
 
 function errorMessage(reason: unknown, fallback: string): string {

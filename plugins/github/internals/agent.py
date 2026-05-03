@@ -53,7 +53,7 @@ def workflow_provider(policy: GitHubWebhookPolicy | None) -> str:
 def workflow_agent_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
 ) -> Any:
-    provider_options = agent_provider_options(policy)
+    model_options = agent_model_options(policy)
     agent = gestalt.BoundWorkflowAgentTarget(
         provider_name=agent_provider(policy),
         model=agent_model(policy),
@@ -64,8 +64,8 @@ def workflow_agent_target(
         tool_refs=agent_tool_refs(policy),
     )
     agent.metadata.CopyFrom(agent_session_metadata(summary, policy))
-    if provider_options:
-        agent.provider_options.CopyFrom(dict_to_struct(provider_options))
+    if model_options:
+        agent.model_options.CopyFrom(dict_to_struct(model_options))
     return gestalt.BoundWorkflowTarget(agent=agent)
 
 
@@ -160,11 +160,11 @@ def agent_model(policy: GitHubWebhookPolicy | None) -> str:
     return config.agent_model
 
 
-def agent_provider_options(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
+def agent_model_options(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
     config = get_github_config()
-    if policy is not None and policy.agent_provider_options is not None:
-        return policy.agent_provider_options
-    return config.agent_provider_options
+    if policy is not None and policy.agent_model_options is not None:
+        return policy.agent_model_options
+    return config.agent_model_options
 
 
 def agent_system_prompt(policy: GitHubWebhookPolicy | None = None) -> str:

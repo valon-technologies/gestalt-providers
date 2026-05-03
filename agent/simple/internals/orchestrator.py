@@ -32,7 +32,7 @@ TOOL_SEARCH_MAX_RESULTS = 20
 TOOL_SEARCH_MAX_CANDIDATES = 20
 TOOL_LIST_DEFAULT_PAGE_SIZE = 100
 TOOL_LIST_MAX_PAGES = 100
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 2
 PHASE_MODEL_NEXT = "model_next"
 PHASE_TOOL_READY = "tool_ready"
 PHASE_TOOL_INFLIGHT = "tool_inflight"
@@ -128,8 +128,8 @@ class SimpleAgentOrchestrator:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
         if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/simple requires toolSource mcp_catalog")
-        if not str(getattr(request, "tool_grant", "") or "").strip():
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_grant is required")
+        if not str(getattr(request, "run_grant", "") or "").strip():
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "run_grant is required")
         if len(list(getattr(request, "tools", []))) > 0:
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
@@ -143,13 +143,13 @@ class SimpleAgentOrchestrator:
 
         projected_messages = _project_messages(request.messages)
         response_schema = _struct_to_dict(request.response_schema)
-        provider_options = _struct_to_dict(request.provider_options)
+        model_options = _struct_to_dict(request.model_options)
         tool_specs_and_names = _tool_registry_from_resolved_tools(request.tools)
         prepared_seed = _resume_seed_from_request(
             messages=projected_messages,
             response_schema=response_schema,
-            provider_options=provider_options,
-            tool_grant=str(request.tool_grant or "").strip(),
+            model_options=model_options,
+            run_grant=str(request.run_grant or "").strip(),
             tool_specs_and_names=tool_specs_and_names,
             system_prompt=self._config.system_prompt,
         )
@@ -358,9 +358,12 @@ class SimpleAgentOrchestrator:
         tool_specs, function_name_to_tool_id, loaded_tool_ids = _tool_registry_from_checkpoint(checkpoint)
         step = self._backend.complete(
             model=checkpoint.model,
+            session_id=checkpoint.session_id,
+            turn_id=checkpoint.turn_id,
             messages=list(checkpoint.conversation),
             tools=tool_specs,
-            provider_options=checkpoint.provider_options,
+            model_options=checkpoint.model_options,
+            run_grant=checkpoint.run_grant,
         )
         if step.tool_calls:
             conversation = list(checkpoint.conversation)
@@ -669,8 +672,8 @@ class PreparedTurn:
     resolved_model: str
     messages: list[dict[str, Any]]
     response_schema: dict[str, Any]
-    provider_options: dict[str, Any]
-    tool_grant: str
+    model_options: dict[str, Any]
+    run_grant: str
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]]
 
 
@@ -678,8 +681,8 @@ def _resume_seed_from_request(
     *,
     messages: list[dict[str, Any]],
     response_schema: dict[str, Any],
-    provider_options: dict[str, Any],
-    tool_grant: str,
+    model_options: dict[str, Any],
+    run_grant: str,
     tool_specs_and_names: tuple[list[dict[str, Any]], dict[str, str], set[str]],
     system_prompt: str,
 ) -> dict[str, Any]:
@@ -692,8 +695,8 @@ def _resume_seed_from_request(
             system_prompt=system_prompt, projected_messages=messages, response_schema=response_schema
         ),
         "response_schema": copy.deepcopy(response_schema),
-        "provider_options": copy.deepcopy(provider_options),
-        "tool_grant": tool_grant,
+        "model_options": copy.deepcopy(model_options),
+        "run_grant": run_grant,
         "tool_specs": copy.deepcopy(tool_specs),
         "function_name_to_tool_id": dict(function_name_to_tool_id),
         "loaded_tool_ids": sorted(loaded_tool_ids),
@@ -710,8 +713,8 @@ def _prepared_from_checkpoint(checkpoint: StoredTurnCheckpoint) -> PreparedTurn:
         resolved_model=checkpoint.model,
         messages=copy.deepcopy(checkpoint.messages),
         response_schema=copy.deepcopy(checkpoint.response_schema),
-        provider_options=copy.deepcopy(checkpoint.provider_options),
-        tool_grant=checkpoint.tool_grant,
+        model_options=copy.deepcopy(checkpoint.model_options),
+        run_grant=checkpoint.run_grant,
         tool_specs_and_names=_tool_registry_from_checkpoint(checkpoint),
     )
 
@@ -770,7 +773,7 @@ def _execute_tool_request(
         tool_call_id=tool_call_id,
         tool_id=resolved_tool_id,
         arguments=_dict_to_struct(execution_arguments),
-        tool_grant=checkpoint.tool_grant,
+        run_grant=checkpoint.run_grant,
     )
     request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
     return request
@@ -866,7 +869,7 @@ def _list_matching_tools_for_model(
                 turn_id=prepared.turn_id,
                 page_size=TOOL_LIST_DEFAULT_PAGE_SIZE,
                 page_token=page_token,
-                tool_grant=prepared.tool_grant,
+                run_grant=prepared.run_grant,
             )
         )
         page_tools = list(response.tools)

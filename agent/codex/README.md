@@ -60,7 +60,7 @@ agent:
       operation: pulls/list
 ```
 
-`toolGrant` is the authorization source of truth. `toolRefs` are required so the
+`runGrant` is the authorization source of truth. `toolRefs` are required so the
 caller's intent is explicit, while `AgentHost.ListTools` decides the actual
 tools exposed to Codex for the grant.
 

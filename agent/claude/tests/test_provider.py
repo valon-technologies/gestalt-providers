@@ -56,7 +56,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "page_size": request.page_size,
                 "page_token": request.page_token,
-                "tool_grant": request.tool_grant,
+                "run_grant": request.run_grant,
             }
         )
         response = agent_pb2.ListAgentToolsResponse()
@@ -99,7 +99,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "tool_call_id": request.tool_call_id,
                 "tool_id": request.tool_id,
-                "tool_grant": request.tool_grant,
+                "run_grant": request.run_grant,
                 "idempotency_key": request.idempotency_key,
                 "arguments": dict(request.arguments),
             }
@@ -235,10 +235,10 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.list_requests[0]["tool_grant"], "grant-claude")
+        self.assertEqual(host.list_requests[0]["run_grant"], "grant-claude")
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "sdk-1")
         self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["tool_grant"], "grant-claude")
+        self.assertEqual(host.execute_requests[0]["run_grant"], "grant-claude")
         self.assertEqual(
             host.execute_requests[0]["idempotency_key"], "agent/claude-sdk:turn-claude:sdk-1:linear__issues"
         )
@@ -254,7 +254,7 @@ class ClaudeProviderTests(unittest.TestCase):
         runner = provider_module.provider._runner
         assert runner is not None
         options = runner._options(
-            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", tool_grant="grant-claude"
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
         )
 
         first, second = asyncio.run(_list_tools_through_sdk_bridge(options))
@@ -276,8 +276,8 @@ class ClaudeProviderTests(unittest.TestCase):
         bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
 
-        missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", tool_grant="")
-        _assert_invalid(provider_client, missing_grant, "tool_grant is required")
+        missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", run_grant="")
+        _assert_invalid(provider_client, missing_grant, "run_grant is required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
         wildcard_ref.tool_refs[0].operation = "*"
@@ -290,12 +290,12 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         _assert_invalid(provider_client, bad_schema, "response_schema is not supported")
 
-        provider_options = struct_pb2.Struct()
-        provider_options.update({"temperature": 0.2})
+        model_options = struct_pb2.Struct()
+        model_options.update({"temperature": 0.2})
         bad_options = _turn_request(
-            turn_id="turn-provider-options", session_id="session-validation", provider_options=provider_options
+            turn_id="turn-provider-options", session_id="session-validation", model_options=model_options
         )
-        _assert_invalid(provider_client, bad_options, "provider_options are not supported")
+        _assert_invalid(provider_client, bad_options, "model_options are not supported")
 
         resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
         resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
@@ -455,17 +455,17 @@ def _turn_request(
     turn_id: str,
     session_id: str,
     messages: list[Any] | None = None,
-    tool_grant: str = "grant-claude",
+    run_grant: str = "grant-claude",
     execution_ref: str = "",
     response_schema: Any | None = None,
-    provider_options: Any | None = None,
+    model_options: Any | None = None,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
         turn_id=turn_id,
         session_id=session_id,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
         tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        tool_grant=tool_grant,
+        run_grant=run_grant,
         execution_ref=execution_ref,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
     )
@@ -477,8 +477,8 @@ def _turn_request(
     github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)
-    if provider_options is not None:
-        request.provider_options.CopyFrom(provider_options)
+    if model_options is not None:
+        request.model_options.CopyFrom(model_options)
     return request
 
 

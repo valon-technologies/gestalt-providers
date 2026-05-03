@@ -103,13 +103,13 @@ class CodexMCPRunner:
         self._canceled_turns: set[str] = set()
 
     def run_turn(
-        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], tool_grant: str
+        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], run_grant: str
     ) -> str:
         try:
             return asyncio.run(
                 asyncio.wait_for(
                     self._run_turn(
-                        session_id=session_id, turn_id=turn_id, model=model, messages=messages, tool_grant=tool_grant
+                        session_id=session_id, turn_id=turn_id, model=model, messages=messages, run_grant=run_grant
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -137,7 +137,7 @@ class CodexMCPRunner:
                 _schedule_cleanup(active.loop, active.server)
 
     async def _run_turn(
-        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], tool_grant: str
+        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], run_grant: str
     ) -> str:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
@@ -154,7 +154,7 @@ class CodexMCPRunner:
                     list_tools,
                     session_id=session_id,
                     turn_id=turn_id,
-                    tool_grant=tool_grant,
+                    run_grant=run_grant,
                     timeout_seconds=self._config.timeout_seconds,
                 )
             except ToolBridgeError as exc:
@@ -165,7 +165,7 @@ class CodexMCPRunner:
                 BridgeContext(
                     session_id=session_id,
                     turn_id=turn_id,
-                    tool_grant=tool_grant,
+                    run_grant=run_grant,
                     timeout_seconds=self._config.timeout_seconds,
                 )
             )

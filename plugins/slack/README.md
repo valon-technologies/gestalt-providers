@@ -417,7 +417,7 @@ When `agent.routes` is present, only matching routes start or signal a workflow
 run. Match rules support singular or plural forms of `team`, `channel`,
 `channelType`, `eventType`, and `user`. Route-level `agent` fields override the
 top-level agent settings, `prompt` is accepted as an alias for `systemPrompt`,
-and `providerOptions` are merged with route-level values taking precedence.
+and `modelOptions` are merged with route-level values taking precedence.
 
 ## Documentation
 

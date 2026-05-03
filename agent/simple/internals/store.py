@@ -19,7 +19,7 @@ TERMINAL_STATUSES = {
 
 BUSY_RETRY_INITIAL_DELAY_SECONDS = 0.02
 BUSY_RETRY_MAX_DELAY_SECONDS = 0.25
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 2
 PROJECTION_SCHEMA_VERSION = 1
 PROJECTION_SEP = "\x1f"
 PROJECTION_RANGE_SUFFIX = "\x7f"
@@ -36,8 +36,8 @@ CHECKPOINT_RECORD_FIELDS = frozenset(
         "messages",
         "conversation",
         "response_schema",
-        "provider_options",
-        "tool_grant",
+        "model_options",
+        "run_grant",
         "tool_specs",
         "function_name_to_tool_id",
         "loaded_tool_ids",
@@ -83,8 +83,8 @@ class StoredTurnCheckpoint:
     messages: list[dict[str, Any]]
     conversation: list[dict[str, Any]]
     response_schema: dict[str, Any]
-    provider_options: dict[str, Any]
-    tool_grant: str
+    model_options: dict[str, Any]
+    run_grant: str
     tool_specs: list[dict[str, Any]]
     function_name_to_tool_id: dict[str, str]
     loaded_tool_ids: list[str]
@@ -312,12 +312,7 @@ class SimpleRunStore:
         if state:
             sessions = [session for session in sessions if session.state == state]
         sessions = sorted(
-            sessions,
-            key=lambda session: (
-                session.last_turn_at or session.updated_at,
-                session.session_id,
-            ),
-            reverse=True,
+            sessions, key=lambda session: (session.last_turn_at or session.updated_at, session.session_id), reverse=True
         )
         if limit > 0:
             sessions = sessions[:limit]
@@ -721,6 +716,7 @@ class SimpleRunStore:
         record["updated_at"] = _utcnow()
         lease_owner = lease_owner.strip()
         if lease_owner:
+
             def put_result(stores: dict[str, Any]) -> None:
                 _require_checkpoint_lease_from_store(
                     stores[self._checkpoint_store_name], turn_id=turn_id, owner=lease_owner
@@ -830,9 +826,7 @@ class SimpleRunStore:
                 _replace_turn_projections(turn_projections, previous, current)
                 checkpoints.put(
                     _turn_checkpoint_to_record(
-                        _terminal_checkpoint_for_run(
-                            current, existing_checkpoint, messages=messages, now=completed_at
-                        )
+                        _terminal_checkpoint_for_run(current, existing_checkpoint, messages=messages, now=completed_at)
                     )
                 )
                 self._append_turn_event_locked(
@@ -873,10 +867,7 @@ class SimpleRunStore:
         return max(event.seq for event in existing) + 1
 
     def _persisted_turn_events(self, turn_id: str) -> list[StoredTurnEvent]:
-        events = [
-            _record_to_turn_event(record)
-            for record in self._events.iter_records(_turn_event_key_range(turn_id))
-        ]
+        events = [_record_to_turn_event(record) for record in self._events.iter_records(_turn_event_key_range(turn_id))]
         return [event for event in events if event is not None and event.turn_id == turn_id]
 
     def _append_turn_event_locked(
@@ -943,8 +934,8 @@ def _turn_checkpoint_to_record(checkpoint: StoredTurnCheckpoint) -> dict[str, An
         "messages": copy.deepcopy(checkpoint.messages),
         "conversation": copy.deepcopy(checkpoint.conversation),
         "response_schema": copy.deepcopy(checkpoint.response_schema),
-        "provider_options": copy.deepcopy(checkpoint.provider_options),
-        "tool_grant": checkpoint.tool_grant,
+        "model_options": copy.deepcopy(checkpoint.model_options),
+        "run_grant": checkpoint.run_grant,
         "tool_specs": copy.deepcopy(checkpoint.tool_specs),
         "function_name_to_tool_id": dict(checkpoint.function_name_to_tool_id),
         "loaded_tool_ids": list(checkpoint.loaded_tool_ids),
@@ -969,8 +960,8 @@ def _checkpoint_from_seed(run: StoredRun, seed: dict[str, Any], *, now: datetime
         messages=_coerce_messages(seed.get("messages")) or list(run.messages),
         conversation=_coerce_messages(seed.get("conversation")),
         response_schema=_coerce_optional_dict(seed.get("response_schema")) or {},
-        provider_options=_coerce_optional_dict(seed.get("provider_options")) or {},
-        tool_grant=str(seed.get("tool_grant") or ""),
+        model_options=_coerce_optional_dict(seed.get("model_options")) or {},
+        run_grant=str(seed.get("run_grant") or ""),
         tool_specs=_coerce_messages(seed.get("tool_specs")),
         function_name_to_tool_id=_coerce_string_dict(seed.get("function_name_to_tool_id")),
         loaded_tool_ids=_coerce_string_list(seed.get("loaded_tool_ids")),
@@ -984,11 +975,7 @@ def _checkpoint_from_seed(run: StoredRun, seed: dict[str, Any], *, now: datetime
 
 
 def _terminal_checkpoint_for_run(
-    run: StoredRun,
-    existing: StoredTurnCheckpoint | None,
-    *,
-    messages: list[dict[str, Any]],
-    now: datetime,
+    run: StoredRun, existing: StoredTurnCheckpoint | None, *, messages: list[dict[str, Any]], now: datetime
 ) -> StoredTurnCheckpoint:
     checkpoint = existing
     if checkpoint is None and isinstance(run.resume_seed, dict):
@@ -996,7 +983,7 @@ def _terminal_checkpoint_for_run(
     if checkpoint is None:
         checkpoint = StoredTurnCheckpoint(
             turn_id=run.run_id,
-            schema_version=1,
+            schema_version=CHECKPOINT_SCHEMA_VERSION,
             provider_name=run.provider_name,
             session_id=run.session_ref,
             model=run.model,
@@ -1004,8 +991,8 @@ def _terminal_checkpoint_for_run(
             messages=copy.deepcopy(messages or run.messages),
             conversation=[],
             response_schema={},
-            provider_options={},
-            tool_grant="",
+            model_options={},
+            run_grant="",
             tool_specs=[],
             function_name_to_tool_id={},
             loaded_tool_ids=[],
@@ -1053,8 +1040,8 @@ def _record_to_turn_checkpoint(record: dict[str, Any] | None) -> StoredTurnCheck
         messages=_coerce_messages(record.get("messages")),
         conversation=_coerce_messages(record.get("conversation")),
         response_schema=_coerce_optional_dict(record.get("response_schema")) or {},
-        provider_options=_coerce_optional_dict(record.get("provider_options")) or {},
-        tool_grant=str(record.get("tool_grant") or ""),
+        model_options=_coerce_optional_dict(record.get("model_options")) or {},
+        run_grant=str(record.get("run_grant") or ""),
         tool_specs=_coerce_messages(record.get("tool_specs")),
         function_name_to_tool_id=_coerce_string_dict(record.get("function_name_to_tool_id")),
         loaded_tool_ids=_coerce_string_list(record.get("loaded_tool_ids")),
@@ -1083,8 +1070,8 @@ def _unsupported_turn_checkpoint_from_record(record: dict[str, Any]) -> StoredTu
         messages=_coerce_messages(record.get("messages")),
         conversation=_coerce_messages(record.get("conversation")),
         response_schema=_coerce_optional_dict(record.get("response_schema")) or {},
-        provider_options=_coerce_optional_dict(record.get("provider_options")) or {},
-        tool_grant=str(record.get("tool_grant") or ""),
+        model_options=_coerce_optional_dict(record.get("model_options")) or {},
+        run_grant=str(record.get("run_grant") or ""),
         tool_specs=[],
         function_name_to_tool_id={},
         loaded_tool_ids=[],

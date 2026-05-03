@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
-import type { AgentMessage, ExecuteAgentToolRequest } from "@valon-technologies/gestalt";
+import type {
+  AgentMessage,
+  ExecuteAgentToolRequest,
+} from "@valon-technologies/gestalt";
 
 import { GestaltAgentHostClient } from "./agent_host.ts";
 import type { CursorAgentConfig } from "./config.ts";
@@ -18,7 +21,10 @@ export type CursorAgentFactory = {
 
 export type AgentHostFactory = () => GestaltAgentHostClient;
 
-export type TurnEventSink = (eventType: string, data: Record<string, unknown>) => void;
+export type TurnEventSink = (
+  eventType: string,
+  data: Record<string, unknown>,
+) => void;
 
 type ActiveTurn = {
   canceled: boolean;
@@ -46,7 +52,7 @@ export class CursorSDKRunner {
     turnId: string;
     model: string;
     messages: AgentMessage[];
-    toolGrant: string;
+    runGrant: string;
     onEvent: TurnEventSink;
   }): Promise<string> {
     const active: ActiveTurn = {
@@ -96,14 +102,17 @@ export class CursorSDKRunner {
     );
   }
 
-  private async runTurnInner(input: {
-    sessionId: string;
-    turnId: string;
-    model: string;
-    messages: AgentMessage[];
-    toolGrant: string;
-    onEvent: TurnEventSink;
-  }, active: ActiveTurn): Promise<string> {
+  private async runTurnInner(
+    input: {
+      sessionId: string;
+      turnId: string;
+      model: string;
+      messages: AgentMessage[];
+      runGrant: string;
+      onEvent: TurnEventSink;
+    },
+    active: ActiveTurn,
+  ): Promise<string> {
     try {
       await this.raiseIfCanceled(active);
       const host = this.createHost();
@@ -111,7 +120,7 @@ export class CursorSDKRunner {
         host,
         sessionId: input.sessionId,
         turnId: input.turnId,
-        toolGrant: input.toolGrant,
+        runGrant: input.runGrant,
       });
       await this.raiseIfCanceled(active);
 
@@ -124,7 +133,7 @@ export class CursorSDKRunner {
             toolCallId,
             toolId: entry.toolId,
             arguments: args,
-            toolGrant: input.toolGrant,
+            runGrant: input.runGrant,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
           } as ExecuteAgentToolRequest);
           return { status: response.status, body: response.body };
@@ -133,7 +142,11 @@ export class CursorSDKRunner {
       active.stateRoot = await mkdtemp(join(tmpdir(), "gestalt-cursor-sdk-"));
       await this.raiseIfCanceled(active);
 
-      active.agent = await this.createAgent(input, active.bridge, active.stateRoot);
+      active.agent = await this.createAgent(
+        input,
+        active.bridge,
+        active.stateRoot,
+      );
       await this.raiseIfCanceled(active);
 
       const prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
@@ -153,7 +166,9 @@ export class CursorSDKRunner {
         throw new CursorExecutionCanceled();
       }
       if (result.status !== "finished") {
-        throw new CursorExecutionError(`Cursor Agent SDK run finished with status ${result.status}`);
+        throw new CursorExecutionError(
+          `Cursor Agent SDK run finished with status ${result.status}`,
+        );
       }
       return result.result?.trim() || assistantText.join("").trim();
     } finally {
@@ -203,7 +218,9 @@ export class CursorSDKRunner {
   }
 
   private createHost(): GestaltAgentHostClient {
-    return this.options.hostFactory ? this.options.hostFactory() : new GestaltAgentHostClient();
+    return this.options.hostFactory
+      ? this.options.hostFactory()
+      : new GestaltAgentHostClient();
   }
 
   private async raiseIfCanceled(active: ActiveTurn): Promise<void> {
@@ -213,21 +230,23 @@ export class CursorSDKRunner {
     }
   }
 
-  private async cleanupActiveTurn(turnId: string, active: ActiveTurn): Promise<void> {
+  private async cleanupActiveTurn(
+    turnId: string,
+    active: ActiveTurn,
+  ): Promise<void> {
     this.activeTurns.delete(turnId);
     this.canceledTurns.delete(turnId);
     await Promise.allSettled([
       active.bridge?.close(),
       disposeAgent(active.agent),
-      active.stateRoot ? rm(active.stateRoot, { recursive: true, force: true }) : undefined,
+      active.stateRoot
+        ? rm(active.stateRoot, { recursive: true, force: true })
+        : undefined,
     ]);
   }
 }
 
-function recordSDKMessage(
-  onEvent: TurnEventSink,
-  message: SDKMessage,
-): string {
+function recordSDKMessage(onEvent: TurnEventSink, message: SDKMessage): string {
   switch (message.type) {
     case "assistant": {
       let text = "";
@@ -252,7 +271,10 @@ function recordSDKMessage(
       onEvent("thinking.delta", { text: message.text });
       return "";
     case "status":
-      onEvent("run.status", { status: message.status, message: message.message });
+      onEvent("run.status", {
+        status: message.status,
+        message: message.message,
+      });
       return "";
     case "task":
       onEvent("run.task", { status: message.status, text: message.text });
@@ -262,7 +284,10 @@ function recordSDKMessage(
   }
 }
 
-function messagesToPrompt(messages: AgentMessage[], systemPrompt: string): string {
+function messagesToPrompt(
+  messages: AgentMessage[],
+  systemPrompt: string,
+): string {
   const sections: string[] = [];
   const trimmedSystemPrompt = systemPrompt.trim();
   if (trimmedSystemPrompt) {
@@ -270,8 +295,8 @@ function messagesToPrompt(messages: AgentMessage[], systemPrompt: string): strin
       `<system>\n${JSON.stringify({ role: "system", text: trimmedSystemPrompt })}\n</system>`,
     );
   }
-  sections.push(...messages
-    .map((message, index) => {
+  sections.push(
+    ...messages.map((message, index) => {
       const role = (message.role || "user").trim() || "user";
       const payload = {
         role,
@@ -280,12 +305,16 @@ function messagesToPrompt(messages: AgentMessage[], systemPrompt: string): strin
         metadata: message.metadata ?? undefined,
       };
       return `<message index="${index + 1}" role="${escapeAttribute(role)}">\n${JSON.stringify(payload)}\n</message>`;
-    }));
+    }),
+  );
   return sections.join("\n\n");
 }
 
 function escapeAttribute(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;");
 }
 
 async function disposeAgent(agent: SDKAgent | undefined): Promise<void> {

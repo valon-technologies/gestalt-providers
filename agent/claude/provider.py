@@ -160,7 +160,7 @@ class ClaudeCodeAgentProvider(
                     "session_id": turn.session_id,
                     "model": model,
                     "messages": list(turn.messages),
-                    "tool_grant": str(request.tool_grant or "").strip(),
+                    "run_grant": str(request.run_grant or "").strip(),
                 },
                 daemon=True,
             ).start()
@@ -257,11 +257,11 @@ class ClaudeCodeAgentProvider(
         session_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        tool_grant: str,
+        run_grant: str,
     ) -> None:
         try:
             output = runner.run_turn(
-                session_id=session_id, turn_id=turn_id, model=model, messages=messages, tool_grant=tool_grant
+                session_id=session_id, turn_id=turn_id, model=model, messages=messages, run_grant=run_grant
             )
         except ClaudeExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))
@@ -374,16 +374,16 @@ def _which(binary: str) -> str | None:
 def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -> None:
     if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/claude requires toolSource mcp_catalog")
-    if not str(request.tool_grant or "").strip():
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_grant is required")
+    if not str(request.run_grant or "").strip():
+        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "run_grant is required")
     if len(list(getattr(request, "tools", []))) > 0:
         context.abort(
             grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
         )
     if _struct_to_dict(getattr(request, "response_schema", None)):
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "response_schema is not supported by agent/claude")
-    if _struct_to_dict(getattr(request, "provider_options", None)):
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "provider_options are not supported by agent/claude")
+    if _struct_to_dict(getattr(request, "model_options", None)):
+        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "model_options are not supported by agent/claude")
     _validate_tool_refs(list(getattr(request, "tool_refs", [])), context)
 
 

@@ -216,8 +216,12 @@ export interface WorkflowEventTriggerUpsert {
 }
 
 type WorkflowRunWire = Omit<WorkflowRun, "target"> & { target?: unknown };
-type WorkflowScheduleWire = Omit<WorkflowSchedule, "target"> & { target?: unknown };
-type WorkflowEventTriggerWire = Omit<WorkflowEventTrigger, "target"> & { target?: unknown };
+type WorkflowScheduleWire = Omit<WorkflowSchedule, "target"> & {
+  target?: unknown;
+};
+type WorkflowEventTriggerWire = Omit<WorkflowEventTrigger, "target"> & {
+  target?: unknown;
+};
 
 function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   return {
@@ -226,7 +230,9 @@ function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   };
 }
 
-function normalizeWorkflowSchedule(schedule: WorkflowScheduleWire): WorkflowSchedule {
+function normalizeWorkflowSchedule(
+  schedule: WorkflowScheduleWire,
+): WorkflowSchedule {
   return {
     ...schedule,
     target: normalizeWorkflowTarget(schedule.target),
@@ -335,7 +341,7 @@ export interface AgentRunCreate {
   responseSchema?: Record<string, unknown>;
   sessionRef?: string;
   metadata?: Record<string, unknown>;
-  providerOptions?: Record<string, unknown>;
+  modelOptions?: Record<string, unknown>;
   idempotencyKey?: string;
 }
 
@@ -354,7 +360,10 @@ type AgentTurnWire = Omit<AgentRun, "sessionRef"> & {
   sessionId: string;
 };
 
-function normalizeAgentRun(turn: AgentTurnWire, session?: AgentSession): AgentRun {
+function normalizeAgentRun(
+  turn: AgentTurnWire,
+  session?: AgentSession,
+): AgentRun {
   return {
     ...turn,
     sessionRef: session?.clientRef || turn.sessionId,
@@ -612,11 +621,15 @@ export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
 }
 
 export async function getWorkflowSchedules(): Promise<WorkflowSchedule[]> {
-  const schedules = await fetchAPI<WorkflowScheduleWire[]>("/api/v1/workflow/schedules");
+  const schedules = await fetchAPI<WorkflowScheduleWire[]>(
+    "/api/v1/workflow/schedules",
+  );
   return schedules.map(normalizeWorkflowSchedule);
 }
 
-export async function getWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
+export async function getWorkflowSchedule(
+  id: string,
+): Promise<WorkflowSchedule> {
   const schedule = await fetchAPI<WorkflowScheduleWire>(
     `/api/v1/workflow/schedules/${encodeURIComponent(id)}`,
   );
@@ -626,10 +639,13 @@ export async function getWorkflowSchedule(id: string): Promise<WorkflowSchedule>
 export async function createWorkflowSchedule(
   body: WorkflowScheduleUpsert,
 ): Promise<WorkflowSchedule> {
-  const schedule = await fetchAPI<WorkflowScheduleWire>("/api/v1/workflow/schedules", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  const schedule = await fetchAPI<WorkflowScheduleWire>(
+    "/api/v1/workflow/schedules",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
   return normalizeWorkflowSchedule(schedule);
 }
 
@@ -653,7 +669,9 @@ export async function deleteWorkflowSchedule(id: string): Promise<void> {
   });
 }
 
-export async function pauseWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
+export async function pauseWorkflowSchedule(
+  id: string,
+): Promise<WorkflowSchedule> {
   const schedule = await fetchAPI<WorkflowScheduleWire>(
     `/api/v1/workflow/schedules/${encodeURIComponent(id)}/pause`,
     {
@@ -663,7 +681,9 @@ export async function pauseWorkflowSchedule(id: string): Promise<WorkflowSchedul
   return normalizeWorkflowSchedule(schedule);
 }
 
-export async function resumeWorkflowSchedule(id: string): Promise<WorkflowSchedule> {
+export async function resumeWorkflowSchedule(
+  id: string,
+): Promise<WorkflowSchedule> {
   const schedule = await fetchAPI<WorkflowScheduleWire>(
     `/api/v1/workflow/schedules/${encodeURIComponent(id)}/resume`,
     {
@@ -673,7 +693,9 @@ export async function resumeWorkflowSchedule(id: string): Promise<WorkflowSchedu
   return normalizeWorkflowSchedule(schedule);
 }
 
-export async function getWorkflowEventTriggers(): Promise<WorkflowEventTrigger[]> {
+export async function getWorkflowEventTriggers(): Promise<
+  WorkflowEventTrigger[]
+> {
   const triggers = await fetchAPI<WorkflowEventTriggerWire[]>(
     "/api/v1/workflow/event-triggers",
   );
@@ -806,7 +828,6 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
       model: body.model,
       clientRef: body.sessionRef,
       metadata: body.metadata,
-      providerOptions: body.providerOptions,
       idempotencyKey: idempotencyKeyPart("session", body.idempotencyKey),
     }),
   });
@@ -822,7 +843,7 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
         toolSource: body.toolSource,
         responseSchema: body.responseSchema,
         metadata: body.metadata,
-        providerOptions: body.providerOptions,
+        modelOptions: body.modelOptions,
         idempotencyKey: idempotencyKeyPart("turn", body.idempotencyKey),
       }),
     },
@@ -889,7 +910,9 @@ export async function getManagedIdentity(id: string): Promise<ManagedIdentity> {
   return fetchAPI(managedSubjectPath(id));
 }
 
-export async function getManagedIdentityIntegrations(id: string): Promise<Integration[]> {
+export async function getManagedIdentityIntegrations(
+  id: string,
+): Promise<Integration[]> {
   return fetchAPI<Integration[]>(`${managedSubjectPath(id)}/integrations`);
 }
 
@@ -960,7 +983,10 @@ export async function disconnectManagedIdentityIntegration(
   );
 }
 
-export async function updateManagedIdentity(id: string, displayName: string): Promise<ManagedIdentity> {
+export async function updateManagedIdentity(
+  id: string,
+  displayName: string,
+): Promise<ManagedIdentity> {
   return fetchAPI(managedSubjectPath(id), {
     method: "PATCH",
     body: JSON.stringify({ displayName }),
@@ -973,7 +999,9 @@ export async function deleteManagedIdentity(id: string): Promise<void> {
   });
 }
 
-export async function getManagedIdentityMembers(id: string): Promise<ManagedIdentityMember[]> {
+export async function getManagedIdentityMembers(
+  id: string,
+): Promise<ManagedIdentityMember[]> {
   return fetchAPI(`${managedSubjectPath(id)}/members`);
 }
 
@@ -988,14 +1016,19 @@ export async function putManagedIdentityMember(
   });
 }
 
-export async function deleteManagedIdentityMember(id: string, memberSubjectID: string): Promise<void> {
+export async function deleteManagedIdentityMember(
+  id: string,
+  memberSubjectID: string,
+): Promise<void> {
   await fetchAPI(
     `${managedSubjectPath(id)}/members/${encodeURIComponent(memberSubjectID)}`,
     { method: "DELETE" },
   );
 }
 
-export async function getManagedIdentityGrants(id: string): Promise<ManagedIdentityGrant[]> {
+export async function getManagedIdentityGrants(
+  id: string,
+): Promise<ManagedIdentityGrant[]> {
   return fetchAPI(`${managedSubjectPath(id)}/grants`);
 }
 
@@ -1004,24 +1037,28 @@ export async function putManagedIdentityGrant(
   plugin: string,
   role: ManagedIdentityGrant["role"],
 ): Promise<ManagedIdentityGrant> {
-  const response = await fetchAPI<ManagedIdentityGrant | { grant?: ManagedIdentityGrant }>(
-    `${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ role }),
-    },
-  );
+  const response = await fetchAPI<
+    ManagedIdentityGrant | { grant?: ManagedIdentityGrant }
+  >(`${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
   return unwrapManagedIdentityGrant(response);
 }
 
-export async function deleteManagedIdentityGrant(id: string, plugin: string): Promise<void> {
+export async function deleteManagedIdentityGrant(
+  id: string,
+  plugin: string,
+): Promise<void> {
   await fetchAPI(
     `${managedSubjectPath(id)}/grants/${encodeURIComponent(plugin)}`,
     { method: "DELETE" },
   );
 }
 
-export async function getManagedIdentityTokens(id: string): Promise<APIToken[]> {
+export async function getManagedIdentityTokens(
+  id: string,
+): Promise<APIToken[]> {
   return fetchAPI(`${managedSubjectPath(id)}/tokens`);
 }
 
@@ -1036,7 +1073,10 @@ export async function createManagedIdentityToken(
   });
 }
 
-export async function revokeManagedIdentityToken(id: string, tokenId: string): Promise<void> {
+export async function revokeManagedIdentityToken(
+  id: string,
+  tokenId: string,
+): Promise<void> {
   await fetchAPI(
     `${managedSubjectPath(id)}/tokens/${encodeURIComponent(tokenId)}`,
     { method: "DELETE" },

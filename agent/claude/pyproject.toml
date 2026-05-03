@@ -46,6 +46,7 @@ vulture-ignore-names = [
   "metadata",
   "ListTools",
   "ExecuteTool",
+  "ResolveConnection",
   "setUpModule",
   "tearDownModule",
 ]
