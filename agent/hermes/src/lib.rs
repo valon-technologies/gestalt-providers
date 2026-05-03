@@ -526,7 +526,7 @@ impl HermesAgentProvider {
             .await
             .map_err(|err| err.message().to_string())?;
         let provider_name = self.provider_name().await;
-        let (session_id, acp_session_id, model, messages, tool_source, run_grant) = {
+        let (session_id, acp_session_id, model, messages, tool_refs, tool_source, run_grant) = {
             let store = self.inner.store.lock().await;
             let turn = store
                 .get_turn(turn_id)
@@ -539,6 +539,7 @@ impl HermesAgentProvider {
                 session.acp_session_id,
                 turn.model,
                 turn.messages,
+                turn.tool_refs,
                 turn.tool_source,
                 turn.run_grant,
             )
@@ -565,7 +566,7 @@ impl HermesAgentProvider {
                 return Err("turn canceled".to_string());
             }
             let _initialize_result = process.initialize(config.timeout).await?;
-            let mcp_servers = if mcp_catalog_enabled {
+            let mcp_servers = if mcp_catalog_enabled && !tool_refs.is_empty() {
                 let bridge = mcp_bridge::start_bridge(
                     session_id.clone(),
                     turn_id.to_string(),
