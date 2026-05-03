@@ -239,7 +239,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertIn("List my Linear issues", fake_client.prompt)
         self.assertIn('<message 1 role="user">', fake_client.prompt)
         self.assertEqual(fake_client.options.model, "sonnet-session")
-        self.assertEqual(fake_client.options.tools, [])
+        self.assertEqual(fake_client.options.tools, ["mcp__gestalt__*"])
         self.assertEqual(fake_client.options.allowed_tools, ["mcp__gestalt__*"])
         self.assertIsNotNone(fake_client.options.can_use_tool)
         self.assertEqual(set(fake_client.options.mcp_servers.keys()), {"gestalt"})
