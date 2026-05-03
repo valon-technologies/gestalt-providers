@@ -23,7 +23,7 @@ providers:
     default:
       source:
         ref: github.com/valon-technologies/gestalt-providers/external_credentials/default
-        version: 0.0.1-alpha.4
+        version: 0.0.1-alpha.5
       config:
         encryptionKey: ${GESTALT_ENCRYPTION_KEY}
 
