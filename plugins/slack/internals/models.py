@@ -204,6 +204,13 @@ class SlackAcknowledgementConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackConnectionHelpConfig:
+    enabled: bool = True
+    base_url: str = ""
+    not_connected_message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SlackWorkflowConfig:
     provider_name: str = ""
 
@@ -216,6 +223,9 @@ class SlackAgentConfig:
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
     acknowledgement: SlackAcknowledgementConfig = field(
         default_factory=SlackAcknowledgementConfig
+    )
+    connection_help: SlackConnectionHelpConfig = field(
+        default_factory=SlackConnectionHelpConfig
     )
     workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
     agent_provider: str = ""

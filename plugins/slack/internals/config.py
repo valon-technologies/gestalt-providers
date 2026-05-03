@@ -10,6 +10,7 @@ from .models import (
     SlackAgentRouteMatch,
     SlackAssistantConfig,
     SlackBotConfig,
+    SlackConnectionHelpConfig,
     SlackEventPublishConfig,
     SlackEventPublishRoute,
     SlackEventPublishRouteMatch,
@@ -36,6 +37,7 @@ def agent_config_from_provider_config(
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
+    connection_help = _connection_help_config_from_provider_config(config)
     workflow = _workflow_config_from_provider_config(config)
 
     return SlackAgentConfig(
@@ -55,6 +57,7 @@ def agent_config_from_provider_config(
         events=events,
         assistant=assistant,
         acknowledgement=acknowledgement,
+        connection_help=connection_help,
         workflow=workflow,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
@@ -135,6 +138,35 @@ def _acknowledgement_config_from_provider_config(
         "emoji_name",
     )
     return SlackAcknowledgementConfig(reaction=reaction.strip().strip(":"))
+
+
+def _connection_help_config_from_provider_config(
+    config: dict[str, Any],
+) -> SlackConnectionHelpConfig:
+    connection_help = _config_dict(
+        config,
+        "connectionHelp",
+        "connection_help",
+        "slackConnectionHelp",
+        "slack_connection_help",
+    )
+    return SlackConnectionHelpConfig(
+        enabled=_config_bool(connection_help, "enabled", default=True),
+        base_url=_config_string(
+            connection_help,
+            "baseUrl",
+            "base_url",
+            "connectUrl",
+            "connect_url",
+            "url",
+        ),
+        not_connected_message=_config_string(
+            connection_help,
+            "notConnectedMessage",
+            "not_connected_message",
+            "message",
+        ),
+    )
 
 
 def _assistant_suggested_prompts_from_config(

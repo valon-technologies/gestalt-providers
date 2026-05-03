@@ -431,6 +431,7 @@ class SlackProviderTests(unittest.TestCase):
             "SlackBotConfig",
             "SlackCallbackType",
             "SlackChannelType",
+            "SlackConnectionHelpConfig",
             "SlackEventType",
             "SlackInteractionRef",
             "SlackReplyRef",
@@ -720,6 +721,83 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(resolved.id, "user:gestalt-123")
         self.assertEqual(resolved.kind, "user")
         self.assertEqual(resolved.display_name, "ada@example.com")
+
+    def test_http_subject_replies_with_connection_help_for_unlinked_slack_user(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "connectionHelp": {"baseUrl": "https://valon.tools/"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        authorization = FakeAuthorization([])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvUnlinked",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with (
+            mock.patch.object(
+                gestalt.Request, "authorization", return_value=authorization
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            with self.assertRaises(gestalt.HTTPSubjectResolutionError) as raised:
+                provider_module.resolve_http_subject(
+                    gestalt.HTTPSubjectRequest(params=payload),
+                    gestalt.Request(),
+                )
+
+        self.assertEqual(raised.exception.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            str(raised.exception), "Slack user is not linked to a Gestalt subject"
+        )
+        expected_client_msg_id = str(
+            uuid.UUID(
+                hex=hashlib.sha256(
+                    "slack:event:EvUnlinked:connection-help".encode("utf-8")
+                ).hexdigest()[:32]
+            )
+        )
+        self.assertEqual(
+            captured["payload"],
+            {
+                "channel": "C789",
+                "text": "I don't recognize your Slack account in Gestalt yet. Open https://valon.tools/ to connect Slack, then try again.",
+                "thread_ts": "1712161829.000300",
+                "unfurl_links": False,
+                "unfurl_media": False,
+                "client_msg_id": expected_client_msg_id,
+            },
+        )
+        self.assertEqual(len(authorization.requests), 1)
 
     def test_slack_event_handler_signals_workflow_with_user_tool_search(self) -> None:
         provider_module.configure(
@@ -2528,6 +2606,94 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertIsNone(resolved)
         self.assertEqual(len(authorization.requests), 1)
+
+    def test_slack_event_handler_replies_with_connection_help_when_publish_route_has_no_subject(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "connectionHelp": {"baseUrl": "https://valon.tools/"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "brain-ingest",
+                                "workflowProvider": "local",
+                                "match": {"eventTypes": ["message"]},
+                            }
+                        ]
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvPublishAndAgent",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "D789",
+                "channel_type": "im",
+                "text": "hello",
+                "ts": "1712161829.000300",
+            },
+        }
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "D789", "ts": "1712161830.000400"}'
+            )
+
+        with (
+            mock.patch.object(
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, gestalt.Request())
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "published": True,
+                "published_event_count": 1,
+                "workflow_event_ids": ["slack:EvPublishAndAgent"],
+                "route_ids": ["brain-ingest"],
+                "agent_ignored": "slack_user_not_linked",
+                "connection_help_replied": True,
+            },
+        )
+        self.assertEqual(len(workflow_manager.publish_event_requests), 1)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 0)
+        self.assertEqual(captured["payload"]["channel"], "D789")
+        self.assertEqual(captured["payload"]["thread_ts"], "1712161829.000300")
+        self.assertIn("https://valon.tools/", captured["payload"]["text"])
 
     def test_publish_routes_match_bot_include_and_subtype_filters(self) -> None:
         provider_module.configure(

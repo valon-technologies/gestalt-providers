@@ -43,6 +43,7 @@ from .models import SlackAcknowledgementConfig as SlackAcknowledgementConfig  # 
 from .models import SlackAgentRouteMatch as SlackAgentRouteMatch  # noqa: F401
 from .models import SlackAssistantConfig as SlackAssistantConfig  # noqa: F401
 from .models import SlackBotConfig as SlackBotConfig  # noqa: F401
+from .models import SlackConnectionHelpConfig as SlackConnectionHelpConfig  # noqa: F401
 from .models import SlackWorkflowConfig as SlackWorkflowConfig  # noqa: F401
 from .operations import (
     add_reaction,
@@ -109,6 +110,14 @@ When you answer the Slack user, return the complete Slack message body as your
 final assistant answer. Gestalt will deliver that final answer to Slack.
 Do not use raw Slack message-posting tools for the final reply.
 """.strip()
+DEFAULT_CONNECTION_HELP_MESSAGE = (
+    "I don't recognize your Slack account in Gestalt yet. Open {CONNECT_URL} "
+    "to connect Slack, then try again."
+)
+DEFAULT_CONNECTION_HELP_MESSAGE_WITHOUT_URL = (
+    "I don't recognize your Slack account in Gestalt yet. Ask your Gestalt admin "
+    "to connect Slack for your account, then try again."
+)
 
 
 def _request_subject_id(req: gestalt.Request) -> str:
@@ -288,9 +297,10 @@ def resolve_slack_http_subject(
     has_publish_route = bool(
         publish_event is not None and _matching_publish_routes(publish_event)
     )
+    route: SlackAgentRoute | None = None
     event, _ignored_reason = _slack_agent_event_from_payload(payload)
     if event is not None:
-        _route, ignored_reason = _select_agent_route(event)
+        route, ignored_reason = _select_agent_route(event)
         if ignored_reason:
             return None
         team_id = event.team_id
@@ -317,6 +327,15 @@ def resolve_slack_http_subject(
     if subject is None:
         if has_publish_route:
             return None
+        if event is not None:
+            log_context = _slack_event_log_context(event, context, route)
+            reply_error = _post_connection_help_reply(event, log_context)
+            if reply_error:
+                logger.warning(
+                    "failed to post Slack connection help reply %s error=%s",
+                    log_context,
+                    reply_error,
+                )
         raise gestalt.http_subject_error(
             HTTPStatus.FORBIDDEN, "Slack user is not linked to a Gestalt subject"
         )
@@ -345,11 +364,32 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
 
     log_context = _slack_event_log_context(event, req, route)
     if not req.subject.id or req.subject.id.startswith("system:"):
-        if publish_response is not None:
-            return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
+        reply_error = _post_connection_help_reply(event, log_context)
+        if publish_response is not None:
+            response = dict(publish_response)
+            response["agent_ignored"] = "slack_user_not_linked"
+            if reply_error:
+                logger.warning(
+                    "failed to post Slack connection help reply %s error=%s",
+                    log_context,
+                    reply_error,
+                )
+                response["connection_help_reply_error"] = reply_error
+            else:
+                response["connection_help_replied"] = True
+            return response
+        body = {"error": "Slack user is not linked"}
+        if reply_error:
+            logger.warning(
+                "failed to post Slack connection help reply %s error=%s",
+                log_context,
+                reply_error,
+            )
+            body["connection_help_reply_error"] = reply_error
         return gestalt.Response(
-            status=HTTPStatus.FORBIDDEN, body={"error": "Slack user is not linked"}
+            status=HTTPStatus.FORBIDDEN,
+            body=body,
         )
     if not _agent_config.bot.token:
         if publish_response is not None:
@@ -1052,6 +1092,61 @@ def _add_acknowledgement_reaction(event: SlackAgentEvent) -> None:
         timestamp=event.message_ts,
         name=reaction,
     )
+
+
+def _post_connection_help_reply(event: SlackAgentEvent, log_context: str) -> str:
+    connection_help = _agent_config.connection_help
+    if not connection_help.enabled:
+        return ""
+    if not _agent_config.bot.token:
+        return "Slack bot token is not configured"
+    text = _connection_help_reply_text(event)
+    if not text:
+        return ""
+    try:
+        post_message(
+            _agent_config.bot.token,
+            channel=event.channel_id,
+            text=text,
+            thread_ts=event.reply_thread_ts or event.message_ts,
+            unfurl_links=False,
+            unfurl_media=False,
+            client_msg_id=_slack_client_msg_id(
+                f"{_agent_turn_idempotency_key(event)}:connection-help"
+            ),
+        )
+    except SlackAPIError as err:
+        return str(err.body.get("error") or err.body)
+    except SlackClientError as err:
+        return str(err)
+    logger.info("posted Slack connection help reply %s", log_context)
+    return ""
+
+
+def _connection_help_reply_text(event: SlackAgentEvent) -> str:
+    connection_help = _agent_config.connection_help
+    connect_url = connection_help.base_url.strip()
+    template = connection_help.not_connected_message.strip()
+    if not template:
+        template = (
+            DEFAULT_CONNECTION_HELP_MESSAGE
+            if connect_url
+            else DEFAULT_CONNECTION_HELP_MESSAGE_WITHOUT_URL
+        )
+    replacements = {
+        "{CONNECT_URL}": connect_url,
+        "{connect_url}": connect_url,
+        "{BASE_URL}": connect_url,
+        "{base_url}": connect_url,
+        "{SLACK_TEAM_ID}": event.team_id,
+        "{slack_team_id}": event.team_id,
+        "{SLACK_USER_ID}": event.user_id,
+        "{slack_user_id}": event.user_id,
+    }
+    text = template
+    for placeholder, value in replacements.items():
+        text = text.replace(placeholder, value)
+    return text.strip()[:3000]
 
 
 def _handle_assistant_thread_event(event: SlackAgentEvent) -> OperationResult:
