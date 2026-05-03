@@ -239,7 +239,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertIn("List my Linear issues", fake_client.prompt)
         self.assertIn('<message 1 role="user">', fake_client.prompt)
         self.assertEqual(fake_client.options.model, "sonnet-session")
-        self.assertEqual(fake_client.options.tools, ["mcp__gestalt__*"])
+        self.assertEqual(fake_client.options.tools, [])
         self.assertEqual(fake_client.options.allowed_tools, ["mcp__gestalt__*"])
         self.assertIsNotNone(fake_client.options.can_use_tool)
         self.assertEqual(set(fake_client.options.mcp_servers.keys()), {"gestalt"})
@@ -253,7 +253,9 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertIn("Gestalt MCP catalog tools", fake_client.options.system_prompt)
         self.assertIn("Linear", fake_client.options.system_prompt)
         self.assertIn("gestalt_catalog_search", fake_client.options.system_prompt)
-        self.assertIn("Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt)
+        self.assertIn(
+            "Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt
+        )
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["run_grant"], "grant-claude")

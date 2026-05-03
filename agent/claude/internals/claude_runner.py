@@ -190,7 +190,7 @@ class ClaudeSDKRunner:
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         return ClaudeAgentOptions(
-            tools=allowed_gestalt_mcp_tools(),
+            tools=[],
             allowed_tools=allowed_gestalt_mcp_tools(),
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
