@@ -65,7 +65,8 @@ struct GestaltMcpBridge {
     turn_id: String,
     run_grant: String,
     host: Arc<Mutex<AgentHost>>,
-    tools_by_name: Arc<Mutex<HashMap<String, proto::ListedAgentTool>>>,
+    tools: Arc<Vec<proto::ListedAgentTool>>,
+    tools_by_name: Arc<HashMap<String, proto::ListedAgentTool>>,
     next_tool_call_id: Arc<AtomicU64>,
 }
 
@@ -74,15 +75,21 @@ pub async fn start_bridge(
     turn_id: String,
     run_grant: String,
 ) -> Result<McpBridgeHandle, String> {
-    let host = AgentHost::connect()
+    let mut host = AgentHost::connect()
         .await
         .map_err(|err| format!("connect Gestalt agent host for MCP bridge: {err}"))?;
+    let tools = fetch_all_tools(&mut host, &session_id, &turn_id, &run_grant).await?;
+    if tools.is_empty() {
+        return Err("Gestalt MCP catalog returned no tools for this turn".to_string());
+    }
+    let tools_by_name = build_tools_by_name(&tools)?;
     let bridge = GestaltMcpBridge {
         session_id,
         turn_id: turn_id.clone(),
         run_grant,
         host: Arc::new(Mutex::new(host)),
-        tools_by_name: Arc::new(Mutex::new(HashMap::new())),
+        tools: Arc::new(tools),
+        tools_by_name: Arc::new(tools_by_name),
         next_tool_call_id: Arc::new(AtomicU64::new(1)),
     };
     let shutdown = CancellationToken::new();
@@ -160,13 +167,7 @@ impl ServerHandler for GestaltMcpBridge {
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
         async move {
             let page_token = request.and_then(|params| params.cursor).unwrap_or_default();
-            let (tools, next_page_token) = self.fetch_tools_page(page_token.clone()).await?;
-            if !next_page_token.is_empty() && next_page_token == page_token {
-                return Err(ErrorData::internal_error(
-                    "Gestalt agent host returned a repeated MCP tool page cursor",
-                    None,
-                ));
-            }
+            let (tools, next_page_token) = self.list_cached_tools_page(&page_token)?;
             Ok(ListToolsResult {
                 meta: None,
                 next_cursor: if next_page_token.is_empty() {
@@ -185,7 +186,7 @@ impl ServerHandler for GestaltMcpBridge {
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, ErrorData>> + Send + '_ {
         async move {
-            let tool = self.find_tool(request.name.as_ref()).await?;
+            let tool = self.find_tool(request.name.as_ref())?;
             let seq = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
             let tool_call_id = format!("mcp-{seq}");
             let arguments = request.arguments.map(json_object_to_struct);
@@ -220,77 +221,99 @@ impl ServerHandler for GestaltMcpBridge {
 }
 
 impl GestaltMcpBridge {
-    async fn fetch_tools_page(
+    fn list_cached_tools_page(
         &self,
-        page_token: String,
+        page_token: &str,
     ) -> Result<(Vec<proto::ListedAgentTool>, String), ErrorData> {
-        let response = self
-            .host
-            .lock()
-            .await
-            .list_tools(proto::ListAgentToolsRequest {
-                session_id: self.session_id.clone(),
-                turn_id: self.turn_id.clone(),
-                page_size: MCP_PAGE_SIZE,
-                page_token,
-                run_grant: self.run_grant.clone(),
-            })
-            .await
-            .map_err(|err| {
-                ErrorData::internal_error(format!("list Gestalt MCP tools: {err}"), None)
-            })?;
-        self.cache_tools(&response.tools).await?;
-        Ok((response.tools, response.next_page_token))
-    }
-
-    async fn cache_tools(&self, tools: &[proto::ListedAgentTool]) -> Result<(), ErrorData> {
-        let mut cache = self.tools_by_name.lock().await;
-        for tool in tools {
-            validate_mcp_name(&tool.mcp_name)?;
-            if let Some(existing) = cache.get(&tool.mcp_name) {
-                if existing.id != tool.id {
-                    return Err(ErrorData::internal_error(
-                        format!("duplicate Gestalt MCP tool name {:?}", tool.mcp_name),
-                        None,
-                    ));
-                }
-            } else {
-                cache.insert(tool.mcp_name.clone(), tool.clone());
-            }
+        let offset = if page_token.trim().is_empty() {
+            0
+        } else {
+            page_token.trim().parse::<usize>().map_err(|_| {
+                ErrorData::invalid_params("invalid Gestalt MCP tool page cursor", None)
+            })?
+        };
+        if offset >= self.tools.len() {
+            return Ok((Vec::new(), String::new()));
         }
-        Ok(())
+        let end = usize::min(offset + MCP_PAGE_SIZE as usize, self.tools.len());
+        let next_page_token = if end < self.tools.len() {
+            end.to_string()
+        } else {
+            String::new()
+        };
+        Ok((self.tools[offset..end].to_vec(), next_page_token))
     }
 
-    async fn find_tool(&self, name: &str) -> Result<proto::ListedAgentTool, ErrorData> {
+    fn find_tool(&self, name: &str) -> Result<proto::ListedAgentTool, ErrorData> {
         validate_mcp_name(name)?;
-        if let Some(tool) = self.tools_by_name.lock().await.get(name).cloned() {
+        if let Some(tool) = self.tools_by_name.get(name).cloned() {
             return Ok(tool);
         }
-
-        let mut page_token = String::new();
-        let mut seen_tokens = HashSet::new();
-        for _ in 0..MAX_SCAN_PAGES {
-            let (tools, next_page_token) = self.fetch_tools_page(page_token.clone()).await?;
-            if let Some(tool) = tools.into_iter().find(|tool| tool.mcp_name == name) {
-                return Ok(tool);
-            }
-            if next_page_token.is_empty() {
-                break;
-            }
-            if !seen_tokens.insert(next_page_token.clone()) {
-                return Err(ErrorData::internal_error(
-                    "Gestalt agent host returned a repeated MCP tool page cursor",
-                    None,
-                ));
-            }
-            page_token = next_page_token;
-        }
-
         Err(ErrorData::invalid_params(
             format!("tool {name:?} not found"),
             None,
         ))
     }
+}
+
+async fn fetch_all_tools(
+    host: &mut AgentHost,
+    session_id: &str,
+    turn_id: &str,
+    run_grant: &str,
+) -> Result<Vec<proto::ListedAgentTool>, String> {
+    let mut tools = Vec::new();
+    let mut page_token = String::new();
+    let mut seen_tokens = HashSet::new();
+
+    for _ in 0..MAX_SCAN_PAGES {
+        if !seen_tokens.insert(page_token.clone()) {
+            return Err("Gestalt agent host returned a repeated MCP tool page cursor".to_string());
+        }
+        let response = host
+            .list_tools(proto::ListAgentToolsRequest {
+                session_id: session_id.to_string(),
+                turn_id: turn_id.to_string(),
+                page_size: MCP_PAGE_SIZE,
+                page_token: page_token.clone(),
+                run_grant: run_grant.to_string(),
+            })
+            .await
+            .map_err(|err| format!("list Gestalt MCP tools: {err}"))?;
+        tools.extend(response.tools);
+        page_token = response.next_page_token.trim().to_string();
+        if page_token.is_empty() {
+            return Ok(tools);
+        }
+    }
+
+    Err(format!("ListTools exceeded {MAX_SCAN_PAGES} pages"))
+}
+
+fn build_tools_by_name(
+    tools: &[proto::ListedAgentTool],
+) -> Result<HashMap<String, proto::ListedAgentTool>, String> {
+    let mut cache: HashMap<String, proto::ListedAgentTool> = HashMap::new();
+    for tool in tools {
+        validate_mcp_name_text(&tool.mcp_name)?;
+        if tool.id.trim().is_empty() {
+            return Err(format!(
+                "ListTools returned tool {:?} without an id",
+                tool.mcp_name
+            ));
+        }
+        if let Some(existing) = cache.get(&tool.mcp_name) {
+            if existing.id != tool.id {
+                return Err(format!(
+                    "duplicate Gestalt MCP tool name {:?}",
+                    tool.mcp_name
+                ));
+            }
+        } else {
+            cache.insert(tool.mcp_name.clone(), tool.clone());
+        }
+    }
+    Ok(cache)
 }
 
 fn tool_to_mcp(tool: proto::ListedAgentTool) -> Tool {
@@ -347,20 +370,18 @@ fn json_object_to_struct(object: JsonMap<String, JsonValue>) -> Struct {
 }
 
 fn validate_mcp_name(name: &str) -> Result<(), ErrorData> {
+    validate_mcp_name_text(name).map_err(|message| ErrorData::internal_error(message, None))
+}
+
+fn validate_mcp_name_text(name: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > 128 {
-        return Err(ErrorData::internal_error(
-            format!("invalid Gestalt MCP tool name {:?}", name),
-            None,
-        ));
+        return Err(format!("invalid Gestalt MCP tool name {:?}", name));
     }
     if !name
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
     {
-        return Err(ErrorData::internal_error(
-            format!("unsafe Gestalt MCP tool name {:?}", name),
-            None,
-        ));
+        return Err(format!("unsafe Gestalt MCP tool name {:?}", name));
     }
     Ok(())
 }

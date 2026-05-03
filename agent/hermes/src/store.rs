@@ -35,6 +35,7 @@ pub struct StoredTurn {
     pub started_at: Option<Timestamp>,
     pub completed_at: Option<Timestamp>,
     pub execution_ref: String,
+    pub tool_refs: Vec<proto::AgentToolRef>,
     pub tool_source: i32,
     pub run_grant: String,
 }
@@ -267,6 +268,7 @@ impl Store {
             started_at: Some(now.clone()),
             completed_at: None,
             execution_ref: req.execution_ref.trim().to_string(),
+            tool_refs: req.tool_refs.clone(),
             tool_source: req.tool_source,
             run_grant: req.run_grant.trim().to_string(),
         };
