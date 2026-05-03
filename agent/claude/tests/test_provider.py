@@ -231,8 +231,11 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.skills, [])
         self.assertEqual(fake_client.options.plugins, [])
         self.assertEqual(fake_client.options.env["ANTHROPIC_API_KEY"], "test-anthropic-key")
-        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "auto:5")
+        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "true")
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
+        self.assertIn("Gestalt MCP catalog tools", fake_client.options.system_prompt)
+        self.assertIn("Linear", fake_client.options.system_prompt)
+        self.assertIn("Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt)
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["run_grant"], "grant-claude")
