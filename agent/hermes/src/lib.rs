@@ -131,8 +131,10 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
                     config.timeout,
                 )
                 .await?;
-            acp.set_model(&acp_session_id, &model, config.timeout)
-                .await?;
+            if config.should_set_model(&model) {
+                acp.set_model(&acp_session_id, &model, config.timeout)
+                    .await?;
+            }
             Ok::<String, String>(acp_session_id)
         }
         .await;
@@ -548,9 +550,11 @@ impl HermesAgentProvider {
                     config.timeout,
                 )
                 .await?;
-            process
-                .set_model(&acp_session_id, &model, config.timeout)
-                .await?;
+            if config.should_set_model(&model) {
+                process
+                    .set_model(&acp_session_id, &model, config.timeout)
+                    .await?;
+            }
             if self.is_turn_canceled(turn_id).await {
                 return Err("turn canceled".to_string());
             }
@@ -577,6 +581,9 @@ impl HermesAgentProvider {
                             .unwrap_or("end_turn");
                         if stop_reason == "cancelled" {
                             return Err("Hermes ACP turn was cancelled".to_string());
+                        }
+                        if let Some(err) = hermes_stderr_failure(&process.stderr().await) {
+                            return Err(err);
                         }
                         return Ok(());
                     }
@@ -736,6 +743,30 @@ impl HermesAgentProvider {
             }
         }
     }
+}
+
+fn hermes_stderr_failure(stderr: &str) -> Option<String> {
+    let line = stderr.lines().rev().map(str::trim).find(|line| {
+        line.contains("Non-retryable client error")
+            || line.contains("Non-retryable error")
+            || line.contains("PermissionDeniedError")
+            || line.contains("AuthenticationError")
+    })?;
+    Some(format!(
+        "Hermes reported a terminal error: {}",
+        truncate_for_status(line, 700)
+    ))
+}
+
+fn truncate_for_status(value: &str, max_chars: usize) -> String {
+    let mut result = String::new();
+    for ch in value.chars().take(max_chars) {
+        result.push(ch);
+    }
+    if value.chars().count() > max_chars {
+        result.push_str("...");
+    }
+    result
 }
 
 fn reject_session_options(req: &proto::CreateAgentProviderSessionRequest) -> Result<(), Status> {
