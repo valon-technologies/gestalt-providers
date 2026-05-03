@@ -9,7 +9,7 @@ import (
 	"time"
 
 	contracttest "github.com/valon-technologies/gestalt-providers/indexeddb/contracttest"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 type relationalContractHarness struct {
@@ -64,7 +64,7 @@ func (h *relationalContractHarness) Capabilities() contracttest.Capabilities {
 	}
 }
 
-func (h *relationalContractHarness) NewServer(t *testing.T) (proto.IndexedDBServer, func()) {
+func (h *relationalContractHarness) NewProvider(t *testing.T) (gestalt.IndexedDBProvider, func()) {
 	t.Helper()
 
 	provider := New()
@@ -75,7 +75,7 @@ func (h *relationalContractHarness) NewServer(t *testing.T) (proto.IndexedDBServ
 		t.Fatalf("Configure(%s): %v", h.name, err)
 	}
 
-	return provider.Store, func() {
+	return provider, func() {
 		_ = provider.Close()
 	}
 }

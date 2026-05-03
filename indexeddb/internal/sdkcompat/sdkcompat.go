@@ -3,6 +3,7 @@ package sdkcompat
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
@@ -11,6 +12,60 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+type statusSentinelError struct {
+	err    error
+	target error
+}
+
+func (e statusSentinelError) Error() string {
+	return e.err.Error()
+}
+
+func (e statusSentinelError) Unwrap() error {
+	return e.err
+}
+
+func (e statusSentinelError) Is(target error) bool {
+	return target == e.target
+}
+
+func (e statusSentinelError) GRPCStatus() *status.Status {
+	st, _ := status.FromError(e.err)
+	return st
+}
+
+func Error(err error) error {
+	if err == nil {
+		return nil
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return err
+	}
+	var target error
+	switch st.Code() {
+	case codes.NotFound:
+		target = gestalt.ErrNotFound
+	case codes.AlreadyExists:
+		target = gestalt.ErrAlreadyExists
+	case codes.InvalidArgument:
+		if strings.Contains(st.Message(), "invalid transaction") {
+			target = gestalt.ErrInvalidTransaction
+		}
+	case codes.FailedPrecondition:
+		switch {
+		case strings.Contains(st.Message(), "readonly"):
+			target = gestalt.ErrReadOnly
+		case strings.Contains(st.Message(), "already finished"):
+			target = gestalt.ErrTransactionDone
+		}
+	}
+	if target == nil {
+		return err
+	}
+	return statusSentinelError{err: err, target: target}
+}
 
 func RecordToProto(record gestalt.Record) (*proto.Record, error) {
 	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
@@ -209,7 +264,7 @@ func (c *Cursor) Advance(ctx context.Context, count int) (*gestalt.IndexedDBCurs
 }
 
 func (c *Cursor) Delete(ctx context.Context) error {
-	return c.runtime.DeleteCurrent(ctx)
+	return Error(c.runtime.DeleteCurrent(ctx))
 }
 
 func (c *Cursor) Update(ctx context.Context, record gestalt.Record) (*gestalt.IndexedDBCursorEntry, error) {
@@ -227,7 +282,7 @@ func (c *Cursor) Close() error {
 
 func cursorEntry(entry *proto.CursorEntry, ok bool, err error) (*gestalt.IndexedDBCursorEntry, error) {
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	if !ok || entry == nil {
 		return nil, nil
@@ -266,17 +321,17 @@ func NewTransaction(tx txstream.Transaction) *Transaction {
 }
 
 func (t *Transaction) Commit(ctx context.Context) error {
-	return t.tx.Commit(ctx)
+	return Error(t.tx.Commit(ctx))
 }
 
 func (t *Transaction) Abort(ctx context.Context) error {
-	return t.tx.Abort(ctx)
+	return Error(t.tx.Abort(ctx))
 }
 
 func (t *Transaction) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
 	resp, err := t.tx.Get(ctx, ObjectStoreRequest(req))
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	return RecordFromProto(resp.GetRecord())
 }
@@ -284,7 +339,7 @@ func (t *Transaction) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreR
 func (t *Transaction) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
 	resp, err := t.tx.GetKey(ctx, ObjectStoreRequest(req))
 	if err != nil {
-		return "", err
+		return "", Error(err)
 	}
 	return resp.GetKey(), nil
 }
@@ -295,7 +350,7 @@ func (t *Transaction) Add(ctx context.Context, req gestalt.IndexedDBRecordReques
 		return err
 	}
 	_, err = t.tx.Add(ctx, pbReq)
-	return err
+	return Error(err)
 }
 
 func (t *Transaction) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
@@ -304,17 +359,17 @@ func (t *Transaction) Put(ctx context.Context, req gestalt.IndexedDBRecordReques
 		return err
 	}
 	_, err = t.tx.Put(ctx, pbReq)
-	return err
+	return Error(err)
 }
 
 func (t *Transaction) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
 	_, err := t.tx.Delete(ctx, ObjectStoreRequest(req))
-	return err
+	return Error(err)
 }
 
 func (t *Transaction) Clear(ctx context.Context, store string) error {
 	_, err := t.tx.Clear(ctx, ObjectStoreNameRequest(store))
-	return err
+	return Error(err)
 }
 
 func (t *Transaction) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
@@ -324,7 +379,7 @@ func (t *Transaction) GetAll(ctx context.Context, req gestalt.IndexedDBObjectSto
 	}
 	resp, err := t.tx.GetAll(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	return RecordsFromProto(resp.GetRecords())
 }
@@ -336,7 +391,7 @@ func (t *Transaction) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjec
 	}
 	resp, err := t.tx.GetAllKeys(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	return resp.GetKeys(), nil
 }
@@ -348,7 +403,7 @@ func (t *Transaction) Count(ctx context.Context, req gestalt.IndexedDBObjectStor
 	}
 	resp, err := t.tx.Count(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, Error(err)
 	}
 	return resp.GetCount(), nil
 }
@@ -360,7 +415,7 @@ func (t *Transaction) DeleteRange(ctx context.Context, req gestalt.IndexedDBObje
 	}
 	resp, err := t.tx.DeleteRange(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, Error(err)
 	}
 	return resp.GetDeleted(), nil
 }
@@ -372,7 +427,7 @@ func (t *Transaction) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQu
 	}
 	resp, err := t.tx.IndexGet(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	return RecordFromProto(resp.GetRecord())
 }
@@ -384,7 +439,7 @@ func (t *Transaction) IndexGetKey(ctx context.Context, req gestalt.IndexedDBInde
 	}
 	resp, err := t.tx.IndexGetKey(ctx, pbReq)
 	if err != nil {
-		return "", err
+		return "", Error(err)
 	}
 	return resp.GetKey(), nil
 }
@@ -396,7 +451,7 @@ func (t *Transaction) IndexGetAll(ctx context.Context, req gestalt.IndexedDBInde
 	}
 	resp, err := t.tx.IndexGetAll(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	return RecordsFromProto(resp.GetRecords())
 }
@@ -408,7 +463,7 @@ func (t *Transaction) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDB
 	}
 	resp, err := t.tx.IndexGetAllKeys(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, Error(err)
 	}
 	return resp.GetKeys(), nil
 }
@@ -420,7 +475,7 @@ func (t *Transaction) IndexCount(ctx context.Context, req gestalt.IndexedDBIndex
 	}
 	resp, err := t.tx.IndexCount(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, Error(err)
 	}
 	return resp.GetCount(), nil
 }
@@ -432,7 +487,7 @@ func (t *Transaction) IndexDelete(ctx context.Context, req gestalt.IndexedDBInde
 	}
 	resp, err := t.tx.IndexDelete(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, Error(err)
 	}
 	return resp.GetDeleted(), nil
 }
