@@ -17,13 +17,13 @@ providers:
     default:
       source:
         ref: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
-        version: 0.0.1-alpha.5
+        version: 0.0.1-alpha.21
 
   externalCredentials:
     default:
       source:
         ref: github.com/valon-technologies/gestalt-providers/external_credentials/default
-        version: 0.0.1-alpha.1
+        version: 0.0.1-alpha.4
       config:
         encryptionKey: ${GESTALT_ENCRYPTION_KEY}
 
