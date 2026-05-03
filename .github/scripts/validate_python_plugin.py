@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 import subprocess
@@ -34,14 +33,13 @@ def main() -> int:
     ):
         raise SystemExit("tool.gestalt.ci.vulture-ignore-names must be a list of strings")
 
-    sync_cmd = ["uv", "sync"]
+    sync_cmd = ["uv", "sync", "--frozen"]
     run_cmd = ["uv", "run", "--no-sync"]
     if has_dev_group:
         sync_cmd.extend(["--group", "dev"])
         run_cmd.extend(["--group", "dev"])
 
     run(sync_cmd, cwd=plugin_dir)
-    install_local_gestalt_sdk(plugin_dir)
 
     if "ruff" in package_names:
         run([*run_cmd, "ruff", "check", "."], cwd=plugin_dir)
@@ -119,18 +117,6 @@ def declared_packages(config: dict) -> set[str]:
                 packages.add(name)
 
     return packages
-
-
-def install_local_gestalt_sdk(plugin_dir: Path) -> None:
-    checkout = os.environ.get("GESTALT_CHECKOUT")
-    if not checkout:
-        return
-
-    sdk_dir = Path(checkout) / "sdk" / "python"
-    if not (sdk_dir / "pyproject.toml").is_file():
-        raise SystemExit(f"GESTALT_CHECKOUT does not contain sdk/python: {sdk_dir}")
-
-    run(["uv", "pip", "install", str(sdk_dir)], cwd=plugin_dir)
 
 
 def dependency_name(dep: object) -> str | None:
