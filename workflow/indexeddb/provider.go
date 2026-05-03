@@ -32,12 +32,13 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.41"
+	providerVersion           = "0.0.1-alpha.42"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
 	defaultRunClaimTTL        = 2 * time.Hour
 	defaultRunClaimRenewEvery = defaultRunClaimTTL / 3
+	nonRunningRunClaimGrace   = time.Minute
 	maxSignalAddRetries       = 4096
 
 	storeSchedules     = "schedules"
@@ -332,7 +333,7 @@ func (p *Provider) Start(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		defer p.workerMu.Unlock()
-		if err := recoverStaleWorkflowRuns(loopCtx, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC()); err != nil && loopCtx.Err() == nil {
+		if err := recoverStaleWorkflowRuns(loopCtx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC()); err != nil && loopCtx.Err() == nil {
 			slog.WarnContext(loopCtx, "indexeddb workflow: recover stale workflow runs failed", "error", err)
 			return
 		}
@@ -1877,7 +1878,7 @@ func (p *Provider) recoverStaleWorkflowRuns(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return recoverStaleWorkflowRuns(ctx, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC())
+	return recoverStaleWorkflowRuns(ctx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC())
 }
 
 func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
@@ -2009,14 +2010,16 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 			}
 		}
 	}
-	pending.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-	pending.StartedAt = &now
-	pending.CompletedAt = nil
-	pending.StatusMessage = ""
-	if err := state.runStore.Put(ctx, pending.toRecord()); err != nil {
-		err = releaseUninvokedClaim(err)
-		releaseWorker()
-		return false, err
+	if pending.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		pending.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+		pending.StartedAt = &now
+		pending.CompletedAt = nil
+		pending.StatusMessage = ""
+		if err := state.runStore.Put(ctx, pending.toRecord()); err != nil {
+			err = releaseUninvokedClaim(err)
+			releaseWorker()
+			return false, err
+		}
 	}
 	host := state.host
 	releaseWorker()
@@ -2434,6 +2437,101 @@ func claimWorkflowRun(ctx context.Context, db *gestalt.IndexedDBClient, runID, o
 	return true, nil
 }
 
+func claimAndStartPendingRun(ctx context.Context, db *gestalt.IndexedDBClient, expected workflowRunRecord, ownerID string, now time.Time) (workflowRunRecord, bool, error) {
+	runID := strings.TrimSpace(expected.ID)
+	if runID == "" {
+		return workflowRunRecord{}, false, errors.New("workflow run claim requires run id")
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		ownerID = "unknown"
+	}
+	tx, err := db.Transaction(ctx, []string{storeRuns, storeRunClaims}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
+	if err != nil {
+		if indexedDBRetryableConflict(err) {
+			return workflowRunRecord{}, false, nil
+		}
+		return workflowRunRecord{}, false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Abort(ctx)
+		}
+	}()
+	runStore := tx.ObjectStore(storeRuns)
+	claimStore := tx.ObjectStore(storeRunClaims)
+	run, found, err := loadRunRecordTx(ctx, runStore, expected.ownerKey(), runID)
+	if err != nil {
+		if indexedDBRetryableConflict(err) {
+			return workflowRunRecord{}, false, nil
+		}
+		return workflowRunRecord{}, false, err
+	}
+	if !found ||
+		run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
+		strings.TrimSpace(run.WorkflowKey) != "" {
+		if err := tx.Abort(ctx); err != nil && !errors.Is(err, gestalt.ErrTransactionDone) {
+			return workflowRunRecord{}, false, err
+		}
+		committed = true
+		return workflowRunRecord{}, false, nil
+	}
+	existing, found, err := loadRunClaimRecordTx(ctx, claimStore, runID)
+	if err != nil {
+		if indexedDBRetryableConflict(err) {
+			return workflowRunRecord{}, false, nil
+		}
+		return workflowRunRecord{}, false, err
+	}
+	if found {
+		if existing.ExpiresAt.After(now) {
+			if err := tx.Abort(ctx); err != nil && !errors.Is(err, gestalt.ErrTransactionDone) {
+				return workflowRunRecord{}, false, err
+			}
+			committed = true
+			return workflowRunRecord{}, false, nil
+		}
+		if err := claimStore.Delete(ctx, runID); err != nil {
+			if indexedDBRetryableConflict(err) {
+				return workflowRunRecord{}, false, nil
+			}
+			return workflowRunRecord{}, false, err
+		}
+	}
+	claim := workflowRunClaimRecord{
+		ID:        runID,
+		RunID:     runID,
+		OwnerID:   ownerID,
+		ClaimedAt: now.UTC(),
+		ExpiresAt: now.Add(defaultRunClaimTTL).UTC(),
+	}
+	if err := claimStore.Add(ctx, claim.toRecord()); err != nil {
+		if indexedDBRetryableConflict(err) {
+			return workflowRunRecord{}, false, nil
+		}
+		return workflowRunRecord{}, false, err
+	}
+	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+	run.StartedAt = timePtr(now.UTC())
+	run.CompletedAt = nil
+	run.StatusMessage = ""
+	if err := runStore.Put(ctx, run.toRecord()); err != nil {
+		if indexedDBRetryableConflict(err) {
+			return workflowRunRecord{}, false, nil
+		}
+		return workflowRunRecord{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		if indexedDBRetryableConflict(err) {
+			return workflowRunRecord{}, false, nil
+		}
+		return workflowRunRecord{}, false, err
+	}
+	committed = true
+	return run, true, nil
+}
+
 func renewWorkflowRunClaim(ctx context.Context, db *gestalt.IndexedDBClient, runID, ownerID string, now time.Time) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	ownerID = strings.TrimSpace(ownerID)
@@ -2659,7 +2757,7 @@ func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func recoverStaleWorkflowRuns(ctx context.Context, runStore, runClaimStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
+func recoverStaleWorkflowRuns(ctx context.Context, db *gestalt.IndexedDBClient, runStore, runClaimStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {
 	cursor, err := runStore.OpenKeyCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
 		return err
@@ -2701,8 +2799,8 @@ func recoverStaleWorkflowRuns(ctx context.Context, runStore, runClaimStore, work
 			errs = append(errs, fmt.Errorf("load run claim %q: %w", run.ID, err))
 			continue
 		}
-		if claimFound && run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING && (workflowRunTerminal(run.Status) || !claim.ExpiresAt.After(now)) {
-			if err := runClaimStore.Delete(ctx, run.ID); err != nil {
+		if claimFound && run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING && inactiveRunClaimRecoverable(run, claim, now) {
+			if _, err := deleteInactiveRunClaimIfRecoverable(ctx, db, run, claim, now); err != nil {
 				errs = append(errs, fmt.Errorf("delete inactive run claim %q: %w", run.ID, err))
 				continue
 			}
@@ -2712,6 +2810,65 @@ func recoverStaleWorkflowRuns(ctx context.Context, runStore, runClaimStore, work
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+func deleteInactiveRunClaimIfRecoverable(ctx context.Context, db *gestalt.IndexedDBClient, observedRun workflowRunRecord, observedClaim workflowRunClaimRecord, now time.Time) (bool, error) {
+	tx, err := db.Transaction(ctx, []string{storeRuns, storeRunClaims}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
+	if err != nil {
+		return false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Abort(ctx)
+		}
+	}()
+	runStore := tx.ObjectStore(storeRuns)
+	claimStore := tx.ObjectStore(storeRunClaims)
+	run, found, err := loadRunRecordTx(ctx, runStore, observedRun.ownerKey(), observedRun.ID)
+	if err != nil || !found {
+		return false, err
+	}
+	claim, found, err := loadRunClaimRecordTx(ctx, claimStore, observedClaim.ID)
+	if err != nil || !found {
+		return false, err
+	}
+	if !sameRunClaim(claim, observedClaim) || !inactiveRunClaimRecoverable(run, claim, now) {
+		if err := tx.Abort(ctx); err != nil && !errors.Is(err, gestalt.ErrTransactionDone) {
+			return false, err
+		}
+		committed = true
+		return false, nil
+	}
+	if err := claimStore.Delete(ctx, claim.ID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	committed = true
+	return true, nil
+}
+
+func sameRunClaim(a, b workflowRunClaimRecord) bool {
+	return a.ID == b.ID &&
+		a.RunID == b.RunID &&
+		a.OwnerID == b.OwnerID &&
+		a.ClaimedAt.Equal(b.ClaimedAt) &&
+		a.ExpiresAt.Equal(b.ExpiresAt)
+}
+
+func inactiveRunClaimRecoverable(run workflowRunRecord, claim workflowRunClaimRecord, now time.Time) bool {
+	if run.Status == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		return false
+	}
+	if workflowRunTerminal(run.Status) || !claim.ExpiresAt.After(now) {
+		return true
+	}
+	if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING || strings.TrimSpace(run.WorkflowKey) != "" {
+		return false
+	}
+	return !claim.ClaimedAt.Add(nonRunningRunClaimGrace).After(now)
 }
 
 func workflowRunRecoverablyStale(ctx context.Context, claimStore recordGetter, run workflowRunRecord, now time.Time) (bool, error) {
@@ -3087,12 +3244,12 @@ func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferr
 		}
 		if found {
 			triedPreferred = run.ID
-			claimed, err := claimRunnableRun(ctx, state, run, now)
+			claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
 			if err != nil {
 				return workflowRunRecord{}, false, err
 			}
 			if claimed {
-				return run, true, nil
+				return claimedRun, true, nil
 			}
 		}
 	}
@@ -3104,23 +3261,30 @@ func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferr
 		if triedPreferred != "" && run.ID == triedPreferred {
 			continue
 		}
-		claimed, err := claimRunnableRun(ctx, state, run, now)
+		claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
 		if err != nil {
 			return workflowRunRecord{}, false, err
 		}
 		if claimed {
-			return run, true, nil
+			return claimedRun, true, nil
 		}
 	}
 	return workflowRunRecord{}, false, nil
 }
 
-func claimRunnableRun(ctx context.Context, state *configuredState, run workflowRunRecord, now time.Time) (bool, error) {
+func claimRunnableRun(ctx context.Context, state *configuredState, run workflowRunRecord, now time.Time) (workflowRunRecord, bool, error) {
 	runnable, err := workflowRunRunnable(ctx, state.signalStore, run)
 	if err != nil || !runnable {
-		return false, err
+		return workflowRunRecord{}, false, err
 	}
-	return claimWorkflowRun(ctx, state.db, run.ID, state.claimOwnerID, now)
+	if run.Status == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING && strings.TrimSpace(run.WorkflowKey) == "" {
+		return claimAndStartPendingRun(ctx, state.db, run, state.claimOwnerID, now)
+	}
+	claimed, err := claimWorkflowRun(ctx, state.db, run.ID, state.claimOwnerID, now)
+	if err != nil || !claimed {
+		return workflowRunRecord{}, false, err
+	}
+	return run, true, nil
 }
 
 func nextRunnableRun(ctx context.Context, runStore, signalStore *gestalt.ObjectStoreClient, preferredRunID string) (workflowRunRecord, bool, error) {
