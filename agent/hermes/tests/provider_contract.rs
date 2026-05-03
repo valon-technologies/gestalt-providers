@@ -1,17 +1,26 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use gestalt::AgentProvider as GestaltAgentProvider;
 use gestalt::proto::v1 as proto;
+use gestalt::proto::v1::agent_host_server::{
+    AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
+};
 use gestalt::proto::v1::agent_provider_server::AgentProvider as AgentProviderService;
 use prost_types::{Struct, Value as ProstValue, value::Kind};
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tempfile::TempDir;
+use tokio::net::UnixListener;
+use tokio_stream::wrappers::UnixListenerStream;
+use tonic::transport::Server;
 use tonic::{Code, Request};
 
 use gestalt_agent_hermes::HermesAgentProvider;
+
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tokio::test]
 async fn completes_turn_and_refreshes_adc_token_per_turn() {
@@ -24,9 +33,11 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
         .unwrap()
         .into_inner();
     assert!(capabilities.streaming_text);
-    assert!(!capabilities.tool_calls);
-    assert!(!capabilities.native_tool_search);
-    assert!(capabilities.supported_tool_sources.is_empty());
+    assert!(capabilities.tool_calls);
+    assert_eq!(
+        capabilities.supported_tool_sources,
+        vec![proto::AgentToolSourceMode::McpCatalog as i32]
+    );
 
     create_session(&provider).await;
     create_session(&provider).await;
@@ -139,6 +150,157 @@ async fn fixed_profile_mode_skips_acp_model_switching() {
 }
 
 #[tokio::test]
+async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
+    let _env_lock = ENV_LOCK.lock().await;
+    let fixture = Fixture::new("mcp-call");
+    let host = TestAgentHostService::default();
+    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
+    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    create_mcp_turn(&provider, "turn-mcp").await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-mcp",
+        proto::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
+
+    let list_requests = host.list_requests.lock().expect("list requests").clone();
+    assert!(
+        !list_requests.is_empty(),
+        "expected Hermes to list Gestalt MCP tools"
+    );
+    assert_eq!(list_requests[0].session_id, "session-1");
+    assert_eq!(list_requests[0].turn_id, "turn-mcp");
+    assert_eq!(list_requests[0].run_grant, "grant-mcp");
+    assert_eq!(list_requests[0].page_size, 100);
+
+    let execute_requests = host
+        .execute_requests
+        .lock()
+        .expect("execute requests")
+        .clone();
+    assert_eq!(execute_requests.len(), 1);
+    assert_eq!(execute_requests[0].session_id, "session-1");
+    assert_eq!(execute_requests[0].turn_id, "turn-mcp");
+    assert_eq!(execute_requests[0].tool_id, "linear-list");
+    assert_eq!(execute_requests[0].tool_call_id, "mcp-1");
+    assert_eq!(execute_requests[0].run_grant, "grant-mcp");
+    assert_eq!(
+        execute_requests[0].idempotency_key,
+        "agent/hermes-mcp:turn-mcp:1:linear.issues"
+    );
+
+    let log = fixture.log_events();
+    let load = log
+        .iter()
+        .find(|event| event["event"] == "load")
+        .expect("session/load logged");
+    let mcp_servers = load["params"]["mcpServers"]
+        .as_array()
+        .expect("mcpServers array");
+    assert_eq!(mcp_servers.len(), 1);
+    assert_eq!(mcp_servers[0]["type"], "http");
+    assert_eq!(mcp_servers[0]["name"], "gestalt");
+    assert!(
+        mcp_servers[0]["url"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("/mcp-")
+    );
+    assert!(
+        log.iter().any(|event| event["event"] == "mcp_result"),
+        "{log:?}"
+    );
+    let mcp_result = log
+        .iter()
+        .find(|event| event["event"] == "mcp_result")
+        .expect("mcp result logged");
+    assert_eq!(mcp_result["result"]["unauthorizedStatus"], 401);
+
+    host_task.abort();
+    let _ = host_task.await;
+}
+
+#[tokio::test]
+async fn mcp_catalog_requires_acp_http_mcp_support() {
+    let fixture = Fixture::new("mcp-no-http");
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    create_mcp_turn(&provider, "turn-no-http").await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-no-http",
+        proto::AgentExecutionStatus::Failed,
+    )
+    .await;
+    assert!(
+        turn.status_message
+            .contains("does not advertise HTTP MCP server support"),
+        "{}",
+        turn.status_message
+    );
+    let log = fixture.log_events();
+    assert_eq!(
+        log.iter()
+            .filter(|event| event["event"] == "prompt")
+            .count(),
+        0,
+        "{log:?}"
+    );
+    assert_eq!(
+        log.iter().filter(|event| event["event"] == "load").count(),
+        0,
+        "{log:?}"
+    );
+}
+
+#[tokio::test]
+async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    provider
+        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+            turn_id: "turn-no-tools-with-grant".to_string(),
+            session_id: "session-1".to_string(),
+            run_grant: "grant-no-tools".to_string(),
+            messages: vec![proto::AgentMessage {
+                role: "user".to_string(),
+                text: "say hi".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    wait_for_turn(
+        &provider,
+        "turn-no-tools-with-grant",
+        proto::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+
+    let log = fixture.log_events();
+    let load = log
+        .iter()
+        .find(|event| event["event"] == "load")
+        .expect("session/load logged");
+    assert_eq!(
+        load["params"]["mcpServers"].as_array().map(Vec::len),
+        Some(0),
+        "{log:?}"
+    );
+}
+
+#[tokio::test]
 async fn terminal_hermes_stderr_marks_turn_failed() {
     let fixture = Fixture::new("stderr-fail");
     let provider = fixture.configure_provider().await;
@@ -166,14 +328,34 @@ async fn terminal_hermes_stderr_marks_turn_failed() {
 }
 
 #[tokio::test]
-async fn rejects_gestalt_tooling_and_structured_options() {
+async fn rejects_unsupported_tool_and_model_options() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
     create_session(&provider).await;
 
     let err = provider
         .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
-            turn_id: "turn-tools".to_string(),
+            turn_id: "turn-resolved-tools".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![proto::AgentMessage {
+                role: "user".to_string(),
+                text: "hi".to_string(),
+                ..Default::default()
+            }],
+            tools: vec![proto::ResolvedAgentTool {
+                id: "tool-1".to_string(),
+                name: "tool".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), Code::InvalidArgument);
+
+    let err = provider
+        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+            turn_id: "turn-missing-grant".to_string(),
             session_id: "session-1".to_string(),
             messages: vec![proto::AgentMessage {
                 role: "user".to_string(),
@@ -181,7 +363,10 @@ async fn rejects_gestalt_tooling_and_structured_options() {
                 ..Default::default()
             }],
             tool_source: proto::AgentToolSourceMode::McpCatalog as i32,
-            tool_grant: "grant-1".to_string(),
+            tool_refs: vec![proto::AgentToolRef {
+                plugin: "*".to_string(),
+                ..Default::default()
+            }],
             ..Default::default()
         }))
         .await
@@ -198,6 +383,22 @@ async fn rejects_gestalt_tooling_and_structured_options() {
                 ..Default::default()
             }],
             response_schema: Some(non_empty_struct()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), Code::InvalidArgument);
+
+    let err = provider
+        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+            turn_id: "turn-model-options".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![proto::AgentMessage {
+                role: "user".to_string(),
+                text: "hi".to_string(),
+                ..Default::default()
+            }],
+            model_options: Some(non_empty_struct()),
             ..Default::default()
         }))
         .await
@@ -311,6 +512,106 @@ struct Fixture {
     env_hermes_home_override: Option<TempDir>,
     log_path: PathBuf,
     token_script: PathBuf,
+}
+
+#[derive(Clone, Default)]
+struct TestAgentHostService {
+    list_requests: Arc<StdMutex<Vec<proto::ListAgentToolsRequest>>>,
+    execute_requests: Arc<StdMutex<Vec<proto::ExecuteAgentToolRequest>>>,
+}
+
+#[tonic::async_trait]
+impl AgentHostRpc for TestAgentHostService {
+    async fn list_tools(
+        &self,
+        request: Request<proto::ListAgentToolsRequest>,
+    ) -> Result<tonic::Response<proto::ListAgentToolsResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.list_requests
+            .lock()
+            .expect("list requests")
+            .push(request.clone());
+        Ok(tonic::Response::new(proto::ListAgentToolsResponse {
+            tools: if request.page_token.trim().is_empty() {
+                vec![proto::ListedAgentTool {
+                    id: "linear-list".to_string(),
+                    mcp_name: "linear.issues".to_string(),
+                    title: "Linear issues".to_string(),
+                    description: "List Linear issues visible to the user".to_string(),
+                    input_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
+                        .to_string(),
+                    annotations: Some(proto::OperationAnnotations {
+                        read_only_hint: Some(true),
+                        open_world_hint: Some(false),
+                        ..Default::default()
+                    }),
+                    r#ref: Some(proto::AgentToolRef {
+                        plugin: "linear".to_string(),
+                        operation: "issues".to_string(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]
+            } else {
+                Vec::new()
+            },
+            next_page_token: String::new(),
+        }))
+    }
+
+    async fn execute_tool(
+        &self,
+        request: Request<proto::ExecuteAgentToolRequest>,
+    ) -> Result<tonic::Response<proto::ExecuteAgentToolResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.execute_requests
+            .lock()
+            .expect("execute requests")
+            .push(request);
+        Ok(tonic::Response::new(proto::ExecuteAgentToolResponse {
+            status: 200,
+            body: "linear tickets".to_string(),
+        }))
+    }
+
+    async fn resolve_connection(
+        &self,
+        _request: Request<proto::ResolveAgentConnectionRequest>,
+    ) -> Result<tonic::Response<proto::ResolvedAgentConnection>, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "connection resolution is not used by this test",
+        ))
+    }
+}
+
+struct EnvGuard {
+    key: String,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl EnvGuard {
+    fn set(key: &str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = std::env::var_os(key);
+        unsafe {
+            std::env::set_var(key, value);
+        }
+        Self {
+            key: key.to_string(),
+            previous,
+        }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(&self.key, previous);
+            } else {
+                std::env::remove_var(&self.key);
+            }
+        }
+    }
 }
 
 impl Fixture {
@@ -427,6 +728,45 @@ async fn create_turn(provider: &HermesAgentProvider, turn_id: &str) -> proto::Ag
         .await
         .unwrap()
         .into_inner()
+}
+
+async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> proto::AgentTurn {
+    provider
+        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+            turn_id: turn_id.to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![proto::AgentMessage {
+                role: "user".to_string(),
+                text: "show me my linear tickets".to_string(),
+                ..Default::default()
+            }],
+            tool_source: proto::AgentToolSourceMode::McpCatalog as i32,
+            tool_refs: vec![proto::AgentToolRef {
+                plugin: "*".to_string(),
+                ..Default::default()
+            }],
+            run_grant: "grant-mcp".to_string(),
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+}
+
+async fn serve_agent_host(
+    socket_path: PathBuf,
+    host: TestAgentHostService,
+) -> tokio::task::JoinHandle<()> {
+    let listener = UnixListener::bind(&socket_path).expect("bind agent host socket");
+    let handle = tokio::spawn(async move {
+        Server::builder()
+            .add_service(AgentHostGrpcServer::new(host))
+            .serve_with_incoming(UnixListenerStream::new(listener))
+            .await
+            .expect("serve agent host");
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    handle
 }
 
 async fn wait_for_turn(

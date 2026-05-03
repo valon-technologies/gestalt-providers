@@ -1,5 +1,6 @@
 mod acp;
 mod config;
+mod mcp_bridge;
 mod store;
 
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use acp::{AcpNotification, AcpProcess};
 use config::HermesConfig;
 use gestalt::proto::v1 as proto;
+use mcp_bridge::McpBridgeHandle;
 use prost_types::{Struct, value::Kind};
 use serde_json::{Value as JsonValue, json};
 use store::{
@@ -34,6 +36,7 @@ struct ProviderInner {
     warnings: RwLock<Vec<String>>,
     store: Mutex<Store>,
     processes: Mutex<HashMap<String, Arc<AcpProcess>>>,
+    mcp_bridges: Mutex<HashMap<String, McpBridgeHandle>>,
 }
 
 #[gestalt::async_trait]
@@ -84,6 +87,17 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         for process in processes {
             process.kill().await;
         }
+        let bridges: Vec<McpBridgeHandle> = self
+            .inner
+            .mcp_bridges
+            .lock()
+            .await
+            .drain()
+            .map(|(_, bridge)| bridge)
+            .collect();
+        for bridge in bridges {
+            bridge.shutdown();
+        }
         self.inner.store.lock().await.clear();
         *self.inner.config.write().await = None;
         self.inner.warnings.write().await.clear();
@@ -101,7 +115,6 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
         if req.session_id.trim().is_empty() {
             return Err(Status::invalid_argument("session_id is required"));
         }
-        reject_session_options(&req)?;
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
         let model = config.resolve_model(&req.model);
@@ -128,6 +141,7 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             let acp_session_id = acp
                 .new_session(
                     config.working_directory.to_string_lossy().as_ref(),
+                    Vec::new(),
                     config.timeout,
                 )
                 .await?;
@@ -358,6 +372,9 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
                 process.kill().await;
             });
         }
+        if let Some(bridge) = self.inner.mcp_bridges.lock().await.remove(&turn.id) {
+            bridge.shutdown();
+        }
         Ok(Response::new(turn_to_proto(turn, false)))
     }
 
@@ -427,15 +444,14 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
         self.require_config().await?;
         Ok(Response::new(proto::AgentProviderCapabilities {
             streaming_text: true,
-            tool_calls: false,
+            tool_calls: true,
             parallel_tool_calls: false,
             structured_output: false,
             interactions: false,
             resumable_turns: false,
             reasoning_summaries: true,
-            native_tool_search: false,
             bounded_list_hydration: false,
-            supported_tool_sources: Vec::new(),
+            supported_tool_sources: vec![proto::AgentToolSourceMode::McpCatalog as i32],
         }))
     }
 }
@@ -464,6 +480,9 @@ impl HermesAgentProvider {
         let provider_name = self.provider_name().await;
         if let Some(process) = self.inner.processes.lock().await.remove(&turn_id) {
             process.kill().await;
+        }
+        if let Some(bridge) = self.inner.mcp_bridges.lock().await.remove(&turn_id) {
+            bridge.shutdown();
         }
         let mut store = self.inner.store.lock().await;
         let current = store.get_turn(&turn_id);
@@ -507,7 +526,7 @@ impl HermesAgentProvider {
             .await
             .map_err(|err| err.message().to_string())?;
         let provider_name = self.provider_name().await;
-        let (session_id, acp_session_id, model, messages) = {
+        let (session_id, acp_session_id, model, messages, tool_source, run_grant) = {
             let store = self.inner.store.lock().await;
             let turn = store
                 .get_turn(turn_id)
@@ -520,8 +539,11 @@ impl HermesAgentProvider {
                 session.acp_session_id,
                 turn.model,
                 turn.messages,
+                turn.tool_source,
+                turn.run_grant,
             )
         };
+        let mcp_catalog_enabled = tool_source == proto::AgentToolSourceMode::McpCatalog as i32;
         if self.is_turn_canceled(turn_id).await {
             return Err("turn canceled".to_string());
         }
@@ -542,11 +564,35 @@ impl HermesAgentProvider {
             if self.is_turn_canceled(turn_id).await {
                 return Err("turn canceled".to_string());
             }
-            process.initialize(config.timeout).await?;
+            let initialize_result = process.initialize(config.timeout).await?;
+            let mcp_servers = if mcp_catalog_enabled {
+                if !initialize_result.mcp_http_supported {
+                    return Err(
+                        "Hermes ACP does not advertise HTTP MCP server support; install Hermes with MCP support and retry"
+                            .to_string(),
+                    );
+                }
+                let bridge = mcp_bridge::start_bridge(
+                    session_id.clone(),
+                    turn_id.to_string(),
+                    run_grant.clone(),
+                )
+                .await?;
+                let mcp_server = bridge.acp_server_config();
+                self.inner
+                    .mcp_bridges
+                    .lock()
+                    .await
+                    .insert(turn_id.to_string(), bridge);
+                vec![mcp_server]
+            } else {
+                Vec::new()
+            };
             process
                 .load_session(
                     config.working_directory.to_string_lossy().as_ref(),
                     &acp_session_id,
+                    mcp_servers,
                     config.timeout,
                 )
                 .await?;
@@ -608,6 +654,9 @@ impl HermesAgentProvider {
             }
         }.await;
         process.kill().await;
+        if let Some(bridge) = self.inner.mcp_bridges.lock().await.remove(turn_id) {
+            bridge.shutdown();
+        }
         result
     }
 
@@ -769,19 +818,6 @@ fn truncate_for_status(value: &str, max_chars: usize) -> String {
     result
 }
 
-fn reject_session_options(req: &proto::CreateAgentProviderSessionRequest) -> Result<(), Status> {
-    if req
-        .provider_options
-        .as_ref()
-        .is_some_and(|options| !options.fields.is_empty())
-    {
-        return Err(Status::invalid_argument(
-            "provider_options are not supported by agent/hermes",
-        ));
-    }
-    Ok(())
-}
-
 fn validate_turn_request(req: &proto::CreateAgentProviderTurnRequest) -> Result<(), Status> {
     if req.messages.is_empty() {
         return Err(Status::invalid_argument(
@@ -790,23 +826,27 @@ fn validate_turn_request(req: &proto::CreateAgentProviderTurnRequest) -> Result<
     }
     if !req.tools.is_empty() {
         return Err(Status::invalid_argument(
-            "tools are not supported by agent/hermes",
+            "resolved tools are not supported by agent/hermes; use tool_source=MCP_CATALOG",
         ));
     }
-    if !req.tool_refs.is_empty() {
-        return Err(Status::invalid_argument(
-            "tool_refs are not supported by agent/hermes",
-        ));
-    }
-    if !req.tool_grant.trim().is_empty() {
-        return Err(Status::invalid_argument(
-            "tool_grant is not supported by agent/hermes",
-        ));
-    }
-    if req.tool_source != 0 {
-        return Err(Status::invalid_argument(
-            "only tool_source=UNSPECIFIED is supported by agent/hermes",
-        ));
+    validate_mcp_catalog_tool_refs(&req.tool_refs)?;
+    let tool_source = proto::AgentToolSourceMode::try_from(req.tool_source)
+        .map_err(|_| Status::invalid_argument("unsupported tool_source for agent/hermes"))?;
+    match tool_source {
+        proto::AgentToolSourceMode::Unspecified => {
+            if !req.tool_refs.is_empty() {
+                return Err(Status::invalid_argument(
+                    "tool_source=MCP_CATALOG is required when tool_refs are provided",
+                ));
+            }
+        }
+        proto::AgentToolSourceMode::McpCatalog => {
+            if req.run_grant.trim().is_empty() {
+                return Err(Status::invalid_argument(
+                    "run_grant is required when tool_source=MCP_CATALOG",
+                ));
+            }
+        }
     }
     if req
         .response_schema
@@ -818,13 +858,79 @@ fn validate_turn_request(req: &proto::CreateAgentProviderTurnRequest) -> Result<
         ));
     }
     if req
-        .provider_options
+        .model_options
         .as_ref()
         .is_some_and(|options| !options.fields.is_empty())
     {
         return Err(Status::invalid_argument(
-            "provider_options are not supported by agent/hermes",
+            "model_options are not supported by agent/hermes",
         ));
+    }
+    Ok(())
+}
+
+fn validate_mcp_catalog_tool_refs(refs: &[proto::AgentToolRef]) -> Result<(), Status> {
+    for (index, tool_ref) in refs.iter().enumerate() {
+        let system = tool_ref.system.trim();
+        let plugin = tool_ref.plugin.trim();
+        let operation = tool_ref.operation.trim();
+        let connection = tool_ref.connection.trim();
+        let instance = tool_ref.instance.trim();
+        let title = tool_ref.title.trim();
+        let description = tool_ref.description.trim();
+        if system.is_empty() && plugin.is_empty() {
+            return Err(Status::invalid_argument(format!(
+                "tool_refs[{index}].plugin or system is required"
+            )));
+        }
+        if !system.is_empty() && !plugin.is_empty() {
+            return Err(Status::invalid_argument(format!(
+                "tool_refs[{index}] must set exactly one of plugin or system"
+            )));
+        }
+        if !system.is_empty() {
+            if system != "workflow" {
+                return Err(Status::invalid_argument(format!(
+                    "tool_refs[{index}].system {system:?} is not supported"
+                )));
+            }
+            if operation.is_empty() {
+                return Err(Status::invalid_argument(format!(
+                    "tool_refs[{index}].operation is required for system refs"
+                )));
+            }
+            if operation == "*" {
+                return Err(Status::invalid_argument(format!(
+                    "tool_refs[{index}].operation wildcard is not supported"
+                )));
+            }
+            if !connection.is_empty()
+                || !instance.is_empty()
+                || !title.is_empty()
+                || !description.is_empty()
+            {
+                return Err(Status::invalid_argument(format!(
+                    "tool_refs[{index}] system refs cannot include connection, instance, title, or description"
+                )));
+            }
+            continue;
+        }
+        if operation == "*" || connection == "*" || instance == "*" {
+            return Err(Status::invalid_argument(format!(
+                "tool_refs[{index}] wildcard fields are not supported"
+            )));
+        }
+        if plugin == "*"
+            && (!operation.is_empty()
+                || !connection.is_empty()
+                || !instance.is_empty()
+                || !title.is_empty()
+                || !description.is_empty())
+        {
+            return Err(Status::invalid_argument(format!(
+                "tool_refs[{index}] global ref cannot include operation, connection, instance, title, or description"
+            )));
+        }
     }
     Ok(())
 }

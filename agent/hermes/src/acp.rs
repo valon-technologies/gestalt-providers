@@ -23,6 +23,11 @@ pub struct AcpProcess {
     inner: Arc<AcpProcessInner>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct AcpInitializeResult {
+    pub mcp_http_supported: bool,
+}
+
 struct AcpProcessInner {
     writer: Arc<Mutex<ChildStdin>>,
     child: Mutex<Option<Child>>,
@@ -104,29 +109,47 @@ impl AcpProcess {
         self.fail_all_pending("Hermes ACP process was killed").await;
     }
 
-    pub async fn initialize(&self, timeout: std::time::Duration) -> Result<JsonValue, String> {
-        self.request(
-            "initialize",
-            json!({
-                "protocolVersion": 1,
-                "clientCapabilities": {
-                    "auth": { "terminal": false },
-                    "fs": { "readTextFile": false, "writeTextFile": false },
-                    "terminal": false
-                },
-                "clientInfo": {
-                    "name": "gestalt-agent-hermes",
-                    "version": env!("CARGO_PKG_VERSION")
-                }
-            }),
-            timeout,
-        )
-        .await
+    pub async fn initialize(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<AcpInitializeResult, String> {
+        let result = self
+            .request(
+                "initialize",
+                json!({
+                    "protocolVersion": 1,
+                    "clientCapabilities": {
+                        "auth": { "terminal": false },
+                        "fs": { "readTextFile": false, "writeTextFile": false },
+                        "terminal": false
+                    },
+                    "clientInfo": {
+                        "name": "gestalt-agent-hermes",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }),
+                timeout,
+            )
+            .await?;
+        Ok(AcpInitializeResult {
+            mcp_http_supported: result
+                .get("agentCapabilities")
+                .or_else(|| result.get("agent_capabilities"))
+                .and_then(|capabilities| {
+                    capabilities
+                        .get("mcpCapabilities")
+                        .or_else(|| capabilities.get("mcp_capabilities"))
+                })
+                .and_then(|mcp| mcp.get("http"))
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(false),
+        })
     }
 
     pub async fn new_session(
         &self,
         cwd: &str,
+        mcp_servers: Vec<JsonValue>,
         timeout: std::time::Duration,
     ) -> Result<String, String> {
         let result = self
@@ -134,7 +157,7 @@ impl AcpProcess {
                 "session/new",
                 json!({
                     "cwd": cwd,
-                    "mcpServers": []
+                    "mcpServers": mcp_servers
                 }),
                 timeout,
             )
@@ -146,6 +169,7 @@ impl AcpProcess {
         &self,
         cwd: &str,
         session_id: &str,
+        mcp_servers: Vec<JsonValue>,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
         self.request(
@@ -153,7 +177,7 @@ impl AcpProcess {
             json!({
                 "cwd": cwd,
                 "sessionId": session_id,
-                "mcpServers": []
+                "mcpServers": mcp_servers
             }),
             timeout,
         )

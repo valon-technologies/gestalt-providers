@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::OpenOptions;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
+use std::net::TcpStream;
 
 use serde_json::{Value, json};
 
@@ -14,6 +15,7 @@ fn main() {
 
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
+    let mut mcp_server: Option<Value> = None;
     while let Some(Ok(line)) = lines.next() {
         if line.trim().is_empty() {
             continue;
@@ -33,7 +35,16 @@ fn main() {
         match method {
             "initialize" => respond(
                 &request,
-                json!({"protocolVersion": 1, "agentCapabilities": {"loadSession": true}}),
+                json!({
+                    "protocolVersion": 1,
+                    "agentCapabilities": {
+                        "loadSession": true,
+                        "mcpCapabilities": {
+                            "http": mode != "mcp-no-http",
+                            "sse": false
+                        }
+                    }
+                }),
             ),
             "session/new" => {
                 log_event(json!({"event": "new", "params": request.get("params")}));
@@ -41,6 +52,12 @@ fn main() {
             }
             "session/load" => {
                 log_event(json!({"event": "load", "params": request.get("params")}));
+                mcp_server = request
+                    .get("params")
+                    .and_then(|params| params.get("mcpServers"))
+                    .and_then(Value::as_array)
+                    .and_then(|servers| servers.first())
+                    .cloned();
                 respond(&request, json!({}));
             }
             "session/set_model" => {
@@ -85,6 +102,21 @@ fn main() {
                     continue;
                 }
                 update("agent_thought_chunk", "thinking");
+                if mode == "mcp-call" {
+                    match exercise_mcp_server(mcp_server.as_ref()) {
+                        Ok(result) => {
+                            log_event(json!({"event": "mcp_result", "result": result}));
+                            update("agent_message_chunk", "Hermes used Gestalt MCP");
+                            tool_update("mcp-call-1", "completed");
+                        }
+                        Err(err) => {
+                            log_event(json!({"event": "mcp_error", "message": err}));
+                            tool_update("mcp-call-1", "failed");
+                        }
+                    }
+                    respond(&request, json!({"stopReason": "end_turn"}));
+                    continue;
+                }
                 update("agent_message_chunk", "Hermes says hi");
                 tool_update("tool-call-1", "completed");
                 if mode == "wrong-session" {
@@ -95,6 +127,127 @@ fn main() {
             _ => respond_error(&request, -32601, "method not found"),
         }
     }
+}
+
+fn exercise_mcp_server(server: Option<&Value>) -> Result<Value, String> {
+    let server = server.ok_or_else(|| "missing MCP server".to_string())?;
+    let url = server
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing MCP server url".to_string())?;
+    let auth_header = server
+        .get("headers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flat_map(|headers| headers.iter())
+        .find(|header| header.get("name").and_then(Value::as_str) == Some("Authorization"))
+        .and_then(|header| header.get("value").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string();
+    let initialize_body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "fake-acp", "version": "1.0"}
+        }
+    });
+    let unauthorized_status = mcp_post_status(url, "Bearer wrong-token", initialize_body.clone())?;
+    let initialize = mcp_post(url, &auth_header, initialize_body)?;
+    let listed = mcp_post(
+        url,
+        &auth_header,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        }),
+    )?;
+    let tool_name = listed
+        .pointer("/result/tools/0/name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("no MCP tool in list response: {listed}"))?;
+    let called = mcp_post(
+        url,
+        &auth_header,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": {"query": "Ada Lovelace"}
+            }
+        }),
+    )?;
+    Ok(json!({
+        "initialize": initialize,
+        "unauthorizedStatus": unauthorized_status,
+        "list": listed,
+        "call": called
+    }))
+}
+
+fn mcp_post(url: &str, auth_header: &str, body: Value) -> Result<Value, String> {
+    let (status, body) = mcp_post_raw(url, auth_header, body)?;
+    if status != 200 {
+        return Err(format!(
+            "MCP HTTP request failed with status {status}; body: {body}"
+        ));
+    }
+    serde_json::from_str(&body).map_err(|err| format!("decode MCP response {body:?}: {err}"))
+}
+
+fn mcp_post_status(url: &str, auth_header: &str, body: Value) -> Result<u16, String> {
+    let (status, _) = mcp_post_raw(url, auth_header, body)?;
+    Ok(status)
+}
+
+fn mcp_post_raw(url: &str, auth_header: &str, body: Value) -> Result<(u16, String), String> {
+    let (host, port, path) = parse_http_url(url)?;
+    let serialized = serde_json::to_string(&body).map_err(|err| err.to_string())?;
+    let mut stream = TcpStream::connect((host.as_str(), port))
+        .map_err(|err| format!("connect MCP server {url}: {err}"))?;
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nAuthorization: {auth_header}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMcp-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{serialized}",
+        serialized.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|err| format!("write MCP request: {err}"))?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|err| format!("read MCP response: {err}"))?;
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| format!("invalid MCP HTTP response: {response}"))?;
+    let status = headers
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|raw| raw.parse::<u16>().ok())
+        .ok_or_else(|| format!("invalid MCP HTTP status line: {headers}"))?;
+    Ok((status, body.to_string()))
+}
+
+fn parse_http_url(url: &str) -> Result<(String, u16, String), String> {
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or_else(|| format!("only http MCP URLs are supported in fake ACP: {url}"))?;
+    let (authority, path) = rest
+        .split_once('/')
+        .ok_or_else(|| format!("MCP URL is missing path: {url}"))?;
+    let (host, port) = authority
+        .rsplit_once(':')
+        .ok_or_else(|| format!("MCP URL is missing port: {url}"))?;
+    let port = port
+        .parse::<u16>()
+        .map_err(|err| format!("invalid MCP URL port {port:?}: {err}"))?;
+    Ok((host.to_string(), port, format!("/{path}")))
 }
 
 fn request_permission() {
