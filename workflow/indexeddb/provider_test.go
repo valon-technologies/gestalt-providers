@@ -2855,6 +2855,65 @@ func TestDeleteInactiveRunClaimSkipsReplacedClaim(t *testing.T) {
 	}
 }
 
+func TestProviderTickProcessesPreferredRunBeforeStaleRecovery(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 13, 0, 0, 0, time.UTC)
+	clock := newFakeClock(start)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	provider.now = clock.Now
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	startedAt := start.Add(-time.Minute)
+	staleRun := workflowRunRecord{
+		ID:          "expired-running-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		Target:      protoBoundTarget(t, "roadmap", "sync", nil),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   startedAt.Add(-time.Second),
+		StartedAt:   &startedAt,
+	}
+	if err := provider.runStore.Put(ctx, staleRun.toRecord()); err != nil {
+		t.Fatalf("Put(stale run): %v", err)
+	}
+	putExpiredRunClaim(t, ctx, provider.runClaimStore, staleRun.ID, startedAt)
+
+	preferredRun := workflowRunRecord{
+		ID:          "preferred-webhook-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoBoundTarget(t, "github", "failed-check-run-comment", nil),
+		TriggerKind: triggerKindEvent,
+		CreatedAt:   start,
+	}
+	if err := provider.runStore.Put(ctx, preferredRun.toRecord()); err != nil {
+		t.Fatalf("Put(preferred run): %v", err)
+	}
+
+	if err := provider.tick(ctx, preferredRun.ID); err != nil {
+		t.Fatalf("tick(preferred): %v", err)
+	}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != preferredRun.ID {
+		t.Fatalf("run_id = %q, want preferred run %q", call.GetRunId(), preferredRun.ID)
+	}
+	reloadedStale, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: staleRun.ID})
+	if err != nil {
+		t.Fatalf("GetRun(stale): %v", err)
+	}
+	if reloadedStale.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		t.Fatalf("stale run status = %s, want running until a fallback stale-recovery tick", reloadedStale.GetStatus())
+	}
+}
+
 func TestProviderTickRecoversRunningRunAfterClaimExpires(t *testing.T) {
 	ctx := context.Background()
 	start := time.Date(2026, time.April, 30, 12, 0, 0, 0, time.UTC)

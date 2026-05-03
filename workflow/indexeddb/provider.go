@@ -32,12 +32,13 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.42"
+	providerVersion           = "0.0.1-alpha.43"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
 	defaultRunClaimTTL        = 2 * time.Hour
 	defaultRunClaimRenewEvery = defaultRunClaimTTL / 3
+	defaultStaleRecoveryEvery = time.Minute
 	nonRunningRunClaimGrace   = time.Minute
 	maxSignalAddRetries       = 4096
 
@@ -108,6 +109,7 @@ type Provider struct {
 	pollCancel        context.CancelFunc
 	pollDone          chan struct{}
 	wake              chan string
+	lastStaleRecovery time.Time
 
 	now func() time.Time
 }
@@ -337,6 +339,7 @@ func (p *Provider) Start(ctx context.Context) error {
 			slog.WarnContext(loopCtx, "indexeddb workflow: recover stale workflow runs failed", "error", err)
 			return
 		}
+		p.lastStaleRecovery = p.clock().UTC()
 	}()
 	for range defaultWorkerCount {
 		go func() {
@@ -1849,13 +1852,26 @@ func (p *Provider) logTickError(ctx context.Context, err error) {
 }
 
 func (p *Provider) tick(ctx context.Context, preferredRunID string) error {
-	if err := p.recoverStaleWorkflowRuns(ctx); err != nil {
+	if strings.TrimSpace(preferredRunID) != "" {
+		processed, err := p.processNextPendingRun(ctx, preferredRunID)
+		if err != nil {
+			return err
+		}
+		if processed {
+			p.mu.RLock()
+			p.signalWorkerLocked("")
+			p.mu.RUnlock()
+			return nil
+		}
+	}
+
+	if err := p.recoverStaleWorkflowRunsIfDue(ctx); err != nil {
 		slog.WarnContext(ctx, "indexeddb workflow: recover stale workflow runs failed", "provider", p.providerName(), "error", err)
 	}
 	if err := p.enqueueDueSchedules(ctx); err != nil {
 		return err
 	}
-	processed, err := p.processNextPendingRun(ctx, preferredRunID)
+	processed, err := p.processNextPendingRun(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -1868,6 +1884,14 @@ func (p *Provider) tick(ctx context.Context, preferredRunID string) error {
 }
 
 func (p *Provider) recoverStaleWorkflowRuns(ctx context.Context) error {
+	return p.recoverStaleWorkflowRunsLocked(ctx, false)
+}
+
+func (p *Provider) recoverStaleWorkflowRunsIfDue(ctx context.Context) error {
+	return p.recoverStaleWorkflowRunsLocked(ctx, true)
+}
+
+func (p *Provider) recoverStaleWorkflowRunsLocked(ctx context.Context, onlyIfDue bool) error {
 	p.workerMu.Lock()
 	defer p.workerMu.Unlock()
 
@@ -1878,7 +1902,12 @@ func (p *Provider) recoverStaleWorkflowRuns(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return recoverStaleWorkflowRuns(ctx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, p.clock().UTC())
+	now := p.clock().UTC()
+	if onlyIfDue && !p.lastStaleRecovery.IsZero() && now.Sub(p.lastStaleRecovery) < defaultStaleRecoveryEvery {
+		return nil
+	}
+	p.lastStaleRecovery = now
+	return recoverStaleWorkflowRuns(ctx, state.db, state.runStore, state.runClaimStore, state.workflowKeyStore, state.signalStore, now)
 }
 
 func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
