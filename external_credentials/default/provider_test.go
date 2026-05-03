@@ -5,9 +5,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -161,6 +164,234 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	_, err = client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("GetCredential after delete code = %v, want %v", status.Code(err), codes.NotFound)
+	}
+}
+
+func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": "provider-manual-exchange-key",
+	})
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("content-type = %q, want application/json", got)
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("Decode(payload): %v", err)
+		}
+		if payload["api_key"] != "manual-secret" || payload["audience"] != "vertex" {
+			t.Errorf("payload = %#v, want manual api_key and configured audience", payload)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"token":"manual-access-token"},"refresh_token":"provider-refresh-token","expires_in":3600,"token_type":"Bearer"}`))
+	}))
+	defer tokenServer.Close()
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	credentialJSON := `{"api_key":"manual-secret"}`
+	exchanged, err := client.ExchangeCredential(context.Background(), &proto.ExchangeExternalCredentialRequest{
+		Provider:       "kimi",
+		Connection:     "default",
+		ConnectionId:   "kimi:default",
+		CredentialJson: credentialJSON,
+		Auth: &proto.ExternalCredentialAuthConfig{
+			Type:            "manual",
+			TokenUrl:        tokenServer.URL,
+			TokenExchange:   "json",
+			AccessTokenPath: "data.token",
+			TokenParams: map[string]string{
+				"audience": "vertex",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExchangeCredential: %v", err)
+	}
+	tokenResp := exchanged.GetTokenResponse()
+	if tokenResp.GetAccessToken() != "manual-access-token" {
+		t.Fatalf("access_token = %q, want manual-access-token", tokenResp.GetAccessToken())
+	}
+	if tokenResp.GetRefreshSource() != credentialJSON {
+		t.Fatalf("refresh_source = %q, want original credential JSON", tokenResp.GetRefreshSource())
+	}
+	if tokenResp.GetRefreshToken() != "provider-refresh-token" || tokenResp.GetExpiresIn() != 3600 {
+		t.Fatalf("token response = %#v, want refresh token and expires_in preserved", tokenResp)
+	}
+	if tokenResp.GetExtraJson() == "" {
+		t.Fatal("extra_json is empty, want raw response captured")
+	}
+}
+
+func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": "provider-resolve-refresh-key",
+	})
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tenant/acme/token" {
+			t.Errorf("path = %q, want /tenant/acme/token", r.URL.Path)
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("Decode(payload): %v", err)
+		}
+		if payload["api_key"] != "refresh-secret" {
+			t.Errorf("payload api_key = %q, want refresh-secret", payload["api_key"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"refreshed-access-token","expires_in":1800}`))
+	}))
+	defer tokenServer.Close()
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	refreshSource := `{"api_key":"refresh-secret"}`
+	_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
+		Credential: &proto.ExternalCredential{
+			SubjectId:    "user:user-refresh",
+			ConnectionId: "kimi:default",
+			Instance:     "default",
+			AccessToken:  "expired-access-token",
+			RefreshToken: refreshSource,
+			ExpiresAt:    timestamppb.New(time.Now().Add(-time.Minute)),
+			MetadataJson: `{"tenant":"acme"}`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertCredential(seed): %v", err)
+	}
+
+	resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+		Provider:            "kimi",
+		Connection:          "default",
+		ConnectionId:        "kimi:default",
+		Mode:                "user",
+		CredentialSubjectId: "user:user-refresh",
+		Instance:            "default",
+		Auth: &proto.ExternalCredentialAuthConfig{
+			Type:          "manual",
+			TokenUrl:      tokenServer.URL + "/tenant/{tenant}/token",
+			TokenExchange: "json",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveCredential: %v", err)
+	}
+	if resolved.GetToken() != "refreshed-access-token" {
+		t.Fatalf("token = %q, want refreshed-access-token", resolved.GetToken())
+	}
+	if resolved.GetCredential() == nil {
+		t.Fatal("credential is nil, want refreshed stored credential")
+	}
+	if resolved.GetCredential().GetRefreshToken() != refreshSource {
+		t.Fatalf("refresh_token = %q, want refresh source preserved", resolved.GetCredential().GetRefreshToken())
+	}
+	if resolved.GetParams()["tenant"] != "acme" {
+		t.Fatalf("params = %#v, want tenant metadata projected", resolved.GetParams())
+	}
+
+	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
+		Lookup: &proto.ExternalCredentialLookup{
+			SubjectId:    "user:user-refresh",
+			ConnectionId: "kimi:default",
+			Instance:     "default",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetCredential(refreshed): %v", err)
+	}
+	if got.GetAccessToken() != "refreshed-access-token" || got.GetRefreshErrorCount() != 0 {
+		t.Fatalf("stored credential = access:%q errors:%d, want refreshed token and cleared errors", got.GetAccessToken(), got.GetRefreshErrorCount())
+	}
+}
+
+func TestExternalCredentialProviderGoogleServiceAccountImpersonation(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": "provider-google-impersonation-key",
+	})
+
+	expireTime := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	iamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer source-adc-token" {
+			t.Errorf("authorization = %q, want source token bearer", got)
+		}
+		var payload struct {
+			Scope    []string `json:"scope"`
+			Lifetime string   `json:"lifetime"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("Decode(payload): %v", err)
+		}
+		if len(payload.Scope) != 1 || payload.Scope[0] != "https://www.googleapis.com/auth/cloud-platform" {
+			t.Errorf("scope = %#v, want cloud-platform scope", payload.Scope)
+		}
+		if payload.Lifetime != "900s" {
+			t.Errorf("lifetime = %q, want 900s", payload.Lifetime)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"accessToken":"impersonated-access-token","expireTime":%q}`, expireTime)
+	}))
+	defer iamServer.Close()
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+		Provider:     "vertex",
+		Connection:   "kimi",
+		ConnectionId: "vertex:kimi",
+		Mode:         "platform",
+		Auth: &proto.ExternalCredentialAuthConfig{
+			TokenExchangeDrivers: []*proto.ExternalCredentialTokenExchangeDriver{
+				{
+					Type:            "google_service_account_impersonation",
+					TargetPrincipal: "gestalt-agent@example.iam.gserviceaccount.com",
+					Endpoint:        iamServer.URL,
+					Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+					LifetimeSeconds: 900,
+					Params: map[string]string{
+						"sourceAccessToken": "source-adc-token",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveCredential(google impersonation): %v", err)
+	}
+	if resolved.GetToken() != "impersonated-access-token" {
+		t.Fatalf("token = %q, want impersonated-access-token", resolved.GetToken())
+	}
+	if resolved.GetExpiresAt() == nil {
+		t.Fatal("expires_at is nil, want IAM expireTime mapped")
 	}
 }
 
