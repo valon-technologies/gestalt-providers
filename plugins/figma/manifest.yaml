@@ -8,6 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: default
       document: https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml
   connections:
     default:

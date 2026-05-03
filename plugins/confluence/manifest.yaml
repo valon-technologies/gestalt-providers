@@ -7,6 +7,7 @@ kind: plugin
 spec:
   surfaces:
     rest:
+      connection: default
       baseUrl: https://api.atlassian.com/ex/confluence/{cloud_id}/wiki
       operations:
       - name: list_spaces

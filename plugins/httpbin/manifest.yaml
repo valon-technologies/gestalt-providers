@@ -10,6 +10,7 @@ spec:
   mcp: true
   surfaces:
     rest:
+      connection: default
       baseUrl: https://httpbin.org
       operations:
       - name: get_headers
