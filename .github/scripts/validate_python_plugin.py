@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -40,6 +41,7 @@ def main() -> int:
         run_cmd.extend(["--group", "dev"])
 
     run(sync_cmd, cwd=plugin_dir)
+    install_local_gestalt_sdk(plugin_dir, package_names)
 
     if "ruff" in package_names:
         run([*run_cmd, "ruff", "check", "."], cwd=plugin_dir)
@@ -117,6 +119,22 @@ def declared_packages(config: dict) -> set[str]:
                 packages.add(name)
 
     return packages
+
+
+def install_local_gestalt_sdk(plugin_dir: Path, package_names: set[str]) -> None:
+    if "gestalt-sdk" not in package_names:
+        return
+
+    gestalt_checkout = os.environ.get("GESTALT_CHECKOUT")
+    if not gestalt_checkout:
+        return
+
+    sdk_dir = Path(gestalt_checkout).resolve() / "sdk" / "python"
+    if not (sdk_dir / "pyproject.toml").is_file():
+        raise SystemExit(f"expected local Gestalt Python SDK at {sdk_dir}")
+
+    python_bin = plugin_dir / ".venv" / "bin" / "python"
+    run(["uv", "pip", "install", "--python", str(python_bin), "--reinstall", str(sdk_dir)], cwd=plugin_dir)
 
 
 def dependency_name(dep: object) -> str | None:
