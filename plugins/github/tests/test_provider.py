@@ -1423,7 +1423,9 @@ class GitHubProviderTests(unittest.TestCase):
 
             if path == "/app/installations/99/access_tokens":
                 if body["permissions"] == {"issues": "write"}:
-                    raise http_error(request.full_url, HTTPStatus.FORBIDDEN)
+                    raise http_error(
+                        request.full_url, HTTPStatus.UNPROCESSABLE_ENTITY
+                    )
                 self.assertEqual(body["permissions"], {"pull_requests": "write"})
                 return FakeHTTPResponse({"token": "pr-token"})
             if path == "/repos/acme/widgets/issues/7/comments":

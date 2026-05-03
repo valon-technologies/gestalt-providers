@@ -578,6 +578,17 @@ def github_json_with_permission_fallback(
             token = github.installation_token(
                 installation_id, repositories=[repo], permissions=permissions
             )
+        except GitHubAPIError as err:
+            if err.status not in (
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.NOT_FOUND,
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+            ):
+                raise
+            fallback_error = err
+            continue
+
+        try:
             return github.github_json(method, path, token, payload)
         except GitHubAPIError as err:
             if err.status not in (HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND):
