@@ -1,0 +1,20 @@
+[project]
+name = "gestalt-looker"
+version = "0.0.1a2"
+requires-python = "==3.14.*"
+dependencies = ["gestalt-sdk"]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
+
+[tool.gestalt]
+provider = "provider"
