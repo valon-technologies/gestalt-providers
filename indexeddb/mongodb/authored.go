@@ -9,18 +9,18 @@ import (
 
 func (p *Provider) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
 	_, err := p.providerCore.CreateObjectStore(ctx, sdkcompat.CreateObjectStoreRequest(name, schema))
-	return err
+	return sdkcompat.Error(err)
 }
 
 func (p *Provider) DeleteObjectStore(ctx context.Context, name string) error {
 	_, err := p.providerCore.DeleteObjectStore(ctx, sdkcompat.DeleteObjectStoreRequest(name))
-	return err
+	return sdkcompat.Error(err)
 }
 
 func (p *Provider) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
 	resp, err := p.providerCore.Get(ctx, sdkcompat.ObjectStoreRequest(req))
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return sdkcompat.RecordFromProto(resp.GetRecord())
 }
@@ -28,7 +28,7 @@ func (p *Provider) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequ
 func (p *Provider) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
 	resp, err := p.providerCore.GetKey(ctx, sdkcompat.ObjectStoreRequest(req))
 	if err != nil {
-		return "", err
+		return "", sdkcompat.Error(err)
 	}
 	return resp.GetKey(), nil
 }
@@ -39,7 +39,7 @@ func (p *Provider) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) 
 		return err
 	}
 	_, err = p.providerCore.Add(ctx, pbReq)
-	return err
+	return sdkcompat.Error(err)
 }
 
 func (p *Provider) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
@@ -48,17 +48,17 @@ func (p *Provider) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) 
 		return err
 	}
 	_, err = p.providerCore.Put(ctx, pbReq)
-	return err
+	return sdkcompat.Error(err)
 }
 
 func (p *Provider) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
 	_, err := p.providerCore.Delete(ctx, sdkcompat.ObjectStoreRequest(req))
-	return err
+	return sdkcompat.Error(err)
 }
 
 func (p *Provider) Clear(ctx context.Context, store string) error {
 	_, err := p.providerCore.Clear(ctx, sdkcompat.ObjectStoreNameRequest(store))
-	return err
+	return sdkcompat.Error(err)
 }
 
 func (p *Provider) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
@@ -68,7 +68,7 @@ func (p *Provider) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreR
 	}
 	resp, err := p.providerCore.GetAll(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return sdkcompat.RecordsFromProto(resp.GetRecords())
 }
@@ -80,7 +80,7 @@ func (p *Provider) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectSt
 	}
 	resp, err := p.providerCore.GetAllKeys(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return resp.GetKeys(), nil
 }
@@ -92,7 +92,7 @@ func (p *Provider) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRa
 	}
 	resp, err := p.providerCore.Count(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, sdkcompat.Error(err)
 	}
 	return resp.GetCount(), nil
 }
@@ -104,7 +104,7 @@ func (p *Provider) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectS
 	}
 	resp, err := p.providerCore.DeleteRange(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, sdkcompat.Error(err)
 	}
 	return resp.GetDeleted(), nil
 }
@@ -116,7 +116,7 @@ func (p *Provider) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQuery
 	}
 	resp, err := p.providerCore.IndexGet(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return sdkcompat.RecordFromProto(resp.GetRecord())
 }
@@ -128,7 +128,7 @@ func (p *Provider) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQu
 	}
 	resp, err := p.providerCore.IndexGetKey(ctx, pbReq)
 	if err != nil {
-		return "", err
+		return "", sdkcompat.Error(err)
 	}
 	return resp.GetKey(), nil
 }
@@ -140,7 +140,7 @@ func (p *Provider) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQu
 	}
 	resp, err := p.providerCore.IndexGetAll(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return sdkcompat.RecordsFromProto(resp.GetRecords())
 }
@@ -152,7 +152,7 @@ func (p *Provider) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBInd
 	}
 	resp, err := p.providerCore.IndexGetAllKeys(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return resp.GetKeys(), nil
 }
@@ -164,7 +164,7 @@ func (p *Provider) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQue
 	}
 	resp, err := p.providerCore.IndexCount(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, sdkcompat.Error(err)
 	}
 	return resp.GetCount(), nil
 }
@@ -176,7 +176,7 @@ func (p *Provider) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQu
 	}
 	resp, err := p.providerCore.IndexDelete(ctx, pbReq)
 	if err != nil {
-		return 0, err
+		return 0, sdkcompat.Error(err)
 	}
 	return resp.GetDeleted(), nil
 }
@@ -188,7 +188,7 @@ func (p *Provider) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCurs
 	}
 	cursor, err := p.providerCore.openCursorSnapshot(ctx, pbReq)
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return sdkcompat.NewCursor(cursor), nil
 }
@@ -196,7 +196,7 @@ func (p *Provider) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCurs
 func (p *Provider) BeginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (gestalt.IndexedDBTransaction, error) {
 	tx, err := p.providerCore.beginTransaction(ctx, sdkcompat.BeginTransactionRequest(req))
 	if err != nil {
-		return nil, err
+		return nil, sdkcompat.Error(err)
 	}
 	return sdkcompat.NewTransaction(tx), nil
 }
