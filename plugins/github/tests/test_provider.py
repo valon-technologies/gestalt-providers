@@ -247,6 +247,44 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(security["signaturePrefix"], "sha256=")
         self.assertEqual(security["payloadTemplate"], "{raw_body}")
 
+    def test_comment_operations_are_declared_in_catalog_and_policy_schema(
+        self,
+    ) -> None:
+        plugin_root = pathlib.Path(__file__).resolve().parents[1]
+        catalog = yaml.safe_load((plugin_root / "catalog.yaml").read_text())
+        operations = {operation["id"]: operation for operation in catalog["operations"]}
+
+        pr_comment = operations[
+            provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
+        ]
+        issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
+        self.assertIn("pull request conversation", pr_comment["description"])
+        self.assertIn("issue comment", issue_comment["description"])
+        self.assertIn(
+            "pull_number",
+            [parameter["name"] for parameter in pr_comment["parameters"]],
+        )
+        self.assertNotIn(
+            "issue_number",
+            [parameter["name"] for parameter in pr_comment["parameters"]],
+        )
+        self.assertIn(
+            "issue_number",
+            [parameter["name"] for parameter in issue_comment["parameters"]],
+        )
+
+        schema = yaml.safe_load(
+            (plugin_root / "schemas" / "config.schema.yaml").read_text()
+        )
+        enum = schema["properties"]["webhookPolicies"]["items"]["properties"][
+            "action"
+        ]["properties"]["allowedOperations"]["items"]["enum"]
+        self.assertIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            enum,
+        )
+        self.assertIn(provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION, enum)
+
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
         def fake_urlopen(
             request: urllib.request.Request, timeout: float = 30
@@ -784,6 +822,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
                 provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
                 provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION,
             ],
         )
@@ -802,6 +841,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["agent_request"]["policy"]["mode"], "comment")
         self.assertIn(
             "policy_id: failed-ci-comment", data["agent_request"]["user_prompt"]
+        )
+        self.assertIn(
+            "bot.createPullRequestConversationComment",
+            data["agent_request"]["user_prompt"],
         )
 
     def test_explicit_policy_webhook_events_allowlist_semantics(self) -> None:
@@ -1075,6 +1118,38 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertTrue(comment["body"].endswith("...<truncated>"))
         self.assertIn(
             "please update this workflow", issue_comment["agent_request"]["user_prompt"]
+        )
+
+        pr_issue_comment = self._workflow_signal_payload(
+            {
+                **base,
+                "action": "created",
+                "issue": {
+                    "number": 9,
+                    "title": "Refactor widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/9",
+                    "pull_request": {
+                        "url": "https://api.github.com/repos/acme/widgets/pulls/9",
+                        "html_url": "https://github.com/acme/widgets/pull/9",
+                    },
+                },
+                "comment": {
+                    "id": 112,
+                    "html_url": "https://github.com/acme/widgets/pull/9#issuecomment-112",
+                    "body": "please check this PR",
+                    "user": {"login": "octocat"},
+                },
+                "headers": {"X-GitHub-Event": "issue_comment"},
+            }
+        )
+        self.assertEqual(pr_issue_comment["github_event"], "issue_comment")
+        self.assertEqual(pr_issue_comment["summary"]["pull_request_numbers"], [9])
+        self.assertTrue(pr_issue_comment["agent_request"]["issue"]["is_pull_request"])
+        self.assertEqual(pr_issue_comment["agent_request"]["pull_request"]["number"], 9)
+        self.assertIn(
+            "pull_request_numbers: [9]",
+            pr_issue_comment["agent_request"]["user_prompt"],
         )
 
         review_request = self._workflow_signal_request(
@@ -1407,9 +1482,7 @@ class GitHubProviderTests(unittest.TestCase):
             "https://github.com/acme/widgets/pull/42",
         )
 
-    def test_create_issue_comment_falls_back_to_pull_request_permission(
-        self,
-    ) -> None:
+    def test_create_issue_comment_uses_issue_write_permission(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []
 
         def fake_urlopen(
@@ -1422,21 +1495,19 @@ class GitHubProviderTests(unittest.TestCase):
             calls.append((method, path, body, auth_header(request)))
 
             if path == "/app/installations/99/access_tokens":
-                if body["permissions"] == {"issues": "write"}:
-                    raise http_error(request.full_url, HTTPStatus.FORBIDDEN)
-                self.assertEqual(body["permissions"], {"pull_requests": "write"})
-                return FakeHTTPResponse({"token": "pr-token"})
+                self.assertEqual(body["permissions"], {"issues": "write"})
+                return FakeHTTPResponse({"token": "issue-token"})
             if path == "/repos/acme/widgets/issues/7/comments":
                 self.assertEqual(method, "POST")
-                self.assertEqual(auth_header(request), "Bearer pr-token")
-                self.assertEqual(body, {"body": "Likely fix: update the snapshot."})
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(body, {"body": "I can reproduce this issue."})
                 return FakeHTTPResponse(
                     {
                         "id": 123,
                         "node_id": "IC_kw",
                         "url": "https://api.github.com/repos/acme/widgets/issues/comments/123",
-                        "html_url": "https://github.com/acme/widgets/pull/7#issuecomment-123",
-                        "body": "Likely fix: update the snapshot.",
+                        "html_url": "https://github.com/acme/widgets/issues/7#issuecomment-123",
+                        "body": "I can reproduce this issue.",
                         "user": {"login": "example-app[bot]"},
                         "created_at": "2026-05-01T00:00:00Z",
                         "updated_at": "2026-05-01T00:00:00Z",
@@ -1455,7 +1526,7 @@ class GitHubProviderTests(unittest.TestCase):
                     owner="acme",
                     repo="widgets",
                     issue_number=7,
-                    body="Likely fix: update the snapshot.",
+                    body="I can reproduce this issue.",
                 ),
                 github_request(),
             )
@@ -1469,7 +1540,70 @@ class GitHubProviderTests(unittest.TestCase):
                 for call in calls
                 if call[1].endswith("access_tokens")
             ],
-            [{"issues": "write"}, {"pull_requests": "write"}],
+            [{"issues": "write"}],
+        )
+
+    def test_create_pull_request_conversation_comment_uses_pull_request_write_permission(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"pull_requests": "write"})
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/issues/7/comments":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body, {"body": "Likely fix: update the snapshot."})
+                return FakeHTTPResponse(
+                    {
+                        "id": 124,
+                        "node_id": "IC_kw2",
+                        "url": "https://api.github.com/repos/acme/widgets/issues/comments/124",
+                        "html_url": "https://github.com/acme/widgets/pull/7#issuecomment-124",
+                        "body": "Likely fix: update the snapshot.",
+                        "user": {"login": "example-app[bot]"},
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-01T00:00:00Z",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_create_pull_request_conversation_comment(
+                provider_module.CreatePullRequestConversationCommentInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    body="Likely fix: update the snapshot.",
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["comment"]
+        self.assertEqual(data["id"], 124)
+        self.assertEqual(data["user"]["login"], "example-app[bot]")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"pull_requests": "write"}],
         )
 
     def test_ci_read_operations_use_github_shapes_and_pagination(self) -> None:
@@ -1702,6 +1836,23 @@ class GitHubProviderTests(unittest.TestCase):
                     owner="acme",
                     repo="other",
                     issue_number=7,
+                    body="Looks broken.",
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("repository", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_create_pull_request_conversation_comment(
+                provider_module.CreatePullRequestConversationCommentInput(
+                    owner="acme",
+                    repo="other",
+                    pull_number=7,
                     body="Looks broken.",
                 ),
                 github_request(installation_id=99, repo="acme/widgets"),

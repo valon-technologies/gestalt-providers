@@ -200,10 +200,35 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
+- id: bot.createPullRequestConversationComment
+  method: POST
+  description: Create a pull request conversation comment using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: body
+    type: string
+    description: Comment body
+    required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
 - id: bot.createIssueComment
   method: POST
-  description: Create an issue or pull request conversation comment using a GitHub
-    App installation token
+  description: Create an issue comment using a GitHub App installation token
   parameters:
   - name: owner
     type: string
@@ -215,7 +240,7 @@ operations:
     required: true
   - name: issue_number
     type: integer
-    description: Issue or pull request number
+    description: Issue number
     required: true
   - name: body
     type: string

@@ -13,6 +13,7 @@ from internals.constants import (
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
+    BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
@@ -26,6 +27,7 @@ from internals.operations import (
     GitHubCommitRequest,
     GitHubCheckRunRequest,
     GitHubCreateIssueCommentRequest,
+    GitHubCreatePullRequestConversationCommentRequest,
     GitHubCreatePullRequestRequest,
     GitHubFileChange,
     GitHubListCheckRunAnnotationsRequest,
@@ -37,6 +39,7 @@ from internals.operations import (
     commit_files,
     commit_result_dict,
     create_issue_comment,
+    create_pull_request_conversation_comment,
     create_pull_request_with_files,
     get_check_run,
     get_workflow_run,
@@ -243,7 +246,19 @@ class CreatePullRequestInput(gestalt.Model):
 class CreateIssueCommentInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
-    issue_number: int = gestalt.field(description="Issue or pull request number")
+    issue_number: int = gestalt.field(description="Issue number")
+    body: str = gestalt.field(description="Comment body")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class CreatePullRequestConversationCommentInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
     body: str = gestalt.field(description="Comment body")
     installation_id: int = gestalt.field(
         description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
@@ -566,7 +581,7 @@ def bot_create_pull_request(
 @plugin.operation(
     id=BOT_CREATE_ISSUE_COMMENT_OPERATION,
     method="POST",
-    description="Create an issue or pull request conversation comment using a GitHub App installation token",
+    description="Create an issue comment using a GitHub App installation token",
 )
 def bot_create_issue_comment(
     input: CreateIssueCommentInput, req: gestalt.Request
@@ -577,6 +592,36 @@ def bot_create_issue_comment(
                 owner=input.owner,
                 repo=input.repo,
                 issue_number=input.issue_number,
+                body=input.body,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"comment": issue_comment_summary(comment)}}
+
+
+@plugin.operation(
+    id=BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+    method="POST",
+    description="Create a pull request conversation comment using a GitHub App installation token",
+)
+def bot_create_pull_request_conversation_comment(
+    input: CreatePullRequestConversationCommentInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        comment = create_pull_request_conversation_comment(
+            GitHubCreatePullRequestConversationCommentRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
                 body=input.body,
                 installation_id=input.installation_id,
             ),

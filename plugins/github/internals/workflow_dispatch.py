@@ -122,7 +122,17 @@ def _subject_data(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str,
 def _pull_request_data(payload: dict[str, Any]) -> dict[str, Any]:
     pull_request = map_field(payload, "pull_request")
     if not pull_request:
-        return {}
+        issue = map_field(payload, "issue")
+        if not map_field(issue, "pull_request"):
+            return {}
+        data = {
+            "number": _positive_int(issue, "number"),
+            "title": _bounded_field(issue, "title", MAX_GITHUB_TITLE_CHARS),
+            "state": str_field(issue, "state"),
+            "html_url": str_field(issue, "html_url")
+            or nested_str(issue, "pull_request", "html_url"),
+        }
+        return _compact_dict(data)
     data = {
         "number": _positive_int(pull_request, "number"),
         "title": _bounded_field(pull_request, "title", MAX_GITHUB_TITLE_CHARS),
@@ -145,6 +155,7 @@ def _issue_data(payload: dict[str, Any]) -> dict[str, Any]:
         "title": _bounded_field(issue, "title", MAX_GITHUB_TITLE_CHARS),
         "state": str_field(issue, "state"),
         "html_url": str_field(issue, "html_url"),
+        "is_pull_request": bool(map_field(issue, "pull_request")),
     }
     return _compact_dict(data)
 

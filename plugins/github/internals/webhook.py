@@ -67,6 +67,8 @@ def event_summary(
     number = int_field(pull_request, "number") or int_field(issue, "number")
     if number > 0:
         summary["number"] = number
+    if number > 0 and map_field(issue, "pull_request"):
+        summary["pull_request_numbers"] = [number]
     _add_ci_event_summary(payload, summary)
     if str_field(pull_request, "head", "ref"):
         summary["head_ref"] = nested_str(pull_request, "head", "ref")
