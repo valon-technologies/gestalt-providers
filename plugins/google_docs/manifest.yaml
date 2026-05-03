@@ -8,6 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: default
       document: https://api.apis.guru/v2/specs/googleapis.com/docs/v1/openapi.json
   allowedOperations:
     docs.documents.get:

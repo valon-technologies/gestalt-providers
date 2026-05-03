@@ -8,6 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: default
       document: https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json
   connections:
     default:

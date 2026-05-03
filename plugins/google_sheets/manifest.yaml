@@ -8,6 +8,7 @@ spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
     openapi:
+      connection: default
       document: https://api.apis.guru/v2/specs/googleapis.com/sheets/v4/openapi.json
   allowedOperations:
     sheets.spreadsheets.create:

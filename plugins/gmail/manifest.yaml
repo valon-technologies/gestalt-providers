@@ -12,6 +12,7 @@ spec:
     value: me
   surfaces:
     openapi:
+      connection: default
       document: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
   allowedOperations:
     gmail.users.messages.list:
