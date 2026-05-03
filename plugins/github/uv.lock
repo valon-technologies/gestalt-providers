@@ -149,7 +149,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-github"
-version = "0.0.1a16"
+version = "0.0.1a17"
 source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },
@@ -179,7 +179,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#1e8ff91d870d9c3a985be2ca2d8f0c5b023baa42" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#706766a77ca9f2b919c4053190b0652f2efa8692" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
