@@ -356,6 +356,7 @@ class FakeWorkflowManager:
     def __init__(self) -> None:
         self.signal_or_start_requests: list[Any] = []
         self.publish_event_requests: list[Any] = []
+        self.signal_or_start_error: Exception | None = None
         self.publish_event_error: Exception | None = None
 
     def __enter__(self) -> FakeWorkflowManager:
@@ -366,6 +367,8 @@ class FakeWorkflowManager:
 
     def signal_or_start_run(self, request: Any) -> Any:
         self.signal_or_start_requests.append(request)
+        if self.signal_or_start_error is not None:
+            raise self.signal_or_start_error
         return workflow_pb2.ManagedWorkflowRunSignal(
             provider_name=request.provider_name or "local",
             run=workflow_pb2.BoundWorkflowRun(
@@ -2333,6 +2336,150 @@ class SlackProviderTests(unittest.TestCase):
                 "raw": payload,
             },
         )
+
+    def test_publish_route_ack_survives_agent_signal_failure(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "brain-ingest",
+                                "workflowProvider": "local",
+                                "workflowEventType": "slack.event.received",
+                                "source": "slack",
+                                "subject": "route:brain-ingest",
+                                "match": {"eventTypes": ["message"]},
+                            }
+                        ]
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_manager.signal_or_start_error = RuntimeError("signal failed")
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvPublishAndSignal",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "im",
+                "text": "publish and signal",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+
+        with (
+            mock.patch.object(
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "published": True,
+                "published_event_count": 1,
+                "workflow_event_ids": ["slack:EvPublishAndSignal"],
+                "route_ids": ["brain-ingest"],
+            },
+        )
+        self.assertEqual(len(workflow_manager.publish_event_requests), 1)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
+    def test_publish_route_ack_survives_workflow_ack_failure(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "brain-ingest",
+                                "workflowProvider": "local",
+                                "workflowEventType": "slack.event.received",
+                                "source": "slack",
+                                "subject": "route:brain-ingest",
+                                "match": {"eventTypes": ["message"]},
+                            }
+                        ]
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvBadAck",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "im",
+                "text": "publish then bad ack",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+
+        with (
+            mock.patch.object(
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
+            ),
+            mock.patch.object(
+                provider_module._agent,
+                "_workflow_signal_response_fields",
+                side_effect=RuntimeError("bad response"),
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "published": True,
+                "published_event_count": 1,
+                "workflow_event_ids": ["slack:EvBadAck"],
+                "route_ids": ["brain-ingest"],
+            },
+        )
+        self.assertEqual(len(workflow_manager.publish_event_requests), 1)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
     def test_publish_only_callback_without_linked_subject_passes_resolution(
         self,

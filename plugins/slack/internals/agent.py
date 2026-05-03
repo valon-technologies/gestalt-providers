@@ -431,19 +431,27 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
         logger.exception("failed to signal Slack event workflow %s", log_context)
+        if publish_response is not None:
+            return publish_response
         return _server_error(f"failed to signal workflow run: {err}")
 
-    logger.info(
-        "signaled Slack event workflow %s %s",
-        log_context,
-        _workflow_response_log_context(workflow_response),
-    )
-    response = {
-        "ok": True,
-        **_workflow_signal_response_fields(
-            workflow_response, fallback_workflow_key=_agent_session_ref(event)
-        ),
-    }
+    try:
+        logger.info(
+            "signaled Slack event workflow %s %s",
+            log_context,
+            _workflow_response_log_context(workflow_response),
+        )
+        response = {
+            "ok": True,
+            **_workflow_signal_response_fields(
+                workflow_response, fallback_workflow_key=_agent_session_ref(event)
+            ),
+        }
+    except Exception as err:
+        logger.exception("failed to ack Slack event workflow %s", log_context)
+        if publish_response is not None:
+            return publish_response
+        return _server_error(f"failed to ack workflow run: {err}")
     if acknowledgement_reaction_error:
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
@@ -2427,7 +2435,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except TypeError, ValueError:
+    except TypeError, ValueError, AttributeError:
         return str(status)
 
 
