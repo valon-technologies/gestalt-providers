@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-agent-claude"
-version = "0.0.1a7"
+version = "0.0.1a8"
 requires-python = "==3.14.*"
 dependencies = [
   "claude-agent-sdk==0.1.71",

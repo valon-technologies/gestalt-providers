@@ -1,10 +1,8 @@
 # Claude Agent SDK Provider
 
-`agent/claude` runs Claude through the Claude Agent SDK. Gestalt does not rank
-or search tools in this provider. For `toolSource: mcp_catalog`, the provider
-registers an in-process SDK MCP server named `gestalt`; Claude Code indexes the
-granted MCP catalog with its native tool search and calls tools through
-`AgentHost.ExecuteTool`.
+`agent/claude` runs Claude through the Claude Agent SDK. For
+`toolSource: mcp_catalog`, the provider registers an in-process SDK MCP server
+named `gestalt` and calls tools through `AgentHost.ExecuteTool`.
 
 The first cut is intentionally small:
 
@@ -45,15 +43,13 @@ agent:
       operation: pulls/list
 ```
 
-The provider passes the SDK exact allowed tool names like
-`mcp__gestalt__github_pulls_list`. The allowed names come from the host
-`ListTools` response, not from provider-owned search or ranking.
-
-The provider sets `ENABLE_TOOL_SEARCH=true` for Claude Code and adds system
-prompt guidance for the Gestalt MCP catalog. For broad grants, the SDK MCP
-bridge drains the granted catalog into a single MCP `tools/list` response so
-Claude Code's native tool search can discover tools beyond the first Gestalt
-host page.
+For small exact grants, the SDK MCP bridge exposes the granted catalog tools
+directly and passes exact allowed tool names like
+`mcp__gestalt__github_pulls_list`. For broad grants, it exposes only
+`gestalt_catalog_search` and `gestalt_catalog_execute`, so Claude can discover
+and run connected-app tools without loading the full catalog into context. The
+provider sets `ENABLE_TOOL_SEARCH=false` so those catalog tools are always
+visible.
 
 `cliPath` can be set when the Claude CLI executable is not on `PATH`. The SDK
 still uses the Claude Code transport internally, but this provider integrates
