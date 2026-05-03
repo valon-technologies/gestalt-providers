@@ -178,7 +178,7 @@ class ClaudeSDKRunner:
         return ""
 
     def _options(self, *, model: str, session_id: str, turn_id: str, tool_grant: str) -> Any:
-        env: dict[str, str] = {}
+        env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         return ClaudeAgentOptions(
