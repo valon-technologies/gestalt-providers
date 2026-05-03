@@ -30,6 +30,13 @@ from .mcp_bridge import (
 logger = logging.getLogger(__name__)
 
 MAX_ERROR_TEXT = 4000
+GESTALT_MCP_CATALOG_PROMPT = (
+    "Gestalt MCP catalog tools are available through the `gestalt` MCP server for connected apps such as "
+    "Linear, GitHub, Slack, Gmail, Google Drive, Google Calendar, Google Docs, Google Sheets, BigQuery, Datadog, "
+    "PagerDuty, Notion, Figma, Ramp, Ashby, and other Valon integrations. When a user asks for data or actions "
+    "in an external service, search the Gestalt MCP catalog for a relevant tool and use it before concluding the "
+    "tool is unavailable. Do not infer tool availability from Claude Code built-in tools only."
+)
 
 
 class ClaudeExecutionError(RuntimeError):
@@ -178,7 +185,7 @@ class ClaudeSDKRunner:
         return ""
 
     def _options(self, *, model: str, session_id: str, turn_id: str, run_grant: str) -> Any:
-        env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
+        env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "true"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         return ClaudeAgentOptions(
@@ -191,7 +198,7 @@ class ClaudeSDKRunner:
             },
             model=model,
             cwd=self._config.working_directory or None,
-            system_prompt=self._config.system_prompt or None,
+            system_prompt=_system_prompt(self._config.system_prompt),
             permission_mode=cast(PermissionMode, self._config.permission_mode),
             cli_path=self._config.cli_path or None,
             env=env,
@@ -242,6 +249,13 @@ def _messages_to_prompt(messages: list[dict[str, Any]]) -> str:
             continue
         lines.append(f"<message {index} role={json.dumps(role)}>\n{content}\n</message {index}>")
     return "\n\n".join(lines).strip()
+
+
+def _system_prompt(configured: str) -> str:
+    configured = str(configured or "").strip()
+    if not configured:
+        return GESTALT_MCP_CATALOG_PROMPT
+    return f"{configured}\n\n{GESTALT_MCP_CATALOG_PROMPT}"
 
 
 def _message_content(message: dict[str, Any]) -> str:
