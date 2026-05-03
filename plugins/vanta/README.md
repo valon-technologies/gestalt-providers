@@ -18,7 +18,7 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Declarative provider built on a local OpenAPI specification. Exposes operations
+Declarative provider built on the official Vanta OpenAPI specification. Exposes operations
 for managing security and compliance data including:
 
 - **Audits** — controls, frameworks, documents, tests
