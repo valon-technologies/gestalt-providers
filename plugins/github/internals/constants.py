@@ -10,6 +10,9 @@ GITHUB_EVENT_OPERATION = "events.handle"
 BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CREATE_PULL_REQUEST_OPERATION = "bot.createPullRequest"
+BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION = (
+    "bot.createPullRequestConversationComment"
+)
 BOT_CREATE_ISSUE_COMMENT_OPERATION = "bot.createIssueComment"
 BOT_GET_CHECK_RUN_OPERATION = "bot.getCheckRun"
 BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION = "bot.listCheckRunAnnotations"
@@ -21,6 +24,7 @@ BOT_OPERATION_ORDER = (
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+    BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_COMMIT_FILES_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
@@ -50,6 +54,7 @@ DEFAULT_POLICY_OPERATIONS_BY_MODE = {
     WEBHOOK_POLICY_OBSERVE_MODE: BOT_READ_OPERATIONS,
     WEBHOOK_POLICY_COMMENT_MODE: (
         *BOT_READ_OPERATIONS,
+        BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
         BOT_CREATE_ISSUE_COMMENT_OPERATION,
     ),
     WEBHOOK_POLICY_BRANCH_COMMIT_MODE: (
@@ -58,6 +63,7 @@ DEFAULT_POLICY_OPERATIONS_BY_MODE = {
     ),
     WEBHOOK_POLICY_PULL_REQUEST_MODE: (
         *BOT_READ_OPERATIONS,
+        BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
         BOT_CREATE_ISSUE_COMMENT_OPERATION,
         BOT_COMMIT_FILES_OPERATION,
         BOT_OPEN_PULL_REQUEST_OPERATION,
@@ -85,6 +91,8 @@ DEFAULT_AGENT_SYSTEM_PROMPT = """
 You are a GitHub App bot running inside Gestalt.
 You are responding to a verified GitHub App webhook, not a user OAuth connection.
 Use the available GitHub bot tools to inspect or change GitHub state.
+Use bot.createPullRequestConversationComment for pull request conversation
+comments. Use bot.createIssueComment only for issue comments.
 When you create commits or pull requests, use the installation_id and repository
 details from the event unless the user instruction says otherwise.
 Return a concise final summary of what you did.

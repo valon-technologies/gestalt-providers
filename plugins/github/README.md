@@ -35,8 +35,9 @@ connection:
 - `bot.openPullRequest` opens a pull request using an installation access token.
 - `bot.createPullRequest` commits file changes and opens a pull request in one
   operation.
-- `bot.createIssueComment` creates an issue or pull request conversation
+- `bot.createPullRequestConversationComment` creates a pull request conversation
   comment.
+- `bot.createIssueComment` creates an issue comment.
 - `bot.getCheckRun`, `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
   `bot.listWorkflowRunJobs` inspect CI failures using GitHub's Checks and
   Actions REST interfaces.
@@ -148,7 +149,7 @@ plugins:
             allowedOperations:
               - bot.getCheckRun
               - bot.listCheckRunAnnotations
-              - bot.createIssueComment
+              - bot.createPullRequestConversationComment
               - bot.createPullRequest
 ```
 
@@ -156,10 +157,12 @@ Policy match fields are GitHub-shaped. Empty fields are wildcards, values within
 a field are ORed, and fields are ANDed. Event matching prefers the
 `X-GitHub-Event` header when present. `branches` matches PR head/base refs, CI
 `head_branch`, and push refs. `action.mode` defaults operations as follows:
-`observe` grants read-only CI tools, `comment` adds `bot.createIssueComment`,
+`observe` grants read-only CI tools, `comment` adds
+`bot.createPullRequestConversationComment` and `bot.createIssueComment`,
 `branch_commit` adds `bot.commitFiles`, and `pull_request` adds the comment,
-commit, and pull request tools. `allowedOperations` can narrow or replace those
-defaults; an explicit empty list grants no tools.
+commit, and pull request tools. Use the pull request conversation operation for
+PRs and the issue comment operation for Issues. `allowedOperations` can narrow
+or replace those defaults; an explicit empty list grants no tools.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and calls
@@ -186,7 +189,7 @@ responses as retryable enqueue failures.
   "webhook_policy": {
     "id": "failed-ci-comment",
     "mode": "comment",
-    "tool_refs": ["bot.getCheckRun", "bot.createIssueComment"]
+    "tool_refs": ["bot.getCheckRun", "bot.createPullRequestConversationComment"]
   },
   "summary": {"repository": "acme/widgets", "number": 7},
   "agent_request": {
@@ -227,6 +230,9 @@ plugins:
         credentialMode: none
       - plugin: github
         operation: bot.createPullRequest
+        credentialMode: none
+      - plugin: github
+        operation: bot.createPullRequestConversationComment
         credentialMode: none
       - plugin: github
         operation: bot.createIssueComment
@@ -330,14 +336,26 @@ Commit files and open the pull request in one call with
 }
 ```
 
-Create a pull request conversation comment with `bot.createIssueComment`:
+Create a pull request conversation comment with
+`bot.createPullRequestConversationComment`:
 
 ```json
 {
   "owner": "acme",
   "repo": "widgets",
-  "issue_number": 42,
+  "pull_number": 42,
   "body": "The failed check points at a snapshot mismatch in README.md."
+}
+```
+
+Create an issue comment with `bot.createIssueComment`:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "issue_number": 13,
+  "body": "I can reproduce this issue."
 }
 ```
 

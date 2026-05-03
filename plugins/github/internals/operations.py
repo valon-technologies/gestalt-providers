@@ -7,15 +7,12 @@ import re
 import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from http import HTTPStatus
 from typing import Any
 
 from .client import (
     DEFAULT_GITHUB_CLIENT,
     GitHubAPIClient,
-    GitHubPermissions,
     JsonObject,
-    JsonPayload,
     repo_path,
 )
 from .constants import (
@@ -110,6 +107,15 @@ class GitHubCreateIssueCommentRequest:
     owner: str
     repo: str
     issue_number: int
+    body: str
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreatePullRequestConversationCommentRequest:
+    owner: str
+    repo: str
+    pull_number: int
     body: str
     installation_id: int = 0
 
@@ -438,17 +444,40 @@ def create_issue_comment(
         subject, owner=owner, repo=repo, explicit=request.installation_id
     )
     path = repo_path(owner, repo, "issues", str(issue_number), "comments")
-    return github_json_with_permission_fallback(
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "write"}
+    )
+    return github.github_json(
         "POST",
         path,
-        installation_id=installation_id,
-        repo=repo,
-        permission_options=(
-            {"issues": "write"},
-            {"pull_requests": "write"},
-        ),
-        payload={"body": body},
-        client=github,
+        token,
+        {"body": body},
+    )
+
+
+def create_pull_request_conversation_comment(
+    request: GitHubCreatePullRequestConversationCommentRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    body = require_text(request.body, "body")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    path = repo_path(owner, repo, "issues", str(pull_number), "comments")
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "write"}
+    )
+    return github.github_json(
+        "POST",
+        path,
+        token,
+        {"body": body},
     )
 
 
@@ -559,33 +588,6 @@ def list_workflow_run_jobs(
         ),
         token,
     )
-
-
-def github_json_with_permission_fallback(
-    method: str,
-    path: str,
-    *,
-    installation_id: int,
-    repo: str,
-    permission_options: tuple[GitHubPermissions, ...],
-    payload: JsonPayload | None = None,
-    client: GitHubAPIClient | None = None,
-) -> JsonObject:
-    github = github_client(client)
-    fallback_error: GitHubAPIError | None = None
-    for permissions in permission_options:
-        try:
-            token = github.installation_token(
-                installation_id, repositories=[repo], permissions=permissions
-            )
-            return github.github_json(method, path, token, payload)
-        except GitHubAPIError as err:
-            if err.status not in (HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND):
-                raise
-            fallback_error = err
-    if fallback_error is not None:
-        raise fallback_error
-    raise GitHubAPIError(502, "no GitHub permission option was configured")
 
 
 def tree_entry_for_file(

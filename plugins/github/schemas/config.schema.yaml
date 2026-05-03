@@ -138,6 +138,7 @@ properties:
                   - bot.listCheckRunAnnotations
                   - bot.getWorkflowRun
                   - bot.listWorkflowRunJobs
+                  - bot.createPullRequestConversationComment
                   - bot.createIssueComment
                   - bot.commitFiles
                   - bot.openPullRequest
