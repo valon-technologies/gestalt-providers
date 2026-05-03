@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "gestalt-agent-hermes"
-version = "0.0.1-alpha.1"
+version = "0.0.1-alpha.2"
 dependencies = [
  "agent-client-protocol",
  "agent-client-protocol-tokio",
