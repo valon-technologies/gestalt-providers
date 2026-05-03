@@ -22,7 +22,12 @@ from .config import (
     get_github_config,
     set_cached_bot_identity,
 )
-from .constants import GITHUB_API_VERSION
+from .constants import (
+    EXTERNAL_IDENTITY_ID_METADATA_KEY,
+    EXTERNAL_IDENTITY_TYPE_METADATA_KEY,
+    GITHUB_API_VERSION,
+    GITHUB_EXTERNAL_IDENTITY_TYPE,
+)
 from .errors import GitHubAPIError, GitHubConfigError
 from .helpers import int_field, nested_str, str_field
 
@@ -134,6 +139,26 @@ class GitHubAppClient:
 
 
 DEFAULT_GITHUB_CLIENT = GitHubAppClient()
+
+
+def user_external_identity_metadata(access_token: str) -> dict[str, str]:
+    if not access_token:
+        raise RuntimeError("GitHub post-connect requires an access token")
+
+    user = github_json("GET", "/user", access_token)
+    user_id = int_field(user, "id")
+    if user_id <= 0:
+        raise GitHubAPIError(502, "GitHub user response did not include id")
+
+    metadata = {
+        EXTERNAL_IDENTITY_TYPE_METADATA_KEY: GITHUB_EXTERNAL_IDENTITY_TYPE,
+        EXTERNAL_IDENTITY_ID_METADATA_KEY: f"user:{user_id}",
+        "github.user_id": str(user_id),
+    }
+    login = str_field(user, "login")
+    if login:
+        metadata["github.login"] = login
+    return metadata
 
 
 def installation_token(

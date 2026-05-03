@@ -2,6 +2,10 @@ GITHUB_API_VERSION = "2022-11-28"
 GITHUB_DEFAULT_API_BASE_URL = "https://api.github.com"
 GITHUB_DEFAULT_WEB_BASE_URL = "https://github.com"
 
+EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
+EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
+GITHUB_EXTERNAL_IDENTITY_TYPE = "github_identity"
+
 GITHUB_EVENT_OPERATION = "events.handle"
 BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"

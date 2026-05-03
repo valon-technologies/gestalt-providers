@@ -247,6 +247,50 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(security["signaturePrefix"], "sha256=")
         self.assertEqual(security["payloadTemplate"], "{raw_body}")
 
+    def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(request_path(request), "/user")
+            self.assertEqual(auth_header(request), "Bearer user-token")
+            return FakeHTTPResponse({"id": 12345678, "login": "octocat"})
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            metadata = provider_module.post_connect(
+                gestalt.ConnectedToken(
+                    access_token="user-token",
+                    connection="default",
+                    subject_id="subject-1",
+                )
+            )
+
+        self.assertEqual(
+            metadata,
+            {
+                "gestalt.external_identity.type": "github_identity",
+                "gestalt.external_identity.id": "user:12345678",
+                "github.user_id": "12345678",
+                "github.login": "octocat",
+            },
+        )
+
+    def test_post_connect_skips_non_default_connection(self) -> None:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            metadata = provider_module.post_connect(
+                gestalt.ConnectedToken(
+                    access_token="token",
+                    connection="bot",
+                    subject_id="subject-1",
+                )
+            )
+
+        self.assertEqual(metadata, {})
+        urlopen.assert_not_called()
+
     def test_bot_identity_is_derived_from_github_app(self) -> None:
         calls: list[tuple[str, str]] = []
 
