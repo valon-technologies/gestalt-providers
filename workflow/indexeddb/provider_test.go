@@ -2800,6 +2800,106 @@ func TestRecoverStaleWorkflowRunsPreservesFreshAndKeyedPendingClaims(t *testing.
 	}
 }
 
+func TestRecoverStaleWorkflowRunsFailsExpiredAgentRunWithUnexpiredClaim(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Date(2026, time.May, 3, 16, 0, 0, 0, time.UTC)
+	startedAt := now.Add(-(defaultAgentRunTimeout + agentRunStaleGrace + time.Second))
+	run := workflowRunRecord{
+		ID:          "expired-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		Target:      protoAgentTarget("managed", "claude-opus-4-7", "Investigate CI"),
+		TriggerKind: triggerKindManual,
+		CreatedAt:   startedAt.Add(-time.Second),
+		StartedAt:   &startedAt,
+	}
+	if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+		t.Fatalf("Put(run): %v", err)
+	}
+	putRunClaim(t, ctx, provider.runClaimStore, workflowRunClaimRecord{
+		ID:        run.ID,
+		RunID:     run.ID,
+		OwnerID:   "interrupted-provider",
+		ClaimedAt: startedAt,
+		ExpiresAt: now.Add(time.Hour),
+	})
+
+	if err := recoverStaleWorkflowRuns(ctx, provider.db, provider.runStore, provider.runClaimStore, provider.workflowKeyStore, provider.signalStore, now); err != nil {
+		t.Fatalf("recoverStaleWorkflowRuns: %v", err)
+	}
+	reloaded, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: run.ID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if reloaded.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED || reloaded.GetStatusMessage() != staleRunStatusMessage {
+		t.Fatalf("run status = %s message=%q, want stale failure", reloaded.GetStatus(), reloaded.GetStatusMessage())
+	}
+	if _, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID); err != nil {
+		t.Fatalf("loadRunClaimRecord: %v", err)
+	} else if found {
+		t.Fatalf("claim for %q still exists after stale recovery", run.ID)
+	}
+}
+
+func TestRecoverStaleWorkflowRunsPreservesAgentRunWithinConfiguredTimeout(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	now := time.Date(2026, time.May, 3, 16, 0, 0, 0, time.UTC)
+	startedAt := now.Add(-10 * time.Minute)
+	target := protoAgentTarget("managed", "claude-opus-4-7", "Investigate CI")
+	target.GetAgent().TimeoutSeconds = int32((30 * time.Minute).Seconds())
+	run := workflowRunRecord{
+		ID:          "long-timeout-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		Target:      target,
+		TriggerKind: triggerKindManual,
+		CreatedAt:   startedAt.Add(-time.Second),
+		StartedAt:   &startedAt,
+	}
+	if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+		t.Fatalf("Put(run): %v", err)
+	}
+	putRunClaim(t, ctx, provider.runClaimStore, workflowRunClaimRecord{
+		ID:        run.ID,
+		RunID:     run.ID,
+		OwnerID:   "active-provider",
+		ClaimedAt: startedAt,
+		ExpiresAt: now.Add(time.Hour),
+	})
+
+	if err := recoverStaleWorkflowRuns(ctx, provider.db, provider.runStore, provider.runClaimStore, provider.workflowKeyStore, provider.signalStore, now); err != nil {
+		t.Fatalf("recoverStaleWorkflowRuns: %v", err)
+	}
+	reloaded, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: run.ID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if reloaded.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		t.Fatalf("run status = %s, want running", reloaded.GetStatus())
+	}
+	if _, found, err := loadRunClaimRecord(ctx, provider.runClaimStore, run.ID); err != nil {
+		t.Fatalf("loadRunClaimRecord: %v", err)
+	} else if !found {
+		t.Fatalf("claim for %q was deleted inside configured timeout", run.ID)
+	}
+}
+
 func TestDeleteInactiveRunClaimSkipsReplacedClaim(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
