@@ -5,6 +5,24 @@ packages:
     displayName: "Claude Agent SDK"
     description: "Agent provider that runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools."
     versions:
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
       "0.0.1-alpha.3":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.3/provider-release.yaml"
         kind: "agent"
@@ -74,10 +92,38 @@ packages:
         platforms:
           - "linux/amd64"
           - "linux/arm64"
+  github.com/valon-technologies/gestalt-providers/agent/hermes:
+    displayName: "Hermes ACP Agent"
+    description: "Agent provider that runs Hermes through the Agent Client Protocol."
+    versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "linux/amd64"
+          - "linux/arm64"
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "linux/amd64"
+          - "linux/arm64"
   github.com/valon-technologies/gestalt-providers/agent/simple:
     displayName: "Simple Agent"
     description: "Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs."
     versions:
+      "0.0.1-alpha.34":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.34/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
       "0.0.1-alpha.33":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.33/provider-release.yaml"
         kind: "agent"
@@ -650,6 +696,12 @@ packages:
     displayName: "Asana"
     description: "Manage tasks, projects, and workspaces."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/asana/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/asana/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -676,6 +728,23 @@ packages:
     displayName: "BigQuery"
     description: "Google BigQuery data warehouse"
     versions:
+      "0.0.1-alpha.7":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.7/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.4":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.4/provider-release.yaml"
         kind: "plugin"
@@ -743,6 +812,12 @@ packages:
     displayName: "Confluence Cloud"
     description: "Atlassian Confluence Cloud pages, spaces, and content search."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/confluence/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/confluence/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -751,8 +826,14 @@ packages:
           - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/datadog:
     displayName: "Datadog"
-    description: "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, and Synthetics."
+    description: "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles."
     versions:
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/datadog/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.4":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/datadog/v0.0.1-alpha.4/provider-release.yaml"
         kind: "plugin"
@@ -795,6 +876,12 @@ packages:
     displayName: "Figma"
     description: "Access files, components, comments, and team projects."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/figma/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/figma/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -959,6 +1046,23 @@ packages:
     displayName: "Gmail"
     description: "Read, send, and manage Gmail messages, threads, drafts, and labels."
     versions:
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.9":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.9/provider-release.yaml"
         kind: "plugin"
@@ -1043,10 +1147,36 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_admin_datatransfer:
+    displayName: "Google Admin Data Transfer"
+    description: "Transfer data between Google Workspace users using the Admin SDK Data Transfer API."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/google_admin_directory:
+    displayName: "Google Admin Directory"
+    description: "Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/google_calendar:
     displayName: "Google Calendar"
     description: "Read and manage Google calendars and events."
     versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_calendar/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_calendar/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1057,6 +1187,12 @@ packages:
     displayName: "Google Docs"
     description: "Read, create, and edit Google Docs documents."
     versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_docs/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_docs/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1067,6 +1203,12 @@ packages:
     displayName: "Google Drive"
     description: "Read, create, update, and share files in Google Drive."
     versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_drive/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_drive/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1077,6 +1219,12 @@ packages:
     displayName: "Google Forms"
     description: "Read and manage Google Forms and responses."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_forms/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_forms/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1087,6 +1235,12 @@ packages:
     displayName: "Google Sheets"
     description: "Read and update Google Sheets spreadsheets and values."
     versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_sheets/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_sheets/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1097,6 +1251,12 @@ packages:
     displayName: "Google Slides"
     description: "Create and update Google Slides presentations."
     versions:
+      "0.0.1-alpha.4":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_slides/v0.0.1-alpha.4/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_slides/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1107,6 +1267,12 @@ packages:
     displayName: "Granola"
     description: "Read Granola meeting notes over REST and use the official Granola MCP server."
     versions:
+      "0.0.1-alpha.5":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/granola/v0.0.1-alpha.5/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.2":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/granola/v0.0.1-alpha.2/provider-release.yaml"
         kind: "plugin"
@@ -1123,6 +1289,17 @@ packages:
     displayName: "Hex"
     description: "Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations."
     versions:
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
       "0.0.1-alpha.7":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.7/provider-release.yaml"
         kind: "plugin"
@@ -1188,6 +1365,12 @@ packages:
     displayName: "HTTPBin"
     description: "Development/testing-only HTTP request and response service. Do not use with production or sensitive data."
     versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/httpbin/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.2":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/httpbin/v0.0.1-alpha.2/provider-release.yaml"
         kind: "plugin"
@@ -1242,6 +1425,12 @@ packages:
     displayName: "Jira Cloud"
     description: "Atlassian Jira Cloud project and issue management"
     versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/jira/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/jira/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1286,6 +1475,16 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/looker:
+    displayName: "Looker"
+    description: "Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/looker/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/modern_treasury:
     displayName: "Modern Treasury"
     description: "Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury."
@@ -1322,6 +1521,12 @@ packages:
     displayName: "PagerDuty"
     description: "Manage incidents, services, and on-call schedules."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/pagerduty/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/pagerduty/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
@@ -1384,6 +1589,17 @@ packages:
     displayName: "Slack"
     description: "Read public and private conversations, DMs, and group DMs; send messages; and manage channels."
     versions:
+      "0.0.1-alpha.36":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.36/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
       "0.0.1-alpha.35":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.35/provider-release.yaml"
         kind: "plugin"
@@ -1782,8 +1998,23 @@ packages:
     displayName: "Twilio"
     description: "Send and receive SMS, voice calls, and messaging operations."
     versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/twilio/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.2":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/twilio/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/vanta:
+    displayName: "vanta"
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vanta/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
@@ -1792,6 +2023,23 @@ packages:
     displayName: "Vercel"
     description: "Manage Vercel projects and deployments, and read or write Vercel Blob storage."
     versions:
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+          - "generic"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.9":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.9/provider-release.yaml"
         kind: "plugin"
@@ -1830,10 +2078,40 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/plugins/zendesk:
+    displayName: "Zendesk"
+    description: "Support tickets, users, organizations, macros, automations, triggers, and SLA policies."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/zendesk/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/runtime/gkeagentsandbox:
     displayName: "GKE Agent Sandbox Runtime"
     description: "Hosted executable-plugin runtime backed by GKE Agent Sandbox."
     versions:
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
       "0.0.1-alpha.11":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.11/provider-release.yaml"
         kind: "runtime"
@@ -2302,10 +2580,63 @@ packages:
         runtime: "ui"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/web/default:
+    displayName: "default"
+    versions:
+      "0.0.1-alpha.12":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.12/provider-release.yaml"
+        kind: "webui"
+        runtime: "webui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.11":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.11/provider-release.yaml"
+        kind: "webui"
+        runtime: "webui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "webui"
+        runtime: "webui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "webui"
+        runtime: "webui"
+        platforms:
+          - "generic"
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "webui"
+        runtime: "webui"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/workflow/indexeddb:
     displayName: "IndexedDB Workflow"
     description: "IndexedDB-backed workflow provider with durable keyed signal dispatch."
     versions:
+      "0.0.1-alpha.42":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.42/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
+      "0.0.1-alpha.41":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.41/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm"
+          - "linux/arm64"
       "0.0.1-alpha.40":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.40/provider-release.yaml"
         kind: "workflow"

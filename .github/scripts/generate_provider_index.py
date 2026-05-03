@@ -303,26 +303,45 @@ def refresh_github_releases(repo_root: pathlib.Path, packages: dict[str, dict[st
             continue
         package_dir = match.group("dir")
         manifest = manifests.get(package_dir)
-        if manifest is None:
-            continue
         metadata_url = f"https://github.com/{REPOSITORY}/releases/download/{tag}/provider-release.yaml"
         metadata = fetch_release_metadata(tag)
         if metadata is None:
             print(f"warning: skipping {tag}; provider-release.yaml not found", file=sys.stderr)
             continue
-        source = metadata.get("package") or manifest["source"]
-        if source != manifest["source"]:
+        source = str(metadata.get("package") or "")
+        if not source:
+            if manifest is None:
+                print(f"warning: skipping {tag}; provider-release.yaml missing package", file=sys.stderr)
+                continue
+            source = manifest["source"]
+        if not source.startswith(SOURCE_PREFIX):
+            raise SystemExit(f"{metadata_url}: package {source!r} does not start with {SOURCE_PREFIX!r}")
+        if manifest is not None and source != manifest["source"]:
             raise SystemExit(f"{metadata_url}: package {source!r} does not match manifest")
+        kind = str(metadata.get("kind") or (manifest or {}).get("kind") or "")
+        if not kind:
+            print(f"warning: skipping {tag}; provider-release.yaml missing kind", file=sys.stderr)
+            continue
+        runtime = str(metadata.get("runtime") or "")
+        if not runtime:
+            if manifest is None:
+                print(f"warning: skipping {tag}; provider-release.yaml missing runtime", file=sys.stderr)
+                continue
+            runtime = release_runtime(kind, provider_language(repo_root / package_dir))
+        display_name = pathlib.PurePosixPath(package_dir).name
+        description = ""
+        if manifest is not None:
+            display_name = manifest.get("displayName", display_name)
+            description = manifest.get("description", "")
         upsert_version(
             packages,
             source=source,
-            display_name=manifest.get("displayName", pathlib.PurePosixPath(package_dir).name),
-            description=manifest.get("description", ""),
+            display_name=display_name,
+            description=description,
             version=metadata.get("version") or match.group("version"),
             metadata=metadata_url,
-            kind=metadata.get("kind") or manifest["kind"],
-            runtime=metadata.get("runtime")
-            or release_runtime(manifest["kind"], provider_language(repo_root / package_dir)),
+            kind=kind,
+            runtime=runtime,
             platforms=metadata.get("platforms") or ("generic",),
             overwrite=True,
         )
