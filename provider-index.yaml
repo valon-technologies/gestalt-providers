@@ -1479,6 +1479,12 @@ packages:
     displayName: "Looker"
     description: "Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/looker/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/looker/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"

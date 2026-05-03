@@ -42,10 +42,10 @@ Looker API requests use an authorization header in this exact form:
 Authorization: token <access_token>
 ```
 
-Create API credentials for a Looker user in the Looker Admin console, then call
-`POST /api/4.0/login` with the client ID and client secret to obtain the
-short-lived `access_token`. Store the full header value, including the `token`
-prefix, in the `authorization` credential:
+Create API credentials for a Looker user in the Looker Admin console. Gestalt
+exchanges the client ID and client secret against `POST /api/4.0/login`, stores
+the returned short-lived `access_token`, and automatically reissues it with the
+same client credentials when it expires:
 
 ```yaml
 plugins:
@@ -55,10 +55,14 @@ plugins:
         auth:
           type: manual
           credentials:
-            - name: authorization
-              label: Authorization header
-              description: Full Looker authorization header value, for example `token <access_token>`.
+            - name: client_id
+              label: Client ID
+            - name: client_secret
+              label: Client Secret
 ```
+
+The manifest sets Looker's required lowercase `token ` authorization prefix on
+API requests.
 
 ## Documentation
 
