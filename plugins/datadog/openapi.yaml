@@ -1,7 +1,7 @@
 openapi: "3.2.0"
 info:
   title: Datadog
-  description: Dashboards, monitors, metrics, logs, incidents, downtimes, and RUM
+  description: Dashboards, monitors, metrics, logs, incidents, downtimes, RUM, users, roles, and invitations
 servers:
   - url: https://api.datadoghq.com
 security:
@@ -589,6 +589,200 @@ paths:
         "200":
           description: OK
 
+  /api/v2/users:
+    get:
+      operationId: list_users
+      summary: List users
+      parameters:
+        - name: page[size]
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Results per page
+        - name: page[number]
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Page number
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: name
+          description: Sort field and direction
+        - name: filter[status]
+          in: query
+          schema:
+            type: string
+          description: Filter by user status (Active, Pending, Disabled)
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: create_user
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreateRequest"
+      responses:
+        "201":
+          description: Created
+
+  /api/v2/users/{user_id}:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: User ID
+    get:
+      operationId: get_user
+      summary: Get a user
+      responses:
+        "200":
+          description: OK
+    patch:
+      operationId: update_user
+      summary: Update a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdateRequest"
+      responses:
+        "200":
+          description: OK
+    delete:
+      operationId: disable_user
+      summary: Disable a user
+      responses:
+        "204":
+          description: No Content
+
+  /api/v2/user_invitations:
+    get:
+      operationId: list_user_invitations
+      summary: List user invitations
+      parameters:
+        - name: page[size]
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Results per page
+        - name: page[number]
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Page number
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: created_at
+          description: Sort field and direction
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: create_user_invitations
+      summary: Send user invitations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInvitationsRequest"
+      responses:
+        "201":
+          description: Created
+
+  /api/v2/user_invitations/{user_invitation_uuid}:
+    parameters:
+      - name: user_invitation_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: User invitation UUID
+    get:
+      operationId: get_user_invitation
+      summary: Get a user invitation
+      responses:
+        "200":
+          description: OK
+
+  /api/v2/roles:
+    get:
+      operationId: list_roles
+      summary: List roles
+      parameters:
+        - name: page[size]
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Results per page
+        - name: page[number]
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Page number
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: name
+          description: Sort field and direction
+        - name: filter[name]
+          in: query
+          schema:
+            type: string
+          description: Filter by role name
+      responses:
+        "200":
+          description: OK
+
+  /api/v2/roles/{role_id}:
+    parameters:
+      - name: role_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Role ID
+    get:
+      operationId: get_role
+      summary: Get a role
+      responses:
+        "200":
+          description: OK
+
+  /api/v2/users/{user_id}/roles:
+    parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: User ID
+    get:
+      operationId: list_user_roles
+      summary: List a user's roles
+      responses:
+        "200":
+          description: OK
+
 components:
   securitySchemes:
     api_key:
@@ -983,3 +1177,89 @@ components:
             limit:
               type: integer
               default: 50
+
+    UserAttributes:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        title:
+          type: string
+        disabled:
+          type: boolean
+        service_account:
+          type: boolean
+        status:
+          type: string
+          enum: [Active, Pending, Disabled]
+          readOnly: true
+
+    UserCreateRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, attributes]
+          properties:
+            type:
+              type: string
+              enum: [users]
+            attributes:
+              $ref: "#/components/schemas/UserAttributes"
+
+    UserUpdateRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, id, attributes]
+          properties:
+            type:
+              type: string
+              enum: [users]
+            id:
+              type: string
+            attributes:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                title:
+                  type: string
+                disabled:
+                  type: boolean
+                service_account:
+                  type: boolean
+
+    UserInvitationData:
+      type: object
+      required: [type, attributes]
+      properties:
+        type:
+          type: string
+          enum: [user_invitations]
+        attributes:
+          type: object
+          required: [email]
+          properties:
+            email:
+              type: string
+              format: email
+
+    UserInvitationsRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserInvitationData"
