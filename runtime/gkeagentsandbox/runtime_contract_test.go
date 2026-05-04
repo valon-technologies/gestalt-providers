@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	sandboxv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
@@ -284,6 +285,246 @@ func TestRuntimeContractResolvesClaimSandboxByClaimNameFallback(t *testing.T) {
 	}
 	if !ready.Ready {
 		t.Fatalf("Ready = false, want true")
+	}
+}
+
+func TestRuntimeContractPluginStartLeaseIsExclusiveAndExpires(t *testing.T) {
+	t.Parallel()
+
+	runtime := &kubernetesSandboxRuntime{
+		core: k8sfake.NewSimpleClientset(),
+	}
+	handle := sandboxHandle{
+		Name:      "session-1",
+		Namespace: "runtime-system",
+	}
+	ctx := context.Background()
+
+	if err := runtime.AcquirePluginStartLease(ctx, handle, "holder-a", time.Minute); err != nil {
+		t.Fatalf("AcquirePluginStartLease holder-a: %v", err)
+	}
+	if err := runtime.AcquirePluginStartLease(ctx, handle, "holder-b", time.Minute); !errors.Is(err, errPluginAlreadyStarted) {
+		t.Fatalf("AcquirePluginStartLease holder-b error = %v, want errPluginAlreadyStarted", err)
+	}
+
+	leases := runtime.core.CoordinationV1().Leases("runtime-system")
+	lease, err := leases.Get(ctx, pluginStartLeaseName(handle), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get Lease: %v", err)
+	}
+	expiredAt := metav1.MicroTime{Time: time.Now().Add(-2 * time.Minute)}
+	durationSeconds := int32(1)
+	lease.Spec.LeaseDurationSeconds = &durationSeconds
+	lease.Spec.AcquireTime = &expiredAt
+	lease.Spec.RenewTime = &expiredAt
+	if _, err := leases.Update(ctx, lease, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("expire Lease: %v", err)
+	}
+
+	if err := runtime.AcquirePluginStartLease(ctx, handle, "holder-b", time.Second); err != nil {
+		t.Fatalf("AcquirePluginStartLease holder-b after expiry: %v", err)
+	}
+	if err := runtime.ReleasePluginStartLease(ctx, handle, "holder-a"); err != nil {
+		t.Fatalf("ReleasePluginStartLease stale holder: %v", err)
+	}
+	lease, err = leases.Get(ctx, pluginStartLeaseName(handle), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get Lease after stale release: %v", err)
+	}
+	if got, want := derefString(lease.Spec.HolderIdentity), "holder-b"; got != want {
+		t.Fatalf("Lease holder after stale release = %q, want %q", got, want)
+	}
+
+	if err := runtime.ReleasePluginStartLease(ctx, handle, "holder-b"); err != nil {
+		t.Fatalf("ReleasePluginStartLease holder-b: %v", err)
+	}
+	if _, err := leases.Get(ctx, pluginStartLeaseName(handle), metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+		t.Fatalf("Get Lease after release error = %v, want NotFound", err)
+	}
+}
+
+func TestRuntimeContractListsKubernetesBackedSessions(t *testing.T) {
+	t.Parallel()
+
+	managedLabels := func(sessionID, pluginName string) map[string]string {
+		return map[string]string{
+			"app.kubernetes.io/managed-by": "gestalt",
+			"gestalt.dev/runtime":          "gke-agent-sandbox",
+			"gestalt.dev/plugin":           pluginName,
+			runtimeSessionLabel:            sessionID,
+		}
+	}
+	runtime := &kubernetesSandboxRuntime{
+		core: k8sfake.NewSimpleClientset(
+			&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "claim-sandbox", Namespace: "runtime-system"},
+				Status:     corev1.PodStatus{PodIP: "10.20.0.11"},
+			},
+			&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "direct-session", Namespace: "runtime-system"},
+				Status:     corev1.PodStatus{PodIP: "10.20.0.12"},
+			},
+		),
+		agents:     agentfake.NewSimpleClientset(),
+		extensions: extfake.NewSimpleClientset(),
+	}
+	ctx := context.Background()
+	if _, err := runtime.extensions.ExtensionsV1alpha1().SandboxClaims("runtime-system").Create(ctx, &extv1alpha1.SandboxClaim{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: extv1alpha1.SchemeGroupVersion.String(),
+			Kind:       "SandboxClaim",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "claim-session",
+			Namespace: "runtime-system",
+			UID:       "claim-uid",
+			Labels:    managedLabels("claim-session", "linear"),
+			Annotations: map[string]string{
+				sessionPluginAnnotation:   "linear",
+				sessionTemplateAnnotation: "agent-runtime",
+				sessionMetadataAnnotation: `{"tenant":"claim"}`,
+			},
+		},
+		Status: extv1alpha1.SandboxClaimStatus{
+			SandboxStatus: extv1alpha1.SandboxStatus{Name: "claim-sandbox"},
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Create SandboxClaim: %v", err)
+	}
+	if _, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Create(ctx, &sandboxv1alpha1.Sandbox{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: sandboxv1alpha1.SchemeGroupVersion.String(),
+			Kind:       "Sandbox",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "claim-sandbox",
+			Namespace: "runtime-system",
+			Labels:    managedLabels("claim-session", "linear"),
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: extv1alpha1.SchemeGroupVersion.String(),
+				Kind:       "SandboxClaim",
+				Name:       "claim-session",
+				UID:        "claim-uid",
+			}},
+		},
+		Status: sandboxv1alpha1.SandboxStatus{
+			Conditions: []metav1.Condition{{
+				Type:   string(sandboxv1alpha1.SandboxConditionReady),
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Create claim backing Sandbox: %v", err)
+	}
+	if _, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Create(ctx, &sandboxv1alpha1.Sandbox{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: sandboxv1alpha1.SchemeGroupVersion.String(),
+			Kind:       "Sandbox",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "direct-session",
+			Namespace: "runtime-system",
+			Labels:    managedLabels("direct-session", "github"),
+			Annotations: map[string]string{
+				sessionPluginAnnotation:   "github",
+				sessionMetadataAnnotation: `{"tenant":"direct"}`,
+			},
+		},
+		Status: sandboxv1alpha1.SandboxStatus{
+			Conditions: []metav1.Condition{{
+				Type:   string(sandboxv1alpha1.SandboxConditionReady),
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Create direct Sandbox: %v", err)
+	}
+	if err := runtime.AcquirePluginStartLease(ctx, sandboxHandle{Name: "direct-session", Namespace: "runtime-system"}, "holder", time.Minute); err != nil {
+		t.Fatalf("AcquirePluginStartLease direct session: %v", err)
+	}
+
+	sessions, err := runtime.ListSessions(ctx, "runtime-system")
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	byID := map[string]sandboxSession{}
+	for _, session := range sessions {
+		byID[session.ID] = session
+	}
+	if got, want := len(byID), 2; got != want {
+		t.Fatalf("ListSessions returned %d sessions, want %d: %#v", got, want, sessions)
+	}
+
+	claimSession := byID["claim-session"]
+	if claimSession.ID == "" {
+		t.Fatalf("ListSessions missing claim-backed session")
+	}
+	if got, want := claimSession.Handle.Mode, "claim"; got != want {
+		t.Fatalf("claim session mode = %q, want %q", got, want)
+	}
+	if got, want := claimSession.Handle.SandboxName, "claim-sandbox"; got != want {
+		t.Fatalf("claim session sandbox = %q, want %q", got, want)
+	}
+	if got, want := claimSession.Metadata["tenant"], "claim"; got != want {
+		t.Fatalf("claim session tenant = %q, want %q", got, want)
+	}
+	if got, want := claimSession.PluginName, "linear"; got != want {
+		t.Fatalf("claim session plugin = %q, want %q", got, want)
+	}
+
+	directSession := byID["direct-session"]
+	if directSession.ID == "" {
+		t.Fatalf("ListSessions missing direct session")
+	}
+	if got, want := directSession.Handle.Mode, "sandbox"; got != want {
+		t.Fatalf("direct session mode = %q, want %q", got, want)
+	}
+	if got, want := directSession.Metadata["tenant"], "direct"; got != want {
+		t.Fatalf("direct session tenant = %q, want %q", got, want)
+	}
+	if !directSession.PluginStarting {
+		t.Fatalf("direct session PluginStarting = false, want true while Lease is active")
+	}
+}
+
+func TestRuntimeContractResolveSessionRejectsAmbiguousLabelMatches(t *testing.T) {
+	t.Parallel()
+
+	runtime := &kubernetesSandboxRuntime{
+		core:       k8sfake.NewSimpleClientset(),
+		agents:     agentfake.NewSimpleClientset(),
+		extensions: extfake.NewSimpleClientset(),
+	}
+	ctx := context.Background()
+	for _, name := range []string{"direct-a", "direct-b"} {
+		if _, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Create(ctx, &sandboxv1alpha1.Sandbox{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: sandboxv1alpha1.SchemeGroupVersion.String(),
+				Kind:       "Sandbox",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "runtime-system",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "gestalt",
+					"gestalt.dev/runtime":          "gke-agent-sandbox",
+					runtimeSessionLabel:            "shared-session",
+				},
+			},
+			Status: sandboxv1alpha1.SandboxStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(sandboxv1alpha1.SandboxConditionReady),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+		}, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("Create Sandbox %s: %v", name, err)
+		}
+	}
+
+	_, err := runtime.ResolveSession(ctx, "runtime-system", "shared-session")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ResolveSession error = %v, want ambiguous session error", err)
 	}
 }
 

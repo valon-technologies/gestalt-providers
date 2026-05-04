@@ -35,7 +35,7 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -193,7 +193,7 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fakeA,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 	fakeB := &fakeSandboxRuntime{}
 	clientB := startRuntimeProviderServer(t, &Provider{
@@ -208,7 +208,7 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fakeB,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -226,8 +226,8 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 	if err != nil {
 		t.Fatalf("StartSession B: %v", err)
 	}
-	if got, want := sessionA.ID, sessionB.ID; got != want {
-		t.Fatalf("session ids = %q and %q, want same local counter value for fresh providers", got, want)
+	if sessionA.ID == sessionB.ID {
+		t.Fatalf("session ids both = %q, want provider-instance scoped session ids", sessionA.ID)
 	}
 
 	fakeA.mu.Lock()
@@ -247,29 +247,96 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 	if !strings.Contains(nameA, "runtime-a") || !strings.Contains(nameB, "runtime-b") {
 		t.Fatalf("runtime Start resource names = (%q, %q), want provider instance ids", nameA, nameB)
 	}
-	if !strings.HasSuffix(nameA, sessionA.ID) || !strings.HasSuffix(nameB, sessionB.ID) {
-		t.Fatalf("runtime Start resource names = (%q, %q), want session id suffix %q", nameA, nameB, sessionA.ID)
+	if nameA != sessionA.ID || nameB != sessionB.ID {
+		t.Fatalf("runtime Start resource names = (%q, %q), want session ids (%q, %q)", nameA, nameB, sessionA.ID, sessionB.ID)
+	}
+}
+
+func TestRuntimeProviderContractPeerInstanceCanResolveListAndStopSession(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{}
+	cfg := Config{
+		Namespace:           "runtime-system",
+		PluginPort:          50051,
+		SandboxReadyTimeout: 2 * time.Second,
+		PluginReadyTimeout:  2 * time.Second,
+		ExecTimeout:         2 * time.Second,
+		CleanupTimeout:      2 * time.Second,
+	}
+	clientA := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-a",
+		cfg:        cfg,
+		runtime:    fake,
+		sessions:   map[string]*localSession{},
+	})
+	clientB := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-b",
+		cfg:        cfg,
+		runtime:    fake,
+		sessions:   map[string]*localSession{},
+	})
+
+	ctx := context.Background()
+	session, err := clientA.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{
+		PluginName: "agent-provider",
+		Template:   "python-runtime",
+		Metadata:   map[string]string{"tenant": "dev"},
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	peerSession, err := clientB.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("peer GetSession: %v", err)
+	}
+	if peerSession.ID != session.ID {
+		t.Fatalf("peer session ID = %q, want %q", peerSession.ID, session.ID)
+	}
+	if got, want := peerSession.Metadata["tenant"], "dev"; got != want {
+		t.Fatalf("peer metadata tenant = %q, want %q", got, want)
+	}
+
+	listed, err := clientB.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("peer ListSessions: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != session.ID {
+		t.Fatalf("peer ListSessions = %#v, want one session %q", listed, session.ID)
+	}
+
+	if err := clientB.StopSession(ctx, session.ID); err != nil {
+		t.Fatalf("peer StopSession: %v", err)
+	}
+	if _, err := clientA.GetSession(ctx, session.ID); status.Code(err) != codes.NotFound {
+		t.Fatalf("GetSession after peer StopSession code = %v, want NotFound: %v", status.Code(err), err)
 	}
 }
 
 func TestRuntimeProviderContractListsSessions(t *testing.T) {
 	t.Parallel()
 
-	client := startRuntimeProviderServer(t, &Provider{
-		name:    "gkeAgentSandbox",
-		runtime: &fakeSandboxRuntime{},
-		sessions: map[string]*session{
+	fake := &fakeSandboxRuntime{
+		sessions: map[string]sandboxSession{
 			"session-b": {
-				id:       "session-b",
-				state:    sessionStateReady,
-				metadata: map[string]string{"tenant": "beta"},
+				ID:       "session-b",
+				Metadata: map[string]string{"tenant": "beta"},
+				Handle:   sandboxHandle{Name: "session-b", Namespace: "runtime-system", Mode: "claim", ClaimName: "session-b", Ready: true},
 			},
 			"session-a": {
-				id:       "session-a",
-				state:    sessionStateReady,
-				metadata: map[string]string{"tenant": "alpha"},
+				ID:       "session-a",
+				Metadata: map[string]string{"tenant": "alpha"},
+				Handle:   sandboxHandle{Name: "session-a", Namespace: "runtime-system", Mode: "claim", ClaimName: "session-a", Ready: true},
 			},
 		},
+	}
+	client := startRuntimeProviderServer(t, &Provider{
+		name:    "gkeAgentSandbox",
+		runtime: fake,
+		cfg:     Config{Namespace: "runtime-system"},
 	})
 
 	sessions, err := client.ListSessions(context.Background())
@@ -311,7 +378,7 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -405,7 +472,7 @@ func TestRuntimeProviderContractSupportsPodIPConnectionMode(t *testing.T) {
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -459,7 +526,7 @@ func TestRuntimeProviderContractSupportsServiceDNSConnectionMode(t *testing.T) {
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -511,7 +578,7 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -557,7 +624,7 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -626,7 +693,7 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -689,7 +756,7 @@ func TestRuntimeProviderContractRequiresImageWithoutTemplate(t *testing.T) {
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	_, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
@@ -717,29 +784,38 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 		execEntered: execEntered,
 		blockExec:   releaseExec,
 	}
-	client := startRuntimeProviderServer(t, &Provider{
-		name: "gkeAgentSandbox",
-		cfg: Config{
-			Namespace:           "runtime-system",
-			PluginPort:          50051,
-			SandboxReadyTimeout: 2 * time.Second,
-			PluginReadyTimeout:  2 * time.Second,
-			ExecTimeout:         2 * time.Second,
-			CleanupTimeout:      2 * time.Second,
-		},
-		runtime:  fake,
-		sessions: map[string]*session{},
+	cfg := Config{
+		Namespace:           "runtime-system",
+		PluginPort:          50051,
+		SandboxReadyTimeout: 2 * time.Second,
+		PluginReadyTimeout:  2 * time.Second,
+		ExecTimeout:         2 * time.Second,
+		CleanupTimeout:      2 * time.Second,
+	}
+	clientA := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-a",
+		cfg:        cfg,
+		runtime:    fake,
+		sessions:   map[string]*localSession{},
+	})
+	clientB := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-b",
+		cfg:        cfg,
+		runtime:    fake,
+		sessions:   map[string]*localSession{},
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
+	session, err := clientA.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
 	firstErr := make(chan error, 1)
 	go func() {
-		_, err := client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
+		_, err := clientA.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
 			SessionID:  session.ID,
 			PluginName: "github",
 			Command:    "./plugin",
@@ -753,7 +829,7 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 		t.Fatalf("first StartPlugin did not reach runtime Exec")
 	}
 
-	_, err = client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
+	_, err = clientB.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
 		SessionID:  session.ID,
 		PluginName: "github",
 		Command:    "./plugin",
@@ -768,7 +844,7 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractKeepsFailedStateStickyAfterPluginDeath(t *testing.T) {
+func TestRuntimeProviderContractReportsFailedStateAfterPluginDeath(t *testing.T) {
 	t.Parallel()
 
 	pluginTarget := startPluginLifecycleServer(t)
@@ -787,7 +863,7 @@ func TestRuntimeProviderContractKeepsFailedStateStickyAfterPluginDeath(t *testin
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -837,7 +913,7 @@ func TestRuntimeProviderContractCanRetryStopAfterDeleteFailure(t *testing.T) {
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime:  fake,
-		sessions: map[string]*session{},
+		sessions: map[string]*localSession{},
 	})
 
 	ctx := context.Background()
@@ -892,6 +968,8 @@ type fakeSandboxRuntime struct {
 	mu sync.Mutex
 
 	startRequests           []startSandboxRequest
+	sessions                map[string]sandboxSession
+	leases                  map[string]string
 	execCalls               []execCall
 	forwardPorts            []int
 	podIPTargets            []int
@@ -930,9 +1008,10 @@ func (f *fakeSandboxRuntime) HealthCheck(context.Context) error {
 	return nil
 }
 
-func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (sandboxHandle, error) {
+func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (sandboxSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.ensureLocked()
 	f.startRequests = append(f.startRequests, req)
 	mode := "direct"
 	claimName := ""
@@ -940,7 +1019,7 @@ func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (
 		mode = "claim"
 		claimName = req.Name
 	}
-	return sandboxHandle{
+	handle := sandboxHandle{
 		Name:        req.Name,
 		Namespace:   req.Namespace,
 		Mode:        mode,
@@ -949,28 +1028,79 @@ func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (
 		PodName:     req.Name + "-pod",
 		PodIP:       "10.20.0.10",
 		Ready:       true,
-	}, nil
+	}
+	session := sandboxSession{
+		ID:         req.Name,
+		PluginName: req.PluginName,
+		Template:   req.Template,
+		Metadata:   cloneStringMap(req.Metadata),
+		Handle:     handle,
+	}
+	if session.Metadata == nil {
+		session.Metadata = map[string]string{}
+	}
+	addHandleMetadata(session.Metadata, handle)
+	f.sessions[session.ID] = session
+	return session, nil
 }
 
-func (f *fakeSandboxRuntime) Get(_ context.Context, handle sandboxHandle) (sandboxHandle, error) {
-	handle.Ready = true
-	return handle, nil
+func (f *fakeSandboxRuntime) ResolveSession(_ context.Context, _, sessionID string) (sandboxSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensureLocked()
+	session, ok := f.sessions[sessionID]
+	if !ok {
+		return sandboxSession{}, status.Error(codes.NotFound, "sandbox stopped")
+	}
+	session.Handle.Ready = true
+	if !session.PluginStarted && f.leases[pluginStartLeaseName(session.Handle)] != "" {
+		session.PluginStarting = true
+	}
+	return session, nil
+}
+
+func (f *fakeSandboxRuntime) ListSessions(context.Context, string) ([]sandboxSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensureLocked()
+	out := make([]sandboxSession, 0, len(f.sessions))
+	for _, session := range f.sessions {
+		session.Handle.Ready = true
+		if !session.PluginStarted && f.leases[pluginStartLeaseName(session.Handle)] != "" {
+			session.PluginStarting = true
+		}
+		out = append(out, session)
+	}
+	return out, nil
 }
 
 func (f *fakeSandboxRuntime) Stop(_ context.Context, handle sandboxHandle) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.ensureLocked()
 	if f.stopFailures > 0 {
 		f.stopFailures--
 		return status.Error(codes.Unavailable, "injected stop failure")
 	}
 	f.stopped = append(f.stopped, handle)
+	delete(f.sessions, handle.Name)
+	delete(f.leases, pluginStartLeaseName(handle))
 	return nil
 }
 
 func (f *fakeSandboxRuntime) Exec(_ context.Context, handle sandboxHandle, command []string, stdin io.Reader) error {
-	if slices.Equal(command, pluginHealthCommand()) && f.failHealthChecks {
-		return status.Error(codes.Unavailable, "injected plugin health failure")
+	if slices.Equal(command, pluginHealthCommand()) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.ensureLocked()
+		if f.failHealthChecks {
+			return status.Error(codes.Unavailable, "injected plugin health failure")
+		}
+		session, ok := f.sessions[handle.Name]
+		if !ok || !session.PluginStarted {
+			return status.Error(codes.Unavailable, "plugin is not running")
+		}
+		return nil
 	}
 	var stdinText string
 	if stdin != nil {
@@ -1061,8 +1191,63 @@ func (f *fakeSandboxRuntime) DeleteHostnameEgressPolicy(_ context.Context, _ san
 	return nil
 }
 
+func (f *fakeSandboxRuntime) AcquirePluginStartLease(_ context.Context, handle sandboxHandle, holder string, _ time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensureLocked()
+	if session, ok := f.sessions[handle.Name]; ok && session.PluginStarted {
+		return errPluginAlreadyStarted
+	}
+	name := pluginStartLeaseName(handle)
+	if f.leases[name] != "" {
+		return errPluginAlreadyStarted
+	}
+	f.leases[name] = holder
+	return nil
+}
+
+func (f *fakeSandboxRuntime) ReleasePluginStartLease(_ context.Context, handle sandboxHandle, holder string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensureLocked()
+	name := pluginStartLeaseName(handle)
+	if f.leases[name] == holder {
+		delete(f.leases, name)
+	}
+	return nil
+}
+
+func (f *fakeSandboxRuntime) MarkPluginStarted(_ context.Context, handle sandboxHandle, holder, pluginName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensureLocked()
+	if f.leases[pluginStartLeaseName(handle)] != holder {
+		return errPluginAlreadyStarted
+	}
+	session, ok := f.sessions[handle.Name]
+	if !ok {
+		return status.Error(codes.NotFound, "sandbox stopped")
+	}
+	if session.PluginStarted {
+		return errPluginAlreadyStarted
+	}
+	session.PluginStarted = true
+	session.PluginName = pluginName
+	f.sessions[handle.Name] = session
+	return nil
+}
+
 func (f *fakeSandboxRuntime) Close() error {
 	return nil
+}
+
+func (f *fakeSandboxRuntime) ensureLocked() {
+	if f.sessions == nil {
+		f.sessions = make(map[string]sandboxSession)
+	}
+	if f.leases == nil {
+		f.leases = make(map[string]string)
+	}
 }
 
 type fakeTunnel struct {

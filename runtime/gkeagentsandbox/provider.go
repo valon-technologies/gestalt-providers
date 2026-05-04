@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.13"
+	providerVersion      = "0.0.1-alpha.14"
+	sessionStatePending  = "pending"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
 	sessionStateRunning  = "running"
@@ -39,21 +40,12 @@ type Provider struct {
 	nextID     uint64
 
 	mu       sync.Mutex
-	sessions map[string]*session
+	sessions map[string]*localSession
 	closed   bool
 }
 
-type session struct {
-	id                   string
-	state                string
-	metadata             map[string]string
-	template             string
-	handle               sandboxHandle
-	bindings             map[string]hostServiceBinding
-	plugin               *plugin
-	pluginStarting       bool
-	pluginTunnel         tunnel
-	hostnameEgressPolicy string
+type localSession struct {
+	pluginTunnel tunnel
 }
 
 type hostServiceBinding struct {
@@ -62,15 +54,10 @@ type hostServiceBinding struct {
 	dialTarget string
 }
 
-type plugin struct {
-	id   string
-	name string
-}
-
 func New() *Provider {
 	return &Provider{
 		instanceID: newProviderInstanceID(),
-		sessions:   make(map[string]*session),
+		sessions:   make(map[string]*localSession),
 	}
 }
 
@@ -95,7 +82,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.cfg = cfg
 	p.runtime = runtime
 	if p.sessions == nil {
-		p.sessions = make(map[string]*session)
+		p.sessions = make(map[string]*localSession)
 	}
 	if oldRuntime != nil {
 		_ = oldRuntime.Close()
@@ -146,10 +133,9 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartPluginRunt
 		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.execution.runtime.image or execution.runtime.template is required when using the gke agent sandbox runtime", req.PluginName)
 	}
 
-	sessionID := p.newID("session")
-	resourceName := sandboxResourceName(req.PluginName, p.runtimeInstanceID(), sessionID)
-	handle, err := runtime.Start(ctx, startSandboxRequest{
-		Name:       resourceName,
+	sessionID := sandboxResourceName(req.PluginName, p.runtimeInstanceID(), p.newID("session"))
+	session, err := runtime.Start(ctx, startSandboxRequest{
+		Name:       sessionID,
 		PluginName: req.PluginName,
 		Namespace:  cfg.Namespace,
 		Template:   template,
@@ -160,156 +146,74 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartPluginRunt
 		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.Internal, "start gke agent sandbox session: %v", err)
 	}
 
-	s := &session{
-		id:       sessionID,
-		state:    sessionStateReady,
-		metadata: cloneStringMap(req.Metadata),
-		template: template,
-		handle:   handle,
-	}
-	if s.metadata == nil {
-		s.metadata = map[string]string{}
-	}
-	s.metadata["kubernetes.namespace"] = handle.Namespace
-	s.metadata["kubernetes.sandbox"] = handle.SandboxName
-	if handle.ClaimName != "" {
-		s.metadata["kubernetes.sandboxClaim"] = handle.ClaimName
-	}
-	if handle.PodName != "" {
-		s.metadata["kubernetes.pod"] = handle.PodName
-	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
-		_ = runtime.Stop(context.Background(), handle)
+		_ = runtime.Stop(context.Background(), session.Handle)
 		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, "gke agent sandbox runtime is closed")
 	}
-	p.sessions[sessionID] = s
-	return cloneSession(s), nil
+	if p.sessions == nil {
+		p.sessions = make(map[string]*localSession)
+	}
+	p.sessions[session.ID] = &localSession{}
+	return pluginRuntimeSession(session, sessionStateReady), nil
 }
 
 func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.PluginRuntimeSession, error) {
-	runtime, _, err := p.configured()
+	runtime, cfg, err := p.configured()
 	if err != nil {
 		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	p.mu.Lock()
-	s, err := p.sessionLocked(sessionID)
+	session, err := runtime.ResolveSession(ctx, cfg.Namespace, sessionID)
 	if err != nil {
-		p.mu.Unlock()
 		return gestalt.PluginRuntimeSession{}, status.Error(codes.NotFound, err.Error())
 	}
-	handle := s.handle
-	current := cloneSession(s)
-	p.mu.Unlock()
-
-	refreshed, refreshErr := runtime.Get(ctx, handle)
-	if refreshErr != nil {
-		p.mu.Lock()
-		if s, ok := p.sessions[sessionID]; ok && s != nil {
-			s.state = sessionStateFailed
-			current = cloneSession(s)
-		}
-		p.mu.Unlock()
-		return current, nil
-	}
-	if current.State == sessionStateRunning {
-		if err := runtime.Exec(ctx, refreshed, pluginHealthCommand(), nil); err != nil {
-			p.mu.Lock()
-			if s, ok := p.sessions[sessionID]; ok && s != nil {
-				s.state = sessionStateFailed
-				current = cloneSession(s)
-			}
-			p.mu.Unlock()
-			return current, nil
-		}
-	}
-
-	p.mu.Lock()
-	if s, ok := p.sessions[sessionID]; ok && s != nil {
-		s.handle = refreshed
-		if s.state != sessionStateRunning && s.state != sessionStateStarting && s.state != sessionStateFailed {
-			s.state = sessionStateReady
-		}
-		current = cloneSession(s)
-	}
-	p.mu.Unlock()
-	return current, nil
+	return pluginRuntimeSession(session, sessionStateForSandbox(ctx, runtime, session)), nil
 }
 
 func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSession, error) {
-	p.mu.Lock()
-	sessionIDs := make([]string, 0, len(p.sessions))
-	for sessionID := range p.sessions {
-		sessionIDs = append(sessionIDs, sessionID)
+	runtime, cfg, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	p.mu.Unlock()
-	sort.Strings(sessionIDs)
-
-	sessions := make([]gestalt.PluginRuntimeSession, 0, len(sessionIDs))
-	for _, sessionID := range sessionIDs {
-		session, err := p.GetSession(ctx, sessionID)
-		if status.Code(err) == codes.NotFound {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		sessions = append(sessions, session)
+	sessions, err := runtime.ListSessions(ctx, cfg.Namespace)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return sessions, nil
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].ID < sessions[j].ID
+	})
+	out := make([]gestalt.PluginRuntimeSession, 0, len(sessions))
+	for _, session := range sessions {
+		out = append(out, pluginRuntimeSession(session, sessionStateForSandbox(ctx, runtime, session)))
+	}
+	return out, nil
 }
 
 func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
-	runtime, _, err := p.configured()
+	runtime, cfg, err := p.configured()
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	sessionID = strings.TrimSpace(sessionID)
+	session, err := runtime.ResolveSession(ctx, cfg.Namespace, sessionID)
+	if err != nil {
+		return status.Error(codes.NotFound, err.Error())
+	}
 
-	var (
-		handle     sandboxHandle
-		tunnel     tunnel
-		policyName string
-	)
-	p.mu.Lock()
-	s, ok := p.sessions[sessionID]
-	if ok && s != nil {
-		handle = s.handle
-		tunnel = s.pluginTunnel
-		policyName = s.hostnameEgressPolicy
+	if tunnel := p.localTunnel(session.ID); tunnel != nil {
+		_ = tunnel.Close()
 	}
-	p.mu.Unlock()
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
+	_ = runtime.Exec(cleanupCtx, session.Handle, pluginCleanupCommand(), nil)
+	cleanupCancel()
 
-	var errs []error
-	if tunnel != nil {
-		errs = append(errs, tunnel.Close())
-	}
-	if handle.Name != "" {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), p.cfg.CleanupTimeout)
-		_ = runtime.Exec(cleanupCtx, handle, pluginCleanupCommand(), nil)
-		cleanupCancel()
-	}
-	stopSucceeded := handle.Name == ""
-	if handle.Name != "" {
-		stopErr := runtime.Stop(ctx, handle)
-		errs = append(errs, stopErr)
-		stopSucceeded = stopErr == nil
-	}
-	if stopSucceeded && policyName != "" {
-		errs = append(errs, runtime.DeleteHostnameEgressPolicy(ctx, handle, policyName))
-	}
-	if err := errors.Join(errs...); err != nil {
+	if err := runtime.Stop(ctx, session.Handle); err != nil {
 		return status.Errorf(codes.Internal, "stop gke agent sandbox session: %v", err)
 	}
-	p.mu.Lock()
-	if s, ok := p.sessions[sessionID]; ok && s != nil {
-		delete(p.sessions, sessionID)
-		s.state = sessionStateStopped
+	if err := runtime.DeleteHostnameEgressPolicy(ctx, session.Handle, hostnameEgressPolicyName(session.Handle)); err != nil {
+		return status.Errorf(codes.Internal, "stop gke agent sandbox session: %v", err)
 	}
-	p.mu.Unlock()
+	p.clearLocalSession(session.ID)
 	return nil
 }
 
@@ -322,21 +226,42 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 		return gestalt.HostedPlugin{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	p.mu.Lock()
-	s, err := p.sessionLocked(req.SessionID)
+	session, err := runtime.ResolveSession(ctx, cfg.Namespace, req.SessionID)
 	if err != nil {
-		p.mu.Unlock()
 		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
 	}
-	if s.plugin != nil || s.pluginStarting {
-		p.mu.Unlock()
+	if state := sessionStateForSandbox(ctx, runtime, session); state == sessionStateRunning || state == sessionStateStarting {
 		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
 	}
-	handle := s.handle
-	templateName := s.template
-	s.pluginStarting = true
-	s.state = sessionStateStarting
-	p.mu.Unlock()
+
+	holder := p.runtimeInstanceID() + "/" + p.newID("plugin-start")
+	if err := runtime.AcquirePluginStartLease(ctx, session.Handle, holder, pluginStartLeaseDuration(cfg)); err != nil {
+		if errors.Is(err, errPluginAlreadyStarted) {
+			return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+		}
+		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "acquire gke agent sandbox plugin start lease: %v", err)
+	}
+	leaseHeld := true
+	releaseLease := func() {
+		if !leaseHeld {
+			return
+		}
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
+		_ = runtime.ReleasePluginStartLease(releaseCtx, session.Handle, holder)
+		releaseCancel()
+		leaseHeld = false
+	}
+	defer releaseLease()
+
+	lockedSession, err := runtime.ResolveSession(ctx, cfg.Namespace, session.ID)
+	if err != nil {
+		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
+	}
+	if state := sessionStateForSandbox(ctx, runtime, lockedSession); state == sessionStateRunning {
+		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+	}
+	session = lockedSession
+	handle := session.Handle
 
 	launchOK := false
 	hostnamePolicyName := ""
@@ -355,12 +280,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 		}
 		if hostnamePolicyName != "" && cleanupSucceeded {
 			deleteCtx, deleteCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
-			if err := runtime.DeleteHostnameEgressPolicy(deleteCtx, handle, hostnamePolicyName); err == nil {
-				p.clearHostnameEgressPolicy(req.SessionID, hostnamePolicyName)
-			}
+			_ = runtime.DeleteHostnameEgressPolicy(deleteCtx, handle, hostnamePolicyName)
 			deleteCancel()
 		}
-		p.clearPluginStarting(req.SessionID)
 	}()
 
 	execCtx, cancel := context.WithTimeout(ctx, cfg.ExecTimeout)
@@ -368,7 +290,7 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 
 	env := buildPluginEnv(req, "/tmp/gestalt/plugin.sock")
 	if requiresHostnameEgress(req, env) {
-		hostnameEgress, err := buildHostnameEgressConfig(env, templateName)
+		hostnameEgress, err := buildHostnameEgressConfig(env, session.Template)
 		if err != nil {
 			return gestalt.HostedPlugin{}, hostnameEgressStatus("", err)
 		}
@@ -376,7 +298,6 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 		if err != nil {
 			return gestalt.HostedPlugin{}, hostnameEgressStatus("configure hosted hostname egress", err)
 		}
-		p.setHostnameEgressPolicy(req.SessionID, hostnamePolicyName)
 	}
 
 	launchScript := buildLaunchScript(startProcessRequest{
@@ -404,33 +325,22 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 		_ = tunnel.Close()
 		return gestalt.HostedPlugin{}, status.Errorf(codes.DeadlineExceeded, "wait for gke agent sandbox plugin gRPC endpoint: %v", err)
 	}
-
-	plugin := &plugin{
-		id:   p.newID("plugin"),
-		name: req.PluginName,
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	s, err = p.sessionLocked(req.SessionID)
-	if err != nil {
+	if err := runtime.MarkPluginStarted(ctx, handle, holder, req.PluginName); err != nil {
 		_ = tunnel.Close()
-		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
+		if errors.Is(err, errPluginAlreadyStarted) {
+			return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+		}
+		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "mark gke agent sandbox plugin started: %v", err)
 	}
-	if !s.pluginStarting || s.plugin != nil {
-		_ = tunnel.Close()
-		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
-	}
-	s.plugin = plugin
-	s.pluginStarting = false
-	s.pluginTunnel = tunnel
-	s.state = sessionStateRunning
+
+	p.setLocalTunnel(session.ID, tunnel)
 	launchOK = true
+	releaseLease()
 
 	return gestalt.HostedPlugin{
-		ID:         plugin.id,
-		SessionID:  s.id,
-		PluginName: plugin.name,
+		ID:         p.newID("plugin"),
+		SessionID:  session.ID,
+		PluginName: req.PluginName,
 		DialTarget: tunnel.DialTarget(),
 	}, nil
 }
@@ -477,51 +387,20 @@ func (p *Provider) Close() error {
 		return nil
 	}
 	p.closed = true
-	sessionIDs := make([]string, 0, len(p.sessions))
-	for id := range p.sessions {
-		sessionIDs = append(sessionIDs, id)
-	}
+	localSessions := p.sessions
+	p.sessions = make(map[string]*localSession)
 	runtime := p.runtime
 	p.mu.Unlock()
 
-	var errs []error
-	for _, id := range sessionIDs {
-		stopCtx, cancel := context.WithTimeout(context.Background(), p.cfg.CleanupTimeout)
-		err := p.StopSession(stopCtx, id)
-		cancel()
-		errs = append(errs, err)
-	}
-	if runtime != nil {
-		errs = append(errs, runtime.Close())
-	}
-	return errors.Join(errs...)
-}
-
-func (p *Provider) clearPluginStarting(sessionID string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if s, ok := p.sessions[sessionID]; ok && s != nil && s.pluginStarting {
-		s.pluginStarting = false
-		if s.plugin == nil && s.state == sessionStateStarting {
-			s.state = sessionStateReady
+	for _, local := range localSessions {
+		if local != nil && local.pluginTunnel != nil {
+			_ = local.pluginTunnel.Close()
 		}
 	}
-}
-
-func (p *Provider) setHostnameEgressPolicy(sessionID, policyName string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if s, ok := p.sessions[sessionID]; ok && s != nil {
-		s.hostnameEgressPolicy = policyName
+	if runtime != nil {
+		return runtime.Close()
 	}
-}
-
-func (p *Provider) clearHostnameEgressPolicy(sessionID, policyName string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if s, ok := p.sessions[sessionID]; ok && s != nil && s.hostnameEgressPolicy == policyName {
-		s.hostnameEgressPolicy = ""
-	}
+	return nil
 }
 
 func (p *Provider) configured() (sandboxRuntime, Config, error) {
@@ -533,16 +412,33 @@ func (p *Provider) configured() (sandboxRuntime, Config, error) {
 	return p.runtime, p.cfg, nil
 }
 
-func (p *Provider) sessionLocked(sessionID string) (*session, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil, fmt.Errorf("plugin runtime session id is required")
+func (p *Provider) setLocalTunnel(sessionID string, tunnel tunnel) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sessions == nil {
+		p.sessions = make(map[string]*localSession)
 	}
-	s, ok := p.sessions[sessionID]
-	if !ok || s == nil {
-		return nil, fmt.Errorf("plugin runtime session %q not found", sessionID)
+	local := p.sessions[sessionID]
+	if local == nil {
+		local = &localSession{}
+		p.sessions[sessionID] = local
 	}
-	return s, nil
+	local.pluginTunnel = tunnel
+}
+
+func (p *Provider) localTunnel(sessionID string) tunnel {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if local := p.sessions[sessionID]; local != nil {
+		return local.pluginTunnel
+	}
+	return nil
+}
+
+func (p *Provider) clearLocalSession(sessionID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.sessions, sessionID)
 }
 
 func (p *Provider) newID(prefix string) string {
@@ -566,15 +462,43 @@ func newProviderInstanceID() string {
 	return sanitizeDNSLabelValue(strconv.FormatInt(time.Now().UnixNano(), 36))
 }
 
-func cloneSession(s *session) gestalt.PluginRuntimeSession {
-	if s == nil {
-		return gestalt.PluginRuntimeSession{}
+func pluginRuntimeSession(session sandboxSession, state string) gestalt.PluginRuntimeSession {
+	if state == "" {
+		state = sessionStateReady
 	}
 	return gestalt.PluginRuntimeSession{
-		ID:       s.id,
-		State:    s.state,
-		Metadata: cloneStringMap(s.metadata),
+		ID:       session.ID,
+		State:    state,
+		Metadata: cloneStringMap(session.Metadata),
 	}
+}
+
+func sessionStateForSandbox(ctx context.Context, runtime sandboxRuntime, session sandboxSession) string {
+	if !session.Handle.Ready {
+		return sessionStatePending
+	}
+	if session.PluginStarted {
+		if err := runtime.Exec(ctx, session.Handle, pluginHealthCommand(), nil); err == nil {
+			return sessionStateRunning
+		}
+		return sessionStateFailed
+	}
+	if session.PluginStarting {
+		return sessionStateStarting
+	}
+	return sessionStateReady
+}
+
+func pluginStartLeaseDuration(cfg Config) time.Duration {
+	duration := cfg.ExecTimeout + cfg.PluginReadyTimeout + cfg.CleanupTimeout
+	if duration < time.Minute {
+		return time.Minute
+	}
+	return duration
+}
+
+func hostnameEgressPolicyName(handle sandboxHandle) string {
+	return dnsLabelWithSuffix(handle.Name, "egress")
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
