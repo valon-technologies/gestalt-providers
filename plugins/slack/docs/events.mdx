@@ -1,0 +1,167 @@
+---
+title: Events
+---
+
+# Slack Events
+
+Slack event handling always uses the workflow manager for durable per-thread
+dispatch.
+
+## Agent Replies
+
+For the common case where one Slack app has one default bot behavior, configure
+the agent once:
+
+```yaml
+plugins:
+  slack:
+    source: https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.N/provider-release.yaml
+    authorizationPolicy: platform
+    invokes:
+      - plugin: slack
+        operation: events.reply
+        credentialMode: none
+      - plugin: slack
+        operation: events.setStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.deleteStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.addReaction
+        credentialMode: none
+      - plugin: slack
+        operation: events.removeReaction
+        credentialMode: none
+      - plugin: slack
+        operation: events.setAssistantStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.clearAssistantStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.setThreadTitle
+        credentialMode: none
+      - plugin: slack
+        operation: events.setSuggestedPrompts
+        credentialMode: none
+      - plugin: slack
+        operation: interactions.request
+        credentialMode: none
+      - plugin: slack
+        operation: conversations.getThreadContext
+      - plugin: slack
+        operation: files.get
+      - plugin: workplaceHub
+        operation: getMe
+    config:
+      bot:
+        token:
+          secret:
+            provider: secrets
+            name: slack-bot-token
+      acknowledgement:
+        reaction: eyes
+      agent:
+        provider: simple
+        model: deep
+        systemPrompt: Use Slack formatting and keep replies concise.
+        tools:
+          - plugin: workplaceHub
+            operation: getMe
+      assistant:
+        enabled: true
+        status: is checking that...
+        loadingMessages:
+          - Reading the Slack thread
+          - Calling available tools
+        iconEmoji: ":hourglass_flowing_sand:"
+        suggestedPrompts:
+          title: Try next
+          prompts:
+            - title: Summarize this thread
+              message: Summarize this thread and call out open questions.
+```
+
+## Workflow Dispatch
+
+Slack event handling always uses the workflow manager for durable per-thread
+dispatch:
+
+```yaml
+plugins:
+  slack:
+    config:
+      workflow:
+        provider: local
+      agent:
+        provider: simple
+        model: deep
+```
+
+When `acknowledgement.reaction` is configured, `events.handle` adds that
+reaction to the source Slack message before signaling the workflow. Emoji names
+may be written with or without colons, and Slack's `already_reacted` response is
+treated as idempotent success so retried events can continue to signal the
+workflow run.
+
+`events.handle` calls `WorkflowManager.SignalOrStartRun` with
+`provider_name=workflow.provider`, a thread-scoped workflow key, and a
+`slack.event` signal. Later Slack messages in the same thread signal the
+existing keyed run instead of replacing its target or authorization context.
+
+## HTTP Routes
+
+Slack should send Events API requests to:
+
+```text
+POST /api/v1/slack/event
+```
+
+Slack should send interactivity requests to:
+
+```text
+POST /api/v1/slack/interactions
+```
+
+Both routes are declared in `manifest.yaml` under `spec.http`, validate Slack
+HMAC signatures with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user
+through the managed `external_identity` authorization relationship.
+
+## Hidden Helper Operations
+
+`events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
+`events.addReaction`, `events.removeReaction`, the native assistant helpers, and
+the interaction helpers are hidden operations.
+
+`events.handle` starts or signals a keyed workflow run and passes an opaque
+`reply_ref` in the signal payload. The workflow runtime invokes `events.reply`
+using the configured output delivery binding. The same `reply_ref` scopes
+progress statuses, native assistant updates, suggested prompts, thread titles,
+reactions, and interactions to the source event channel, so the agent never
+needs raw `chat.postMessage` access for event replies.
+
+Runtime output-delivery input:
+
+```json
+{"reply_ref":"...","text":"I'll check that now."}
+```
+
+## Event Publishing
+
+To publish Slack Events API callbacks directly into Gestalt workflow events,
+configure `events.publish.routes`. Publish routes are independent from
+`agent.routes`; they do not require a linked Slack user or the Slack bot token.
+
+```yaml
+plugins:
+  slack:
+    source: https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.N/provider-release.yaml
+    authorizationPolicy: platform
+    config:
+      events:
+        publish:
+          routes:
+            - id: deployment-events
+              workflowProvider: local
+```

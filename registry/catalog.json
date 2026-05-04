@@ -8,6 +8,15 @@
       },
       "description": "Agent provider that runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.",
       "displayName": "Claude Agent SDK",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/claude/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/claude/README.md",
+          "sourcePath": "agent/claude/README.md",
+          "title": "Claude Agent SDK Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.14",
@@ -197,6 +206,15 @@
       },
       "description": "Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant.",
       "displayName": "Codex MCP Agent",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/codex/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/codex/README.md",
+          "sourcePath": "agent/codex/README.md",
+          "title": "Codex MCP Agent Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -244,6 +262,15 @@
       },
       "description": "Agent provider that runs the Cursor Agent SDK with Gestalt MCP catalog tools exposed through a per-turn MCP server.",
       "displayName": "Cursor Agent SDK",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/cursor/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/cursor/README.md",
+          "sourcePath": "agent/cursor/README.md",
+          "title": "Cursor Agent SDK Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -285,6 +312,15 @@
       },
       "description": "Agent provider that runs Hermes through the Agent Client Protocol.",
       "displayName": "Hermes ACP Agent",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/hermes/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/hermes/README.md",
+          "sourcePath": "agent/hermes/README.md",
+          "title": "Hermes ACP Agent Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.9",
@@ -403,6 +439,15 @@
       },
       "description": "Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
       "displayName": "Simple Agent",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/simple/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/simple/README.md",
+          "sourcePath": "agent/simple/README.md",
+          "title": "Simple Agent Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.34",
@@ -775,6 +820,15 @@
       },
       "description": "Authenticate users with an OpenID Connect provider.",
       "displayName": "OIDC",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/auth/oidc/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/auth/oidc/README.md",
+          "sourcePath": "auth/oidc/README.md",
+          "title": "OIDC"
+        }
+      ],
       "iconUrl": null,
       "kind": "authentication",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -835,6 +889,15 @@
       },
       "description": "Authorization provider backed by the host IndexedDB service.",
       "displayName": "IndexedDB Authorization",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/authorization/indexeddb/README.md",
+          "sourcePath": "authorization/indexeddb/README.md",
+          "title": "IndexedDB Authorization"
+        }
+      ],
       "iconUrl": null,
       "kind": "authorization",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -895,6 +958,15 @@
       },
       "description": "Valkey-backed cache provider.",
       "displayName": "Valkey",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/cache/valkey/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/cache/valkey/README.md",
+          "sourcePath": "cache/valkey/README.md",
+          "title": "Valkey Cache Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "cache",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -929,6 +1001,15 @@
       },
       "description": "External credentials provider backed by the host IndexedDB service.",
       "displayName": "Default External Credentials",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/external_credentials/default/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/external_credentials/default/README.md",
+          "sourcePath": "external_credentials/default/README.md",
+          "title": "Default External Credentials"
+        }
+      ],
       "iconUrl": null,
       "kind": "external_credentials",
       "latestInstallableVersion": "0.0.1-alpha.6",
@@ -1028,6 +1109,15 @@
       },
       "description": "Amazon DynamoDB datastore provider.",
       "displayName": "DynamoDB",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/dynamodb/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/dynamodb/README.md",
+          "sourcePath": "indexeddb/dynamodb/README.md",
+          "title": "DynamoDB"
+        }
+      ],
       "iconUrl": null,
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1062,6 +1152,15 @@
       },
       "description": "MongoDB datastore provider.",
       "displayName": "MongoDB",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/mongodb/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/mongodb/README.md",
+          "sourcePath": "indexeddb/mongodb/README.md",
+          "title": "MongoDB"
+        }
+      ],
       "iconUrl": null,
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1096,6 +1195,15 @@
       },
       "description": "IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.",
       "displayName": "RelationalDB",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/relationaldb/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/relationaldb/README.md",
+          "sourcePath": "indexeddb/relationaldb/README.md",
+          "title": "RelationalDB"
+        }
+      ],
       "iconUrl": null,
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.21",
@@ -1351,6 +1459,15 @@
       },
       "description": "Manage tasks, projects, and workspaces.",
       "displayName": "Asana",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/asana/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/asana/README.md",
+          "sourcePath": "plugins/asana/README.md",
+          "title": "Asana"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/asana/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1390,6 +1507,15 @@
       },
       "description": "Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.",
       "displayName": "Ashby",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/ashby/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/ashby/README.md",
+          "sourcePath": "plugins/ashby/README.md",
+          "title": "Ashby"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/ashby/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1429,6 +1555,15 @@
       },
       "description": "Google BigQuery data warehouse",
       "displayName": "BigQuery",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/bigquery/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/bigquery/README.md",
+          "sourcePath": "plugins/bigquery/README.md",
+          "title": "BigQuery"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/bigquery/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.7",
@@ -1528,6 +1663,15 @@
       },
       "description": "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs.",
       "displayName": "Carta",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/carta/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/carta/README.md",
+          "sourcePath": "plugins/carta/README.md",
+          "title": "Carta"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/carta/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1558,6 +1702,15 @@
       },
       "description": "Query and manage analytical databases.",
       "displayName": "ClickHouse",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/clickhouse/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/clickhouse/README.md",
+          "sourcePath": "plugins/clickhouse/README.md",
+          "title": "ClickHouse"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/clickhouse/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -1588,6 +1741,15 @@
       },
       "description": "Atlassian Confluence Cloud pages, spaces, and content search.",
       "displayName": "Confluence Cloud",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/confluence/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/confluence/README.md",
+          "sourcePath": "plugins/confluence/README.md",
+          "title": "Confluence Cloud"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/confluence/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1627,6 +1789,15 @@
       },
       "description": "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.",
       "displayName": "Datadog",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/datadog/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/datadog/README.md",
+          "sourcePath": "plugins/datadog/README.md",
+          "title": "Datadog"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/datadog/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.5",
@@ -1684,6 +1855,15 @@
       },
       "description": "Manage accounts, projects, jobs, and runs.",
       "displayName": "dbt Cloud",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/dbt_cloud/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/dbt_cloud/README.md",
+          "sourcePath": "plugins/dbt_cloud/README.md",
+          "title": "dbt Cloud"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/dbt_cloud/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -1714,6 +1894,15 @@
       },
       "description": "Document processing and extraction with Extend.",
       "displayName": "Extend",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/extend/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/extend/README.md",
+          "sourcePath": "plugins/extend/README.md",
+          "title": "Extend"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/extend/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -1744,6 +1933,15 @@
       },
       "description": "Access files, components, comments, and team projects.",
       "displayName": "Figma",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/figma/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/figma/README.md",
+          "sourcePath": "plugins/figma/README.md",
+          "title": "Figma"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/figma/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -1783,6 +1981,15 @@
       },
       "description": "Repository, issue, pull request, workflow, and code search operations.",
       "displayName": "GitHub",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/github/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/github/README.md",
+          "sourcePath": "plugins/github/README.md",
+          "title": "GitHub"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/github/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.20",
@@ -2037,6 +2244,15 @@
       },
       "description": "Repository, issue, merge request, and pipeline operations.",
       "displayName": "GitLab",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gitlab/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gitlab/README.md",
+          "sourcePath": "plugins/gitlab/README.md",
+          "title": "GitLab"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gitlab/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -2085,6 +2301,15 @@
       },
       "description": "Read, send, and manage Gmail messages, threads, drafts, and labels.",
       "displayName": "Gmail",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gmail/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gmail/README.md",
+          "sourcePath": "plugins/gmail/README.md",
+          "title": "Gmail"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gmail/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.13",
@@ -2238,6 +2463,15 @@
       },
       "description": "Access the Gong public API v2 for calls, users, stats, settings, CRM, library, coaching, and data privacy workflows.",
       "displayName": "Gong",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gong/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gong/README.md",
+          "sourcePath": "plugins/gong/README.md",
+          "title": "Gong"
+        }
+      ],
       "iconUrl": null,
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -2268,6 +2502,15 @@
       },
       "description": "Transfer data between Google Workspace users using the Admin SDK Data Transfer API.",
       "displayName": "Google Admin Data Transfer",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_admin_datatransfer/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_admin_datatransfer/README.md",
+          "sourcePath": "plugins/google_admin_datatransfer/README.md",
+          "title": "Google Admin Data Transfer"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_admin_datatransfer/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -2298,6 +2541,15 @@
       },
       "description": "Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API.",
       "displayName": "Google Admin Directory",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_admin_directory/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_admin_directory/README.md",
+          "sourcePath": "plugins/google_admin_directory/README.md",
+          "title": "Google Admin Directory"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_admin_directory/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -2328,6 +2580,15 @@
       },
       "description": "Read and manage Google calendars and events.",
       "displayName": "Google Calendar",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_calendar/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_calendar/README.md",
+          "sourcePath": "plugins/google_calendar/README.md",
+          "title": "Google Calendar"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_calendar/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.4",
@@ -2367,6 +2628,15 @@
       },
       "description": "Read, create, and edit Google Docs documents.",
       "displayName": "Google Docs",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_docs/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_docs/README.md",
+          "sourcePath": "plugins/google_docs/README.md",
+          "title": "Google Docs"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_docs/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.4",
@@ -2406,6 +2676,15 @@
       },
       "description": "Read, create, update, and share files in Google Drive.",
       "displayName": "Google Drive",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_drive/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_drive/README.md",
+          "sourcePath": "plugins/google_drive/README.md",
+          "title": "Google Drive"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_drive/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.4",
@@ -2445,6 +2724,15 @@
       },
       "description": "Read and manage Google Forms and responses.",
       "displayName": "Google Forms",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_forms/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_forms/README.md",
+          "sourcePath": "plugins/google_forms/README.md",
+          "title": "Google Forms"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_forms/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -2484,6 +2772,15 @@
       },
       "description": "Read and update Google Sheets spreadsheets and values.",
       "displayName": "Google Sheets",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_sheets/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_sheets/README.md",
+          "sourcePath": "plugins/google_sheets/README.md",
+          "title": "Google Sheets"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_sheets/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.4",
@@ -2523,6 +2820,15 @@
       },
       "description": "Create and update Google Slides presentations.",
       "displayName": "Google Slides",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/google_slides/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_slides/README.md",
+          "sourcePath": "plugins/google_slides/README.md",
+          "title": "Google Slides"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/google_slides/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.4",
@@ -2562,6 +2868,15 @@
       },
       "description": "Read Granola meeting notes over REST and use the official Granola MCP server.",
       "displayName": "Granola",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/granola/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/granola/README.md",
+          "sourcePath": "plugins/granola/README.md",
+          "title": "Granola"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/granola/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.5",
@@ -2610,6 +2925,15 @@
       },
       "description": "Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations.",
       "displayName": "Hex",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/hex/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/hex/README.md",
+          "sourcePath": "plugins/hex/README.md",
+          "title": "Hex"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/hex/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.9",
@@ -2724,6 +3048,15 @@
       },
       "description": "Development/testing-only HTTP request and response service. Do not use with production or sensitive data.",
       "displayName": "HTTPBin",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/httpbin/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/httpbin/README.md",
+          "sourcePath": "plugins/httpbin/README.md",
+          "title": "HTTPBin"
+        }
+      ],
       "iconUrl": null,
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -2772,6 +3105,15 @@
       },
       "description": "Manage incidents, schedules, users, severities, statuses, and incident.io MCP tools.",
       "displayName": "incident.io",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/incident_io/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/incident_io/README.md",
+          "sourcePath": "plugins/incident_io/README.md",
+          "title": "incident.io"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/incident_io/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -2820,6 +3162,15 @@
       },
       "description": "Read and update contacts, companies, conversations, and notes.",
       "displayName": "Intercom",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/intercom/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/intercom/README.md",
+          "sourcePath": "plugins/intercom/README.md",
+          "title": "Intercom"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/intercom/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -2859,6 +3210,15 @@
       },
       "description": "Atlassian Jira Cloud project and issue management",
       "displayName": "Jira Cloud",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/jira/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/jira/README.md",
+          "sourcePath": "plugins/jira/README.md",
+          "title": "Jira Cloud"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/jira/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.4",
@@ -2907,6 +3267,15 @@
       },
       "description": "Manage feature flags and targeting rules.",
       "displayName": "LaunchDarkly",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/launchdarkly/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/launchdarkly/README.md",
+          "sourcePath": "plugins/launchdarkly/README.md",
+          "title": "LaunchDarkly"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/launchdarkly/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -2946,6 +3315,15 @@
       },
       "description": "Manage issues, projects, and teams.",
       "displayName": "Linear",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/linear/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/linear/README.md",
+          "sourcePath": "plugins/linear/README.md",
+          "title": "Linear"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/linear/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -2994,6 +3372,15 @@
       },
       "description": "Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker.",
       "displayName": "Looker",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/looker/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/looker/README.md",
+          "sourcePath": "plugins/looker/README.md",
+          "title": "Looker"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/looker/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3033,6 +3420,15 @@
       },
       "description": "Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.",
       "displayName": "Modern Treasury",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/modern_treasury/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/modern_treasury/README.md",
+          "sourcePath": "plugins/modern_treasury/README.md",
+          "title": "Modern Treasury"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/modern_treasury/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3072,6 +3468,15 @@
       },
       "description": "Access NICE CXone / NICE inContact Admin, Agent, Reporting, Digital Engagement, WFM, and related public REST APIs.",
       "displayName": "NICE CXone",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/nice_incontact/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/nice_incontact/README.md",
+          "sourcePath": "plugins/nice_incontact/README.md",
+          "title": "NICE CXone"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/nice_incontact/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -3102,6 +3507,15 @@
       },
       "description": "Current Notion REST operations plus the official Notion MCP tool surface.",
       "displayName": "Notion",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/notion/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/notion/README.md",
+          "sourcePath": "plugins/notion/README.md",
+          "title": "Notion"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/notion/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3141,6 +3555,15 @@
       },
       "description": "Manage incidents, services, and on-call schedules.",
       "displayName": "PagerDuty",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/pagerduty/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/pagerduty/README.md",
+          "sourcePath": "plugins/pagerduty/README.md",
+          "title": "PagerDuty"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/pagerduty/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3180,6 +3603,7 @@
       },
       "description": "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.",
       "displayName": "QuickBooks Online",
+      "docs": [],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/quickbooks/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -3210,6 +3634,15 @@
       },
       "description": "Manage corporate cards, transactions, and reimbursements.",
       "displayName": "Ramp",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/ramp/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/ramp/README.md",
+          "sourcePath": "plugins/ramp/README.md",
+          "title": "Ramp"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/ramp/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -3240,6 +3673,15 @@
       },
       "description": "Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API.",
       "displayName": "Rippling",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/rippling/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/rippling/README.md",
+          "sourcePath": "plugins/rippling/README.md",
+          "title": "Rippling"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/rippling/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3279,6 +3721,15 @@
       },
       "description": "Browse SharePoint sites, document libraries, lists, pages, and file content through Microsoft Graph.",
       "displayName": "Microsoft SharePoint",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/sharepoint/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/sharepoint/README.md",
+          "sourcePath": "plugins/sharepoint/README.md",
+          "title": "Microsoft SharePoint"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/sharepoint/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3318,6 +3769,22 @@
       },
       "description": "Read public and private conversations, DMs, and group DMs; send messages; and manage channels.",
       "displayName": "Slack",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/slack/docs/index.mdx",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/slack/docs/index.mdx",
+          "sourcePath": "plugins/slack/docs/index.mdx",
+          "title": "Overview"
+        },
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/slack/docs/events.mdx",
+          "path": "/events/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/slack/docs/events.mdx",
+          "sourcePath": "plugins/slack/docs/events.mdx",
+          "title": "Events"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/slack/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.42",
@@ -3901,6 +4368,15 @@
       },
       "description": "Browse Microsoft Teams teams, channels, chats, members, and messages through Microsoft Graph.",
       "displayName": "Microsoft Teams",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/teams/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/teams/README.md",
+          "sourcePath": "plugins/teams/README.md",
+          "title": "Microsoft Teams"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/teams/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -3931,6 +4407,15 @@
       },
       "description": "Manage Trunk Merge Queue and Flaky Tests APIs with an API token.",
       "displayName": "Trunk",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/trunk/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/trunk/README.md",
+          "sourcePath": "plugins/trunk/README.md",
+          "title": "Trunk"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/trunk/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -3970,6 +4455,15 @@
       },
       "description": "Send and receive SMS, voice calls, and messaging operations.",
       "displayName": "Twilio",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/twilio/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/twilio/README.md",
+          "sourcePath": "plugins/twilio/README.md",
+          "title": "Twilio"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/twilio/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.3",
@@ -4009,6 +4503,7 @@
       },
       "description": "",
       "displayName": "vanta",
+      "docs": [],
       "iconUrl": null,
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4039,6 +4534,15 @@
       },
       "description": "Manage Vercel projects and deployments, and read or write Vercel Blob storage.",
       "displayName": "Vercel",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/vercel/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/vercel/README.md",
+          "sourcePath": "plugins/vercel/README.md",
+          "title": "Vercel"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/vercel/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.12",
@@ -4133,6 +4637,15 @@
       },
       "description": "Support tickets, users, organizations, macros, automations, triggers, and SLA policies.",
       "displayName": "Zendesk",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/zendesk/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/zendesk/README.md",
+          "sourcePath": "plugins/zendesk/README.md",
+          "title": "Zendesk"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/zendesk/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4163,6 +4676,15 @@
       },
       "description": "Hosted executable-plugin runtime backed by GKE Agent Sandbox.",
       "displayName": "GKE Agent Sandbox Runtime",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/gkeagentsandbox/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/runtime/gkeagentsandbox/README.md",
+          "sourcePath": "runtime/gkeagentsandbox/README.md",
+          "title": "GKE Agent Sandbox Runtime Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "runtime",
       "latestInstallableVersion": "0.0.1-alpha.14",
@@ -4366,6 +4888,15 @@
       },
       "description": "Hosted executable-plugin runtime backed by Modal Sandboxes.",
       "displayName": "Modal Runtime",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/modal/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/runtime/modal/README.md",
+          "sourcePath": "runtime/modal/README.md",
+          "title": "Modal Runtime Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "runtime",
       "latestInstallableVersion": "0.0.1-alpha.14",
@@ -4556,6 +5087,15 @@
       },
       "description": "Hosted executable-plugin runtime backed by Nebius Compute VMs.",
       "displayName": "Nebius Runtime",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/nebius/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/runtime/nebius/README.md",
+          "sourcePath": "runtime/nebius/README.md",
+          "title": "Nebius Runtime Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "runtime",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -4603,6 +5143,15 @@
       },
       "description": "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends.",
       "displayName": "S3",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/s3/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/s3/README.md",
+          "sourcePath": "s3/s3/README.md",
+          "title": "S3 Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "s3",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -4650,6 +5199,15 @@
       },
       "description": "Resolves secrets from AWS Secrets Manager.",
       "displayName": "AWS Secrets Manager",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/aws/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/aws/README.md",
+          "sourcePath": "secrets/aws/README.md",
+          "title": "AWS Secrets Manager"
+        }
+      ],
       "iconUrl": null,
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4684,6 +5242,15 @@
       },
       "description": "Resolves secrets from Azure Key Vault.",
       "displayName": "Azure Key Vault",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/azure/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/azure/README.md",
+          "sourcePath": "secrets/azure/README.md",
+          "title": "Azure Key Vault"
+        }
+      ],
       "iconUrl": null,
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4718,6 +5285,15 @@
       },
       "description": "Resolves secrets from Google Cloud Secret Manager.",
       "displayName": "Google Secret Manager",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/google/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/google/README.md",
+          "sourcePath": "secrets/google/README.md",
+          "title": "Google Secret Manager"
+        }
+      ],
       "iconUrl": null,
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.2",
@@ -4765,6 +5341,15 @@
       },
       "description": "Resolves secrets from Keeper Secrets Manager.",
       "displayName": "Keeper Secrets Manager",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/keeper/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/keeper/README.md",
+          "sourcePath": "secrets/keeper/README.md",
+          "title": "Keeper Secrets Manager"
+        }
+      ],
       "iconUrl": null,
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4799,6 +5384,15 @@
       },
       "description": "Resolves secrets from 1Password Connect.",
       "displayName": "1Password",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/onepassword/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/onepassword/README.md",
+          "sourcePath": "secrets/onepassword/README.md",
+          "title": "1Password"
+        }
+      ],
       "iconUrl": null,
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4833,6 +5427,15 @@
       },
       "description": "Resolves secrets from HashiCorp Vault KV v2.",
       "displayName": "HashiCorp Vault",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/vault/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/vault/README.md",
+          "sourcePath": "secrets/vault/README.md",
+          "title": "HashiCorp Vault"
+        }
+      ],
       "iconUrl": null,
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -4870,6 +5473,15 @@
       },
       "description": "Default Gestalt UI bundle served at /.",
       "displayName": "Default UI",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/default/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/ui/default/README.md",
+          "sourcePath": "ui/default/README.md",
+          "title": "Default UI"
+        }
+      ],
       "iconUrl": null,
       "kind": "ui",
       "latestInstallableVersion": "0.0.1-alpha.25",
@@ -5008,6 +5620,15 @@
       },
       "description": "IndexedDB-backed workflow provider with durable keyed signal dispatch.",
       "displayName": "IndexedDB Workflow",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/indexeddb/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/workflow/indexeddb/README.md",
+          "sourcePath": "workflow/indexeddb/README.md",
+          "title": "IndexedDB Workflow Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "workflow",
       "latestInstallableVersion": "0.0.1-alpha.46",
@@ -5627,6 +6248,15 @@
       },
       "description": "Temporal Cloud-backed workflow provider with durable workflow state and schedules.",
       "displayName": "Temporal Workflow",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/temporal/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/workflow/temporal/README.md",
+          "sourcePath": "workflow/temporal/README.md",
+          "title": "Temporal Workflow Provider"
+        }
+      ],
       "iconUrl": null,
       "kind": "workflow",
       "latestInstallableVersion": "0.0.1-alpha.2",

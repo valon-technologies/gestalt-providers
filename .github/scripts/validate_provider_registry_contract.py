@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,12 @@ CATALOG_SCHEMA_VERSION = 1
 REPOSITORY = "valon-technologies/gestalt-providers"
 SOURCE_PREFIX = "github.com/valon-technologies/gestalt-providers/"
 RAW_URL_PREFIX = f"https://raw.githubusercontent.com/{REPOSITORY}/main/"
+BLOB_URL_PREFIX = f"https://github.com/{REPOSITORY}/blob/main/"
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+DOC_PATH_PATTERN = re.compile(r"^/(?:[a-z0-9][a-z0-9-]*/)?$")
+DOC_ESM_PATTERN = re.compile(r"^\s*(?:import|export)\s+")
+DOC_MDX_JSX_PATTERN = re.compile(r"^\s*</?[A-Z][A-Za-z0-9]*(?:\s|>|/>)")
+DOC_HTML_PATTERN = re.compile(r"^\s*</?[a-z][a-z0-9-]*(?:\s|>|/>)")
 
 
 def parse_args() -> argparse.Namespace:
@@ -151,6 +157,105 @@ def validate_icon_assets(repo_root: pathlib.Path, catalog: dict[str, Any]) -> No
             )
 
 
+def relative_path_from_raw_url(url: str, field: str, package: str) -> str:
+    if not isinstance(url, str) or not url.startswith(RAW_URL_PREFIX):
+        raise SystemExit(f"catalog {field} for {package} must point at {RAW_URL_PREFIX}")
+    return urllib.parse.unquote(url.removeprefix(RAW_URL_PREFIX))
+
+
+def relative_path_from_blob_url(url: str, field: str, package: str) -> str:
+    if not isinstance(url, str) or not url.startswith(BLOB_URL_PREFIX):
+        raise SystemExit(f"catalog {field} for {package} must point at {BLOB_URL_PREFIX}")
+    return urllib.parse.unquote(url.removeprefix(BLOB_URL_PREFIX))
+
+
+def validate_doc_source_text(path: pathlib.Path, package: str) -> None:
+    in_code_fence = False
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        if DOC_ESM_PATTERN.match(line):
+            raise SystemExit(
+                f"catalog docs for {package} use unsupported MDX import/export at {path}:{line_number}"
+            )
+        if DOC_MDX_JSX_PATTERN.match(line):
+            raise SystemExit(
+                f"catalog docs for {package} use unsupported MDX JSX at {path}:{line_number}"
+            )
+        if DOC_HTML_PATTERN.match(line):
+            raise SystemExit(
+                f"catalog docs for {package} use unsupported raw HTML at {path}:{line_number}"
+            )
+
+
+def validate_provider_docs(repo_root: pathlib.Path, catalog: dict[str, Any]) -> None:
+    providers = catalog.get("providers") or []
+    for provider in providers:
+        package = provider.get("package") or "<unknown>"
+        package_path = provider.get("packagePath")
+        docs = provider.get("docs") or []
+        if not docs:
+            continue
+        if not isinstance(package_path, str) or not package_path:
+            raise SystemExit(f"catalog docs for {package} require packagePath")
+        if not isinstance(docs, list):
+            raise SystemExit(f"catalog docs for {package} must be a list")
+        seen_paths: set[str] = set()
+        for doc in docs:
+            if not isinstance(doc, dict):
+                raise SystemExit(f"catalog docs for {package} entries must be mappings")
+            doc_path = doc.get("path")
+            if (
+                not isinstance(doc_path, str)
+                or not DOC_PATH_PATTERN.fullmatch(doc_path)
+                or ".." in pathlib.PurePosixPath(doc_path).parts
+                or "?" in doc_path
+                or "#" in doc_path
+            ):
+                raise SystemExit(f"catalog docs path for {package} is invalid: {doc_path!r}")
+            if doc_path in seen_paths:
+                raise SystemExit(f"catalog docs for {package} duplicate path {doc_path!r}")
+            seen_paths.add(doc_path)
+
+            title = doc.get("title")
+            if not isinstance(title, str) or not title.strip():
+                raise SystemExit(f"catalog docs for {package} path {doc_path} must have a title")
+
+            source_path = doc.get("sourcePath")
+            if not isinstance(source_path, str) or not source_path:
+                raise SystemExit(f"catalog docs for {package} path {doc_path} must have sourcePath")
+            source = pathlib.PurePosixPath(source_path)
+            if source.is_absolute() or ".." in source.parts:
+                raise SystemExit(f"catalog docs for {package} sourcePath is invalid: {source_path!r}")
+            if not source_path.startswith(f"{package_path}/"):
+                raise SystemExit(
+                    f"catalog docs for {package} sourcePath {source_path!r} is outside {package_path!r}"
+                )
+            if source.suffix not in {".md", ".mdx"}:
+                raise SystemExit(f"catalog docs for {package} sourcePath must be .md or .mdx: {source_path}")
+
+            raw_path = relative_path_from_raw_url(doc.get("rawUrl"), "docs rawUrl", package)
+            if raw_path != source_path:
+                raise SystemExit(
+                    f"catalog docs rawUrl for {package} points at {raw_path!r}, want {source_path!r}"
+                )
+            edit_path = relative_path_from_blob_url(doc.get("editUrl"), "docs editUrl", package)
+            if edit_path != source_path:
+                raise SystemExit(
+                    f"catalog docs editUrl for {package} points at {edit_path!r}, want {source_path!r}"
+                )
+            source_file = repo_root / source_path
+            if not source_file.is_file():
+                raise SystemExit(
+                    f"catalog docs for {package} point at missing file {source_path}"
+                )
+            validate_doc_source_text(source_file, package)
+
+
 def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: dict[str, Any]) -> None:
     validate_latest_installable_selection_rules()
     if index.get("schema") != INDEX_SCHEMA_NAME:
@@ -196,6 +301,7 @@ def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: di
     if (ui_default.get("configTarget") or {}).get("requiredSet", {}).get("path") != "/":
         raise SystemExit("catalog ui/default configTarget must require path=/")
     validate_icon_assets(repo_root, catalog)
+    validate_provider_docs(repo_root, catalog)
 
 
 def write_base_config(config_path: pathlib.Path, index_path: pathlib.Path) -> None:
