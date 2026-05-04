@@ -228,6 +228,99 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
 }
 
 #[tokio::test]
+async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
+    let _env_lock = ENV_LOCK.lock().await;
+    let fixture = Fixture::new("success");
+    let host = TestAgentHostService::default();
+    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
+    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    create_mcp_turn(&provider, "turn-mcp-no-prefetch").await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-mcp-no-prefetch",
+        proto::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    assert_eq!(turn.output_text, "Hermes says hi");
+
+    let list_requests = host.list_requests.lock().expect("list requests").clone();
+    assert!(
+        list_requests.is_empty(),
+        "MCP bridge should not list Gestalt tools until Hermes calls tools/list: {list_requests:?}"
+    );
+
+    let log = fixture.log_events();
+    let load = log
+        .iter()
+        .find(|event| event["event"] == "load")
+        .expect("session/load logged");
+    let mcp_servers = load["params"]["mcpServers"]
+        .as_array()
+        .expect("mcpServers array");
+    assert_eq!(mcp_servers.len(), 1);
+
+    host_task.abort();
+    let _ = host_task.await;
+}
+
+#[tokio::test]
+async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
+    let _env_lock = ENV_LOCK.lock().await;
+    let fixture = Fixture::new("mcp-call");
+    let host = TestAgentHostService {
+        list_reconnect_sentinel: true,
+        execute_status: 424,
+        execute_body: r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#,
+        ..Default::default()
+    };
+    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
+    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    create_mcp_turn(&provider, "turn-mcp-sentinel").await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-mcp-sentinel",
+        proto::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
+
+    let execute_requests = host
+        .execute_requests
+        .lock()
+        .expect("execute requests")
+        .clone();
+    assert_eq!(execute_requests.len(), 1);
+    assert_eq!(execute_requests[0].tool_id, "linear-reconnect");
+
+    let log = fixture.log_events();
+    let mcp_result = log
+        .iter()
+        .find(|event| event["event"] == "mcp_result")
+        .expect("mcp result logged");
+    assert_eq!(
+        mcp_result["result"]["call"]["result"]["isError"],
+        serde_json::Value::Bool(true)
+    );
+    assert_eq!(
+        mcp_result["result"]["call"]["result"]["content"][0]["text"],
+        r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#
+    );
+
+    host_task.abort();
+    let _ = host_task.await;
+}
+
+#[tokio::test]
 async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call-no-cap");
@@ -511,6 +604,9 @@ struct Fixture {
 struct TestAgentHostService {
     list_requests: Arc<StdMutex<Vec<proto::ListAgentToolsRequest>>>,
     execute_requests: Arc<StdMutex<Vec<proto::ExecuteAgentToolRequest>>>,
+    list_reconnect_sentinel: bool,
+    execute_status: i32,
+    execute_body: &'static str,
 }
 
 #[tonic::async_trait]
@@ -526,25 +622,48 @@ impl AgentHostRpc for TestAgentHostService {
             .push(request.clone());
         Ok(tonic::Response::new(proto::ListAgentToolsResponse {
             tools: if request.page_token.trim().is_empty() {
-                vec![proto::ListedAgentTool {
-                    id: "linear-list".to_string(),
-                    mcp_name: "linear.issues".to_string(),
-                    title: "Linear issues".to_string(),
-                    description: "List Linear issues visible to the user".to_string(),
-                    input_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
-                        .to_string(),
-                    annotations: Some(proto::OperationAnnotations {
-                        read_only_hint: Some(true),
-                        open_world_hint: Some(false),
+                if self.list_reconnect_sentinel {
+                    vec![proto::ListedAgentTool {
+                        id: "linear-reconnect".to_string(),
+                        mcp_name: "linear__reconnect_required".to_string(),
+                        title: "linear reconnect required".to_string(),
+                        description: "linear credentials expired or refresh failed".to_string(),
+                        input_schema:
+                            r#"{"type":"object","properties":{},"additionalProperties":false}"#
+                                .to_string(),
+                        annotations: Some(proto::OperationAnnotations {
+                            read_only_hint: Some(true),
+                            open_world_hint: Some(false),
+                            ..Default::default()
+                        }),
+                        r#ref: Some(proto::AgentToolRef {
+                            plugin: "linear".to_string(),
+                            ..Default::default()
+                        }),
                         ..Default::default()
-                    }),
-                    r#ref: Some(proto::AgentToolRef {
-                        plugin: "linear".to_string(),
-                        operation: "issues".to_string(),
+                    }]
+                } else {
+                    vec![proto::ListedAgentTool {
+                        id: "linear-list".to_string(),
+                        mcp_name: "linear.issues".to_string(),
+                        title: "Linear issues".to_string(),
+                        description: "List Linear issues visible to the user".to_string(),
+                        input_schema:
+                            r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
+                                .to_string(),
+                        annotations: Some(proto::OperationAnnotations {
+                            read_only_hint: Some(true),
+                            open_world_hint: Some(false),
+                            ..Default::default()
+                        }),
+                        r#ref: Some(proto::AgentToolRef {
+                            plugin: "linear".to_string(),
+                            operation: "issues".to_string(),
+                            ..Default::default()
+                        }),
                         ..Default::default()
-                    }),
-                    ..Default::default()
-                }]
+                    }]
+                }
             } else {
                 Vec::new()
             },
@@ -562,8 +681,17 @@ impl AgentHostRpc for TestAgentHostService {
             .expect("execute requests")
             .push(request);
         Ok(tonic::Response::new(proto::ExecuteAgentToolResponse {
-            status: 200,
-            body: "linear tickets".to_string(),
+            status: if self.execute_status == 0 {
+                200
+            } else {
+                self.execute_status
+            },
+            body: if self.execute_body.is_empty() {
+                "linear tickets"
+            } else {
+                self.execute_body
+            }
+            .to_string(),
         }))
     }
 
