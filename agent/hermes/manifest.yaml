@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/agent/hermes
-version: 0.0.1-alpha.7
+version: 0.0.1-alpha.8
 displayName: Hermes ACP Agent
 description: Agent provider that runs Hermes through the Agent Client Protocol.
 kind: agent
