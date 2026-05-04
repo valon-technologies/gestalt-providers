@@ -10,7 +10,10 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from .config import GitHubWebhookPolicy, get_github_config
 from .constants import (
     BOT_COMMIT_FILES_OPERATION,
+    BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
+    BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+    BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     GITHUB_WORKFLOW_SIGNAL_NAME,
@@ -97,19 +100,20 @@ def workflow_agent_prompt() -> str:
 
 
 def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
-    operations = (
-        policy.allowed_operations
-        if policy is not None
-        else (
-            BOT_COMMIT_FILES_OPERATION,
-            BOT_OPEN_PULL_REQUEST_OPERATION,
-            BOT_CREATE_PULL_REQUEST_OPERATION,
-        )
-    )
     return [
         gestalt.AgentToolRef(plugin="github", operation=operation)
-        for operation in operations
+        for operation in agent_operations(policy)
     ]
+
+
+def agent_operations(policy: GitHubWebhookPolicy | None = None) -> tuple[str, ...]:
+    if policy is not None:
+        return policy.allowed_operations
+    return (
+        BOT_COMMIT_FILES_OPERATION,
+        BOT_OPEN_PULL_REQUEST_OPERATION,
+        BOT_CREATE_PULL_REQUEST_OPERATION,
+    )
 
 
 def agent_session_metadata(
@@ -177,9 +181,33 @@ def agent_system_prompt(policy: GitHubWebhookPolicy | None = None) -> str:
         prompt = policy.agent_system_prompt
     elif config.agent_system_prompt:
         prompt = config.agent_system_prompt
-    if not prompt:
-        return DEFAULT_AGENT_SYSTEM_PROMPT
-    return DEFAULT_AGENT_SYSTEM_PROMPT + "\n\n" + prompt.strip()
+    parts: list[str] = [DEFAULT_AGENT_SYSTEM_PROMPT]
+    operation_guidance = agent_operation_guidance(policy)
+    if operation_guidance:
+        parts.append(operation_guidance)
+    if prompt:
+        parts.append(prompt.strip())
+    return "\n\n".join(parts)
+
+
+def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
+    operations = set(agent_operations(policy))
+    lines: list[str] = []
+    if BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations:
+        lines.append(
+            "Use bot.createPullRequestReview for inline file/line pull request "
+            "review comments."
+        )
+    if BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION in operations:
+        lines.append(
+            "Use bot.createPullRequestConversationComment for pull request "
+            "timeline comments."
+        )
+    if BOT_CREATE_ISSUE_COMMENT_OPERATION in operations:
+        lines.append("Use bot.createIssueComment only for issue comments.")
+    return "\n".join(lines)
+
+
 
 
 def agent_user_prompt(
