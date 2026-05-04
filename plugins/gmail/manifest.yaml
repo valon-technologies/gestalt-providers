@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/gmail
-version: 0.0.1-alpha.13
+version: 0.0.1-alpha.14
 displayName: Gmail
 description: Read, send, and manage Gmail messages, threads, drafts, and labels.
 iconFile: assets/icon.svg
@@ -46,8 +46,5 @@ spec:
           prompt: consent
     platform:
       displayName: Platform Identity
-      mode: platform
+      mode: none
       exposure: internal
-      auth:
-        type: manual
-        credentials: []
