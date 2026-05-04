@@ -23,6 +23,7 @@ from internals.constants import (
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     GITHUB_EVENT_OPERATION,
+    REVIEW_PULL_REQUEST_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.operations import (
@@ -64,6 +65,7 @@ from internals.operations import (
     workflow_run_summary,
 )
 from internals.policy import select_webhook_policy, webhook_event_type_for_policy
+from internals.review import review_pull_request
 from internals.webhook import (
     event_summary,
     installation_id_from_payload,
@@ -328,6 +330,59 @@ class CreatePullRequestReviewInput(gestalt.Model):
     )
 
 
+class ReviewPullRequestInput(gestalt.Model):
+    agentProvider: str = gestalt.field(
+        description="Agent provider used to inspect the pull request diff",
+        default="",
+        required=False,
+    )
+    model: str = gestalt.field(
+        description="Agent model used to inspect the pull request diff",
+        default="",
+        required=False,
+    )
+    systemPrompt: str = gestalt.field(
+        description="System prompt for the pull request review agent",
+        default="",
+        required=False,
+    )
+    maxComments: int = gestalt.field(
+        description="Maximum inline review comments to post",
+        default=10,
+        required=False,
+    )
+    maxFiles: int = gestalt.field(
+        description="Maximum changed files to inspect",
+        default=50,
+        required=False,
+    )
+    maxPatchChars: int = gestalt.field(
+        description="Maximum patch characters per changed file to send to the agent",
+        default=80000,
+        required=False,
+    )
+    changedLinesOnly: bool = gestalt.field(
+        description="Only allow comments on added RIGHT-side diff lines",
+        default=True,
+        required=False,
+    )
+    dryRun: bool = gestalt.field(
+        description="Return validated findings without posting a GitHub review",
+        default=False,
+        required=False,
+    )
+    turnTimeoutMs: int = gestalt.field(
+        description="Maximum time to wait for the review agent turn",
+        default=180000,
+        required=False,
+    )
+    pollIntervalMs: int = gestalt.field(
+        description="Polling interval while waiting for the review agent turn",
+        default=1000,
+        required=False,
+    )
+
+
 class GetPullRequestInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
@@ -559,6 +614,32 @@ def _signal_or_start_webhook_workflow(
         "workflow_signal_id": str(getattr(signal, "id", "")),
         "workflow_started_run": bool(getattr(response, "started_run", False)),
     }
+
+
+@plugin.operation(
+    id=REVIEW_PULL_REQUEST_OPERATION,
+    method="POST",
+    description=(
+        "Review the latest GitHub pull_request workflow signal and post validated "
+        "inline comments"
+    ),
+    tags=["pr", "prs", "review"],
+)
+def github_review_pull_request(
+    input: ReviewPullRequestInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        return {"data": review_pull_request(input, req)}
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    except RuntimeError as err:
+        return _service_unavailable(str(err))
 
 
 @plugin.operation(
