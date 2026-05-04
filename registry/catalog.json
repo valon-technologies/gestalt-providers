@@ -287,7 +287,7 @@
       "displayName": "Hermes ACP Agent",
       "iconUrl": null,
       "kind": "agent",
-      "latestInstallableVersion": "0.0.1-alpha.9",
+      "latestInstallableVersion": "0.0.1-alpha.10",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/hermes/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.10",
       "name": "hermes",
@@ -297,6 +297,16 @@
       "registryPath": "/providers/agent/hermes/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/hermes",
       "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.10/provider-release.yaml",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.10"
+        },
         {
           "kind": "agent",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.9/provider-release.yaml",

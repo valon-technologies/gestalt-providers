@@ -177,6 +177,13 @@ packages:
     displayName: "Hermes ACP Agent"
     description: "Agent provider that runs Hermes through the Agent Client Protocol."
     versions:
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "linux/amd64"
+          - "linux/arm64"
       "0.0.1-alpha.9":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.9/provider-release.yaml"
         kind: "agent"
