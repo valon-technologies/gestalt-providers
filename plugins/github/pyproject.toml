@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-github"
-version = "0.0.1a18"
+version = "0.0.1a19"
 requires-python = "==3.14.*"
 dependencies = [
   "cryptography==46.0.7",
@@ -35,6 +35,8 @@ vulture-ignore-names = [
   "bot_create_pull_request_review",
   "bot_create_pull_request_conversation_comment",
   "bot_create_issue_comment",
+  "bot_get_pull_request",
+  "bot_list_pull_request_files",
   "bot_get_check_run",
   "bot_list_check_run_annotations",
   "bot_get_workflow_run",

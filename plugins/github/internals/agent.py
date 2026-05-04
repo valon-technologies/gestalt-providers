@@ -14,6 +14,8 @@ from .constants import (
     BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+    BOT_GET_PULL_REQUEST_OPERATION,
+    BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     GITHUB_WORKFLOW_SIGNAL_NAME,
@@ -193,7 +195,22 @@ def agent_system_prompt(policy: GitHubWebhookPolicy | None = None) -> str:
 def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
     operations = set(agent_operations(policy))
     lines: list[str] = []
-    if BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations:
+    if (
+        BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations
+        and BOT_LIST_PULL_REQUEST_FILES_OPERATION in operations
+    ):
+        if BOT_GET_PULL_REQUEST_OPERATION in operations:
+            lines.append(
+                "Use bot.getPullRequest and bot.listPullRequestFiles to inspect "
+                "pull request metadata and diff patches before using "
+                "bot.createPullRequestReview for inline review comments."
+            )
+        else:
+            lines.append(
+                "Use bot.listPullRequestFiles to inspect diff patches before "
+                "using bot.createPullRequestReview for inline review comments."
+            )
+    elif BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations:
         lines.append(
             "Use bot.createPullRequestReview for inline file/line pull request "
             "review comments."

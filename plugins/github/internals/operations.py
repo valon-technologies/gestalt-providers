@@ -18,6 +18,7 @@ from .client import (
 from .constants import (
     GITHUB_INSTALLATION_SUBJECT_PREFIX,
     GITHUB_REPOSITORY_SUBJECT_SEPARATOR,
+    MAX_GITHUB_PATCH_CHARS,
 )
 from .errors import GitHubAPIError, GitHubAuthorizationError
 from .helpers import (
@@ -139,6 +140,24 @@ class GitHubCreatePullRequestReviewRequest:
     body: str
     comments: tuple[GitHubPullRequestReviewComment, ...]
     commit_id: str = ""
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubPullRequestRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListPullRequestFilesRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    per_page: int = 0
+    page: int = 0
     installation_id: int = 0
 
 
@@ -535,6 +554,59 @@ def create_pull_request_review(
         installation_id, repositories=[repo], permissions={"pull_requests": "write"}
     )
     return github.github_json("POST", path, token, payload)
+
+
+def get_pull_request(
+    request: GitHubPullRequestRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    return github.github_json(
+        "GET",
+        repo_path(owner, repo, "pulls", str(pull_number)),
+        token,
+    )
+
+
+def list_pull_request_files(
+    request: GitHubListPullRequestFilesRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "pulls", str(pull_number), "files"),
+            params,
+        ),
+        token,
+    )
+    if not isinstance(data, list):
+        raise GitHubAPIError(502, "GitHub pull request files response was not a list")
+    return [item for item in data if isinstance(item, dict)]
 
 
 def get_check_run(
@@ -941,7 +1013,32 @@ def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
         "html_url": str_field(pull, "html_url"),
         "url": str_field(pull, "url"),
         "head": nested_str(pull, "head", "ref"),
+        "head_sha": nested_str(pull, "head", "sha"),
         "base": nested_str(pull, "base", "ref"),
+        "base_sha": nested_str(pull, "base", "sha"),
+    }
+
+
+def pull_request_file_summary(file: Mapping[str, Any]) -> dict[str, Any]:
+    raw_patch = file.get("patch")
+    patch = raw_patch if isinstance(raw_patch, str) else ""
+    patch_truncated = len(patch) > MAX_GITHUB_PATCH_CHARS
+    if patch_truncated:
+        patch = _bounded_text(patch, MAX_GITHUB_PATCH_CHARS)
+    return {
+        "sha": str_field(file, "sha"),
+        "filename": str_field(file, "filename"),
+        "status": str_field(file, "status"),
+        "previous_filename": str_field(file, "previous_filename"),
+        "additions": int_field(file, "additions"),
+        "deletions": int_field(file, "deletions"),
+        "changes": int_field(file, "changes"),
+        "blob_url": str_field(file, "blob_url"),
+        "raw_url": str_field(file, "raw_url"),
+        "contents_url": str_field(file, "contents_url"),
+        "patch": patch,
+        "patch_truncated": patch_truncated,
+        "patch_limit": MAX_GITHUB_PATCH_CHARS,
     }
 
 
@@ -1077,6 +1174,15 @@ def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
         for key, nested in value.items()
         if nested not in ("", 0, None, {}, [])
     }
+
+
+def _bounded_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    marker = "\n...<truncated>"
+    if max_chars <= len(marker):
+        return value[:max_chars]
+    return value[: max_chars - len(marker)] + marker
 
 
 def generated_branch_name(message: str) -> str:

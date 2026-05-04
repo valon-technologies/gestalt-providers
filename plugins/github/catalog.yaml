@@ -200,6 +200,59 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
+- id: bot.getPullRequest
+  method: GET
+  description: Get pull request metadata using a GitHub App installation token
+  tags: [pr, prs, review]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.listPullRequestFiles
+  method: GET
+  description: List pull request changed files and bounded patches using a GitHub App
+    installation token
+  tags: [pr, prs, review, diff]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
 - id: bot.createPullRequestReview
   method: POST
   description: Create a pull request review with inline comments using a GitHub App

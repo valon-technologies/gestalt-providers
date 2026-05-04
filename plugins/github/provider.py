@@ -16,8 +16,10 @@ from internals.constants import (
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
+    BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
+    BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     GITHUB_EVENT_OPERATION,
@@ -33,8 +35,10 @@ from internals.operations import (
     GitHubCreatePullRequestReviewRequest,
     GitHubFileChange,
     GitHubListCheckRunAnnotationsRequest,
+    GitHubListPullRequestFilesRequest,
     GitHubListWorkflowRunJobsRequest,
     GitHubOpenPullRequestRequest,
+    GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
     GitHubWorkflowRunRequest,
     check_run_annotation_summary,
@@ -46,11 +50,14 @@ from internals.operations import (
     create_pull_request_review,
     create_pull_request_with_files,
     get_check_run,
+    get_pull_request,
     get_workflow_run,
     issue_comment_summary,
     list_check_run_annotations,
+    list_pull_request_files,
     list_workflow_run_jobs,
     open_pull_request,
+    pull_request_file_summary,
     pull_request_review_summary,
     pull_request_summary,
     workflow_run_job_summary,
@@ -313,6 +320,36 @@ class CreatePullRequestReviewInput(gestalt.Model):
         description="Optional commit SHA to review. Defaults to GitHub's latest PR commit.",
         default="",
         required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class GetPullRequestInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class ListPullRequestFilesInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
     )
     installation_id: int = gestalt.field(
         description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
@@ -723,6 +760,73 @@ def bot_create_pull_request_conversation_comment(
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"comment": issue_comment_summary(comment)}}
+
+
+@plugin.operation(
+    id=BOT_GET_PULL_REQUEST_OPERATION,
+    method="GET",
+    description="Get pull request metadata using a GitHub App installation token",
+    tags=["pr", "prs", "review"],
+)
+def bot_get_pull_request(
+    input: GetPullRequestInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        pull_request = get_pull_request(
+            GitHubPullRequestRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"pull_request": pull_request_summary(pull_request)}}
+
+
+@plugin.operation(
+    id=BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    method="GET",
+    description="List pull request changed files and bounded patches using a GitHub App installation token",
+    tags=["pr", "prs", "review", "diff"],
+)
+def bot_list_pull_request_files(
+    input: ListPullRequestFilesInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        files = list_pull_request_files(
+            GitHubListPullRequestFilesRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                per_page=input.per_page,
+                page=input.page,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "count": len(files),
+            "files": [pull_request_file_summary(file) for file in files],
+        }
+    }
 
 
 @plugin.operation(
