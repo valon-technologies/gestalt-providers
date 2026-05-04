@@ -197,6 +197,32 @@ func (s *store) listCredentials(ctx context.Context, subjectID, connectionID, in
 	return credentials, nil
 }
 
+func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionIDs map[string]struct{}) ([]*gestalt.ExternalCredential, error) {
+	if len(connectionIDs) == 0 {
+		return nil, nil
+	}
+	records, err := s.credentials.GetAll(ctx, nil)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	records = dedupeCredentialRecords(records)
+	credentials := make([]*gestalt.ExternalCredential, 0, len(records))
+	for _, record := range records {
+		if _, ok := connectionIDs[recordString(record, "connection_id")]; !ok {
+			continue
+		}
+		credential, err := s.recordToCredential(record)
+		if err != nil {
+			return nil, err
+		}
+		credentials = append(credentials, credential)
+	}
+	return credentials, nil
+}
+
 func (s *store) deleteCredential(ctx context.Context, id string) error {
 	record, err := s.credentials.Get(ctx, id)
 	if errors.Is(err, gestalt.ErrNotFound) {

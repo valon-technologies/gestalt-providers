@@ -59,7 +59,10 @@ func (p *Provider) ValidateCredentialConfig(_ context.Context, req *gestalt.Vali
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	auth := req.GetAuth()
+	return validateCredentialAuthConfig(req.GetMode(), req.GetAuth())
+}
+
+func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialAuthConfig) error {
 	if auth == nil {
 		return nil
 	}
@@ -89,7 +92,7 @@ func (p *Provider) ValidateCredentialConfig(_ context.Context, req *gestalt.Vali
 	if len(auth.GetTokenExchangeDrivers()) > 0 {
 		return nil
 	}
-	if req.GetMode() == "platform" && auth.GetType() == "oauth2" && auth.GetGrantType() == "client_credentials" {
+	if mode == "platform" && auth.GetType() == "oauth2" && auth.GetGrantType() == "client_credentials" {
 		if strings.TrimSpace(auth.GetTokenUrl()) == "" {
 			return status.Error(codes.InvalidArgument, "auth.tokenUrl is required")
 		}
@@ -138,14 +141,10 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 		return nil, credentialLookupError(err)
 	}
 	if shouldRefreshCredential(credential, req.GetAuth(), p.now()) {
-		key := credential.GetSubjectId() + ":" + credential.GetConnectionId() + ":" + credential.GetInstance()
-		v, err, _ := resolverState.group.Do(key, func() (any, error) {
-			return p.refreshStoredCredential(ctx, st, req, credential)
-		})
+		credential, err = p.refreshStoredCredentialOnce(ctx, st, req, credential)
 		if err != nil {
 			return nil, err
 		}
-		credential = v.(*gestalt.ExternalCredential)
 	}
 	params := metadataParams(credential.GetMetadataJson())
 	for k, v := range req.GetConnectionParams() {
@@ -215,6 +214,28 @@ func resolveStoredCredential(ctx context.Context, st *store, req *gestalt.Resolv
 	}
 }
 
+func (p *Provider) refreshStoredCredentialOnce(ctx context.Context, st *store, req *gestalt.ResolveExternalCredentialRequest, credential *gestalt.ExternalCredential) (*gestalt.ExternalCredential, error) {
+	key := credentialRefreshKey(credential)
+	v, err, _ := resolverState.group.Do(key, func() (any, error) {
+		return p.refreshStoredCredential(ctx, st, req, credential)
+	})
+	if err != nil {
+		return nil, err
+	}
+	refreshed, ok := v.(*gestalt.ExternalCredential)
+	if !ok || refreshed == nil {
+		return nil, status.Error(codes.Internal, "refresh returned no credential")
+	}
+	return refreshed, nil
+}
+
+func credentialRefreshKey(credential *gestalt.ExternalCredential) string {
+	if credential == nil {
+		return ""
+	}
+	return credential.GetSubjectId() + ":" + credential.GetConnectionId() + ":" + credential.GetInstance()
+}
+
 func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *gestalt.ResolveExternalCredentialRequest, credential *gestalt.ExternalCredential) (*gestalt.ExternalCredential, error) {
 	resp, err := refreshCredential(ctx, req.GetAuth(), credential.GetRefreshToken(), mergeParams(metadataParams(credential.GetMetadataJson()), req.GetConnectionParams()))
 	now := p.now().UTC()
@@ -252,13 +273,20 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 }
 
 func shouldRefreshCredential(credential *gestalt.ExternalCredential, auth *gestalt.ExternalCredentialAuthConfig, now time.Time) bool {
+	return shouldRefreshCredentialWithin(credential, auth, now, tokenRefreshThreshold)
+}
+
+func shouldRefreshCredentialWithin(credential *gestalt.ExternalCredential, auth *gestalt.ExternalCredentialAuthConfig, now time.Time, threshold time.Duration) bool {
 	if credential == nil || credential.GetRefreshToken() == "" || credential.GetExpiresAt() == nil {
 		return false
 	}
 	if auth == nil || strings.TrimSpace(auth.GetTokenUrl()) == "" {
 		return false
 	}
-	return credential.GetExpiresAt().AsTime().Sub(now) <= tokenRefreshThreshold
+	if threshold <= 0 {
+		return false
+	}
+	return credential.GetExpiresAt().AsTime().Sub(now) <= threshold
 }
 
 func refreshCredential(ctx context.Context, auth *gestalt.ExternalCredentialAuthConfig, refreshToken string, params map[string]string) (*tokenResponse, error) {
