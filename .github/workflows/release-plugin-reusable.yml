@@ -556,6 +556,7 @@ jobs:
       - name: Install gestaltd for registry validation
         env:
           GOBIN: ${{ runner.temp }}/bin
+          GESTALT_REPOSITORY: valon-technologies/gestalt
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN"
