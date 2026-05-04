@@ -553,6 +553,45 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 	}
 }
 
+func TestProviderListRunsDoesNotLoadEachRunByKey(t *testing.T) {
+	ctx := context.Background()
+	var spy *indexedDBServerSpy
+	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
+		spy = &indexedDBServerSpy{IndexedDBServer: inner}
+		return spy
+	})
+	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	for i := 0; i < 3; i++ {
+		_, err := provider.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+			IdempotencyKey: fmt.Sprintf("list-runs-%d", i),
+			Target:         protoBoundTarget(t, "roadmap", "sync", map[string]any{"index": i}),
+			CreatedBy:      &proto.WorkflowActor{SubjectId: "user:123", SubjectKind: "user"},
+		})
+		if err != nil {
+			t.Fatalf("StartRun(%d): %v", i, err)
+		}
+	}
+
+	spy.resetOperationCounts()
+	runs, err := provider.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs.GetRuns()) != 3 {
+		t.Fatalf("runs len = %d, want 3", len(runs.GetRuns()))
+	}
+	if got := spy.getCount(storeRuns); got != 0 {
+		t.Fatalf("workflow_runs Get count = %d, want 0", got)
+	}
+}
+
 func TestProviderSignalOrStartRunConcurrentSignalsShareWorkflowKeyRun(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
@@ -3766,6 +3805,7 @@ type indexedDBServerSpy struct {
 	missingSignalIndex       string
 	mu                       sync.Mutex
 	createObjectStores       map[string]int
+	getCounts                map[string]int
 }
 
 type blockingGetAllServer struct {
@@ -3810,11 +3850,33 @@ func (s *indexedDBServerSpy) createObjectStoreCount(name string) int {
 	return s.createObjectStores[name]
 }
 
+func (s *indexedDBServerSpy) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
+	s.mu.Lock()
+	if s.getCounts == nil {
+		s.getCounts = make(map[string]int)
+	}
+	s.getCounts[req.GetStore()]++
+	s.mu.Unlock()
+	return s.IndexedDBServer.Get(ctx, req)
+}
+
 func (s *indexedDBServerSpy) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
 	if s.failUnscopedSignalGetAll && req.GetStore() == storeSignals && req.GetRange() == nil {
 		return nil, status.Error(codes.Internal, "unexpected unscoped workflow_signals GetAll")
 	}
 	return s.IndexedDBServer.GetAll(ctx, req)
+}
+
+func (s *indexedDBServerSpy) resetOperationCounts() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.getCounts = make(map[string]int)
+}
+
+func (s *indexedDBServerSpy) getCount(store string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getCounts[store]
 }
 
 func (s *indexedDBServerSpy) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {

@@ -4113,7 +4113,7 @@ func loadRunRecordTx(ctx context.Context, store *gestalt.TransactionObjectStore,
 }
 
 func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, ownerKey string) ([]workflowRunRecord, error) {
-	cursor, err := store.OpenKeyCursor(ctx, nil, gestalt.CursorNext)
+	cursor, err := store.OpenCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
 		return nil, err
 	}
@@ -4121,16 +4121,13 @@ func listRunRecords(ctx context.Context, store *gestalt.ObjectStoreClient, owner
 
 	var out []workflowRunRecord
 	for cursor.Continue() {
-		key := strings.TrimSpace(cursor.PrimaryKey())
-		if key == "" {
-			continue
-		}
-		run, found, err := loadRunRecord(ctx, store, "", key)
+		record, err := cursor.Value()
 		if err != nil {
 			return nil, err
 		}
-		if !found {
-			continue
+		run, err := runRecordFromRecord(record)
+		if err != nil {
+			return nil, err
 		}
 		if ownerKey != "" && run.ownerKey() != ownerKey {
 			continue
