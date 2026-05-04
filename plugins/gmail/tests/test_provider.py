@@ -266,7 +266,10 @@ class GmailProviderTests(unittest.TestCase):
 
         self.assertEqual(result["data"]["message"]["id"], "reply-1")
         self.assertEqual(
-            [(method, token) for method, _url, token, _body in recording_client.requests],
+            [
+                (method, token)
+                for method, _url, token, _body in recording_client.requests
+            ],
             [("GET", "test-token"), ("POST", "test-token")],
         )
         decoded = decode_base64url(recording_client.sent_raw).decode("utf-8")

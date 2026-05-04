@@ -4,7 +4,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias
 from urllib.parse import quote, urlencode
@@ -15,9 +15,12 @@ GmailJsonPayload: TypeAlias = Mapping[str, Any]
 
 
 class GmailAPIError(RuntimeError):
-    def __init__(self, status: int, message: str) -> None:
+    def __init__(
+        self, status: int, message: str, raw_body: GmailJsonObject | None = None
+    ) -> None:
         self.status = status
         self.body = {"error": message}
+        self.raw_body = raw_body or self.body
         super().__init__(message)
 
 
@@ -45,6 +48,39 @@ class GmailAPIClient(Protocol):
     def full_message_url(self, message_id: str) -> str: ...
 
     def draft_url(self, draft_id: str) -> str: ...
+
+    def messages_list_url(
+        self,
+        *,
+        q: str = "",
+        label_ids: Iterable[str] = (),
+        max_results: int | None = None,
+        page_token: str = "",
+        include_spam_trash: bool = False,
+        fields: str = "",
+    ) -> str: ...
+
+    def message_url(
+        self,
+        message_id: str,
+        *,
+        format: str = "",
+        metadata_headers: Iterable[str] = (),
+        fields: str = "",
+    ) -> str: ...
+
+    def thread_url(
+        self,
+        thread_id: str,
+        *,
+        format: str = "",
+        metadata_headers: Iterable[str] = (),
+        fields: str = "",
+    ) -> str: ...
+
+    def labels_url(self, *, fields: str = "") -> str: ...
+
+    def profile_url(self, *, fields: str = "") -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +111,61 @@ class GmailHTTPClient:
 
     def draft_url(self, draft_id: str) -> str:
         return draft_url(draft_id)
+
+    def messages_list_url(
+        self,
+        *,
+        q: str = "",
+        label_ids: Iterable[str] = (),
+        max_results: int | None = None,
+        page_token: str = "",
+        include_spam_trash: bool = False,
+        fields: str = "",
+    ) -> str:
+        return messages_list_url(
+            q=q,
+            label_ids=label_ids,
+            max_results=max_results,
+            page_token=page_token,
+            include_spam_trash=include_spam_trash,
+            fields=fields,
+        )
+
+    def message_url(
+        self,
+        message_id: str,
+        *,
+        format: str = "",
+        metadata_headers: Iterable[str] = (),
+        fields: str = "",
+    ) -> str:
+        return message_url(
+            message_id,
+            format=format,
+            metadata_headers=metadata_headers,
+            fields=fields,
+        )
+
+    def thread_url(
+        self,
+        thread_id: str,
+        *,
+        format: str = "",
+        metadata_headers: Iterable[str] = (),
+        fields: str = "",
+    ) -> str:
+        return thread_url(
+            thread_id,
+            format=format,
+            metadata_headers=metadata_headers,
+            fields=fields,
+        )
+
+    def labels_url(self, *, fields: str = "") -> str:
+        return labels_url(fields=fields)
+
+    def profile_url(self, *, fields: str = "") -> str:
+        return profile_url(fields=fields)
 
 
 DEFAULT_GMAIL_CLIENT = GmailHTTPClient()
@@ -124,8 +215,8 @@ def _request_json(request: urllib.request.Request) -> GmailJsonObject:
         with urllib.request.urlopen(request, timeout=30) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
-        message = _decode_error_message(exc.read(), exc.code)
-        raise GmailAPIError(exc.code, message) from exc
+        message, raw_body = _decode_error_body(exc.read(), exc.code)
+        raise GmailAPIError(exc.code, message, raw_body=raw_body) from exc
     except urllib.error.URLError as exc:
         raise GmailClientError(f"gmail API request failed: {exc.reason}") from exc
 
@@ -139,24 +230,48 @@ def _request_json(request: urllib.request.Request) -> GmailJsonObject:
     return payload
 
 
-def _decode_error_message(body: bytes, status: int) -> str:
+def _decode_error_body(body: bytes, status: int) -> tuple[str, GmailJsonObject]:
     text = body.decode("utf-8", errors="replace").strip()
     if not text:
-        return f"gmail API error (status {status})"
+        message = f"gmail API error (status {status})"
+        return message, {"error": message}
     try:
         payload = json.loads(text)
     except json.JSONDecodeError:
-        return f"gmail API error (status {status}): {text}"
+        message = f"gmail API error (status {status}): {text}"
+        return message, {"error": message}
     if isinstance(payload, dict):
+        message = ""
         error = payload.get("error")
         if isinstance(error, dict):
-            message = error.get("message")
-            if isinstance(message, str) and message:
-                return message
-        message = payload.get("message")
+            raw_message = error.get("message")
+            if isinstance(raw_message, str) and raw_message:
+                message = raw_message
+        if not message:
+            raw_message = payload.get("message")
+            if isinstance(raw_message, str) and raw_message:
+                message = raw_message
         if isinstance(message, str) and message:
-            return message
-    return f"gmail API error (status {status}): {text}"
+            return message, payload
+    message = f"gmail API error (status {status}): {text}"
+    return message, {"error": message}
+
+
+def _append_query(url: str, params: Iterable[tuple[str, object]]) -> str:
+    pairs: list[tuple[str, str]] = []
+    for name, value in params:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            pairs.append((name, "true" if value else "false"))
+            continue
+        text = str(value)
+        if text == "":
+            continue
+        pairs.append((name, text))
+    if not pairs:
+        return url
+    return f"{url}?{urlencode(pairs, doseq=True)}"
 
 
 def metadata_message_url(message_id: str) -> str:
@@ -182,3 +297,60 @@ def full_message_url(message_id: str) -> str:
 
 def draft_url(draft_id: str) -> str:
     return f"{gmail_base_url()}/drafts/{quote(draft_id, safe='')}"
+
+
+def messages_list_url(
+    *,
+    q: str = "",
+    label_ids: Iterable[str] = (),
+    max_results: int | None = None,
+    page_token: str = "",
+    include_spam_trash: bool = False,
+    fields: str = "",
+) -> str:
+    params: list[tuple[str, object]] = [
+        ("q", q),
+        ("maxResults", max_results),
+        ("pageToken", page_token),
+        ("fields", fields),
+    ]
+    if include_spam_trash:
+        params.append(("includeSpamTrash", include_spam_trash))
+    params.extend(("labelIds", label_id) for label_id in label_ids)
+    return _append_query(f"{gmail_base_url()}/messages", params)
+
+
+def message_url(
+    message_id: str,
+    *,
+    format: str = "",
+    metadata_headers: Iterable[str] = (),
+    fields: str = "",
+) -> str:
+    params: list[tuple[str, object]] = [("format", format), ("fields", fields)]
+    params.extend(("metadataHeaders", header) for header in metadata_headers)
+    return _append_query(
+        f"{gmail_base_url()}/messages/{quote(message_id, safe='')}", params
+    )
+
+
+def thread_url(
+    thread_id: str,
+    *,
+    format: str = "",
+    metadata_headers: Iterable[str] = (),
+    fields: str = "",
+) -> str:
+    params: list[tuple[str, object]] = [("format", format), ("fields", fields)]
+    params.extend(("metadataHeaders", header) for header in metadata_headers)
+    return _append_query(
+        f"{gmail_base_url()}/threads/{quote(thread_id, safe='')}", params
+    )
+
+
+def labels_url(*, fields: str = "") -> str:
+    return _append_query(f"{gmail_base_url()}/labels", [("fields", fields)])
+
+
+def profile_url(*, fields: str = "") -> str:
+    return _append_query(f"{gmail_base_url()}/profile", [("fields", fields)])

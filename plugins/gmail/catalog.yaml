@@ -1,9 +1,109 @@
 name: gmail
 operations:
+- id: messages.list
+  method: GET
+  description: List Gmail messages
+  read_only: true
+  parameters:
+  - name: q
+    type: string
+    description: Gmail search query
+    default: ''
+  - name: labelIds
+    type: array
+    description: Label IDs to restrict the search to
+  - name: maxResults
+    type: integer
+    description: Maximum number of messages to return
+    default: 100
+  - name: pageToken
+    type: string
+    description: Page token returned by a previous list call
+    default: ''
+  - name: includeSpamTrash
+    type: boolean
+    description: Include messages from SPAM and TRASH
+    default: false
+  - name: fields
+    type: string
+    description: Partial response fields selector
+    default: ''
+  tags:
+  - email
+  - mail
+- id: messages.get
+  method: GET
+  description: Get a Gmail message
+  read_only: true
+  parameters:
+  - name: id
+    type: string
+    description: Message ID
+    required: true
+  - name: format
+    type: string
+    description: 'Message format: minimal, full, raw, or metadata'
+    default: ''
+  - name: metadataHeaders
+    type: array
+    description: Metadata headers to include when format is metadata
+  - name: fields
+    type: string
+    description: Partial response fields selector
+    default: ''
+  tags:
+  - email
+  - mail
+- id: threads.get
+  method: GET
+  description: Get a Gmail thread
+  read_only: true
+  parameters:
+  - name: id
+    type: string
+    description: Thread ID
+    required: true
+  - name: format
+    type: string
+    description: Message format for messages in the thread
+    default: ''
+  - name: metadataHeaders
+    type: array
+    description: Metadata headers to include when format is metadata
+  - name: fields
+    type: string
+    description: Partial response fields selector
+    default: ''
+  tags:
+  - email
+  - mail
+- id: labels.list
+  method: GET
+  description: List Gmail labels
+  read_only: true
+  parameters:
+  - name: fields
+    type: string
+    description: Partial response fields selector
+    default: ''
+  tags:
+  - email
+  - mail
+- id: getProfile
+  method: GET
+  description: Get the Gmail profile
+  read_only: true
+  parameters:
+  - name: fields
+    type: string
+    description: Partial response fields selector
+    default: ''
+  tags:
+  - email
+  - mail
 - id: messages.send
   method: POST
   description: Send an email message
-  tags: [email, mail]
   parameters:
   - name: to
     type: string
@@ -29,10 +129,12 @@ operations:
     type: string
     description: HTML body (sent as alternative to plain text)
     default: ''
+  tags:
+  - email
+  - mail
 - id: drafts.create
   method: POST
   description: Create an email draft
-  tags: [email, mail]
   parameters:
   - name: to
     type: string
@@ -58,10 +160,12 @@ operations:
     type: string
     description: HTML body
     default: ''
+  tags:
+  - email
+  - mail
 - id: drafts.update
   method: PUT
   description: Update an email draft
-  tags: [email, mail]
   parameters:
   - name: id
     type: string
@@ -91,19 +195,23 @@ operations:
     type: string
     description: HTML body
     default: ''
+  tags:
+  - email
+  - mail
 - id: drafts.send
   method: POST
   description: Send an existing email draft
-  tags: [email, mail]
   parameters:
   - name: id
     type: string
     description: Draft ID
     required: true
+  tags:
+  - email
+  - mail
 - id: messages.reply
   method: POST
   description: Reply to an existing message
-  tags: [email, mail]
   parameters:
   - name: message_id
     type: string
@@ -125,10 +233,12 @@ operations:
     type: string
     description: HTML body
     default: ''
+  tags:
+  - email
+  - mail
 - id: messages.forward
   method: POST
   description: Forward a message to new recipients
-  tags: [email, mail]
   parameters:
   - name: message_id
     type: string
@@ -146,3 +256,6 @@ operations:
     type: string
     description: CC recipients (comma-separated)
     default: ''
+  tags:
+  - email
+  - mail
