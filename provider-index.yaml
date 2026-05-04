@@ -547,7 +547,7 @@ packages:
           - "linux/arm64"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/auth/oidc/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "auth"
+        kind: "authentication"
         runtime: "executable"
         platforms:
           - "darwin/amd64"
@@ -2877,39 +2877,6 @@ packages:
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.12/provider-release.yaml"
         kind: "ui"
         runtime: "ui"
-        platforms:
-          - "generic"
-  github.com/valon-technologies/gestalt-providers/web/default:
-    displayName: "default"
-    versions:
-      "0.0.1-alpha.12":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.12/provider-release.yaml"
-        kind: "webui"
-        runtime: "webui"
-        platforms:
-          - "generic"
-      "0.0.1-alpha.11":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.11/provider-release.yaml"
-        kind: "webui"
-        runtime: "webui"
-        platforms:
-          - "generic"
-      "0.0.1-alpha.10":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.10/provider-release.yaml"
-        kind: "webui"
-        runtime: "webui"
-        platforms:
-          - "generic"
-      "0.0.1-alpha.9":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.9/provider-release.yaml"
-        kind: "webui"
-        runtime: "webui"
-        platforms:
-          - "generic"
-      "0.0.1-alpha.8":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/web/default/v0.0.1-alpha.8/provider-release.yaml"
-        kind: "webui"
-        runtime: "webui"
         platforms:
           - "generic"
   github.com/valon-technologies/gestalt-providers/workflow/indexeddb:
