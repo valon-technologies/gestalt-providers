@@ -63,11 +63,9 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertNotIn("gmail.users.messages.get", allowed)
         self.assertNotIn("gmail.users.threads.get", allowed)
         platform_connection = manifest["spec"]["connections"]["platform"]
-        self.assertEqual(platform_connection["mode"], "platform")
+        self.assertEqual(platform_connection["mode"], "none")
         self.assertEqual(platform_connection["exposure"], "internal")
-        self.assertEqual(
-            platform_connection["auth"], {"type": "manual", "credentials": []}
-        )
+        self.assertNotIn("auth", platform_connection)
 
         schema = yaml.safe_load(
             (PLUGIN_DIR / "schemas" / "config.schema.yaml").read_text()
