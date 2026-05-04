@@ -34,6 +34,7 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
         .into_inner();
     assert!(capabilities.streaming_text);
     assert!(capabilities.tool_calls);
+    assert!(capabilities.bounded_list_hydration);
     assert_eq!(
         capabilities.supported_tool_sources,
         vec![proto::AgentToolSourceMode::McpCatalog as i32]
