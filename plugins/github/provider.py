@@ -451,7 +451,7 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 @plugin.operation(
     id=GITHUB_EVENT_OPERATION,
     method="POST",
-    description="Handle GitHub App webhook callbacks and delegate repository events to a Gestalt agent",
+    description="Handle GitHub App webhook callbacks and delegate repository events to configured Gestalt workflow targets",
     visible=False,
 )
 def github_events_handle(

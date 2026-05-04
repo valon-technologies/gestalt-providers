@@ -112,11 +112,12 @@ agent turns. Set `webhookEvents` to override the allowlist.
 
 Use `webhookPolicies` when webhook behavior should depend on the event. Policies
 are evaluated in order and the first match selects the workflow provider
-override, agent override, action mode, and exact bot operations exposed to the
-agent. If `webhookPolicies` is present and no policy matches, the webhook is
-acknowledged and ignored. If `webhookEvents` is also configured, it remains a
-coarse app-level allowlist before policy selection; if it is omitted, policy
-`match.events` controls event types.
+override, optional workflow target, agent override, action mode, and exact bot
+operations exposed to fallback agent targets. If `webhookPolicies` is present
+and no policy matches, the webhook is acknowledged and ignored. If
+`webhookEvents` is also configured, it remains a coarse app-level allowlist
+before policy selection; if it is omitted, policy `match.events` controls event
+types.
 
 ```yaml
 plugins:
@@ -130,6 +131,27 @@ plugins:
         provider: simple
         model: gpt-5.4
       webhookPolicies:
+        - id: pr-review-workflow
+          match:
+            events: [pull_request]
+            actions: [opened, synchronize, reopened, ready_for_review]
+          workflow:
+            provider: temporal
+            target:
+              plugin:
+                plugin: github_review
+                operation: reviewPullRequest
+                input:
+                  maxComments: 10
+                  changedLinesOnly: true
+                  _gestalt:
+                    eventRunPermissions:
+                      - plugin: github
+                        operation: bot.getPullRequest
+                      - plugin: github
+                        operation: bot.listPullRequestFiles
+                      - plugin: github
+                        operation: bot.createPullRequestReview
         - id: failed-ci-comment
           match:
             events: [check_run, workflow_run]
@@ -177,15 +199,25 @@ Compatibility note: existing policies that use `action.mode` without explicit
 `bot.createPullRequestReview`. Add an explicit `allowedOperations` list to keep
 previous CI-read-only or timeline-only comment behavior.
 
+Set `workflow.target.plugin` on a policy to dispatch the matched webhook to a
+deterministic workflow/plugin target instead of the generated agent target. The
+target `input` is static configuration only; webhook event details are delivered
+through the workflow signal payload and are not merged into `input`. Workflow
+providers derive plugin-target access from the target plugin plus optional
+`_gestalt.eventRunPermissions` entries in target input, so include the GitHub
+bot operations there when the target workflow needs to inspect or write PR
+state.
+
 After signature validation, the hosted HTTP binding invokes `events.handle`
-before acknowledging the GitHub delivery. `events.handle` filters the event and calls
-`WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
+before acknowledging the GitHub delivery. `events.handle` filters the event and
+calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
 workflow_key="github:${installation_id}:${owner}/${repo}:${number}",
-signal.name="github.app.webhook")` and returns from the webhook request after the
-workflow signal has been durably enqueued. The agent still starts from the
-workflow provider, not inline in the webhook handler. If enqueueing fails,
-`events.handle` returns a retryable error so GitHub can redeliver the webhook.
-The signal payload has this interface:
+signal.name="github.app.webhook")` and returns from the webhook request after
+the workflow signal has been durably enqueued. The configured workflow target
+starts from the workflow provider; when no policy target is configured, the
+generated agent target is used. If enqueueing fails, `events.handle` returns a
+retryable error so GitHub can redeliver the webhook. The signal payload has this
+interface:
 
 GitHub's delivery timeout is 10 seconds, so webhook handlers must keep the
 enqueue path small and avoid starting agents inline. Treat non-2xx delivery

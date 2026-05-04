@@ -3,7 +3,7 @@ operations:
 - id: events.handle
   method: POST
   description: Handle GitHub App webhook callbacks and delegate repository events
-    to a Gestalt agent
+    to configured Gestalt workflow targets
   visible: false
 - id: bot.commitFiles
   method: POST
