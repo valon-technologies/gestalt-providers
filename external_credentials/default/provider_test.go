@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -323,6 +324,256 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 	}
 	if got.GetAccessToken() != "refreshed-access-token" || got.GetRefreshErrorCount() != 0 {
 		t.Fatalf("stored credential = access:%q errors:%d, want refreshed token and cleared errors", got.GetAccessToken(), got.GetRefreshErrorCount())
+	}
+}
+
+func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		expiresAt time.Time
+	}{
+		{name: "expired", expiresAt: time.Now().Add(-1 * time.Minute)},
+		{name: "unexpired within refresh threshold", expiresAt: time.Now().Add(2 * time.Minute)},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			startTestIndexedDBBackend(t)
+			lifecycle, providerConn := startTestProviderServer(t)
+			defer func() { _ = providerConn.Close() }()
+
+			configureProvider(t, lifecycle, map[string]any{
+				"encryptionKey": "provider-invalid-grant-delete-key-" + strings.ReplaceAll(tc.name, " ", "-"),
+			})
+
+			tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseForm(); err != nil {
+					t.Errorf("ParseForm: %v", err)
+				}
+				if r.Form.Get("grant_type") != "refresh_token" {
+					t.Errorf("grant_type = %q, want refresh_token", r.Form.Get("grant_type"))
+				}
+				if r.Form.Get("refresh_token") != "revoked-refresh-token" {
+					t.Errorf("refresh_token = %q, want revoked-refresh-token", r.Form.Get("refresh_token"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"revoked-refresh-token secret should not leak"}`))
+			}))
+			defer tokenServer.Close()
+
+			client, err := gestalt.ExternalCredentials()
+			if err != nil {
+				t.Fatalf("ExternalCredentials: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+
+			lookup := &proto.ExternalCredentialLookup{
+				SubjectId:    "user:user-invalid-grant-" + strings.ReplaceAll(tc.name, " ", "-"),
+				ConnectionId: "gmail:default",
+				Instance:     "default",
+			}
+			_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
+				Credential: &proto.ExternalCredential{
+					SubjectId:    lookup.GetSubjectId(),
+					ConnectionId: lookup.GetConnectionId(),
+					Instance:     lookup.GetInstance(),
+					AccessToken:  "old-access-token",
+					RefreshToken: "revoked-refresh-token",
+					ExpiresAt:    timestamppb.New(tc.expiresAt),
+				},
+			})
+			if err != nil {
+				t.Fatalf("UpsertCredential(seed): %v", err)
+			}
+
+			_, err = client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+				Provider:            "gmail",
+				Connection:          "default",
+				ConnectionId:        lookup.GetConnectionId(),
+				Mode:                "user",
+				CredentialSubjectId: lookup.GetSubjectId(),
+				Instance:            lookup.GetInstance(),
+				Auth: &proto.ExternalCredentialAuthConfig{
+					Type:         "oauth2",
+					TokenUrl:     tokenServer.URL,
+					ClientId:     "client-id",
+					ClientSecret: "client-secret",
+				},
+			})
+			if status.Code(err) != codes.Unauthenticated {
+				t.Fatalf("ResolveCredential code = %v, want %v (err=%v)", status.Code(err), codes.Unauthenticated, err)
+			}
+			if msg := status.Convert(err).Message(); strings.Contains(msg, "revoked-refresh-token") || strings.Contains(msg, "secret should not leak") {
+				t.Fatalf("ResolveCredential error leaked token endpoint body: %q", msg)
+			}
+
+			_, err = client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
+			if status.Code(err) != codes.NotFound {
+				t.Fatalf("GetCredential after invalid_grant code = %v, want %v", status.Code(err), codes.NotFound)
+			}
+		})
+	}
+}
+
+func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		expiresAt   time.Time
+		wantResolve bool
+	}{
+		{name: "unexpired within refresh threshold", expiresAt: time.Now().Add(2 * time.Minute), wantResolve: true},
+		{name: "expired", expiresAt: time.Now().Add(-1 * time.Minute), wantResolve: false},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			startTestIndexedDBBackend(t)
+			lifecycle, providerConn := startTestProviderServer(t)
+			defer func() { _ = providerConn.Close() }()
+
+			configureProvider(t, lifecycle, map[string]any{
+				"encryptionKey": "provider-transient-refresh-key-" + strings.ReplaceAll(tc.name, " ", "-"),
+			})
+
+			tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":"temporarily_unavailable","error_description":"transient secret should not leak"}`))
+			}))
+			defer tokenServer.Close()
+
+			client, err := gestalt.ExternalCredentials()
+			if err != nil {
+				t.Fatalf("ExternalCredentials: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+
+			lookup := &proto.ExternalCredentialLookup{
+				SubjectId:    "user:user-transient-" + strings.ReplaceAll(tc.name, " ", "-"),
+				ConnectionId: "gmail:default",
+				Instance:     "default",
+			}
+			_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
+				Credential: &proto.ExternalCredential{
+					SubjectId:    lookup.GetSubjectId(),
+					ConnectionId: lookup.GetConnectionId(),
+					Instance:     lookup.GetInstance(),
+					AccessToken:  "old-access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    timestamppb.New(tc.expiresAt),
+				},
+			})
+			if err != nil {
+				t.Fatalf("UpsertCredential(seed): %v", err)
+			}
+
+			resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+				Provider:            "gmail",
+				Connection:          "default",
+				ConnectionId:        lookup.GetConnectionId(),
+				Mode:                "user",
+				CredentialSubjectId: lookup.GetSubjectId(),
+				Instance:            lookup.GetInstance(),
+				Auth: &proto.ExternalCredentialAuthConfig{
+					Type:         "oauth2",
+					TokenUrl:     tokenServer.URL,
+					ClientId:     "client-id",
+					ClientSecret: "client-secret",
+				},
+			})
+			if tc.wantResolve {
+				if err != nil {
+					t.Fatalf("ResolveCredential: %v", err)
+				}
+				if resolved.GetToken() != "old-access-token" {
+					t.Fatalf("resolved token = %q, want old-access-token", resolved.GetToken())
+				}
+			} else if status.Code(err) != codes.Unauthenticated {
+				t.Fatalf("ResolveCredential code = %v, want %v (err=%v)", status.Code(err), codes.Unauthenticated, err)
+			} else if msg := status.Convert(err).Message(); strings.Contains(msg, "transient secret should not leak") {
+				t.Fatalf("ResolveCredential error leaked token endpoint body: %q", msg)
+			}
+
+			got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
+			if err != nil {
+				t.Fatalf("GetCredential(retained): %v", err)
+			}
+			if got.GetAccessToken() != "old-access-token" || got.GetRefreshErrorCount() != 1 {
+				t.Fatalf("retained credential = access:%q errors:%d, want old token and one error", got.GetAccessToken(), got.GetRefreshErrorCount())
+			}
+		})
+	}
+}
+
+func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		body        string
+		want        string
+		notContains []string
+	}{
+		{
+			name:        "oauth error code",
+			body:        `{"error":"invalid_grant","error_description":"oauth description secret"}`,
+			want:        "invalid_grant",
+			notContains: []string{"oauth description secret"},
+		},
+		{
+			name:        "html body",
+			body:        `<html>html secret</html>`,
+			notContains: []string{"html secret", "<html>"},
+		},
+		{
+			name:        "malicious error code",
+			body:        `{"error":"invalid grant secret","error_description":"malicious description secret"}`,
+			notContains: []string{"invalid grant secret", "malicious description secret"},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			startTestIndexedDBBackend(t)
+			lifecycle, providerConn := startTestProviderServer(t)
+			defer func() { _ = providerConn.Close() }()
+
+			configureProvider(t, lifecycle, map[string]any{
+				"encryptionKey": "provider-token-error-sanitize-key-" + strings.ReplaceAll(tc.name, " ", "-"),
+			})
+
+			tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer tokenServer.Close()
+
+			client, err := gestalt.ExternalCredentials()
+			if err != nil {
+				t.Fatalf("ExternalCredentials: %v", err)
+			}
+			defer func() { _ = client.Close() }()
+
+			_, err = client.ExchangeCredential(context.Background(), &proto.ExchangeExternalCredentialRequest{
+				Provider:       "manual",
+				Connection:     "default",
+				ConnectionId:   "manual:default",
+				CredentialJson: `{"api_key":"manual-secret"}`,
+				Auth: &proto.ExternalCredentialAuthConfig{
+					Type:          "manual",
+					TokenUrl:      tokenServer.URL,
+					TokenExchange: "json",
+				},
+			})
+			if status.Code(err) != codes.Unavailable {
+				t.Fatalf("ExchangeCredential code = %v, want %v (err=%v)", status.Code(err), codes.Unavailable, err)
+			}
+			msg := status.Convert(err).Message()
+			if tc.want != "" && !strings.Contains(msg, tc.want) {
+				t.Fatalf("ExchangeCredential message = %q, want it to contain %q", msg, tc.want)
+			}
+			for _, forbidden := range append(tc.notContains, "manual-secret") {
+				if strings.Contains(msg, forbidden) {
+					t.Fatalf("ExchangeCredential message leaked %q: %q", forbidden, msg)
+				}
+			}
+		})
 	}
 }
 
