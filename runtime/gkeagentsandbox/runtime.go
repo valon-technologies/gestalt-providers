@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"cloud.google.com/go/container/apiv1/containerpb"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
+	"k8s.io/client-go/util/retry"
 	sandboxv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	agentclientset "sigs.k8s.io/agent-sandbox/clients/k8s/clientset/versioned"
 	extclientset "sigs.k8s.io/agent-sandbox/clients/k8s/extensions/clientset/versioned"
@@ -39,8 +42,9 @@ import (
 
 type sandboxRuntime interface {
 	HealthCheck(context.Context) error
-	Start(context.Context, startSandboxRequest) (sandboxHandle, error)
-	Get(context.Context, sandboxHandle) (sandboxHandle, error)
+	Start(context.Context, startSandboxRequest) (sandboxSession, error)
+	ResolveSession(context.Context, string, string) (sandboxSession, error)
+	ListSessions(context.Context, string) ([]sandboxSession, error)
 	Stop(context.Context, sandboxHandle) error
 	Exec(context.Context, sandboxHandle, []string, io.Reader) error
 	ForwardPort(context.Context, sandboxHandle, int) (tunnel, error)
@@ -48,6 +52,9 @@ type sandboxRuntime interface {
 	ServiceDNSDialTarget(context.Context, sandboxHandle, int) (tunnel, error)
 	EnsureHostnameEgressPolicy(context.Context, sandboxHandle, hostnameEgressConfig) (string, error)
 	DeleteHostnameEgressPolicy(context.Context, sandboxHandle, string) error
+	AcquirePluginStartLease(context.Context, sandboxHandle, string, time.Duration) error
+	ReleasePluginStartLease(context.Context, sandboxHandle, string) error
+	MarkPluginStarted(context.Context, sandboxHandle, string, string) error
 	Close() error
 }
 
@@ -63,6 +70,16 @@ type startSandboxRequest struct {
 	Template   string
 	Image      string
 	Metadata   map[string]string
+}
+
+type sandboxSession struct {
+	ID             string
+	PluginName     string
+	Template       string
+	Metadata       map[string]string
+	Handle         sandboxHandle
+	PluginStarting bool
+	PluginStarted  bool
 }
 
 type sandboxHandle struct {
@@ -207,30 +224,27 @@ func (r *kubernetesSandboxRuntime) HealthCheck(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (r *kubernetesSandboxRuntime) Start(ctx context.Context, req startSandboxRequest) (sandboxHandle, error) {
+func (r *kubernetesSandboxRuntime) Start(ctx context.Context, req startSandboxRequest) (sandboxSession, error) {
 	if strings.TrimSpace(req.Template) != "" {
 		return r.startClaim(ctx, req)
 	}
 	return r.startDirectSandbox(ctx, req)
 }
 
-func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSandboxRequest) (sandboxHandle, error) {
+func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSandboxRequest) (sandboxSession, error) {
+	objectMeta := runtimeObjectMeta(req)
 	claim := &extv1alpha1.SandboxClaim{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: extv1alpha1.SchemeGroupVersion.String(),
 			Kind:       "SandboxClaim",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.Name,
-			Namespace: req.Namespace,
-			Labels:    runtimeLabels(req.PluginName),
-		},
+		ObjectMeta: objectMeta,
 		Spec: extv1alpha1.SandboxClaimSpec{
 			TemplateRef: extv1alpha1.SandboxTemplateRef{Name: req.Template},
 		},
 	}
 	if _, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(req.Namespace).Create(ctx, claim, metav1.CreateOptions{}); err != nil {
-		return sandboxHandle{}, fmt.Errorf("create SandboxClaim %s/%s: %w", req.Namespace, req.Name, err)
+		return sandboxSession{}, fmt.Errorf("create SandboxClaim %s/%s: %w", req.Namespace, req.Name, err)
 	}
 	handle := sandboxHandle{
 		Name:      req.Name,
@@ -240,25 +254,24 @@ func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSand
 	}
 	ready, err := r.waitForClaimReady(ctx, handle)
 	if err != nil {
-		return sandboxHandle{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
+		return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
 	}
-	return ready, nil
+	return sandboxSessionFromRuntimeObject(req.Name, req.PluginName, req.Template, req.Metadata, objectMeta.Annotations, ready), nil
 }
 
-func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req startSandboxRequest) (sandboxHandle, error) {
+func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req startSandboxRequest) (sandboxSession, error) {
 	if strings.TrimSpace(req.Image) == "" {
-		return sandboxHandle{}, fmt.Errorf("image is required for direct Sandbox sessions")
+		return sandboxSession{}, fmt.Errorf("image is required for direct Sandbox sessions")
 	}
 	replicas := int32(1)
 	podSpec, err := r.directPodSpec(req.Image)
 	if err != nil {
-		return sandboxHandle{}, err
+		return sandboxSession{}, err
 	}
-	objectLabels := runtimeLabels(req.PluginName)
+	objectMeta := runtimeObjectMeta(req)
 	podLabels := runtimeLabels(req.PluginName)
 	sessionLabel := sanitizeLabelValue(req.Name)
 	if sessionLabel != "" {
-		objectLabels[runtimeSessionLabel] = sessionLabel
 		podLabels[runtimeSessionLabel] = sessionLabel
 	}
 	sandbox := &sandboxv1alpha1.Sandbox{
@@ -266,11 +279,7 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 			APIVersion: sandboxv1alpha1.SchemeGroupVersion.String(),
 			Kind:       "Sandbox",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.Name,
-			Namespace: req.Namespace,
-			Labels:    objectLabels,
-		},
+		ObjectMeta: objectMeta,
 		Spec: sandboxv1alpha1.SandboxSpec{
 			Replicas: &replicas,
 			PodTemplate: sandboxv1alpha1.PodTemplate{
@@ -282,7 +291,7 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 		},
 	}
 	if _, err := r.agents.AgentsV1alpha1().Sandboxes(req.Namespace).Create(ctx, sandbox, metav1.CreateOptions{}); err != nil {
-		return sandboxHandle{}, fmt.Errorf("create Sandbox %s/%s: %w", req.Namespace, req.Name, err)
+		return sandboxSession{}, fmt.Errorf("create Sandbox %s/%s: %w", req.Namespace, req.Name, err)
 	}
 	handle := sandboxHandle{
 		Name:        req.Name,
@@ -292,9 +301,9 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 	}
 	ready, err := r.waitForSandboxReady(ctx, handle)
 	if err != nil {
-		return sandboxHandle{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
+		return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
 	}
-	return ready, nil
+	return sandboxSessionFromRuntimeObject(req.Name, req.PluginName, req.Template, req.Metadata, objectMeta.Annotations, ready), nil
 }
 
 func (r *kubernetesSandboxRuntime) directPodSpec(image string) (corev1.PodSpec, error) {
@@ -433,6 +442,209 @@ func (r *kubernetesSandboxRuntime) Stop(ctx context.Context, handle sandboxHandl
 	}
 }
 
+func (r *kubernetesSandboxRuntime) ResolveSession(ctx context.Context, namespace, sessionID string) (sandboxSession, error) {
+	namespace = strings.TrimSpace(namespace)
+	sessionID = strings.TrimSpace(sessionID)
+	if namespace == "" {
+		return sandboxSession{}, fmt.Errorf("gke agent sandbox namespace is required")
+	}
+	if sessionID == "" {
+		return sandboxSession{}, fmt.Errorf("plugin runtime session id is required")
+	}
+
+	claim, claimErr := r.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).Get(ctx, sessionID, metav1.GetOptions{})
+	if claimErr == nil {
+		return r.sessionFromClaim(ctx, claim)
+	}
+	if claimErr != nil && !k8serrors.IsNotFound(claimErr) {
+		return sandboxSession{}, fmt.Errorf("get SandboxClaim %s/%s: %w", namespace, sessionID, claimErr)
+	}
+
+	sandbox, sandboxErr := r.agents.AgentsV1alpha1().Sandboxes(namespace).Get(ctx, sessionID, metav1.GetOptions{})
+	if sandboxErr == nil {
+		return r.sessionFromSandbox(ctx, sandbox)
+	}
+	if sandboxErr != nil && !k8serrors.IsNotFound(sandboxErr) {
+		return sandboxSession{}, fmt.Errorf("get Sandbox %s/%s: %w", namespace, sessionID, sandboxErr)
+	}
+
+	labelValue := sanitizeLabelValue(sessionID)
+	if labelValue != "" {
+		selector := labels.Set{runtimeSessionLabel: labelValue}.String()
+		claims, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return sandboxSession{}, fmt.Errorf("list SandboxClaims for session %q: %w", sessionID, err)
+		}
+		matches := make([]sandboxSession, 0, len(claims.Items))
+		claimedSandboxes := map[string]struct{}{}
+		for i := range claims.Items {
+			session, err := r.sessionFromClaim(ctx, &claims.Items[i])
+			if err != nil {
+				return sandboxSession{}, err
+			}
+			if session.Handle.SandboxName != "" {
+				claimedSandboxes[session.Handle.SandboxName] = struct{}{}
+			}
+			matches = append(matches, session)
+		}
+		sandboxes, err := r.agents.AgentsV1alpha1().Sandboxes(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return sandboxSession{}, fmt.Errorf("list Sandboxes for session %q: %w", sessionID, err)
+		}
+		for i := range sandboxes.Items {
+			if _, ok := claimedSandboxes[sandboxes.Items[i].Name]; ok {
+				continue
+			}
+			if len(sandboxes.Items[i].OwnerReferences) > 0 {
+				continue
+			}
+			session, err := r.sessionFromSandbox(ctx, &sandboxes.Items[i])
+			if err != nil {
+				return sandboxSession{}, err
+			}
+			matches = append(matches, session)
+		}
+		switch len(matches) {
+		case 0:
+		case 1:
+			return matches[0], nil
+		default:
+			return sandboxSession{}, fmt.Errorf("plugin runtime session %q is ambiguous: %d Kubernetes runtime objects matched", sessionID, len(matches))
+		}
+	}
+
+	return sandboxSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
+}
+
+func (r *kubernetesSandboxRuntime) ListSessions(ctx context.Context, namespace string) ([]sandboxSession, error) {
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return nil, fmt.Errorf("gke agent sandbox namespace is required")
+	}
+	managedSelector := labels.Set{
+		"app.kubernetes.io/managed-by": "gestalt",
+		"gestalt.dev/runtime":          "gke-agent-sandbox",
+	}.String()
+	claims, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).List(ctx, metav1.ListOptions{LabelSelector: managedSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list SandboxClaims: %w", err)
+	}
+	sessions := make([]sandboxSession, 0, len(claims.Items))
+	claimedSandboxes := map[string]struct{}{}
+	for i := range claims.Items {
+		session, err := r.sessionFromClaim(ctx, &claims.Items[i])
+		if err != nil {
+			return nil, err
+		}
+		if session.Handle.SandboxName != "" {
+			claimedSandboxes[session.Handle.SandboxName] = struct{}{}
+		}
+		sessions = append(sessions, session)
+	}
+
+	sandboxes, err := r.agents.AgentsV1alpha1().Sandboxes(namespace).List(ctx, metav1.ListOptions{LabelSelector: managedSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list Sandboxes: %w", err)
+	}
+	for i := range sandboxes.Items {
+		if _, ok := claimedSandboxes[sandboxes.Items[i].Name]; ok {
+			continue
+		}
+		if len(sandboxes.Items[i].OwnerReferences) > 0 {
+			continue
+		}
+		session, err := r.sessionFromSandbox(ctx, &sandboxes.Items[i])
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
+}
+
+func (r *kubernetesSandboxRuntime) sessionFromClaim(ctx context.Context, claim *extv1alpha1.SandboxClaim) (sandboxSession, error) {
+	if claim == nil {
+		return sandboxSession{}, fmt.Errorf("SandboxClaim is required")
+	}
+	handle := sandboxHandle{
+		Name:      claim.Name,
+		Namespace: claim.Namespace,
+		Mode:      "claim",
+		ClaimName: claim.Name,
+	}
+	sandboxName, err := r.sandboxNameForClaim(ctx, handle, claim)
+	if err != nil {
+		return sandboxSession{}, err
+	}
+	if sandboxName != "" {
+		handle.SandboxName = sandboxName
+		if refreshed, err := r.refreshSandbox(ctx, handle); err == nil {
+			handle = refreshed
+		} else if !k8serrors.IsNotFound(err) {
+			return sandboxSession{}, err
+		}
+	}
+	session := sandboxSessionFromRuntimeObject(
+		claim.Name,
+		pluginNameFromObject(claim.ObjectMeta),
+		strings.TrimSpace(claim.Annotations[sessionTemplateAnnotation]),
+		nil,
+		claim.Annotations,
+		handle,
+	)
+	if !session.PluginStarted {
+		starting, err := r.pluginStartLeaseActive(ctx, handle)
+		if err != nil {
+			return sandboxSession{}, err
+		}
+		session.PluginStarting = starting
+	}
+	return session, nil
+}
+
+func (r *kubernetesSandboxRuntime) sessionFromSandbox(ctx context.Context, sandbox *sandboxv1alpha1.Sandbox) (sandboxSession, error) {
+	if sandbox == nil {
+		return sandboxSession{}, fmt.Errorf("Sandbox is required")
+	}
+	handle := sandboxHandle{
+		Name:        sandbox.Name,
+		Namespace:   sandbox.Namespace,
+		Mode:        "sandbox",
+		SandboxName: sandbox.Name,
+		Ready:       sandboxReadyCondition(sandbox),
+		PodName:     sandboxPodName(sandbox),
+	}
+	if handle.PodName == "" && sandbox.Status.LabelSelector != "" {
+		podName, err := r.firstPodNameForSelector(ctx, sandbox.Namespace, sandbox.Status.LabelSelector)
+		if err != nil {
+			return sandboxSession{}, err
+		}
+		handle.PodName = podName
+	}
+	if handle.PodName != "" {
+		pod, err := r.core.CoreV1().Pods(sandbox.Namespace).Get(ctx, handle.PodName, metav1.GetOptions{})
+		if err == nil && pod.DeletionTimestamp == nil {
+			handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
+		}
+	}
+	session := sandboxSessionFromRuntimeObject(
+		sandbox.Name,
+		pluginNameFromObject(sandbox.ObjectMeta),
+		strings.TrimSpace(sandbox.Annotations[sessionTemplateAnnotation]),
+		nil,
+		sandbox.Annotations,
+		handle,
+	)
+	if !session.PluginStarted {
+		starting, err := r.pluginStartLeaseActive(ctx, handle)
+		if err != nil {
+			return sandboxSession{}, err
+		}
+		session.PluginStarting = starting
+	}
+	return session, nil
+}
+
 func (r *kubernetesSandboxRuntime) EnsureHostnameEgressPolicy(ctx context.Context, handle sandboxHandle, cfg hostnameEgressConfig) (string, error) {
 	selector, err := r.hostnameEgressSelector(ctx, handle, cfg)
 	if err != nil {
@@ -473,6 +685,116 @@ func (r *kubernetesSandboxRuntime) DeleteHostnameEgressPolicy(ctx context.Contex
 		return fmt.Errorf("delete NetworkPolicy %s/%s: %w", handle.Namespace, policyName, err)
 	}
 	return nil
+}
+
+var errPluginAlreadyStarted = errors.New("plugin runtime session already has a running plugin")
+
+func (r *kubernetesSandboxRuntime) AcquirePluginStartLease(ctx context.Context, handle sandboxHandle, holder string, ttl time.Duration) error {
+	holder = strings.TrimSpace(holder)
+	if holder == "" {
+		return fmt.Errorf("plugin start lease holder is required")
+	}
+	if ttl <= 0 {
+		ttl = time.Minute
+	}
+	seconds := int32(ttl.Round(time.Second) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	name := pluginStartLeaseName(handle)
+	leases := r.core.CoordinationV1().Leases(handle.Namespace)
+	now := metav1.MicroTime{Time: time.Now().UTC()}
+	lease := &coordinationv1.Lease{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: handle.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "gestalt",
+				"gestalt.dev/runtime":          "gke-agent-sandbox",
+				runtimeSessionLabel:            sanitizeLabelValue(handle.Name),
+			},
+		},
+		Spec: coordinationv1.LeaseSpec{
+			HolderIdentity:       &holder,
+			LeaseDurationSeconds: &seconds,
+			AcquireTime:          &now,
+			RenewTime:            &now,
+		},
+	}
+	if _, err := leases.Create(ctx, lease, metav1.CreateOptions{}); err == nil {
+		return nil
+	} else if !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create Lease %s/%s: %w", handle.Namespace, name, err)
+	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := leases.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		now := metav1.MicroTime{Time: time.Now().UTC()}
+		if pluginStartLeaseHeld(existing, now.Time) {
+			return errPluginAlreadyStarted
+		}
+		existing.Spec.HolderIdentity = &holder
+		existing.Spec.LeaseDurationSeconds = &seconds
+		existing.Spec.AcquireTime = &now
+		existing.Spec.RenewTime = &now
+		_, err = leases.Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+func (r *kubernetesSandboxRuntime) ReleasePluginStartLease(ctx context.Context, handle sandboxHandle, holder string) error {
+	holder = strings.TrimSpace(holder)
+	name := pluginStartLeaseName(handle)
+	leases := r.core.CoordinationV1().Leases(handle.Namespace)
+	existing, err := leases.Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get Lease %s/%s: %w", handle.Namespace, name, err)
+	}
+	if holder != "" && strings.TrimSpace(derefString(existing.Spec.HolderIdentity)) != holder {
+		return nil
+	}
+	err = leases.Delete(ctx, name, metav1.DeleteOptions{})
+	if k8serrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("delete Lease %s/%s: %w", handle.Namespace, name, err)
+	}
+	return nil
+}
+
+func (r *kubernetesSandboxRuntime) pluginStartLeaseActive(ctx context.Context, handle sandboxHandle) (bool, error) {
+	name := pluginStartLeaseName(handle)
+	lease, err := r.core.CoordinationV1().Leases(handle.Namespace).Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get Lease %s/%s: %w", handle.Namespace, name, err)
+	}
+	return pluginStartLeaseHeld(lease, time.Now().UTC()), nil
+}
+
+func (r *kubernetesSandboxRuntime) MarkPluginStarted(ctx context.Context, handle sandboxHandle, marker, pluginName string) error {
+	marker = strings.TrimSpace(marker)
+	if marker == "" {
+		return fmt.Errorf("plugin start marker is required")
+	}
+	return r.updateSessionAnnotations(ctx, handle, func(annotations map[string]string) error {
+		if existing := strings.TrimSpace(annotations[pluginStartedAnnotation]); existing != "" && existing != marker {
+			return errPluginAlreadyStarted
+		}
+		annotations[pluginStartedAnnotation] = marker
+		if pluginName = strings.TrimSpace(pluginName); pluginName != "" {
+			annotations[startedPluginAnnotation] = pluginName
+		}
+		return nil
+	})
 }
 
 func (r *kubernetesSandboxRuntime) Exec(ctx context.Context, handle sandboxHandle, command []string, stdin io.Reader) error {
@@ -758,7 +1080,14 @@ func sandboxPodName(sb *sandboxv1alpha1.Sandbox) string {
 	return strings.TrimSpace(sb.Name)
 }
 
-const runtimeSessionLabel = "gestalt.dev/runtime-session"
+const (
+	runtimeSessionLabel       = "gestalt.dev/runtime-session"
+	sessionMetadataAnnotation = "gestalt.dev/session-metadata"
+	sessionTemplateAnnotation = "gestalt.dev/session-template"
+	sessionPluginAnnotation   = "gestalt.dev/session-plugin"
+	pluginStartedAnnotation   = "gestalt.dev/plugin-started"
+	startedPluginAnnotation   = "gestalt.dev/started-plugin"
+)
 
 func runtimeLabels(pluginName string) map[string]string {
 	labels := map[string]string{
@@ -769,6 +1098,166 @@ func runtimeLabels(pluginName string) map[string]string {
 		labels["gestalt.dev/plugin"] = value
 	}
 	return labels
+}
+
+func runtimeObjectMeta(req startSandboxRequest) metav1.ObjectMeta {
+	labels := runtimeLabels(req.PluginName)
+	if sessionLabel := sanitizeLabelValue(req.Name); sessionLabel != "" {
+		labels[runtimeSessionLabel] = sessionLabel
+	}
+	annotations := map[string]string{}
+	if pluginName := strings.TrimSpace(req.PluginName); pluginName != "" {
+		annotations[sessionPluginAnnotation] = pluginName
+	}
+	if template := strings.TrimSpace(req.Template); template != "" {
+		annotations[sessionTemplateAnnotation] = template
+	}
+	if len(req.Metadata) > 0 {
+		if encoded, err := json.Marshal(req.Metadata); err == nil {
+			annotations[sessionMetadataAnnotation] = string(encoded)
+		}
+	}
+	return metav1.ObjectMeta{
+		Name:        req.Name,
+		Namespace:   req.Namespace,
+		Labels:      labels,
+		Annotations: annotations,
+	}
+}
+
+func sandboxSessionFromRuntimeObject(id, pluginName, template string, metadata map[string]string, annotations map[string]string, handle sandboxHandle) sandboxSession {
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	out := sandboxSession{
+		ID:            strings.TrimSpace(id),
+		PluginName:    strings.TrimSpace(pluginName),
+		Template:      strings.TrimSpace(template),
+		Metadata:      cloneStringMap(metadata),
+		Handle:        handle,
+		PluginStarted: strings.TrimSpace(annotations[pluginStartedAnnotation]) != "",
+	}
+	if out.Metadata == nil {
+		out.Metadata = map[string]string{}
+	}
+	if out.PluginName == "" {
+		out.PluginName = strings.TrimSpace(annotations[sessionPluginAnnotation])
+	}
+	if out.Template == "" {
+		out.Template = strings.TrimSpace(annotations[sessionTemplateAnnotation])
+	}
+	if raw := strings.TrimSpace(annotations[sessionMetadataAnnotation]); raw != "" {
+		var stored map[string]string
+		if err := json.Unmarshal([]byte(raw), &stored); err == nil {
+			for key, value := range stored {
+				if _, exists := out.Metadata[key]; !exists {
+					out.Metadata[key] = value
+				}
+			}
+		}
+	}
+	if out.ID == "" {
+		out.ID = strings.TrimSpace(handle.Name)
+	}
+	addHandleMetadata(out.Metadata, handle)
+	return out
+}
+
+func pluginNameFromObject(meta metav1.ObjectMeta) string {
+	if name := strings.TrimSpace(meta.Annotations[sessionPluginAnnotation]); name != "" {
+		return name
+	}
+	return strings.TrimSpace(meta.Labels["gestalt.dev/plugin"])
+}
+
+func pluginStartLeaseName(handle sandboxHandle) string {
+	return dnsLabelWithSuffix(handle.Name, "plugin-start")
+}
+
+func pluginStartLeaseHeld(lease *coordinationv1.Lease, now time.Time) bool {
+	if lease == nil || strings.TrimSpace(derefString(lease.Spec.HolderIdentity)) == "" {
+		return false
+	}
+	durationSeconds := int32(0)
+	if lease.Spec.LeaseDurationSeconds != nil {
+		durationSeconds = *lease.Spec.LeaseDurationSeconds
+	}
+	if durationSeconds <= 0 {
+		return true
+	}
+	renewedAt := time.Time{}
+	if lease.Spec.RenewTime != nil {
+		renewedAt = lease.Spec.RenewTime.Time
+	} else if lease.Spec.AcquireTime != nil {
+		renewedAt = lease.Spec.AcquireTime.Time
+	}
+	if renewedAt.IsZero() {
+		return true
+	}
+	return now.Before(renewedAt.Add(time.Duration(durationSeconds) * time.Second))
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func (r *kubernetesSandboxRuntime) updateSessionAnnotations(ctx context.Context, handle sandboxHandle, update func(map[string]string) error) error {
+	if update == nil {
+		return nil
+	}
+	switch handle.Mode {
+	case "claim":
+		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			claim, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(handle.Namespace).Get(ctx, handle.ClaimName, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			if claim.Annotations == nil {
+				claim.Annotations = map[string]string{}
+			}
+			if err := update(claim.Annotations); err != nil {
+				return err
+			}
+			_, err = r.extensions.ExtensionsV1alpha1().SandboxClaims(handle.Namespace).Update(ctx, claim, metav1.UpdateOptions{})
+			return err
+		})
+	default:
+		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			sandbox, err := r.agents.AgentsV1alpha1().Sandboxes(handle.Namespace).Get(ctx, handle.SandboxName, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			if sandbox.Annotations == nil {
+				sandbox.Annotations = map[string]string{}
+			}
+			if err := update(sandbox.Annotations); err != nil {
+				return err
+			}
+			_, err = r.agents.AgentsV1alpha1().Sandboxes(handle.Namespace).Update(ctx, sandbox, metav1.UpdateOptions{})
+			return err
+		})
+	}
+}
+
+func addHandleMetadata(metadata map[string]string, handle sandboxHandle) {
+	if metadata == nil {
+		return
+	}
+	if handle.Namespace != "" {
+		metadata["kubernetes.namespace"] = handle.Namespace
+	}
+	if handle.SandboxName != "" {
+		metadata["kubernetes.sandbox"] = handle.SandboxName
+	}
+	if handle.ClaimName != "" {
+		metadata["kubernetes.sandboxClaim"] = handle.ClaimName
+	}
+	if handle.PodName != "" {
+		metadata["kubernetes.pod"] = handle.PodName
+	}
 }
 
 func (r *kubernetesSandboxRuntime) hostnameEgressSelector(ctx context.Context, handle sandboxHandle, cfg hostnameEgressConfig) (map[string]string, error) {
