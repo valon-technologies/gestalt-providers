@@ -11,7 +11,7 @@ apiVersion: gestaltd.config/v5
 providers:
   workflow:
     temporal:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.1/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.2/provider-release.yaml
       config:
         hostPort: acme.a1b2c.tmprl.cloud:7233
         namespace: acme.a1b2c
@@ -39,9 +39,8 @@ workflow, so changing it for an existing `scopeID` is rejected at startup.
 - A Temporal Cloud API key with permission to start workflows, update
   workflows, manage schedules, and run workers on `taskQueue`
 
-Workers are registered only when the host calls
-`ProviderLifecycle.StartProvider`, after agents, authorization, plugin
-providers, and workflow host services are ready.
+Workers are registered when the host calls `ProviderLifecycle.StartProvider` or
+when the first workflow RPC reaches the provider during startup reconciliation.
 
 ## v1 Behavior
 

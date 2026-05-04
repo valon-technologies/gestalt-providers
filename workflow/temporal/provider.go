@@ -134,7 +134,7 @@ func (p *Provider) Close() error {
 }
 
 func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 }
 
 func (p *Provider) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (p *Provider) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRun
 }
 
 func (p *Provider) ListRuns(ctx context.Context, req *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (p *Provider) ListRuns(ctx context.Context, req *proto.ListWorkflowProvider
 }
 
 func (p *Provider) CancelRun(ctx context.Context, req *proto.CancelWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (p *Provider) CancelRun(ctx context.Context, req *proto.CancelWorkflowProvi
 }
 
 func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 }
 
 func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStartWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 }
 
 func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 }
 
 func (p *Provider) GetSchedule(ctx context.Context, req *proto.GetWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (p *Provider) GetSchedule(ctx context.Context, req *proto.GetWorkflowProvid
 }
 
 func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowPro
 }
 
 func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) (*emptypb.Empty, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflow
 }
 
 func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +222,7 @@ func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowPr
 }
 
 func (p *Provider) ResumeSchedule(ctx context.Context, req *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (p *Provider) ResumeSchedule(ctx context.Context, req *proto.ResumeWorkflow
 }
 
 func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 }
 
 func (p *Provider) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (p *Provider) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowPr
 }
 
 func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflo
 }
 
 func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) (*emptypb.Empty, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWork
 }
 
 func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkfl
 }
 
 func (p *Provider) ResumeEventTrigger(ctx context.Context, req *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +278,7 @@ func (p *Provider) ResumeEventTrigger(ctx context.Context, req *proto.ResumeWork
 }
 
 func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWork
 }
 
 func (p *Provider) GetExecutionReference(ctx context.Context, req *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +294,7 @@ func (p *Provider) GetExecutionReference(ctx context.Context, req *proto.GetWork
 }
 
 func (p *Provider) ListExecutionReferences(ctx context.Context, req *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +302,7 @@ func (p *Provider) ListExecutionReferences(ctx context.Context, req *proto.ListW
 }
 
 func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
-	backend, err := p.requireBackendStatus()
+	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -324,10 +324,13 @@ func (p *Provider) requireBackend() (workflowBackend, error) {
 	return p.backend, nil
 }
 
-func (p *Provider) requireBackendStatus() (workflowBackend, error) {
+func (p *Provider) requireBackendStatus(ctx context.Context) (workflowBackend, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if err := backend.Start(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "start temporal workflow provider: %v", err)
 	}
 	return backend, nil
 }
