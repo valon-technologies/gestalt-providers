@@ -34,6 +34,21 @@ type tokenResponse struct {
 	Extra         map[string]any
 }
 
+type tokenEndpointError struct {
+	statusCode int
+	oauthCode  string
+}
+
+func (e *tokenEndpointError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.oauthCode != "" {
+		return fmt.Sprintf("token endpoint returned %d: %s", e.statusCode, e.oauthCode)
+	}
+	return fmt.Sprintf("token endpoint returned %d", e.statusCode)
+}
+
 type resolveState struct {
 	group singleflight.Group
 }
@@ -202,16 +217,27 @@ func resolveStoredCredential(ctx context.Context, st *store, req *gestalt.Resolv
 
 func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *gestalt.ResolveExternalCredentialRequest, credential *gestalt.ExternalCredential) (*gestalt.ExternalCredential, error) {
 	resp, err := refreshCredential(ctx, req.GetAuth(), credential.GetRefreshToken(), mergeParams(metadataParams(credential.GetMetadataJson()), req.GetConnectionParams()))
+	now := p.now().UTC()
 	if err != nil {
 		credential.RefreshErrorCount++
-		credential.UpdatedAt = timestamppb.Now()
-		_, _ = st.upsertCredential(ctx, credential, false, p.now().UTC())
-		if credential.GetExpiresAt() != nil && p.now().Before(credential.GetExpiresAt().AsTime()) {
+		credential.UpdatedAt = timestamppb.New(now)
+		if isTerminalRefreshError(err) {
+			credential.ExpiresAt = timestamppb.New(now.Add(-1 * time.Hour))
+			marked, markErr := st.upsertCredential(ctx, credential, false, now)
+			if markErr != nil {
+				return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
+			}
+			if deleteErr := st.deleteCredential(ctx, marked.GetId()); deleteErr != nil {
+				return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
+			}
+			return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
+		}
+		_, _ = st.upsertCredential(ctx, credential, false, now)
+		if credential.GetExpiresAt() != nil && now.Before(credential.GetExpiresAt().AsTime()) {
 			return credential, nil
 		}
 		return nil, status.Error(codes.Unauthenticated, "token expired and refresh failed")
 	}
-	now := p.now().UTC()
 	credential.AccessToken = resp.AccessToken
 	if resp.RefreshSource != "" {
 		credential.RefreshToken = resp.RefreshSource
@@ -373,9 +399,46 @@ func tokenRequest(ctx context.Context, auth *gestalt.ExternalCredentialAuthConfi
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("token endpoint returned %d", resp.StatusCode)
+		return nil, newTokenEndpointError(resp.StatusCode, respBody)
 	}
 	return parseTokenResponse(respBody, auth.GetAccessTokenPath())
+}
+
+func newTokenEndpointError(statusCode int, body []byte) error {
+	var raw struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(body, &raw)
+	return &tokenEndpointError{
+		statusCode: statusCode,
+		oauthCode:  sanitizeOAuthErrorCode(raw.Error),
+	}
+}
+
+func sanitizeOAuthErrorCode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 80 {
+		return ""
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '.':
+		default:
+			return ""
+		}
+	}
+	return value
+}
+
+func isTerminalRefreshError(err error) bool {
+	var tokenErr *tokenEndpointError
+	if !errors.As(err, &tokenErr) {
+		return false
+	}
+	return tokenErr.oauthCode == "invalid_grant"
 }
 
 func parseTokenResponse(body []byte, accessTokenPath string) (*tokenResponse, error) {
