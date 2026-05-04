@@ -321,6 +321,51 @@ def output_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]
     return out
 
 
+def signed_block_action_payload(
+    subject_id: str = "user:gestalt-123",
+) -> dict[str, Any]:
+    event = provider_module.SlackAgentEvent(
+        callback_type="event_callback",
+        event_type="app_mention",
+        event_id="Ev123",
+        team_id="T123",
+        user_id="U456",
+        channel_id="C789",
+        channel_type="channel",
+        text="<@UBOT> approve deployment",
+        message_ts="1712161829.000300",
+        thread_ts="",
+        reply_thread_ts="1712161829.000300",
+    )
+    reply_ref = provider_module._agent._sign_reply_ref(event, subject_id)
+    verified_ref = provider_module._agent._verify_reply_ref(reply_ref, subject_id)
+    interaction_ref = provider_module._agent._sign_interaction_ref(
+        verified_ref,
+        action_id="approve",
+        action_value="approved",
+        expires_in_seconds=300,
+    )
+    return {
+        "type": "block_actions",
+        "team": {"id": "T123"},
+        "user": {"id": "U456"},
+        "channel": {"id": "C789"},
+        "container": {
+            "type": "message",
+            "channel_id": "C789",
+            "message_ts": "1712161831.000500",
+        },
+        "trigger_id": "1337.abcdef",
+        "actions": [
+            {
+                "action_id": "approve",
+                "value": interaction_ref,
+                "action_ts": "1712161832.000600",
+            }
+        ],
+    }
+
+
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
     return [parameter["name"] for parameter in operation.get("parameters", [])]
 
@@ -391,6 +436,18 @@ class FakeWorkflowManager:
         if self.publish_event_error is not None:
             raise self.publish_event_error
         return request.event
+
+
+class ExplodingPublishResponseWorkflowManager(FakeWorkflowManager):
+    def publish_event(self, request: Any) -> Any:
+        self.publish_event_requests.append(request)
+
+        class Response:
+            @property
+            def id(self) -> str:
+                raise RuntimeError("bad publish response")
+
+        return Response()
 
 
 class DictWorkflowManager(FakeWorkflowManager):
@@ -904,6 +961,115 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_metadata["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_metadata["slack"]["user_id"], "U456")
         self.assertEqual(signal_metadata["slack"]["file_ids"], ["F123"])
+
+    def test_slack_event_ack_failure_still_acks_dispatched_workflow(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvBadAckNoPublish",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize deploy status",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                provider_module._agent,
+                "_workflow_signal_response_fields",
+                side_effect=RuntimeError("bad response"),
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "workflow_dispatched": True,
+                "workflow_acknowledgement_failed": True,
+            },
+        )
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
+    def test_slack_event_signal_failure_without_publish_returns_server_error(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_manager.signal_or_start_error = RuntimeError("signal failed")
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvSignalFailNoPublish",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize deploy status",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.slack_events_handle(payload, request)
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(
+            response.body,
+            {"error": "failed to signal workflow run: signal failed"},
+        )
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
     def test_slack_event_handler_notifies_unlinked_user(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -1655,6 +1821,94 @@ class SlackProviderTests(unittest.TestCase):
         )
         signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
         self.assertNotIn("Native assistant status tool:", signal_payload["user_prompt"])
+
+    def test_slack_interaction_ack_failure_still_acks_dispatched_workflow(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        interaction_payload = signed_block_action_payload()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                provider_module._agent,
+                "_workflow_signal_response_fields",
+                side_effect=RuntimeError("bad response"),
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "workflow_dispatched": True,
+                "workflow_acknowledgement_failed": True,
+                "action_id": "approve",
+            },
+        )
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
+    def test_slack_interaction_signal_failure_returns_server_error(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_manager.signal_or_start_error = RuntimeError("signal failed")
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        interaction_payload = signed_block_action_payload()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(
+            response.body,
+            {"error": "failed to signal workflow run: signal failed"},
+        )
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
     def test_slack_event_status_and_reactions_use_reply_ref_contract(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -2492,6 +2746,69 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(workflow_manager.publish_event_requests), 1)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
+    def test_publish_route_ack_uses_request_id_after_publish_succeeds(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "brain-ingest",
+                                "workflowProvider": "local",
+                                "workflowEventType": "slack.event.received",
+                                "source": "slack",
+                                "subject": "route:brain-ingest",
+                                "match": {"eventTypes": ["message"]},
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = ExplodingPublishResponseWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvPublishBadResponse",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "im",
+                "text": "publish response should not shape ack",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with (
+            mock.patch.object(
+                provider_module._agent.gestalt,
+                "WorkflowManagerPublishEventRequest",
+                FakeWorkflowManagerPublishEventRequest,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, gestalt.Request())
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "published": True,
+                "published_event_count": 1,
+                "workflow_event_ids": ["slack:EvPublishBadResponse"],
+                "route_ids": ["brain-ingest"],
+            },
+        )
+        self.assertEqual(len(workflow_manager.publish_event_requests), 1)
 
     def test_publish_route_ack_survives_workflow_ack_failure(self) -> None:
         provider_module.configure(
