@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.45"
+	providerVersion           = "0.0.1-alpha.46"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -62,6 +63,8 @@ const (
 	configManagedWorkflowSubject = "system:config"
 	configManagedWorkflowAuth    = "config"
 	configManagedWorkflowKind    = "system"
+	workflowMetadataKey          = "workflow"
+	dispatchPriorityMetadataKey  = "dispatchPriority"
 	staleRunStatusMessage        = "workflow provider restarted while run was in progress"
 
 	signalStatePending   = "pending"
@@ -3389,8 +3392,11 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 	if run.TriggerKind == triggerKindEvent && run.Target != nil && run.Target.GetPlugin() != nil {
 		return 0
 	}
-	if workflowRunHasInteractiveAgentOutput(run) {
-		return 5
+	// Agent metadata may opt runs into a custom dispatch tier via
+	// _gestalt.workflow.dispatchPriority. Priority 0 is reserved for plugin
+	// event ingestion, so custom priorities start at 1.
+	if priority, ok := workflowRunMetadataDispatchPriority(run); ok {
+		return priority
 	}
 	if strings.TrimSpace(run.WorkflowKey) != "" {
 		return 10
@@ -3407,25 +3413,51 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 	return 50
 }
 
-func workflowRunHasInteractiveAgentOutput(run workflowRunRecord) bool {
-	if run.Target == nil {
-		return false
+func workflowRunMetadataDispatchPriority(run workflowRunRecord) (int, bool) {
+	if run.Target == nil || run.Target.GetAgent() == nil || run.Target.GetAgent().GetMetadata() == nil {
+		return 0, false
 	}
-	agent := run.Target.GetAgent()
-	if agent == nil {
-		return false
+	metadata := run.Target.GetAgent().GetMetadata().AsMap()
+	rawGestalt, ok := metadata[gestaltInputKey]
+	if !ok {
+		return 0, false
 	}
-	if metadata := agent.GetMetadata(); metadata != nil {
-		if _, ok := metadata.GetFields()["slack"]; ok {
-			return true
+	gestaltMetadata, ok := rawGestalt.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	rawWorkflow, ok := gestaltMetadata[workflowMetadataKey]
+	if !ok {
+		return 0, false
+	}
+	workflowMetadata, ok := rawWorkflow.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	priority, ok := parseWorkflowDispatchPriority(workflowMetadata[dispatchPriorityMetadataKey])
+	if !ok || priority < 1 {
+		return 0, false
+	}
+	return priority, true
+}
+
+func parseWorkflowDispatchPriority(raw any) (int, bool) {
+	switch value := raw.(type) {
+	case float64:
+		priority := int(value)
+		if float64(priority) != value {
+			return 0, false
 		}
+		return priority, true
+	case string:
+		priority, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return 0, false
+		}
+		return priority, true
+	default:
+		return 0, false
 	}
-	delivery := agent.GetOutputDelivery()
-	if delivery == nil || delivery.GetTarget() == nil {
-		return false
-	}
-	target := delivery.GetTarget()
-	return target.GetPluginName() == "slack" && strings.HasPrefix(target.GetOperation(), "events.")
 }
 
 func claimRunnableRun(ctx context.Context, state *configuredState, run workflowRunRecord, now time.Time) (workflowRunRecord, bool, error) {

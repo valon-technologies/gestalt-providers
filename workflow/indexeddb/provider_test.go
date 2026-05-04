@@ -1280,11 +1280,17 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 		t.Fatalf("initial call signal count = %d, want max batch %d", got, defaultMaxSignalsPerBatch)
 	}
 
-	slackTarget := protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
-	slackTarget.GetAgent().Metadata = mustStruct(t, map[string]any{"slack": map[string]any{"channel_id": "C123"}})
+	interactiveTarget := protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
+	interactiveTarget.GetAgent().Metadata = mustStruct(t, map[string]any{
+		gestaltInputKey: map[string]any{
+			workflowMetadataKey: map[string]any{
+				dispatchPriorityMetadataKey: 5,
+			},
+		},
+	})
 	preferred, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "slack:T123:C123:1700000000.000001",
-		Target:       slackTarget,
+		Target:       interactiveTarget,
 		ExecutionRef: "agent-ref",
 		Signal:       protoWorkflowSignal(t, "", "slack-event-1", "new"),
 	})
@@ -1299,7 +1305,7 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 		t.Fatalf("preferred call run_id = %q, want %q", call.GetRunId(), preferred.GetRun().GetId())
 	}
 	if len(call.GetSignals()) != 1 || call.GetSignals()[0].GetIdempotencyKey() != "slack-event-1" {
-		t.Fatalf("preferred call signals = %#v, want Slack signal", call.GetSignals())
+		t.Fatalf("preferred call signals = %#v, want preferred signal", call.GetSignals())
 	}
 
 	close(host.releaseCh)
@@ -3075,6 +3081,74 @@ func TestProviderTickPrioritizesPluginEventWhenPreferredWakeLost(t *testing.T) {
 	wantRunID := eventRunID(triggerID, "slack", "evt-lost-wake")
 	if call.GetRunId() != wantRunID {
 		t.Fatalf("run_id = %q, want plugin event run %q", call.GetRunId(), wantRunID)
+	}
+}
+
+func TestWorkflowRunDispatchPriorityUsesAgentMetadataHint(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+		want  int
+	}{
+		{name: "number", value: 5, want: 5},
+		{name: "string", value: "6", want: 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := protoAgentTarget("managed", "gpt-5.5", "Respond to interactive workflow")
+			target.GetAgent().Metadata = mustStruct(t, map[string]any{
+				gestaltInputKey: map[string]any{
+					workflowMetadataKey: map[string]any{
+						dispatchPriorityMetadataKey: tc.value,
+					},
+				},
+			})
+			run := workflowRunRecord{
+				ID:          "interactive-agent-run",
+				Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+				Target:      target,
+				TriggerKind: triggerKindManual,
+				WorkflowKey: "github:127579767:valon-technologies/toolshed:1290:policy:github-thread-work",
+				CreatedAt:   time.Now().UTC(),
+			}
+			if got := workflowRunDispatchPriority(run); got != tc.want {
+				t.Fatalf("workflowRunDispatchPriority = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkflowRunDispatchPriorityIgnoresInvalidAgentMetadataHint(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{name: "zero", value: 0},
+		{name: "negative", value: -1},
+		{name: "fractional", value: 1.5},
+		{name: "non-numeric string", value: "interactive"},
+		{name: "bool", value: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := protoAgentTarget("managed", "gpt-5.5", "Respond to interactive workflow")
+			target.GetAgent().Metadata = mustStruct(t, map[string]any{
+				gestaltInputKey: map[string]any{
+					workflowMetadataKey: map[string]any{
+						dispatchPriorityMetadataKey: tc.value,
+					},
+				},
+			})
+			run := workflowRunRecord{
+				ID:          "keyed-agent-run",
+				Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+				Target:      target,
+				TriggerKind: triggerKindManual,
+				WorkflowKey: "github:127579767:valon-technologies/toolshed:1290:policy:github-thread-work",
+				CreatedAt:   time.Now().UTC(),
+			}
+			if got := workflowRunDispatchPriority(run); got != 10 {
+				t.Fatalf("workflowRunDispatchPriority = %d, want keyed fallback priority 10", got)
+			}
+		})
 	}
 }
 
