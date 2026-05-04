@@ -285,13 +285,7 @@ def _tool_error_entry(exc: Exception) -> ToolEntry:
 
 
 def _tool_error_result(exc: Exception) -> CallToolResult:
-    body = json.dumps(
-        {
-            "ok": False,
-            "error": _tool_error_message(exc),
-        },
-        ensure_ascii=False,
-    )
+    body = json.dumps({"ok": False, "error": _tool_error_message(exc)}, ensure_ascii=False)
     return CallToolResult(content=[TextContent(type="text", text=body)], isError=True)
 
 

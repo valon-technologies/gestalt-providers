@@ -49,6 +49,12 @@ vulture-ignore-names = [
   "ResolveConnection",
   "setUpModule",
   "tearDownModule",
+  "CreateObjectStore",
+  "Get",
+  "Add",
+  "Put",
+  "GetAll",
+  "Transaction",
 ]
 
 [tool.ruff]

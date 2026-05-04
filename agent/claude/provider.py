@@ -12,9 +12,9 @@ from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
-from internals import ClaudeAgentConfig, ClaudeSDKRunner, InMemoryRunStore
+from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
-from internals.store import StoreConflictError, StoredSession, StoredTurn, StoredTurnEvent
+from internals.store import StoreConflictError, StoreUnavailableError, StoredSession, StoredTurn, StoredTurnEvent
 
 struct_pb2: Any = cast(Any, _struct_pb2)
 timestamp_pb2: Any = cast(Any, _timestamp_pb2)
@@ -28,7 +28,7 @@ class ClaudeCodeAgentProvider(
         self._name = "claude"
         self._warnings: list[str] = ["provider has not been configured"]
         self._config: ClaudeAgentConfig | None = None
-        self._store: InMemoryRunStore | None = None
+        self._store: IndexedDBRunStore | None = None
         self._runner: ClaudeSDKRunner | None = None
 
     def configure(self, name: str, config: dict[str, Any]) -> None:
@@ -36,7 +36,7 @@ class ClaudeCodeAgentProvider(
         resolved = ClaudeAgentConfig.from_dict(name=self._name, raw_config=config)
         self.close()
         self._config = resolved
-        self._store = InMemoryRunStore()
+        self._store = IndexedDBRunStore(run_store=resolved.run_store, idempotency_store=resolved.idempotency_store)
         self._runner = ClaudeSDKRunner(resolved)
         self._warnings = self._build_warnings(resolved)
 
@@ -70,20 +70,23 @@ class ClaudeCodeAgentProvider(
             model = config.resolve_model(str(request.model or ""))
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        session, _ = store.create_session(
-            session_id=session_id,
-            idempotency_key=str(request.idempotency_key or "").strip(),
-            provider_name=self._name,
-            model=model,
-            client_ref=str(request.client_ref or "").strip(),
-            metadata=_struct_to_dict(request.metadata),
-            created_by=_actor_to_dict(request.created_by),
+        session, _ = self._store_call(
+            context,
+            lambda: store.create_session(
+                session_id=session_id,
+                idempotency_key=str(request.idempotency_key or "").strip(),
+                provider_name=self._name,
+                model=model,
+                client_ref=str(request.client_ref or "").strip(),
+                metadata=_struct_to_dict(request.metadata),
+                created_by=_actor_to_dict(request.created_by),
+            ),
         )
         return _session_to_proto(session)
 
     def GetSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        session = store.get_session(str(request.session_id or "").strip())
+        session = self._store_call(context, lambda: store.get_session(str(request.session_id or "").strip()))
         if session is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
@@ -97,22 +100,28 @@ class ClaudeCodeAgentProvider(
         return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
                 _session_to_proto(session, summary_only=bool(getattr(request, "summary_only", False)))
-                for session in store.list_sessions(
-                    session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
-                    subject_id=_subject_id(request),
-                    state=int(getattr(request, "state", 0) or 0),
-                    limit=limit,
+                for session in self._store_call(
+                    context,
+                    lambda: store.list_sessions(
+                        session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
+                        subject_id=_subject_id(request),
+                        state=int(getattr(request, "state", 0) or 0),
+                        limit=limit,
+                    ),
                 )
             ]
         )
 
     def UpdateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        session = store.update_session(
-            session_id=str(request.session_id or "").strip(),
-            client_ref=str(request.client_ref or "").strip(),
-            state=int(request.state or 0),
-            metadata=_struct_to_dict(request.metadata) if request.HasField("metadata") else None,
+        session = self._store_call(
+            context,
+            lambda: store.update_session(
+                session_id=str(request.session_id or "").strip(),
+                client_ref=str(request.client_ref or "").strip(),
+                state=int(request.state or 0),
+                metadata=_struct_to_dict(request.metadata) if request.HasField("metadata") else None,
+            ),
         )
         if session is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
@@ -122,7 +131,7 @@ class ClaudeCodeAgentProvider(
     def CreateTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, config = self._require_runtime(context)
         _validate_create_turn_request(request, context)
-        session = store.get_session(str(request.session_id or "").strip())
+        session = self._store_call(context, lambda: store.get_session(str(request.session_id or "").strip()))
         if session is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
@@ -134,15 +143,18 @@ class ClaudeCodeAgentProvider(
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         try:
-            turn, created = store.begin_turn(
-                turn_id=str(request.turn_id or "").strip(),
-                session_id=str(request.session_id or "").strip(),
-                idempotency_key=str(request.idempotency_key or "").strip(),
-                provider_name=self._name,
-                model=model,
-                messages=_messages_to_dicts(request.messages),
-                created_by=_actor_to_dict(request.created_by),
-                execution_ref=str(request.execution_ref or "").strip(),
+            turn, created = self._store_call(
+                context,
+                lambda: store.begin_turn(
+                    turn_id=str(request.turn_id or "").strip(),
+                    session_id=str(request.session_id or "").strip(),
+                    idempotency_key=str(request.idempotency_key or "").strip(),
+                    provider_name=self._name,
+                    model=model,
+                    messages=_messages_to_dicts(request.messages),
+                    created_by=_actor_to_dict(request.created_by),
+                    execution_ref=str(request.execution_ref or "").strip(),
+                ),
             )
         except StoreConflictError as exc:
             context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
@@ -168,7 +180,7 @@ class ClaudeCodeAgentProvider(
 
     def GetTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        turn = store.get_turn(str(request.turn_id or "").strip())
+        turn = self._store_call(context, lambda: store.get_turn(str(request.turn_id or "").strip()))
         if turn is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
@@ -182,19 +194,27 @@ class ClaudeCodeAgentProvider(
         return gestalt.ListAgentProviderTurnsResponse(
             turns=[
                 _turn_to_proto(turn, summary_only=bool(getattr(request, "summary_only", False)))
-                for turn in store.list_turns(
-                    session_id=str(request.session_id or "").strip(),
-                    turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
-                    subject_id=_subject_id(request),
-                    status=int(getattr(request, "status", 0) or 0),
-                    limit=limit,
+                for turn in self._store_call(
+                    context,
+                    lambda: store.list_turns(
+                        session_id=str(request.session_id or "").strip(),
+                        turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
+                        subject_id=_subject_id(request),
+                        status=int(getattr(request, "status", 0) or 0),
+                        limit=limit,
+                    ),
                 )
             ]
         )
 
     def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, _ = self._require_runtime(context)
-        turn = store.cancel_turn(turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip())
+        turn = self._store_call(
+            context,
+            lambda: store.cancel_turn(
+                turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip()
+            ),
+        )
         if turn is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
@@ -207,10 +227,13 @@ class ClaudeCodeAgentProvider(
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 _turn_event_to_proto(event)
-                for event in store.list_turn_events(
-                    turn_id=str(request.turn_id or "").strip(),
-                    after_seq=int(request.after_seq or 0),
-                    limit=int(request.limit or 0),
+                for event in self._store_call(
+                    context,
+                    lambda: store.list_turn_events(
+                        turn_id=str(request.turn_id or "").strip(),
+                        after_seq=int(request.after_seq or 0),
+                        limit=int(request.limit or 0),
+                    ),
                 )
             ]
         )
@@ -243,16 +266,23 @@ class ClaudeCodeAgentProvider(
 
     def _require_runtime(
         self, context: grpc.ServicerContext
-    ) -> tuple[ClaudeSDKRunner, InMemoryRunStore, ClaudeAgentConfig]:
+    ) -> tuple[ClaudeSDKRunner, IndexedDBRunStore, ClaudeAgentConfig]:
         if self._runner is None or self._store is None or self._config is None:
             context.abort(grpc.StatusCode.FAILED_PRECONDITION, "agent provider has not been configured")
         return self._runner, self._store, self._config
+
+    def _store_call(self, context: grpc.ServicerContext, operation: Any) -> Any:
+        try:
+            return operation()
+        except StoreUnavailableError as exc:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            raise RuntimeError("unreachable after context.abort") from exc
 
     def _complete_turn(
         self,
         *,
         runner: ClaudeSDKRunner,
-        store: InMemoryRunStore,
+        store: IndexedDBRunStore,
         turn_id: str,
         session_id: str,
         model: str,
