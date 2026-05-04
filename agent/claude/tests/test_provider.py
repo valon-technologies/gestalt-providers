@@ -22,6 +22,7 @@ from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
+from internals.mcp_bridge import GestaltMCPBridge
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -45,15 +46,18 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests: list[dict[str, Any]] = []
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.list_error = ""
+        self.execute_error = ""
 
     def reset(self) -> None:
         self.list_requests.clear()
         self.execute_requests.clear()
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.list_error = ""
+        self.execute_error = ""
 
     def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         self.list_requests.append(
             {
                 "session_id": request.session_id,
@@ -63,6 +67,8 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "run_grant": request.run_grant,
             }
         )
+        if self.list_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.list_error)
         response = agent_pb2.ListAgentToolsResponse()
         if self.large_catalog:
             if request.page_token:
@@ -120,7 +126,6 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         return response
 
     def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         self.execute_requests.append(
             {
                 "session_id": request.session_id,
@@ -132,6 +137,8 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "arguments": dict(request.arguments),
             }
         )
+        if self.execute_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
         if request.tool_id == "tool-linear-reconnect":
             return agent_pb2.ExecuteAgentToolResponse(
                 status=424,
@@ -357,6 +364,61 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertTrue(execute_result.isError)
         self.assertEqual(execute_result.content[0].text, '{"error":{"code":"reconnect_required","plugin":"linear"}}')
         self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-linear-reconnect")
+
+    def test_sdk_mcp_bridge_returns_tool_result_for_execute_rpc_error(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        host.execute_error = "integration reconnect required: token expired and refresh failed"
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        options = runner._options(
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
+        )
+
+        asyncio.run(_sdk_tools(options))
+        tool_result = asyncio.run(_call_sdk_tool(options, name="linear__issues", arguments={"query": "AIT"}))
+
+        self.assertTrue(tool_result.isError)
+        self.assertIn("integration reconnect required", tool_result.content[0].text)
+        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
+
+    def test_sdk_mcp_bridge_exposes_tool_discovery_error_as_diagnostic_tool(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        host.list_error = "integration reconnect required: token expired and refresh failed"
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        options = runner._options(
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
+        )
+
+        server = options.mcp_servers["gestalt"]["instance"]
+        list_result = asyncio.run(server.request_handlers[mcp_types.ListToolsRequest](mcp_types.ListToolsRequest()))
+        tool = list_result.root.tools[0]
+        call_result = asyncio.run(
+            server.request_handlers[mcp_types.CallToolRequest](
+                mcp_types.CallToolRequest(params=mcp_types.CallToolRequestParams(name=tool.name, arguments={}))
+            )
+        )
+
+        self.assertEqual(tool.name, "gestalt__tools_unavailable")
+        self.assertIn("integration reconnect required", tool.description)
+        self.assertTrue(call_result.root.isError)
+        self.assertIn("integration reconnect required", call_result.root.content[0].text)
+
+    def test_sdk_mcp_bridge_returns_tool_result_for_lookup_error(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        host.list_error = "integration reconnect required: token expired and refresh failed"
+        bridge = GestaltMCPBridge(session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude")
+
+        tool_result = asyncio.run(bridge.call_tool("linear__issues", {"query": "AIT"}))
+
+        self.assertTrue(tool_result.isError)
+        self.assertIn("integration reconnect required", cast(Any, tool_result.content[0]).text)
+        self.assertEqual(host.execute_requests, [])
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()

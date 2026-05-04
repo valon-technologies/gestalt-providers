@@ -29,6 +29,8 @@ MCP_SERVER_NAME = "gestalt"
 DEFAULT_PAGE_SIZE = 10_000
 MAX_PAGES = 1_000
 MAX_CATALOG_TOOLS = 10_000
+TOOL_ERROR_NAME = "gestalt__tools_unavailable"
+TOOL_ERROR_MAX_CHARS = 1200
 _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
@@ -67,11 +69,16 @@ class GestaltMCPBridge:
         page_token = ""
         if req.params is not None:
             page_token = str(req.params.cursor or "").strip()
-        if page_token:
-            entries, next_page_token = await asyncio.to_thread(self._list_entries, page_token)
-        else:
-            entries = await asyncio.to_thread(self._list_all_entries)
-            next_page_token = ""
+        try:
+            if page_token:
+                entries, next_page_token = await asyncio.to_thread(self._list_entries, page_token)
+            else:
+                entries = await asyncio.to_thread(self._list_all_entries)
+                next_page_token = ""
+        except Exception as exc:
+            entry = _tool_error_entry(exc)
+            self._entries[entry.mcp_name] = entry
+            return ListToolsResult(tools=[_mcp_tool(entry)])
         tools: list[Tool] = []
         for entry in entries:
             self._remember_entry(entry)
@@ -82,22 +89,30 @@ class GestaltMCPBridge:
         tool_name = str(name or "").strip()
         entry = self._entries.get(tool_name)
         if entry is None:
-            entry = await asyncio.to_thread(self._find_entry, tool_name)
+            try:
+                entry = await asyncio.to_thread(self._find_entry, tool_name)
+            except Exception as exc:
+                return _tool_error_result(exc)
+        if entry.mcp_name == TOOL_ERROR_NAME:
+            return _tool_error_result(RuntimeError(entry.description))
         return await self._execute_entry(entry, arguments or {})
 
     async def _execute_entry(self, entry: ToolEntry, arguments: dict[str, Any]) -> CallToolResult:
         async with self._execute_lock:
             self._sequence += 1
             tool_call_id = f"sdk-{self._sequence}"
-            response = await asyncio.to_thread(
-                _execute_tool,
-                session_id=self._session_id,
-                turn_id=self._turn_id,
-                run_grant=self._run_grant,
-                entry=entry,
-                tool_call_id=tool_call_id,
-                arguments=arguments,
-            )
+            try:
+                response = await asyncio.to_thread(
+                    _execute_tool,
+                    session_id=self._session_id,
+                    turn_id=self._turn_id,
+                    run_grant=self._run_grant,
+                    entry=entry,
+                    tool_call_id=tool_call_id,
+                    arguments=arguments,
+                )
+            except Exception as exc:
+                return _tool_error_result(exc)
         body = str(getattr(response, "body", "") or "")
         status = int(getattr(response, "status", 0) or 0)
         if not body:
@@ -252,6 +267,40 @@ def _mcp_tool(entry: ToolEntry) -> Tool:
         inputSchema=entry.input_schema,
         annotations=entry.annotations,
     )
+
+
+def _tool_error_entry(exc: Exception) -> ToolEntry:
+    message = _tool_error_message(exc)
+    return ToolEntry(
+        tool_id="",
+        mcp_name=TOOL_ERROR_NAME,
+        title="Gestalt tools unavailable",
+        description=(
+            "Gestalt tool discovery failed. Use this diagnostic tool, then tell the user the "
+            f"integration needs attention before retrying. Error: {message}"
+        ),
+        input_schema={"type": "object", "additionalProperties": False},
+        annotations=ToolAnnotations(title="Gestalt tools unavailable", readOnlyHint=True),
+    )
+
+
+def _tool_error_result(exc: Exception) -> CallToolResult:
+    body = json.dumps(
+        {
+            "ok": False,
+            "error": _tool_error_message(exc),
+        },
+        ensure_ascii=False,
+    )
+    return CallToolResult(content=[TextContent(type="text", text=body)], isError=True)
+
+
+def _tool_error_message(exc: Exception) -> str:
+    message = str(exc).strip() or exc.__class__.__name__
+    message = " ".join(message.split())
+    if len(message) > TOOL_ERROR_MAX_CHARS:
+        return message[: TOOL_ERROR_MAX_CHARS - 3].rstrip() + "..."
+    return message
 
 
 def _tool_entry(tool_proto: Any) -> ToolEntry:
