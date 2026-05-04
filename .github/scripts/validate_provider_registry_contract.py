@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
+import xml.etree.ElementTree as ET
 from typing import Any
 
 import yaml
@@ -19,7 +20,10 @@ INDEX_SCHEMA_NAME = "gestaltd-provider-index"
 INDEX_SCHEMA_VERSION = 1
 CATALOG_SCHEMA_NAME = "gestaltd-provider-catalog"
 CATALOG_SCHEMA_VERSION = 1
+REPOSITORY = "valon-technologies/gestalt-providers"
 SOURCE_PREFIX = "github.com/valon-technologies/gestalt-providers/"
+RAW_URL_PREFIX = f"https://raw.githubusercontent.com/{REPOSITORY}/main/"
+SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,7 +126,32 @@ def validate_latest_installable_selection_rules() -> None:
         raise SystemExit("latestInstallableVersion must be null when all releases are yanked")
 
 
-def validate_catalog(index: dict[str, Any], catalog: dict[str, Any]) -> None:
+def validate_icon_assets(repo_root: pathlib.Path, catalog: dict[str, Any]) -> None:
+    providers = catalog.get("providers") or []
+    for provider in providers:
+        icon_url = provider.get("iconUrl")
+        if not icon_url:
+            continue
+        package = provider.get("package") or "<unknown>"
+        if not isinstance(icon_url, str) or not icon_url.startswith(RAW_URL_PREFIX):
+            raise SystemExit(f"catalog iconUrl for {package} must point at {RAW_URL_PREFIX}")
+        relative_path = urllib.parse.unquote(icon_url.removeprefix(RAW_URL_PREFIX))
+        icon_path = repo_root / relative_path
+        if not icon_path.is_file():
+            raise SystemExit(f"catalog iconUrl for {package} points at missing file {relative_path}")
+        if icon_path.suffix != ".svg":
+            continue
+        try:
+            root = ET.parse(icon_path).getroot()
+        except ET.ParseError as error:
+            raise SystemExit(f"catalog SVG icon for {package} is invalid XML: {relative_path}: {error}")
+        if root.tag != f"{{{SVG_NAMESPACE}}}svg":
+            raise SystemExit(
+                f"catalog SVG icon for {package} must declare xmlns=\"{SVG_NAMESPACE}\": {relative_path}"
+            )
+
+
+def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: dict[str, Any]) -> None:
     validate_latest_installable_selection_rules()
     if index.get("schema") != INDEX_SCHEMA_NAME:
         raise SystemExit("provider-index.yaml has wrong schema")
@@ -166,6 +195,7 @@ def validate_catalog(index: dict[str, Any], catalog: dict[str, Any]) -> None:
         raise SystemExit("catalog missing ui/default")
     if (ui_default.get("configTarget") or {}).get("requiredSet", {}).get("path") != "/":
         raise SystemExit("catalog ui/default configTarget must require path=/")
+    validate_icon_assets(repo_root, catalog)
 
 
 def write_base_config(config_path: pathlib.Path, index_path: pathlib.Path) -> None:
@@ -296,7 +326,7 @@ def main() -> int:
     catalog_path = repo_root / "registry/catalog.json"
     index = load_yaml(index_path)
     catalog = load_json(catalog_path)
-    validate_catalog(index, catalog)
+    validate_catalog(repo_root, index, catalog)
     packages = index["packages"]
     with tempfile.TemporaryDirectory() as tmp:
         config_path = pathlib.Path(tmp) / "gestalt.yaml"
