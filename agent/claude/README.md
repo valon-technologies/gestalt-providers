@@ -30,7 +30,7 @@ providers:
           secret: ANTHROPIC_API_KEY
 ```
 
-Use exact tool refs with the MCP catalog source:
+Use exact, plugin-level, or global tool refs with the MCP catalog source:
 
 ```yaml
 agent:
@@ -45,11 +45,10 @@ agent:
 
 For small exact grants, the SDK MCP bridge exposes the granted catalog tools
 directly and passes exact allowed tool names like
-`mcp__gestalt__github_pulls_list`. For broad grants, it exposes only
-`gestalt_catalog_search` and `gestalt_catalog_execute`, so Claude can discover
-and run connected-app tools without loading the full catalog into context. The
-provider sets `ENABLE_TOOL_SEARCH=false` so those catalog tools are always
-visible.
+`mcp__gestalt__github_pulls_list`. For broad grants, it drains the AgentHost
+tool pages into the SDK MCP `tools/list` response and relies on Claude Code
+native tool search. The provider sets `ENABLE_TOOL_SEARCH=auto:5` so those
+catalog tools can be discovered without a Gestalt-specific search wrapper.
 
 `cliPath` can be set when the Claude CLI executable is not on `PATH`. The SDK
 still uses the Claude Code transport internally, but this provider integrates

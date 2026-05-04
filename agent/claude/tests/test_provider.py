@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import socket
 import tempfile
@@ -45,11 +44,13 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.list_requests: list[dict[str, Any]] = []
         self.execute_requests: list[dict[str, Any]] = []
         self.large_catalog = False
+        self.include_reconnect_sentinel = False
 
     def reset(self) -> None:
         self.list_requests.clear()
         self.execute_requests.clear()
         self.large_catalog = False
+        self.include_reconnect_sentinel = False
 
     def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
         del context
@@ -89,6 +90,16 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             setattr(tool.ref, "operation", "candidate.list")
             response.next_page_token = "page-2"
         elif request.page_token == "page-2":
+            if self.include_reconnect_sentinel:
+                tool = response.tools.add()
+                tool.id = "tool-linear-reconnect"
+                tool.mcp_name = "linear__reconnect_required"
+                tool.title = "linear reconnect required"
+                tool.description = "linear credentials expired or refresh failed"
+                tool.input_schema = '{"type":"object","properties":{},"additionalProperties":false}'
+                setattr(tool.annotations, "read_only_hint", True)
+                setattr(tool.ref, "plugin", "linear")
+                return response
             tool = response.tools.add()
             tool.id = "tool-linear-issues"
             tool.mcp_name = "linear__issues"
@@ -121,6 +132,11 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "arguments": dict(request.arguments),
             }
         )
+        if request.tool_id == "tool-linear-reconnect":
+            return agent_pb2.ExecuteAgentToolResponse(
+                status=424,
+                body='{"error":{"code":"reconnect_required","plugin":"linear"}}',
+            )
         return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
 
 
@@ -248,11 +264,11 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.skills, [])
         self.assertEqual(fake_client.options.plugins, [])
         self.assertEqual(fake_client.options.env["ANTHROPIC_API_KEY"], "test-anthropic-key")
-        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "false")
+        self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "auto:5")
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
         self.assertIn("Gestalt MCP catalog tools", fake_client.options.system_prompt)
         self.assertIn("Linear", fake_client.options.system_prompt)
-        self.assertIn("gestalt_catalog_search", fake_client.options.system_prompt)
+        self.assertIn("native tool search", fake_client.options.system_prompt)
         self.assertIn(
             "Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt
         )
@@ -291,7 +307,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertNotIn("nextCursor", second["result"])
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2", "page-2"])
 
-    def test_sdk_mcp_bridge_uses_catalog_tools_for_large_grants(self) -> None:
+    def test_sdk_mcp_bridge_exposes_direct_tools_for_large_grants(self) -> None:
         host = _host_servicer
         assert host is not None
         host.large_catalog = True
@@ -305,29 +321,42 @@ class ClaudeProviderTests(unittest.TestCase):
         sdk_tools = asyncio.run(_sdk_tools(options))
         visible_tools = [tool.name for tool in sdk_tools]
 
-        self.assertEqual(visible_tools, ["gestalt_catalog_search", "gestalt_catalog_execute"])
-        self.assertNotIn("anyOf", sdk_tools[1].inputSchema)
-        self.assertEqual([request["page_token"] for request in host.list_requests], [""])
-
-        search_result = asyncio.run(
-            _call_sdk_tool(options, name="gestalt_catalog_search", arguments={"query": "find my prs"})
-        )
-        search_body = json.loads(search_result.content[0].text)
-        self.assertTrue(search_body["tools"])
-        self.assertEqual(search_body["tools"][0]["mcp_name"], "github__operation_0")
+        self.assertEqual(len(visible_tools), 60)
+        self.assertEqual(visible_tools[0], "github__operation_0")
+        self.assertEqual(visible_tools[-1], "linear__operation_59")
         self.assertEqual([request["page_token"] for request in host.list_requests], [""])
 
         execute_result = asyncio.run(
             _call_sdk_tool(
                 options,
-                name="gestalt_catalog_execute",
-                arguments={"tool_id": "tool-github-0", "arguments": {"query": "mine"}},
+                name="github__operation_0",
+                arguments={"query": "mine"},
             )
         )
 
         self.assertEqual(execute_result.content[0].text, '{"ok":true}')
         self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
         self.assertEqual(host.execute_requests[-1]["arguments"], {"query": "mine"})
+
+    def test_sdk_mcp_bridge_marks_unavailable_sentinel_call_as_error(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        host.include_reconnect_sentinel = True
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        options = runner._options(
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
+        )
+
+        sdk_tools = asyncio.run(_sdk_tools(options))
+        self.assertEqual([tool.name for tool in sdk_tools], ["ashby__candidate_list", "linear__reconnect_required"])
+
+        execute_result = asyncio.run(_call_sdk_tool(options, name="linear__reconnect_required", arguments={}))
+
+        self.assertTrue(execute_result.isError)
+        self.assertEqual(execute_result.content[0].text, '{"error":{"code":"reconnect_required","plugin":"linear"}}')
+        self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-linear-reconnect")
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()

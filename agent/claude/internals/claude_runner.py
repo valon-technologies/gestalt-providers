@@ -34,9 +34,8 @@ GESTALT_MCP_CATALOG_PROMPT = (
     "Gestalt MCP catalog tools are available through the `gestalt` MCP server for connected apps such as "
     "Linear, GitHub, Slack, Gmail, Google Drive, Google Calendar, Google Docs, Google Sheets, BigQuery, Datadog, "
     "PagerDuty, Notion, Figma, Ramp, Ashby, and other Valon integrations. When a user asks for data or actions "
-    "in an external service, use `gestalt_catalog_search` to find a relevant tool and then "
-    "`gestalt_catalog_execute` to run it before concluding the tool is unavailable. Do not infer tool availability "
-    "from Claude Code built-in tools only."
+    "in an external service, use Claude Code native tool search over the `gestalt` MCP server before concluding "
+    "the tool is unavailable. Do not infer tool availability from Claude Code built-in tools only."
 )
 
 
@@ -186,7 +185,7 @@ class ClaudeSDKRunner:
         return ""
 
     def _options(self, *, model: str, session_id: str, turn_id: str, run_grant: str) -> Any:
-        env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "false"}
+        env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         return ClaudeAgentOptions(
