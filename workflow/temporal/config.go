@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	providerVersion = "0.0.1-alpha.1"
+	providerVersion = "0.0.1-alpha.2"
 
 	defaultWorkflowRunTimeout          = 5 * time.Minute
 	defaultWorkflowTaskTimeout         = 10 * time.Second

@@ -67,12 +67,6 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 		w.Stop()
 		return err
 	}
-	for i := 0; i < b.cfg.IndexShardCount; i++ {
-		if _, err := b.client.ExecuteWorkflow(ctx, b.startOptions(indexWorkflowID(b.cfg.ScopeID, i)), indexWorkflow, indexInput{ScopeID: b.cfg.ScopeID, Shard: i}); err != nil {
-			w.Stop()
-			return fmt.Errorf("start index shard %d: %w", i, err)
-		}
-	}
 	b.worker = w
 	b.started = true
 	return nil

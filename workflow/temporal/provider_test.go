@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -388,6 +389,29 @@ func TestProviderSurfaceDelegatesWorkflowRPCs(t *testing.T) {
 	if !backend.calledListRuns {
 		t.Fatalf("backend ListRuns was not called")
 	}
+	if backend.startCount != 1 {
+		t.Fatalf("backend Start calls = %d, want 1", backend.startCount)
+	}
+}
+
+func TestProviderSurfaceFailsWhenBackendStartFails(t *testing.T) {
+	backend := &fakeBackend{
+		startErr: errors.New("worker unavailable"),
+		listRuns: &proto.ListWorkflowProviderRunsResponse{
+			Runs: []*proto.BoundWorkflowRun{{Id: "run-1"}},
+		},
+	}
+	provider := &Provider{name: "temporal", backend: backend}
+	_, err := provider.ListRuns(context.Background(), &proto.ListWorkflowProviderRunsRequest{})
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("ListRuns error = %v, want Internal", err)
+	}
+	if backend.calledListRuns {
+		t.Fatalf("backend ListRuns was called after Start failed")
+	}
+	if backend.startCount != 1 {
+		t.Fatalf("backend Start calls = %d, want 1", backend.startCount)
+	}
 }
 
 type capturingHost struct {
@@ -512,11 +536,16 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 
 type fakeBackend struct {
 	calledListRuns bool
+	startCount     int
+	startErr       error
 	listRuns       *proto.ListWorkflowProviderRunsResponse
 }
 
-func (f *fakeBackend) Start(context.Context) error { return nil }
-func (f *fakeBackend) Close() error                { return nil }
+func (f *fakeBackend) Start(context.Context) error {
+	f.startCount++
+	return f.startErr
+}
+func (f *fakeBackend) Close() error { return nil }
 func (f *fakeBackend) HealthCheck(context.Context) error {
 	return nil
 }
