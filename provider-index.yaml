@@ -1878,6 +1878,16 @@ packages:
     displayName: "Slack"
     description: "Read public and private conversations, DMs, and group DMs; send messages; and manage channels."
     versions:
+      "0.0.1-alpha.44":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.44/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
       "0.0.1-alpha.42":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.42/provider-release.yaml"
         kind: "plugin"
