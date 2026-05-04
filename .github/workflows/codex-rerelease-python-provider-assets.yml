@@ -24,6 +24,9 @@ jobs:
   rerelease-darwin-amd64:
     runs-on: macos-15-intel
     timeout-minutes: 30
+    concurrency:
+      group: provider-registry-index
+      cancel-in-progress: false
     env:
       GESTALT_REPOSITORY: valon-technologies/gestalt
     steps:
@@ -103,3 +106,10 @@ jobs:
             LC_ALL=C shasum -a 256 ./*.tar.gz > checksums.txt
           )
           gh release upload "${tag}" "${patch_dir}"/*_darwin_amd64.tar.gz "${patch_dir}/checksums.txt" "${patch_dir}/provider-release.yaml" --clobber
+      - name: Update provider registry index
+        run: |
+          bash .github/scripts/update_provider_registry_release.sh \
+            "${{ inputs.plugin-dir }}" \
+            "${{ steps.source.outputs.tag }}" \
+            "${{ steps.source.outputs.dir }}/manifest.yaml" \
+            "${RUNNER_TEMP}/release-patch/provider-release.yaml"

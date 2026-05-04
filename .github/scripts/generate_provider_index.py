@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from typing import Any
+
+import yaml
 
 
-SCHEMA_NAME = "gestaltd-provider-index"
-SCHEMA_VERSION = 1
+INDEX_SCHEMA_NAME = "gestaltd-provider-index"
+INDEX_SCHEMA_VERSION = 1
+CATALOG_SCHEMA_NAME = "gestaltd-provider-catalog"
+CATALOG_SCHEMA_VERSION = 1
+RELEASE_SCHEMA_NAME = "gestaltd-provider-release"
+RELEASE_SCHEMA_VERSION = 1
 REPOSITORY = "valon-technologies/gestalt-providers"
 SOURCE_PREFIX = f"github.com/{REPOSITORY}/"
 PACKAGE_ROOTS = (
@@ -26,447 +40,797 @@ PACKAGE_ROOTS = (
     "secrets",
     "ui",
 )
-EXECUTABLE_PLATFORMS = (
-    "darwin/amd64",
-    "darwin/arm64",
-    "linux/amd64",
-    "linux/arm64",
-    "linux/arm",
+GENERIC_PLATFORM = "generic"
+PLATFORM_ORDER = {
+    "darwin/amd64": 0,
+    "darwin/arm64": 1,
+    "linux/amd64": 2,
+    "linux/arm64": 3,
+    "linux/arm": 4,
+    GENERIC_PLATFORM: 100,
+}
+TAG_PATTERN = re.compile(
+    r"^(?P<dir>.+)/v(?P<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$"
 )
-TYPESCRIPT_PLATFORMS = (
-    "darwin/amd64",
-    "darwin/arm64",
-    "linux/amd64",
-    "linux/arm64",
-)
-LINUX_PLATFORMS = (
-    "linux/amd64",
-    "linux/arm64",
-    "linux/arm",
-)
-TAG_PATTERN = re.compile(r"^(?P<dir>.+)/v(?P<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$")
+
+
+@dataclass(frozen=True)
+class Manifest:
+    package_dir: str
+    manifest_path: str
+    source: str
+    version: str
+    kind: str
+    display_name: str
+    description: str
+    icon_file: str
+
+
+@dataclass(frozen=True)
+class Release:
+    package_dir: str
+    source: str
+    version: str
+    kind: str
+    runtime: str
+    platforms: tuple[str, ...]
+    metadata_url: str
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate provider-index.yaml.")
+    parser = argparse.ArgumentParser(
+        description="Generate provider-index.yaml and registry/catalog.json."
+    )
     parser.add_argument("--repo-root", default=".", help="Repository root")
-    parser.add_argument("--output", default="provider-index.yaml", help="Output path")
+    parser.add_argument("--output", default="provider-index.yaml", help="Provider index output")
+    parser.add_argument(
+        "--catalog-output",
+        default="registry/catalog.json",
+        help="Registry UI catalog output",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Fail if the output file is not up to date",
+        help="Fail if generated files are not up to date",
     )
     parser.add_argument(
         "--refresh-releases",
         action="store_true",
-        help="Refresh historical versions from git tags and release asset metadata",
+        help="Rebuild the provider index from non-draft GitHub releases",
+    )
+    parser.add_argument(
+        "--release-metadata",
+        help="Local provider-release.yaml to upsert into the index",
+    )
+    parser.add_argument(
+        "--release-manifest",
+        help="Tagged manifest.yaml matching --release-metadata",
+    )
+    parser.add_argument(
+        "--release-tag",
+        help="Release tag, for example plugins/slack/v0.0.1-alpha.42",
+    )
+    parser.add_argument(
+        "--package-dir",
+        help="Provider directory, for example plugins/slack",
     )
     return parser.parse_args()
 
 
-def normalize_scalar(value: str) -> str:
-    trimmed = value.strip()
-    if len(trimmed) >= 2 and trimmed[0] == trimmed[-1] and trimmed[0] in {"'", '"'}:
-        return trimmed[1:-1]
-    return trimmed
+def load_yaml_file(path: pathlib.Path) -> Any:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except yaml.YAMLError as exc:
+        raise SystemExit(f"{path}: invalid YAML: {exc}") from exc
+    return data if data is not None else {}
 
 
-def read_manifest(path: pathlib.Path) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    wanted = {"source", "version", "kind", "displayName", "description"}
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            if raw_line[:1].isspace() or ":" not in raw_line:
-                continue
-            key, value = raw_line.split(":", 1)
-            if key in wanted:
-                fields[key] = normalize_scalar(value)
-    missing = [name for name in ("source", "version", "kind") if not fields.get(name)]
+def load_yaml_text(text: str, source: str) -> Any:
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise SystemExit(f"{source}: invalid YAML: {exc}") from exc
+    return data if data is not None else {}
+
+
+def normalize_kind(kind: Any) -> str:
+    value = str(kind or "").strip().lower()
+    aliases = {
+        "auth": "authentication",
+        "externalcredentials": "external_credentials",
+        "external-credentials": "external_credentials",
+    }
+    return aliases.get(value, value)
+
+
+def scalar(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def manifest_from_data(data: Any, package_dir: str, manifest_path: str) -> Manifest:
+    if not isinstance(data, dict):
+        raise SystemExit(f"{manifest_path}: manifest must be a mapping")
+    source = scalar(data.get("source"))
+    version = scalar(data.get("version"))
+    kind = normalize_kind(data.get("kind"))
+    missing = [
+        name
+        for name, value in (
+            ("source", source),
+            ("version", version),
+            ("kind", kind),
+        )
+        if not value
+    ]
     if missing:
-        raise SystemExit(f"{path}: missing {', '.join(missing)}")
-    return fields
+        raise SystemExit(f"{manifest_path}: missing {', '.join(missing)}")
+    expected_source = SOURCE_PREFIX + package_dir
+    if source != expected_source:
+        raise SystemExit(
+            f"{manifest_path}: source {source!r} does not match {expected_source!r}"
+        )
+    return Manifest(
+        package_dir=package_dir,
+        manifest_path=manifest_path,
+        source=source,
+        version=version,
+        kind=kind,
+        display_name=scalar(data.get("displayName")) or pathlib.PurePosixPath(package_dir).name,
+        description=scalar(data.get("description")),
+        icon_file=scalar(data.get("iconFile")),
+    )
 
 
-def read_existing_index(path: pathlib.Path) -> dict[str, dict[str, object]]:
+def read_manifest(path: pathlib.Path, repo_root: pathlib.Path) -> Manifest:
+    package_dir = path.parent.relative_to(repo_root).as_posix()
+    return manifest_from_data(load_yaml_file(path), package_dir, path.as_posix())
+
+
+def discover_current_manifests(repo_root: pathlib.Path) -> dict[str, Manifest]:
+    manifests: dict[str, Manifest] = {}
+    for root_name in PACKAGE_ROOTS:
+        root = repo_root / root_name
+        if not root.is_dir():
+            continue
+        for manifest_path in sorted(root.glob("*/manifest.yaml")):
+            manifest = read_manifest(manifest_path, repo_root)
+            manifests[manifest.source] = manifest
+    return manifests
+
+
+def read_existing_index(path: pathlib.Path) -> dict[str, dict[str, Any]]:
     if not path.is_file():
         return {}
-    packages: dict[str, dict[str, object]] = {}
-    current_package = ""
-    current_version = ""
-    in_platforms = False
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.rstrip("\n")
-            if line.startswith("  github.com/"):
-                current_package = line.strip().rstrip(":")
-                current_version = ""
-                in_platforms = False
-                packages.setdefault(
-                    current_package,
-                    {"displayName": "", "description": "", "versions": {}},
+    data = load_yaml_file(path)
+    if not isinstance(data, dict):
+        raise SystemExit(f"{path}: provider index must be a mapping")
+    if data.get("schema") != INDEX_SCHEMA_NAME:
+        raise SystemExit(f"{path}: unsupported schema {data.get('schema')!r}")
+    if int(data.get("schemaVersion") or 0) != INDEX_SCHEMA_VERSION:
+        raise SystemExit(f"{path}: unsupported schemaVersion {data.get('schemaVersion')!r}")
+    raw_packages = data.get("packages") or {}
+    if not isinstance(raw_packages, dict):
+        raise SystemExit(f"{path}: packages must be a mapping")
+    packages: dict[str, dict[str, Any]] = {}
+    for source, raw_package in raw_packages.items():
+        source = scalar(source)
+        if not source.startswith(SOURCE_PREFIX):
+            raise SystemExit(f"{path}: package {source!r} does not start with {SOURCE_PREFIX!r}")
+        package_dir = source.removeprefix(SOURCE_PREFIX)
+        if package_dir.split("/", 1)[0] not in PACKAGE_ROOTS:
+            continue
+        if not isinstance(raw_package, dict):
+            raise SystemExit(f"{path}: package {source!r} must be a mapping")
+        raw_versions = raw_package.get("versions") or {}
+        if not isinstance(raw_versions, dict):
+            raise SystemExit(f"{path}: package {source!r} versions must be a mapping")
+        versions: dict[str, dict[str, Any]] = {}
+        for version, raw_entry in raw_versions.items():
+            version = scalar(version)
+            if not isinstance(raw_entry, dict):
+                raise SystemExit(f"{path}: {source} {version} must be a mapping")
+            metadata = scalar(raw_entry.get("metadata"))
+            kind = normalize_kind(raw_entry.get("kind"))
+            runtime = scalar(raw_entry.get("runtime"))
+            platforms = raw_entry.get("platforms") or []
+            if not isinstance(platforms, list):
+                raise SystemExit(f"{path}: {source} {version} platforms must be a sequence")
+            missing = [
+                name
+                for name, value in (
+                    ("metadata", metadata),
+                    ("kind", kind),
+                    ("runtime", runtime),
                 )
-                continue
-            if not current_package:
-                continue
-            package = packages[current_package]
-            if line.startswith("    displayName:"):
-                package["displayName"] = parse_yaml_string(line.split(":", 1)[1])
-            elif line.startswith("    description:"):
-                package["description"] = parse_yaml_string(line.split(":", 1)[1])
-            elif line.startswith("      ") and not line.startswith("        ") and line.endswith(":"):
-                current_version = parse_yaml_string(line.strip()[:-1])
-                versions = package["versions"]
-                assert isinstance(versions, dict)
-                versions.setdefault(
-                    current_version,
-                    {"metadata": "", "kind": "", "runtime": "", "platforms": []},
-                )
-                in_platforms = False
-            elif current_version and line.startswith("        metadata:"):
-                version = version_entry(package, current_version)
-                version["metadata"] = parse_yaml_string(line.split(":", 1)[1])
-            elif current_version and line.startswith("        kind:"):
-                version = version_entry(package, current_version)
-                version["kind"] = parse_yaml_string(line.split(":", 1)[1])
-            elif current_version and line.startswith("        runtime:"):
-                version = version_entry(package, current_version)
-                version["runtime"] = parse_yaml_string(line.split(":", 1)[1])
-            elif current_version and line.startswith("        platforms:"):
-                version = version_entry(package, current_version)
-                version["platforms"] = []
-                in_platforms = True
-            elif current_version and in_platforms and line.startswith("          - "):
-                version = version_entry(package, current_version)
-                platforms = version["platforms"]
-                assert isinstance(platforms, list)
-                platforms.append(parse_yaml_string(line.split("-", 1)[1]))
-            else:
-                in_platforms = False
+                if not value
+            ]
+            if missing:
+                raise SystemExit(f"{path}: {source} {version} missing {', '.join(missing)}")
+            validate_metadata_url(source, version, metadata, path.as_posix())
+            versions[version] = {
+                "metadata": metadata,
+                "kind": kind,
+                "runtime": runtime,
+                "platforms": normalize_platforms(platforms),
+            }
+            if bool(raw_entry.get("yanked")):
+                versions[version]["yanked"] = True
+        packages[source] = {
+            "displayName": scalar(raw_package.get("displayName"))
+            or pathlib.PurePosixPath(source).name,
+            "description": scalar(raw_package.get("description")),
+            "versions": versions,
+        }
     return packages
 
 
-def parse_yaml_string(value: str) -> str:
-    trimmed = value.strip()
-    if not trimmed:
-        return ""
-    try:
-        parsed = json.loads(trimmed)
-    except json.JSONDecodeError:
-        return normalize_scalar(trimmed)
-    return str(parsed)
+def validate_metadata_url(source: str, version: str, metadata: str, context: str) -> None:
+    package_dir = source.removeprefix(SOURCE_PREFIX)
+    expected_suffix = f"/releases/download/{package_dir}/v{version}/provider-release.yaml"
+    parsed = urllib.parse.urlparse(metadata)
+    if parsed.scheme not in {"http", "https", "file"}:
+        raise SystemExit(f"{context}: {source} {version} metadata URL has invalid scheme")
+    if parsed.scheme in {"http", "https"} and not metadata.endswith(expected_suffix):
+        raise SystemExit(
+            f"{context}: {source} {version} metadata URL must end with {expected_suffix!r}"
+        )
 
 
-def version_entry(package: dict[str, object], version: str) -> dict[str, object]:
-    versions = package["versions"]
-    assert isinstance(versions, dict)
-    entry = versions[version]
-    assert isinstance(entry, dict)
-    return entry
+def sort_platforms(platforms: Any) -> list[str]:
+    unique = {scalar(platform) for platform in platforms if scalar(platform)}
+    return sorted(
+        unique,
+        key=lambda platform: (PLATFORM_ORDER.get(platform, 50), platform),
+    )
 
 
-def provider_language(package_dir: pathlib.Path) -> str:
-    if any(path.suffix == ".go" for path in package_dir.glob("*.go")):
-        return "go"
-    if (package_dir / "Cargo.toml").is_file():
-        return "rust"
-    if (package_dir / "pyproject.toml").is_file():
-        return "python"
-    package_json = package_dir / "package.json"
-    if package_json.is_file() and package_dir.parts[0] != "ui":
-        try:
-            data = json.loads(package_json.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            data = {}
-        if (data.get("gestalt") or {}).get("provider"):
-            return "typescript"
-    return "generic"
+def normalize_platforms(platforms: Any) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for platform in platforms:
+        value = scalar(platform)
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
 
 
-def release_runtime(kind: str, language: str) -> str:
-    if kind == "ui":
-        return "ui"
-    if kind == "plugin" and language == "generic":
-        return "declarative"
-    return "executable"
+def semver_sort_key(version: str) -> tuple[tuple[int, int, int], int, tuple[Any, ...], str]:
+    public, _, _build = version.partition("+")
+    core, _, prerelease = public.partition("-")
+    parts = core.split(".")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return ((0, 0, 0), 0, (), version)
+    nums = tuple(int(part) for part in parts)
+    pre_key: tuple[Any, ...] = ()
+    if prerelease:
+        pre_key = tuple(
+            (0, int(part)) if part.isdigit() else (1, part)
+            for part in prerelease.split(".")
+        )
+    return (nums, 0 if prerelease else 1, pre_key, version)
 
 
-def release_platforms(package_dir: pathlib.Path, language: str, runtime: str) -> tuple[str, ...]:
-    if runtime in {"declarative", "ui"}:
-        return ("generic",)
-    if language == "rust":
-        return LINUX_PLATFORMS
-    if language == "typescript":
-        if package_dir.as_posix() == "agent/cursor":
-            return ("linux/amd64", "linux/arm64")
-        return TYPESCRIPT_PLATFORMS
-    if language == "python" and package_dir.as_posix() == "agent/claude":
-        return tuple(platform for platform in EXECUTABLE_PLATFORMS if platform != "linux/arm")
-    return EXECUTABLE_PLATFORMS
+def is_prerelease_version(version: str) -> bool:
+    public, _, _build = version.partition("+")
+    return "-" in public
 
 
-def release_metadata_url(package_dir: pathlib.Path, version: str) -> str:
-    tag = f"{package_dir.as_posix()}/v{version}"
-    return release_metadata_url_for_tag(tag)
+def latest_installable_version(versions: dict[str, dict[str, Any]]) -> str | None:
+    ordered_versions = sorted(versions, key=semver_sort_key, reverse=True)
+    for version in ordered_versions:
+        entry = versions.get(version) or {}
+        if not bool(entry.get("yanked")) and not is_prerelease_version(version):
+            return version
+    for version in ordered_versions:
+        entry = versions.get(version) or {}
+        if not bool(entry.get("yanked")):
+            return version
+    return None
 
 
 def release_metadata_url_for_tag(tag: str) -> str:
     return f"https://github.com/{REPOSITORY}/releases/download/{tag}/provider-release.yaml"
 
 
-def upsert_version(
-    packages: dict[str, dict[str, object]],
-    source: str,
-    display_name: str,
-    description: str,
-    version: str,
-    metadata: str,
-    kind: str,
-    runtime: str,
-    platforms: tuple[str, ...] | list[str],
-    overwrite: bool,
+def release_from_metadata(
+    *,
+    metadata_data: Any,
+    metadata_source: str,
+    manifest: Manifest,
+    package_dir: str,
+    tag: str,
+    metadata_url: str,
+) -> Release:
+    match = TAG_PATTERN.match(tag)
+    if match is None:
+        raise SystemExit(f"{metadata_source}: release tag {tag!r} is not a provider tag")
+    if match.group("dir") != package_dir:
+        raise SystemExit(
+            f"{metadata_source}: release tag package dir {match.group('dir')!r} does not match {package_dir!r}"
+        )
+    if not isinstance(metadata_data, dict):
+        raise SystemExit(f"{metadata_source}: provider release metadata must be a mapping")
+    if metadata_data.get("schema") != RELEASE_SCHEMA_NAME:
+        raise SystemExit(f"{metadata_source}: unsupported schema {metadata_data.get('schema')!r}")
+    if int(metadata_data.get("schemaVersion") or 0) != RELEASE_SCHEMA_VERSION:
+        raise SystemExit(
+            f"{metadata_source}: unsupported schemaVersion {metadata_data.get('schemaVersion')!r}"
+        )
+    source = scalar(metadata_data.get("package"))
+    version = scalar(metadata_data.get("version"))
+    kind = normalize_kind(metadata_data.get("kind"))
+    runtime = scalar(metadata_data.get("runtime"))
+    artifacts = metadata_data.get("artifacts") or {}
+    if not isinstance(artifacts, dict) or not artifacts:
+        raise SystemExit(f"{metadata_source}: artifacts must be a non-empty mapping")
+    if source != manifest.source:
+        raise SystemExit(
+            f"{metadata_source}: package {source!r} does not match tagged manifest {manifest.source!r}"
+        )
+    if kind != manifest.kind:
+        raise SystemExit(
+            f"{metadata_source}: kind {kind!r} does not match tagged manifest {manifest.kind!r}"
+        )
+    tag_version = match.group("version")
+    if version != tag_version:
+        raise SystemExit(
+            f"{metadata_source}: version {version!r} does not match release tag version {tag_version!r}"
+        )
+    if version != manifest.version:
+        raise SystemExit(
+            f"{metadata_source}: version {version!r} does not match tagged manifest {manifest.version!r}"
+        )
+    if not runtime:
+        raise SystemExit(f"{metadata_source}: runtime is required")
+    platforms = sort_platforms(artifacts.keys())
+    if not platforms:
+        raise SystemExit(f"{metadata_source}: artifacts must include at least one target")
+    return Release(
+        package_dir=package_dir,
+        source=source,
+        version=version,
+        kind=kind,
+        runtime=runtime,
+        platforms=tuple(platforms),
+        metadata_url=metadata_url,
+    )
+
+
+def yanked_status(
+    previous: dict[str, dict[str, Any]], source: str, version: str
+) -> bool:
+    package = previous.get(source) or {}
+    versions = package.get("versions") or {}
+    entry = versions.get(version) or {}
+    return bool(entry.get("yanked"))
+
+
+def upsert_release(
+    packages: dict[str, dict[str, Any]],
+    previous: dict[str, dict[str, Any]],
+    manifest: Manifest,
+    release: Release,
 ) -> None:
     package = packages.setdefault(
-        source,
-        {"displayName": display_name, "description": description, "versions": {}},
+        release.source,
+        {"displayName": manifest.display_name, "description": manifest.description, "versions": {}},
     )
-    if display_name:
-        package["displayName"] = display_name
-    if description:
-        package["description"] = description
-    versions = package["versions"]
-    assert isinstance(versions, dict)
-    if overwrite or version not in versions:
-        versions[version] = {
-            "metadata": metadata,
-            "kind": kind,
-            "runtime": runtime,
-            "platforms": list(platforms),
-        }
-
-
-def discover_packages(repo_root: pathlib.Path, packages: dict[str, dict[str, object]]) -> None:
-    for root_name in PACKAGE_ROOTS:
-        root = repo_root / root_name
-        if not root.is_dir():
-            continue
-        for manifest_path in sorted(root.glob("*/manifest.yaml")):
-            package_dir = manifest_path.parent.relative_to(repo_root)
-            manifest = read_manifest(manifest_path)
-            source = manifest["source"]
-            expected_source = SOURCE_PREFIX + package_dir.as_posix()
-            if source != expected_source:
-                raise SystemExit(
-                    f"{manifest_path}: source {source!r} does not match {expected_source!r}"
-                )
-            language = provider_language(package_dir)
-            kind = manifest["kind"]
-            runtime = release_runtime(kind, language)
-            upsert_version(
-                packages,
-                source=source,
-                display_name=manifest.get("displayName", package_dir.name),
-                description=manifest.get("description", ""),
-                version=manifest["version"],
-                metadata=release_metadata_url(package_dir, manifest["version"]),
-                kind=kind,
-                runtime=runtime,
-                platforms=release_platforms(package_dir, language, runtime),
-                overwrite=False,
-            )
-
-
-def refresh_github_releases(repo_root: pathlib.Path, packages: dict[str, dict[str, object]]) -> None:
-    manifests = {
-        manifest.parent.relative_to(repo_root).as_posix(): read_manifest(manifest)
-        for root_name in PACKAGE_ROOTS
-        for manifest in sorted((repo_root / root_name).glob("*/manifest.yaml"))
+    package["displayName"] = manifest.display_name
+    package["description"] = manifest.description
+    versions = package.setdefault("versions", {})
+    entry: dict[str, Any] = {
+        "metadata": release.metadata_url,
+        "kind": release.kind,
+        "runtime": release.runtime,
+        "platforms": list(release.platforms),
     }
-    for tag in list_release_tags():
-        match = TAG_PATTERN.match(tag)
-        assert match is not None
-        package_dir = match.group("dir")
-        manifest = manifests.get(package_dir)
-        metadata_url = release_metadata_url_for_tag(tag)
-        metadata = fetch_release_metadata(tag)
-        if metadata is None:
-            print(f"warning: skipping {tag}; provider-release.yaml not found", file=sys.stderr)
+    if yanked_status(previous, release.source, release.version):
+        entry["yanked"] = True
+    versions[release.version] = entry
+
+
+def apply_current_manifest_metadata(
+    packages: dict[str, dict[str, Any]], manifests: dict[str, Manifest]
+) -> None:
+    for source, manifest in manifests.items():
+        package = packages.get(source)
+        if package is None:
             continue
-        source = str(metadata.get("package") or "")
-        if not source:
-            if manifest is None:
-                print(f"warning: skipping {tag}; provider-release.yaml missing package", file=sys.stderr)
-                continue
-            source = manifest["source"]
-        if not source.startswith(SOURCE_PREFIX):
-            raise SystemExit(f"{metadata_url}: package {source!r} does not start with {SOURCE_PREFIX!r}")
-        if manifest is not None and source != manifest["source"]:
-            raise SystemExit(f"{metadata_url}: package {source!r} does not match manifest")
-        kind = str(metadata.get("kind") or (manifest or {}).get("kind") or "")
-        if not kind:
-            print(f"warning: skipping {tag}; provider-release.yaml missing kind", file=sys.stderr)
-            continue
-        runtime = str(metadata.get("runtime") or "")
-        if not runtime:
-            if manifest is None:
-                print(f"warning: skipping {tag}; provider-release.yaml missing runtime", file=sys.stderr)
-                continue
-            runtime = release_runtime(kind, provider_language(repo_root / package_dir))
-        display_name = pathlib.PurePosixPath(package_dir).name
-        description = ""
-        if manifest is not None:
-            display_name = manifest.get("displayName", display_name)
-            description = manifest.get("description", "")
-        upsert_version(
-            packages,
-            source=source,
-            display_name=display_name,
-            description=description,
-            version=metadata.get("version") or match.group("version"),
-            metadata=metadata_url,
-            kind=kind,
-            runtime=runtime,
-            platforms=metadata.get("platforms") or ("generic",),
-            overwrite=True,
+        package["displayName"] = manifest.display_name
+        package["description"] = manifest.description
+
+
+def tagged_manifest(repo_root: pathlib.Path, tag: str, package_dir: str) -> Manifest:
+    manifest_path = f"{package_dir}/manifest.yaml"
+    text = git_show(repo_root, f"{tag}:{manifest_path}")
+    data = load_yaml_text(text, f"{tag}:{manifest_path}")
+    return manifest_from_data(data, package_dir, f"{tag}:{manifest_path}")
+
+
+def git_show(repo_root: pathlib.Path, spec: str) -> str:
+    result = subprocess.run(
+        ["git", "show", spec],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        return result.stdout
+    tag = spec.split(":", 1)[0]
+    fetch = subprocess.run(
+        ["git", "fetch", "--force", "origin", f"refs/tags/{tag}:refs/tags/{tag}"],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+    )
+    if fetch.returncode != 0:
+        message = fetch.stderr.strip() or result.stderr.strip()
+        raise SystemExit(f"unable to fetch tag {tag}: {message}")
+    retry = subprocess.run(
+        ["git", "show", spec],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+    )
+    if retry.returncode != 0:
+        message = retry.stderr.strip() or result.stderr.strip()
+        raise SystemExit(f"unable to read {spec}: {message}")
+    return retry.stdout
+
+
+def list_github_releases() -> list[dict[str, Any]]:
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    url = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=100"
+    releases: list[dict[str, Any]] = []
+    while url:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                **({"Authorization": f"Bearer {token}"} if token else {}),
+            },
         )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                link = response.headers.get("Link", "")
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"GitHub releases API failed with {exc.code}: {body}") from exc
+        if not isinstance(payload, list):
+            raise SystemExit("GitHub releases API returned non-list payload")
+        releases.extend(release for release in payload if isinstance(release, dict))
+        url = next_link(link)
+    return releases
 
 
-def list_release_tags() -> list[str]:
-    result = subprocess.run(
-        [
-            "git",
-            "ls-remote",
-            "--tags",
-            "--refs",
-            f"https://github.com/{REPOSITORY}.git",
-        ],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    tags: list[str] = []
-    for line in result.stdout.splitlines():
-        _, _, ref = line.partition("\t")
-        prefix = "refs/tags/"
-        if not ref.startswith(prefix):
+def next_link(link_header: str) -> str:
+    for part in link_header.split(","):
+        url_part, _, rel_part = part.strip().partition(";")
+        if 'rel="next"' not in rel_part:
             continue
-        tag = ref[len(prefix) :]
-        match = TAG_PATTERN.match(tag)
-        if match and match.group("dir").split("/", 1)[0] in PACKAGE_ROOTS:
-            tags.append(tag)
-    return sorted(tags)
+        url_part = url_part.strip()
+        if url_part.startswith("<") and url_part.endswith(">"):
+            return url_part[1:-1]
+    return ""
 
 
-def fetch_release_metadata(tag: str) -> dict[str, object] | None:
-    metadata_url = release_metadata_url_for_tag(tag)
-    result = subprocess.run(
-        [
-            "curl",
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--location",
-            "--retry",
-            "3",
-            metadata_url,
-        ],
-        check=False,
-        text=True,
-        capture_output=True,
+def fetch_url_text(url: str) -> str:
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/octet-stream",
+            **({"Authorization": f"Bearer {token}"} if token else {}),
+        },
     )
-    if result.returncode != 0:
-        if "404" in result.stderr:
-            return None
-        message = result.stderr.strip() or f"curl exited with {result.returncode}"
-        raise SystemExit(f"{metadata_url}: {message}")
-    data = result.stdout
-    fields: dict[str, object] = {"platforms": []}
-    in_artifacts = False
-    for raw_line in data.splitlines():
-        line = raw_line.rstrip("\n")
-        if line.startswith("package:"):
-            fields["package"] = normalize_scalar(line.split(":", 1)[1])
-        elif line.startswith("kind:"):
-            fields["kind"] = normalize_scalar(line.split(":", 1)[1])
-        elif line.startswith("version:"):
-            fields["version"] = normalize_scalar(line.split(":", 1)[1])
-        elif line.startswith("runtime:"):
-            fields["runtime"] = normalize_scalar(line.split(":", 1)[1])
-        elif line == "artifacts:":
-            in_artifacts = True
-        elif in_artifacts and line.startswith("  ") and line.endswith(":") and not line.startswith("    "):
-            platforms = fields["platforms"]
-            assert isinstance(platforms, list)
-            platforms.append(normalize_scalar(line.strip()[:-1]))
-        elif line and not line.startswith(" "):
-            in_artifacts = False
-    return fields
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"{url}: download failed with {exc.code}: {body}") from exc
+
+
+def refresh_github_releases(
+    repo_root: pathlib.Path,
+    previous: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    packages: dict[str, dict[str, Any]] = {}
+    for release in list_github_releases():
+        if release.get("draft"):
+            continue
+        tag = scalar(release.get("tag_name"))
+        match = TAG_PATTERN.match(tag)
+        if match is None or match.group("dir").split("/", 1)[0] not in PACKAGE_ROOTS:
+            continue
+        assets = release.get("assets") or []
+        if not isinstance(assets, list):
+            raise SystemExit(f"{tag}: release assets must be a list")
+        asset = next(
+            (
+                candidate
+                for candidate in assets
+                if isinstance(candidate, dict) and candidate.get("name") == "provider-release.yaml"
+            ),
+            None,
+        )
+        if asset is None:
+            print(f"warning: skipping {tag}; provider-release.yaml asset not found", file=sys.stderr)
+            continue
+        metadata_url = release_metadata_url_for_tag(tag)
+        download_url = scalar(asset.get("browser_download_url")) or metadata_url
+        package_dir = match.group("dir")
+        manifest = tagged_manifest(repo_root, tag, package_dir)
+        release_info = release_from_metadata(
+            metadata_data=load_yaml_text(fetch_url_text(download_url), metadata_url),
+            metadata_source=metadata_url,
+            manifest=manifest,
+            package_dir=package_dir,
+            tag=tag,
+            metadata_url=metadata_url,
+        )
+        upsert_release(packages, previous, manifest, release_info)
+    return packages
+
+
+def upsert_single_release(
+    packages: dict[str, dict[str, Any]],
+    previous: dict[str, dict[str, Any]],
+    metadata_path: pathlib.Path,
+    manifest_path: pathlib.Path,
+    package_dir: str,
+    tag: str,
+) -> None:
+    manifest = manifest_from_data(
+        load_yaml_file(manifest_path),
+        package_dir,
+        manifest_path.as_posix(),
+    )
+    release = release_from_metadata(
+        metadata_data=load_yaml_file(metadata_path),
+        metadata_source=metadata_path.as_posix(),
+        manifest=manifest,
+        package_dir=package_dir,
+        tag=tag,
+        metadata_url=release_metadata_url_for_tag(tag),
+    )
+    upsert_release(packages, previous, manifest, release)
 
 
 def yaml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def semver_sort_key(version: str) -> tuple[tuple[int, int, int], int, tuple[object, ...]]:
-    core, _, prerelease = version.partition("-")
-    nums = tuple(int(part) for part in core.split("."))
-    pre_key: tuple[object, ...] = ()
-    if prerelease:
-        pre_key = tuple(int(part) if part.isdigit() else part for part in prerelease.split("."))
-    return (nums, 0 if prerelease else 1, pre_key)
-
-
-def render_index(packages: dict[str, dict[str, object]]) -> str:
+def render_index(packages: dict[str, dict[str, Any]]) -> str:
     lines = [
-        f"schema: {SCHEMA_NAME}",
-        f"schemaVersion: {SCHEMA_VERSION}",
+        f"schema: {INDEX_SCHEMA_NAME}",
+        f"schemaVersion: {INDEX_SCHEMA_VERSION}",
         "packages:",
     ]
     for source in sorted(packages):
         package = packages[source]
         lines.append(f"  {source}:")
-        lines.append(f"    displayName: {yaml_string(str(package['displayName']))}")
-        if package["description"]:
-            lines.append(f"    description: {yaml_string(str(package['description']))}")
+        lines.append(f"    displayName: {yaml_string(scalar(package.get('displayName')))}")
+        if scalar(package.get("description")):
+            lines.append(f"    description: {yaml_string(scalar(package.get('description')))}")
         lines.append("    versions:")
-        versions = package["versions"]
-        assert isinstance(versions, dict)
-        ordered_versions = sorted(versions, key=semver_sort_key, reverse=True)
-        for version in ordered_versions:
+        versions = package.get("versions") or {}
+        for version in sorted(versions, key=semver_sort_key, reverse=True):
             entry = versions[version]
-            assert isinstance(entry, dict)
             lines.append(f"      {yaml_string(version)}:")
-            lines.append(f"        metadata: {yaml_string(str(entry['metadata']))}")
-            lines.append(f"        kind: {yaml_string(str(entry['kind']))}")
-            lines.append(f"        runtime: {yaml_string(str(entry['runtime']))}")
+            lines.append(f"        metadata: {yaml_string(scalar(entry.get('metadata')))}")
+            lines.append(f"        kind: {yaml_string(normalize_kind(entry.get('kind')))}")
+            lines.append(f"        runtime: {yaml_string(scalar(entry.get('runtime')))}")
             lines.append("        platforms:")
-            for platform in entry["platforms"]:
-                lines.append(f"          - {yaml_string(str(platform))}")
+            for platform in normalize_platforms(entry.get("platforms") or []):
+                lines.append(f"          - {yaml_string(platform)}")
+            if bool(entry.get("yanked")):
+                lines.append("        yanked: true")
     return "\n".join(lines) + "\n"
+
+
+def config_target(kind: str) -> dict[str, Any]:
+    if kind == "plugin":
+        return {"section": "plugins", "entryKind": "plugin"}
+    if kind == "runtime":
+        return {"section": "runtime.providers", "entryKind": "runtime"}
+    if kind == "ui":
+        return {
+            "section": "providers.ui",
+            "entryKind": "ui",
+            "requiredSet": {"path": "/"},
+        }
+    if kind == "external_credentials":
+        return {"section": "providers.externalCredentials", "entryKind": kind}
+    if kind in {
+        "authentication",
+        "authorization",
+        "cache",
+        "indexeddb",
+        "s3",
+        "secrets",
+        "workflow",
+        "agent",
+    }:
+        return {"section": f"providers.{kind}", "entryKind": kind}
+    return {"section": f"providers.{kind}", "entryKind": kind}
+
+
+def provider_registry_path(kind: str, package_dir: str) -> str:
+    return f"/providers/{kind}/{pathlib.PurePosixPath(package_dir).name}/"
+
+
+def repository_blob_url(path: str) -> str:
+    return f"https://github.com/{REPOSITORY}/blob/main/{path}"
+
+
+def repository_tree_url(path: str) -> str:
+    return f"https://github.com/{REPOSITORY}/tree/main/{path}"
+
+
+def repository_raw_url(path: str) -> str:
+    return f"https://raw.githubusercontent.com/{REPOSITORY}/main/{path}"
+
+
+def catalog_provider(
+    repo_root: pathlib.Path,
+    source: str,
+    manifest: Manifest | None,
+    package: dict[str, Any] | None,
+) -> dict[str, Any]:
+    versions_map = (package or {}).get("versions") or {}
+    ordered_versions = sorted(versions_map, key=semver_sort_key, reverse=True)
+    latest_installable = latest_installable_version(versions_map)
+    versions = []
+    for version in ordered_versions:
+        entry = versions_map[version]
+        version_entry: dict[str, Any] = {
+            "version": version,
+            "metadata": scalar(entry.get("metadata")),
+            "kind": normalize_kind(entry.get("kind")),
+            "runtime": scalar(entry.get("runtime")),
+            "platforms": normalize_platforms(entry.get("platforms") or []),
+        }
+        if bool(entry.get("yanked")):
+            version_entry["yanked"] = True
+        versions.append(version_entry)
+    package_dir = manifest.package_dir if manifest else source.removeprefix(SOURCE_PREFIX)
+    latest_entry_version = latest_installable or (ordered_versions[0] if ordered_versions else None)
+    latest_entry = versions_map.get(latest_entry_version) if latest_entry_version else {}
+    kind = manifest.kind if manifest else normalize_kind((latest_entry or {}).get("kind"))
+    display_name = (
+        manifest.display_name
+        if manifest
+        else scalar((package or {}).get("displayName")) or pathlib.PurePosixPath(package_dir).name
+    )
+    description = manifest.description if manifest else scalar((package or {}).get("description"))
+    readme_path = f"{package_dir}/README.md"
+    manifest_path = f"{package_dir}/manifest.yaml"
+    package_dir_exists = (repo_root / package_dir).is_dir()
+    icon_url = None
+    if manifest and manifest.icon_file:
+        icon_path = pathlib.PurePosixPath(package_dir) / manifest.icon_file
+        if (repo_root / icon_path).is_file():
+            icon_url = repository_raw_url(icon_path.as_posix())
+    return {
+        "package": source,
+        "packagePath": package_dir,
+        "name": pathlib.PurePosixPath(package_dir).name,
+        "kind": kind,
+        "configTarget": config_target(kind),
+        "displayName": display_name,
+        "description": description,
+        "manifestVersion": manifest.version if manifest else None,
+        "latestInstallableVersion": latest_installable,
+        "versions": versions,
+        "registryPath": provider_registry_path(kind, package_dir),
+        "sourceUrl": repository_tree_url(package_dir) if package_dir_exists else None,
+        "readmeUrl": repository_blob_url(readme_path)
+        if (repo_root / readme_path).is_file()
+        else None,
+        "manifestUrl": repository_blob_url(manifest_path)
+        if (repo_root / manifest_path).is_file()
+        else None,
+        "iconUrl": icon_url,
+    }
+
+
+def render_catalog(
+    repo_root: pathlib.Path,
+    manifests: dict[str, Manifest],
+    packages: dict[str, dict[str, Any]],
+) -> str:
+    sources = set(manifests) | set(packages)
+    providers = [
+        catalog_provider(repo_root, source, manifests.get(source), packages.get(source))
+        for source in sources
+    ]
+    providers.sort(key=lambda provider: (provider["kind"], provider["name"], provider["package"]))
+    catalog = {
+        "schema": CATALOG_SCHEMA_NAME,
+        "schemaVersion": CATALOG_SCHEMA_VERSION,
+        "repository": REPOSITORY,
+        "indexUrl": f"https://raw.githubusercontent.com/{REPOSITORY}/main/provider-index.yaml",
+        "providers": providers,
+    }
+    return json.dumps(catalog, indent=2, sort_keys=True) + "\n"
+
+
+def compare_or_write(path: pathlib.Path, rendered: str, check: bool) -> bool:
+    if check:
+        if not path.is_file():
+            print(f"{path} does not exist; run generate_provider_index.py", file=sys.stderr)
+            return False
+        current = path.read_text(encoding="utf-8")
+        if current != rendered:
+            print(f"{path} is out of date; run generate_provider_index.py", file=sys.stderr)
+            return False
+        return True
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(rendered, encoding="utf-8")
+    print(f"wrote {path}")
+    return True
+
+
+def require_all_or_none(args: argparse.Namespace) -> None:
+    release_args = [
+        args.release_metadata,
+        args.release_manifest,
+        args.release_tag,
+        args.package_dir,
+    ]
+    if any(release_args) and not all(release_args):
+        raise SystemExit(
+            "--release-metadata, --release-manifest, --release-tag, and --package-dir must be used together"
+        )
+    if args.check and args.refresh_releases:
+        raise SystemExit("--check and --refresh-releases cannot be used together")
 
 
 def main() -> int:
     args = parse_args()
+    require_all_or_none(args)
     repo_root = pathlib.Path(args.repo_root).resolve()
     output = pathlib.Path(args.output)
     if not output.is_absolute():
         output = repo_root / output
-    packages = read_existing_index(output)
-    if args.refresh_releases:
-        refresh_github_releases(repo_root, packages)
-    discover_packages(repo_root, packages)
-    rendered = render_index(packages)
-    if args.check:
-        if not output.is_file():
-            print(f"{output} does not exist; run generate_provider_index.py", file=sys.stderr)
-            return 1
-        current = output.read_text(encoding="utf-8")
-        if current != rendered:
-            print(f"{output} is out of date; run generate_provider_index.py", file=sys.stderr)
-            return 1
-        return 0
-    output.write_text(rendered, encoding="utf-8")
-    print(f"wrote {output}")
-    return 0
+    catalog_output = pathlib.Path(args.catalog_output)
+    if not catalog_output.is_absolute():
+        catalog_output = repo_root / catalog_output
+
+    previous = read_existing_index(output)
+    packages = (
+        refresh_github_releases(repo_root, previous)
+        if args.refresh_releases
+        else {
+            source: {
+                "displayName": package["displayName"],
+                "description": package.get("description", ""),
+                "versions": dict(package.get("versions") or {}),
+            }
+            for source, package in previous.items()
+        }
+    )
+    manifests = discover_current_manifests(repo_root)
+    if args.release_metadata:
+        upsert_single_release(
+            packages,
+            previous,
+            pathlib.Path(args.release_metadata),
+            pathlib.Path(args.release_manifest),
+            args.package_dir,
+            args.release_tag,
+        )
+    apply_current_manifest_metadata(packages, manifests)
+
+    ok = compare_or_write(output, render_index(packages), args.check)
+    ok = compare_or_write(catalog_output, render_catalog(repo_root, manifests, packages), args.check) and ok
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

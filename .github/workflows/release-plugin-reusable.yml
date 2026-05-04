@@ -537,14 +537,32 @@ jobs:
       - build-macos-amd64-python
     if: ${{ !cancelled() && needs.build-linux-amd64.result == 'success' && (needs.build-linux-arm64.result == 'success' || needs.build-linux-arm64.result == 'skipped') && (needs.build-linux-arm64-rust.result == 'success' || needs.build-linux-arm64-rust.result == 'skipped') && (needs.build-linux-armv7.result == 'success' || needs.build-linux-armv7.result == 'skipped') && (needs.build-darwin-arm64.result == 'success' || needs.build-darwin-arm64.result == 'skipped') && (needs.build-darwin-amd64.result == 'success' || needs.build-darwin-amd64.result == 'skipped') && (needs.build-macos-arm64-python.result == 'success' || needs.build-macos-arm64-python.result == 'skipped') && (needs.build-macos-amd64-python.result == 'success' || needs.build-macos-amd64-python.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    concurrency:
+      group: provider-registry-index
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
           path: dist
           merge-multiple: true
+      - name: Install gestaltd for registry validation
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Generate provider release metadata
         run: |
           set -euo pipefail
@@ -565,6 +583,13 @@ jobs:
           fi
           args+=(dist/*)
           gh "${args[@]}"
+      - name: Update provider registry index
+        run: |
+          bash .github/scripts/update_provider_registry_release.sh \
+            "${{ inputs.plugin-dir }}" \
+            "${{ needs.metadata.outputs.plugin-tag }}" \
+            "${{ inputs.plugin-dir }}/manifest.yaml" \
+            "dist/provider-release.yaml"
 
   publish-agent-simple-runtime-image:
     needs:
