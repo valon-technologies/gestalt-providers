@@ -30,11 +30,12 @@ authorization_pb2: Any = _authorization_pb2
 workflow_pb2: Any = _workflow_pb2
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parents[1]
 BASE_EVENT_TOOL_REFS = [
-    ("*", ""),
     ("slack", "events.setStatus"),
     ("slack", "events.deleteStatus"),
     ("slack", "events.addReaction"),
     ("slack", "events.removeReaction"),
+    ("slack", "conversations.getThreadContext"),
+    ("slack", "files.get"),
 ]
 ASSISTANT_EVENT_TOOL_REFS = [
     ("slack", "events.setAssistantStatus"),
@@ -309,6 +310,20 @@ def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
     return [(str(ref.plugin), str(ref.operation)) for ref in refs]
 
 
+def tool_ref_details(refs: Any) -> list[tuple[str, str, str, str, str, str]]:
+    return [
+        (
+            str(ref.plugin),
+            str(ref.operation),
+            str(getattr(ref, "connection", "")),
+            str(getattr(ref, "instance", "")),
+            str(getattr(ref, "title", "")),
+            str(getattr(ref, "description", "")),
+        )
+        for ref in refs
+    ]
+
+
 def output_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
     out: dict[str, tuple[str | None, Any]] = {}
     for binding in delivery.input_bindings:
@@ -428,6 +443,7 @@ class SlackProviderTests(unittest.TestCase):
             "SlackAgentEvent",
             "SlackAgentRoute",
             "SlackAgentRouteMatch",
+            "SlackAgentToolRef",
             "SlackAssistantConfig",
             "SlackBotConfig",
             "SlackCallbackType",
@@ -438,6 +454,29 @@ class SlackProviderTests(unittest.TestCase):
             "SlackWorkflowConfig",
         ):
             self.assertIs(getattr(agent_module, name), getattr(models_module, name))
+
+    def test_agent_tools_reject_non_exact_or_runtime_policy_fields(self) -> None:
+        invalid_tools = [
+            {"plugin": "*", "operation": ""},
+            {"plugin": "linear", "operation": ""},
+            {"plugin": "system", "operation": "shell"},
+            {"plugin": "linear", "operation": "searchIssues", "credentialMode": "none"},
+            {"plugin": "linear", "operation": "searchIssues", "system": True},
+        ]
+
+        for tool in invalid_tools:
+            with self.subTest(tool=tool):
+                with self.assertRaises(ValueError):
+                    provider_module.configure(
+                        "slack",
+                        {
+                            "agent": {
+                                "provider": "simple",
+                                "model": "deep",
+                                "tools": [tool],
+                            }
+                        },
+                    )
 
     def test_catalog_and_manifest_expose_native_assistant_contracts(self) -> None:
         catalog = yaml.safe_load((PLUGIN_DIR / "catalog.yaml").read_text())
@@ -748,15 +787,28 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNone(resolved)
         self.assertEqual(len(authorization.requests), 1)
 
-    def test_slack_event_handler_signals_workflow_with_user_tool_search(self) -> None:
+    def test_slack_event_handler_signals_workflow_with_exact_tools(self) -> None:
         provider_module.configure(
             "slack",
             {
                 "bot": {"token": "xoxb-test-bot"},
                 "workflow": {"provider": "local"},
-                "agentProvider": "simple",
-                "agentModel": "deep",
-                "agentModelOptions": {"temperature": 0},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "modelOptions": {"temperature": 0},
+                    "tools": [
+                        {
+                            "plugin": "linear",
+                            "operation": "searchIssues",
+                            "connection": "default",
+                            "instance": "main",
+                            "title": "Search Linear issues",
+                            "description": "Find Linear issues relevant to the Slack request.",
+                        },
+                        {"plugin": "deploymentViewer", "operation": "status"},
+                    ],
+                },
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})
@@ -826,7 +878,24 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(len(agent_target.messages), 1)
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
-            BASE_EVENT_TOOL_REFS + WORKFLOW_EVENT_TOOL_REFS,
+            [
+                ("linear", "searchIssues"),
+                ("deploymentViewer", "status"),
+                *BASE_EVENT_TOOL_REFS,
+                *WORKFLOW_EVENT_TOOL_REFS,
+            ],
+        )
+        self.assertNotIn(("*", ""), tool_ref_pairs(agent_target.tool_refs))
+        self.assertEqual(
+            tool_ref_details(agent_target.tool_refs)[0],
+            (
+                "linear",
+                "searchIssues",
+                "default",
+                "main",
+                "Search Linear issues",
+                "Find Linear issues relevant to the Slack request.",
+            ),
         )
         self.assertEqual(
             agent_target.output_delivery.target.plugin_name,
@@ -873,6 +942,8 @@ class SlackProviderTests(unittest.TestCase):
         signal_payload = json_format.MessageToDict(signal.payload)
         self.assertEqual(signal_payload["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_payload["slack"]["file_ids"], ["F123"])
+        self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
+        self.assertEqual(signal_payload["slack"]["assistant_context_present"], False)
         self.assertEqual(
             signal_payload["slack"]["text"], "<@UBOT> summarize deploy status"
         )
@@ -904,6 +975,123 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_metadata["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_metadata["slack"]["user_id"], "U456")
         self.assertEqual(signal_metadata["slack"]["file_ids"], ["F123"])
+        self.assertEqual(signal_metadata["slack"]["addressed_to_bot"], True)
+
+    def test_group_message_with_assistant_context_starts_agent_thread(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAssistantMessage",
+            "team_id": "T123",
+            "authorizations": [
+                {"team_id": "T123", "user_id": "U0A8T4M41NY", "is_bot": True}
+            ],
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C0AH7JWFYM8",
+                "channel_type": "group",
+                "text": "show me my linear tickets",
+                "ts": "1777853873.601629",
+                "client_msg_id": "163efdd3-cb7d-4348-92fc-e6e2815b2bcb",
+                "assistant_thread": {"action_token": "xoxe-assistant"},
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        self.assertEqual(
+            workflow_request.workflow_key,
+            "slack:T123:C0AH7JWFYM8:1777853873.601629",
+        )
+        signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
+        self.assertEqual(
+            signal_payload["slack"]["reply_thread_ts"], "1777853873.601629"
+        )
+        self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
+        self.assertEqual(signal_payload["slack"]["assistant_context_present"], True)
+        self.assertEqual(signal_payload["slack"]["bot_user_id"], "U0A8T4M41NY")
+        self.assertEqual(
+            signal_payload["slack"]["client_msg_id"],
+            "163efdd3-cb7d-4348-92fc-e6e2815b2bcb",
+        )
+
+    def test_authorized_bot_mention_starts_group_message(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAuthorizedMention",
+            "team_id": "T123",
+            "authorizations": [{"team_id": "T123", "user_id": "UBOT", "is_bot": True}],
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> show me my linear tickets",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
+        self.assertEqual(
+            signal_payload["slack"]["reply_thread_ts"], "1712161829.000300"
+        )
+        self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
+        self.assertEqual(signal_payload["slack"]["assistant_context_present"], False)
+        self.assertEqual(signal_payload["slack"]["bot_user_id"], "UBOT")
 
     def test_slack_event_handler_notifies_unlinked_user(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -2029,13 +2217,16 @@ class SlackProviderTests(unittest.TestCase):
         provider_module.configure(
             "supportSlackbot",
             {
-                "bot": {"token": "xoxb-test-bot"},
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
                 "workflow": {"provider": "local"},
                 "agent": {
                     "provider": "simple",
                     "model": "deep",
                     "systemPrompt": "Follow the global Slack policy.",
                     "modelOptions": {"temperature": 0},
+                    "tools": [
+                        {"plugin": "linear", "operation": "searchIssues"},
+                    ],
                     "routes": [
                         {
                             "id": "triage",
@@ -2046,6 +2237,12 @@ class SlackProviderTests(unittest.TestCase):
                             "agent": {
                                 "prompt": "Triage support requests.",
                                 "modelOptions": {"max_output_tokens": 2000},
+                                "tools": [
+                                    {
+                                        "plugin": "deploymentViewer",
+                                        "operation": "status",
+                                    },
+                                ],
                             },
                         }
                     ],
@@ -2063,7 +2260,7 @@ class SlackProviderTests(unittest.TestCase):
                 "user": "U456",
                 "channel": "C_SUPPORT",
                 "channel_type": "channel",
-                "text": "please triage this",
+                "text": "<@UBOT> please triage this",
                 "ts": "1712161829.000300",
             },
         }
@@ -2092,11 +2289,14 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             [
-                ("*", ""),
+                ("linear", "searchIssues"),
+                ("deploymentViewer", "status"),
                 ("supportSlackbot", "events.setStatus"),
                 ("supportSlackbot", "events.deleteStatus"),
                 ("supportSlackbot", "events.addReaction"),
                 ("supportSlackbot", "events.removeReaction"),
+                ("supportSlackbot", "conversations.getThreadContext"),
+                ("supportSlackbot", "files.get"),
                 ("supportSlackbot", "interactions.request"),
             ],
         )
@@ -2132,9 +2332,52 @@ class SlackProviderTests(unittest.TestCase):
 
         signal_metadata = json_format.MessageToDict(workflow_request.signal.metadata)
         self.assertEqual(signal_metadata["slack"]["agent_route_id"], "triage")
+        self.assertEqual(signal_metadata["slack"]["addressed_to_bot"], True)
         model_options = json_format.MessageToDict(agent_options(agent_target))
         self.assertEqual(model_options["temperature"], 0)
         self.assertEqual(model_options["max_output_tokens"], 2000)
+
+    def test_configured_route_ignores_unaddressed_channel_message(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "triage",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventType": "message",
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteIgnored",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C_SUPPORT",
+                "channel_type": "channel",
+                "text": "please triage this",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        response = provider_module.slack_events_handle(
+            payload,
+            gestalt.Request(
+                subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+            ),
+        )
+
+        self.assertEqual(response, {"ok": True, "ignored": "unsupported_event_type"})
 
     def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
         self,
@@ -3288,9 +3531,7 @@ class SlackProviderTests(unittest.TestCase):
             mock.patch("internals.client.time.sleep") as sleep,
         ):
             result = provider_module.conversations_get_message(
-                provider_module.GetMessageInput(
-                    channel="C123", ts="1234567890.123456"
-                ),
+                provider_module.GetMessageInput(channel="C123", ts="1234567890.123456"),
                 gestalt.Request(token="test-token"),
             )
 

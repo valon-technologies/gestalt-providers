@@ -8,6 +8,7 @@ from .models import (
     SlackAgentConfig,
     SlackAgentRoute,
     SlackAgentRouteMatch,
+    SlackAgentToolRef,
     SlackAssistantConfig,
     SlackBotConfig,
     SlackEventPublishConfig,
@@ -50,7 +51,9 @@ def agent_config_from_provider_config(
                 "bot_token",
                 "slackBotToken",
                 "slack_bot_token",
-            )
+            ),
+            user_id=_config_string(bot, "userId", "user_id", "botUserId", "bot_user_id")
+            or _config_string(config, "botUserId", "bot_user_id"),
         ),
         events=events,
         assistant=assistant,
@@ -63,6 +66,10 @@ def agent_config_from_provider_config(
         or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
         agent_model_options=model_options
         or _config_dict(config, "agentModelOptions", "agent_model_options"),
+        agent_tools=_agent_tool_refs_from_config(agent, "agent.tools")
+        or _agent_tool_refs_from_config(
+            config, "agentTools", "agentTools", "agent_tools"
+        ),
         routes=routes,
     )
 
@@ -201,7 +208,56 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
         or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
         agent_model_options=model_options
         or _config_dict(config, "modelOptions", "agentModelOptions"),
+        agent_tools=_agent_tool_refs_from_config(
+            agent, f"agent.routes[{index}].agent.tools"
+        )
+        or _agent_tool_refs_from_config(config, f"agent.routes[{index}].tools"),
     )
+
+
+def _agent_tool_refs_from_config(
+    config: dict[str, Any], path: str, *keys: str
+) -> tuple[SlackAgentToolRef, ...]:
+    if not keys:
+        keys = ("tools", "toolRefs", "tool_refs")
+    raw_tools = _config_list(config, *keys)
+    if not raw_tools:
+        return ()
+    refs: list[SlackAgentToolRef] = []
+    for index, raw_tool in enumerate(raw_tools, start=1):
+        ref_path = f"{path}[{index}]"
+        if not isinstance(raw_tool, dict):
+            raise ValueError(f"{ref_path} must be an object")
+        tool = cast(dict[str, Any], raw_tool)
+        unsupported_fields = [
+            name
+            for name in ("credentialMode", "credential_mode", "system")
+            if name in tool
+        ]
+        if unsupported_fields:
+            joined = ", ".join(unsupported_fields)
+            raise ValueError(f"{ref_path} contains unsupported field(s): {joined}")
+        plugin = _config_string(tool, "plugin", "pluginName", "plugin_name")
+        operation = _config_string(tool, "operation", "operationName", "operation_name")
+        connection = _config_string(tool, "connection", "connectionName")
+        instance = _config_string(tool, "instance", "instanceName")
+        if not plugin or plugin == "*" or plugin.lower() == "system":
+            raise ValueError(f"{ref_path}.plugin must be an exact plugin name")
+        if not operation or operation == "*":
+            raise ValueError(f"{ref_path}.operation must be an exact operation name")
+        if connection == "*" or instance == "*":
+            raise ValueError(f"{ref_path} connection and instance must be exact")
+        refs.append(
+            SlackAgentToolRef(
+                plugin=plugin,
+                operation=operation,
+                connection=connection,
+                instance=instance,
+                title=_config_string(tool, "title"),
+                description=_config_string(tool, "description"),
+            )
+        )
+    return tuple(refs)
 
 
 def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:

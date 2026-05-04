@@ -27,6 +27,7 @@ plugins:
   slack:
     config:
       bot:
+        userId: U0123456789
         token:
           secret:
             provider: secrets
@@ -128,6 +129,9 @@ plugins:
         provider: simple
         model: deep
         systemPrompt: Use Slack formatting and keep replies concise.
+        tools:
+          - plugin: workplaceHub
+            operation: getMe
       assistant:
         enabled: true
         status: is checking that...
@@ -177,8 +181,8 @@ interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
 declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
 with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user through the managed
 `external_identity` authorization relationship. Workflow-started agent runs use
-scoped Slack event helper refs plus global tool search for the resolved Gestalt
-user.
+exact Slack event helper refs plus the exact `agent.tools` refs configured for
+the resolved Gestalt user.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,
@@ -340,9 +344,11 @@ base64:
 ```
 
 If `agent.routes` is omitted, the provider uses its default behavior:
-`app_mention` events and direct-message `message` events start or signal a
-workflow run.
-Plain channel messages are ignored unless a route explicitly opts them in.
+`app_mention`, native assistant thread events, direct-message `message` events,
+and non-DM `message` events addressed to the bot start or signal a workflow run.
+Non-DM `message` events are addressed when they include native assistant thread
+context or mention the configured bot user ID. Slack `authorizations` entries
+with `is_bot: true` are also honored as bot user IDs on the webhook path.
 For the native Slack assistant experience, enable the app's Agents & AI Apps
 features in Slack, add the bot `assistant:write` scope, and subscribe the bot to
 `assistant_thread_started`, `assistant_thread_context_changed`, and `message.im`
@@ -364,6 +370,15 @@ plugins:
         operation: events.setStatus
         credentialMode: none
       - plugin: slack
+        operation: events.deleteStatus
+        credentialMode: none
+      - plugin: slack
+        operation: events.addReaction
+        credentialMode: none
+      - plugin: slack
+        operation: events.removeReaction
+        credentialMode: none
+      - plugin: slack
         operation: events.setAssistantStatus
         credentialMode: none
       - plugin: slack
@@ -379,12 +394,16 @@ plugins:
         operation: conversations.getThreadContext
       - plugin: slack
         operation: files.get
+      - plugin: slack
+        operation: interactions.request
+        credentialMode: none
       - plugin: workplaceHub
         operation: getMe
       - plugin: deploymentViewer
         operation: status
     config:
       bot:
+        userId: U0123456789
         token:
           secret:
             provider: secrets
@@ -393,6 +412,9 @@ plugins:
         provider: simple
         model: deep
         systemPrompt: Use Slack formatting and keep replies concise.
+        tools:
+          - plugin: workplaceHub
+            operation: getMe
         routes:
           - id: workplace-help
             match:
@@ -411,13 +433,19 @@ plugins:
                 - app_mention
             agent:
               systemPrompt: Help engineers inspect deployment status.
+              tools:
+                - plugin: deploymentViewer
+                  operation: status
 ```
 
 When `agent.routes` is present, only matching routes start or signal a workflow
 run. Match rules support singular or plural forms of `team`, `channel`,
 `channelType`, `eventType`, and `user`. Route-level `agent` fields override the
 top-level agent settings, `prompt` is accepted as an alias for `systemPrompt`,
-and `modelOptions` are merged with route-level values taking precedence.
+`tools` are appended to the top-level exact tool refs, and `modelOptions` are
+merged with route-level values taking precedence. Matching routes still require
+non-DM `message` events to be addressed to the bot; routes do not opt into every
+plain channel message.
 
 ## Documentation
 
