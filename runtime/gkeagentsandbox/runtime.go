@@ -215,6 +215,11 @@ func (r *kubernetesSandboxRuntime) Start(ctx context.Context, req startSandboxRe
 }
 
 func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSandboxRequest) (sandboxHandle, error) {
+	claimLabels := runtimeLabels(req.PluginName)
+	sessionLabel := sanitizeLabelValue(req.Name)
+	if sessionLabel != "" {
+		claimLabels[runtimeSessionLabel] = sessionLabel
+	}
 	claim := &extv1alpha1.SandboxClaim{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: extv1alpha1.SchemeGroupVersion.String(),
@@ -223,7 +228,7 @@ func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSand
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: req.Namespace,
-			Labels:    runtimeLabels(req.PluginName),
+			Labels:    claimLabels,
 		},
 		Spec: extv1alpha1.SandboxClaimSpec{
 			TemplateRef: extv1alpha1.SandboxTemplateRef{Name: req.Template},

@@ -226,8 +226,8 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 	if err != nil {
 		t.Fatalf("StartSession B: %v", err)
 	}
-	if got, want := sessionA.ID, sessionB.ID; got != want {
-		t.Fatalf("session ids = %q and %q, want same local counter value for fresh providers", got, want)
+	if sessionA.ID == sessionB.ID {
+		t.Fatalf("session ids both = %q, want provider-instance scoped ids", sessionA.ID)
 	}
 
 	fakeA.mu.Lock()
@@ -247,8 +247,75 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 	if !strings.Contains(nameA, "runtime-a") || !strings.Contains(nameB, "runtime-b") {
 		t.Fatalf("runtime Start resource names = (%q, %q), want provider instance ids", nameA, nameB)
 	}
-	if !strings.HasSuffix(nameA, sessionA.ID) || !strings.HasSuffix(nameB, sessionB.ID) {
-		t.Fatalf("runtime Start resource names = (%q, %q), want session id suffix %q", nameA, nameB, sessionA.ID)
+	if nameA != sessionA.ID || nameB != sessionB.ID {
+		t.Fatalf("runtime Start resource names = (%q, %q), want session ids (%q, %q)", nameA, nameB, sessionA.ID, sessionB.ID)
+	}
+}
+
+func TestRuntimeProviderContractAdoptsSessionStartedByPeerInstance(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{}
+	clientA := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-a",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*session{},
+	})
+	clientB := startRuntimeProviderServer(t, &Provider{
+		name:       "gkeAgentSandbox",
+		instanceID: "runtime-b",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*session{},
+	})
+
+	ctx := context.Background()
+	session, err := clientA.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{
+		PluginName: "agent-provider",
+		Template:   "python-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	adopted, err := clientB.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("GetSession from peer provider: %v", err)
+	}
+	if got, want := adopted.ID, session.ID; got != want {
+		t.Fatalf("adopted session ID = %q, want %q", got, want)
+	}
+	if got, want := adopted.State, sessionStateReady; got != want {
+		t.Fatalf("adopted session state = %q, want %q", got, want)
+	}
+	if got, want := adopted.Metadata["kubernetes.sandboxClaim"], session.ID; got != want {
+		t.Fatalf("adopted sandbox claim metadata = %q, want %q", got, want)
+	}
+
+	fake.mu.Lock()
+	getCalls := slices.Clone(fake.getCalls)
+	fake.mu.Unlock()
+	if len(getCalls) == 0 {
+		t.Fatal("runtime Get was not called to adopt the peer session")
+	}
+	if got := getCalls[len(getCalls)-1]; got.Name != session.ID || got.ClaimName != session.ID {
+		t.Fatalf("last runtime Get handle = %#v, want claim lookup by session ID %q", got, session.ID)
 	}
 }
 
@@ -892,6 +959,7 @@ type fakeSandboxRuntime struct {
 	mu sync.Mutex
 
 	startRequests           []startSandboxRequest
+	getCalls                []sandboxHandle
 	execCalls               []execCall
 	forwardPorts            []int
 	podIPTargets            []int
@@ -953,6 +1021,15 @@ func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (
 }
 
 func (f *fakeSandboxRuntime) Get(_ context.Context, handle sandboxHandle) (sandboxHandle, error) {
+	f.mu.Lock()
+	f.getCalls = append(f.getCalls, handle)
+	for _, stopped := range f.stopped {
+		if stopped.Name == handle.Name {
+			f.mu.Unlock()
+			return sandboxHandle{}, status.Error(codes.NotFound, "sandbox stopped")
+		}
+	}
+	f.mu.Unlock()
 	handle.Ready = true
 	return handle, nil
 }

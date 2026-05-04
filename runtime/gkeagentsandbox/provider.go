@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.13"
+	providerVersion      = "0.0.1-alpha.14"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
 	sessionStateRunning  = "running"
@@ -146,8 +146,8 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartPluginRunt
 		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.execution.runtime.image or execution.runtime.template is required when using the gke agent sandbox runtime", req.PluginName)
 	}
 
-	sessionID := p.newID("session")
-	resourceName := sandboxResourceName(req.PluginName, p.runtimeInstanceID(), sessionID)
+	resourceName := sandboxResourceName(req.PluginName, p.runtimeInstanceID(), p.newID("session"))
+	sessionID := resourceName
 	handle, err := runtime.Start(ctx, startSandboxRequest{
 		Name:       resourceName,
 		PluginName: req.PluginName,
@@ -190,7 +190,7 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartPluginRunt
 }
 
 func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.PluginRuntimeSession, error) {
-	runtime, _, err := p.configured()
+	runtime, cfg, err := p.configured()
 	if err != nil {
 		return gestalt.PluginRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
@@ -199,7 +199,11 @@ func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.Pl
 	s, err := p.sessionLocked(sessionID)
 	if err != nil {
 		p.mu.Unlock()
-		return gestalt.PluginRuntimeSession{}, status.Error(codes.NotFound, err.Error())
+		s, err = p.adoptSession(ctx, runtime, cfg, sessionID)
+		if err != nil {
+			return gestalt.PluginRuntimeSession{}, status.Error(codes.NotFound, err.Error())
+		}
+		p.mu.Lock()
 	}
 	handle := s.handle
 	current := cloneSession(s)
@@ -237,6 +241,62 @@ func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.Pl
 	}
 	p.mu.Unlock()
 	return current, nil
+}
+
+func (p *Provider) adoptSession(ctx context.Context, runtime sandboxRuntime, cfg Config, sessionID string) (*session, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, fmt.Errorf("plugin runtime session id is required")
+	}
+	if runtime == nil {
+		return nil, fmt.Errorf("gke agent sandbox runtime is not configured")
+	}
+	if cfg.Namespace == "" {
+		return nil, fmt.Errorf("gke agent sandbox namespace is not configured")
+	}
+
+	var lastErr error
+	for _, candidate := range []sandboxHandle{
+		{
+			Name:      sessionID,
+			Namespace: cfg.Namespace,
+			Mode:      "claim",
+			ClaimName: sessionID,
+		},
+		{
+			Name:        sessionID,
+			Namespace:   cfg.Namespace,
+			Mode:        "sandbox",
+			SandboxName: sessionID,
+		},
+	} {
+		refreshed, err := runtime.Get(ctx, candidate)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		s := &session{
+			id:       sessionID,
+			state:    sessionStateReady,
+			metadata: metadataForHandle(refreshed),
+			handle:   refreshed,
+		}
+		p.mu.Lock()
+		if existing, ok := p.sessions[sessionID]; ok && existing != nil {
+			p.mu.Unlock()
+			return existing, nil
+		}
+		if p.sessions == nil {
+			p.sessions = make(map[string]*session)
+		}
+		p.sessions[sessionID] = s
+		p.mu.Unlock()
+		return s, nil
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("plugin runtime session %q not found: %w", sessionID, lastErr)
+	}
+	return nil, fmt.Errorf("plugin runtime session %q not found", sessionID)
 }
 
 func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSession, error) {
@@ -575,6 +635,23 @@ func cloneSession(s *session) gestalt.PluginRuntimeSession {
 		State:    s.state,
 		Metadata: cloneStringMap(s.metadata),
 	}
+}
+
+func metadataForHandle(handle sandboxHandle) map[string]string {
+	metadata := map[string]string{}
+	if handle.Namespace != "" {
+		metadata["kubernetes.namespace"] = handle.Namespace
+	}
+	if handle.SandboxName != "" {
+		metadata["kubernetes.sandbox"] = handle.SandboxName
+	}
+	if handle.ClaimName != "" {
+		metadata["kubernetes.sandboxClaim"] = handle.ClaimName
+	}
+	if handle.PodName != "" {
+		metadata["kubernetes.pod"] = handle.PodName
+	}
+	return metadata
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
