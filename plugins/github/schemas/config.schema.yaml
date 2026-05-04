@@ -134,6 +134,8 @@ properties:
               items:
                 type: string
                 enum:
+                  - bot.getPullRequest
+                  - bot.listPullRequestFiles
                   - bot.getCheckRun
                   - bot.listCheckRunAnnotations
                   - bot.getWorkflowRun

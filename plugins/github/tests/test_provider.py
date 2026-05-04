@@ -254,14 +254,27 @@ class GitHubProviderTests(unittest.TestCase):
         catalog = yaml.safe_load((plugin_root / "catalog.yaml").read_text())
         operations = {operation["id"]: operation for operation in catalog["operations"]}
 
+        pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
+        pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
         pr_comment = operations[
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
         ]
         issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
+        self.assertIn("pull request metadata", pr["description"])
+        self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
         self.assertIn("issue comment", issue_comment["description"])
+        self.assertIn("pull_number", [parameter["name"] for parameter in pr["parameters"]])
+        self.assertIn(
+            "per_page",
+            [parameter["name"] for parameter in pr_files["parameters"]],
+        )
+        self.assertIn(
+            "page",
+            [parameter["name"] for parameter in pr_files["parameters"]],
+        )
         self.assertIn(
             "comments",
             [parameter["name"] for parameter in pr_review["parameters"]],
@@ -285,6 +298,8 @@ class GitHubProviderTests(unittest.TestCase):
         enum = schema["properties"]["webhookPolicies"]["items"]["properties"][
             "action"
         ]["properties"]["allowedOperations"]["items"]["enum"]
+        self.assertIn(provider_module.BOT_GET_PULL_REQUEST_OPERATION, enum)
+        self.assertIn(provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION, enum)
         self.assertIn(provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, enum)
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
@@ -826,6 +841,8 @@ class GitHubProviderTests(unittest.TestCase):
         )
         agent = request.target.agent
         self.assertEqual(agent.model, "deep")
+        self.assertIn("bot.getPullRequest", agent.messages[0].text)
+        self.assertIn("bot.listPullRequestFiles", agent.messages[0].text)
         self.assertIn("bot.createPullRequestReview", agent.messages[0].text)
         self.assertIn(
             "bot.createPullRequestConversationComment", agent.messages[0].text
@@ -833,6 +850,8 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             [tool.operation for tool in agent.tool_refs],
             [
+                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
@@ -889,6 +908,17 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             request.workflow_key,
             "github:99:acme/widgets:policy:push-observe",
+        )
+        self.assertEqual(
+            [tool.operation for tool in request.target.agent.tool_refs],
+            [
+                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
+                provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
+                provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+            ],
         )
 
         provider_module.configure(
@@ -1051,6 +1081,72 @@ class GitHubProviderTests(unittest.TestCase):
             [
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
+            ],
+        )
+
+    def test_explicit_pr_review_policy_exposes_diff_and_review_tools(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "pr-review",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["opened", "synchronize", "reopened"],
+                        },
+                        "action": {
+                            "mode": "comment",
+                            "allowedOperations": [
+                                "bot.getPullRequest",
+                                "bot.listPullRequestFiles",
+                                "bot.createPullRequestReview",
+                                "bot.createPullRequestConversationComment",
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+        request = self._workflow_signal_request(
+            {
+                "action": "synchronize",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "pull_request": {
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/7",
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+                "headers": {"X-GitHub-Event": "pull_request"},
+                "sender": {"login": "octocat"},
+            }
+        )
+
+        self.assertEqual(
+            request.workflow_key,
+            "github:99:acme/widgets:7:policy:pr-review",
+        )
+        agent = request.target.agent
+        self.assertIn(
+            "inspect pull request metadata and diff patches",
+            agent.messages[0].text,
+        )
+        self.assertEqual(
+            [tool.operation for tool in agent.tool_refs],
+            [
+                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             ],
         )
 
@@ -1854,6 +1950,171 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertIn(expected, response.body["error"])
                 urlopen.assert_not_called()
 
+    def test_pull_request_read_operations_use_pr_read_permission_and_bound_patches(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+        long_patch = "@@ -1,2 +1,3 @@\n" + ("x" * 9000)
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"pull_requests": "read"})
+                return FakeHTTPResponse({"token": "pr-read-token"})
+            if path == "/repos/acme/widgets/pulls/7":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer pr-read-token")
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "title": "Fix widgets",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/pull/7",
+                        "url": "https://api.github.com/repos/acme/widgets/pulls/7",
+                        "head": {"ref": "feature", "sha": "abc123"},
+                        "base": {"ref": "main", "sha": "def456"},
+                    }
+                )
+            if path == "/repos/acme/widgets/pulls/7/files":
+                self.assertEqual(method, "GET")
+                self.assertEqual(
+                    urllib.parse.urlparse(request.full_url).query,
+                    "per_page=2&page=3",
+                )
+                self.assertEqual(auth_header(request), "Bearer pr-read-token")
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "sha": "file-sha",
+                            "filename": "src/widget.py",
+                            "status": "renamed",
+                            "previous_filename": "src/old_widget.py",
+                            "additions": 3,
+                            "deletions": 1,
+                            "changes": 4,
+                            "blob_url": "https://github.com/acme/widgets/blob/abc/src/widget.py",
+                            "raw_url": "https://github.com/acme/widgets/raw/abc/src/widget.py",
+                            "contents_url": "https://api.github.com/repos/acme/widgets/contents/src/widget.py",
+                            "patch": long_patch,
+                        },
+                        {
+                            "filename": "src/short.py",
+                            "status": "modified",
+                            "additions": 1,
+                            "deletions": 0,
+                            "changes": 1,
+                            "patch": "@@ -1 +1 @@\n-value\n+value  ",
+                        },
+                        "ignored-non-object",
+                    ]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            pull_request = provider_module.bot_get_pull_request(
+                provider_module.GetPullRequestInput(
+                    owner="acme", repo="widgets", pull_number=7
+                ),
+                github_request(),
+            )
+            files = provider_module.bot_list_pull_request_files(
+                provider_module.ListPullRequestFilesInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    per_page=2,
+                    page=3,
+                ),
+                github_request(),
+            )
+
+        pull_data = cast(dict[str, Any], pull_request)["data"]["pull_request"]
+        self.assertEqual(pull_data["head_sha"], "abc123")
+        self.assertEqual(pull_data["base_sha"], "def456")
+        file_data = cast(dict[str, Any], files)["data"]["files"][0]
+        self.assertEqual(file_data["filename"], "src/widget.py")
+        self.assertEqual(file_data["previous_filename"], "src/old_widget.py")
+        self.assertEqual(file_data["changes"], 4)
+        self.assertEqual(file_data["patch_limit"], 8192)
+        self.assertEqual(file_data["patch_truncated"], True)
+        self.assertLess(len(file_data["patch"]), len(long_patch))
+        self.assertLessEqual(len(file_data["patch"]), file_data["patch_limit"])
+        self.assertTrue(file_data["patch"].endswith("\n...<truncated>"))
+        short_file_data = cast(dict[str, Any], files)["data"]["files"][1]
+        self.assertEqual(short_file_data["patch"], "@@ -1 +1 @@\n-value\n+value  ")
+        self.assertEqual(short_file_data["patch_truncated"], False)
+        self.assertEqual(cast(dict[str, Any], files)["data"]["count"], 2)
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"pull_requests": "read"}, {"pull_requests": "read"}],
+        )
+
+    def test_list_pull_request_files_rejects_invalid_pagination_before_github_calls(
+        self,
+    ) -> None:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_list_pull_request_files(
+                provider_module.ListPullRequestFilesInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    per_page=101,
+                ),
+                github_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertIn("per_page", response.body["error"])
+        urlopen.assert_not_called()
+
+    def test_list_pull_request_files_rejects_malformed_github_response(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            if path == "/app/installations/99/access_tokens":
+                return FakeHTTPResponse({"token": "pr-read-token"})
+            if path == "/repos/acme/widgets/pulls/7/files":
+                return FakeHTTPResponse({"files": []})
+            self.fail(f"unexpected request {request.get_method()} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_pull_request_files(
+                provider_module.ListPullRequestFilesInput(
+                    owner="acme", repo="widgets", pull_number=7
+                ),
+                github_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+        self.assertIn("pull request files response was not a list", response.body["error"])
+
     def test_ci_read_operations_use_github_shapes_and_pagination(self) -> None:
         calls: list[tuple[str, str, dict[str, Any]]] = []
 
@@ -2086,6 +2347,23 @@ class GitHubProviderTests(unittest.TestCase):
         urlopen.assert_not_called()
 
         with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_get_pull_request(
+                provider_module.GetPullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    installation_id=100,
+                ),
+                github_request(installation_id=99),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("installation_id", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_open_pull_request(
                 provider_module.OpenPullRequestInput(
                     owner="acme",
@@ -2117,6 +2395,22 @@ class GitHubProviderTests(unittest.TestCase):
                             position=1,
                         )
                     ],
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("repository", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_list_pull_request_files(
+                provider_module.ListPullRequestFilesInput(
+                    owner="acme",
+                    repo="other",
+                    pull_number=7,
                 ),
                 github_request(installation_id=99, repo="acme/widgets"),
             )

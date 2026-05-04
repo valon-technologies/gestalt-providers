@@ -40,6 +40,8 @@ connection:
 - `bot.createPullRequestConversationComment` creates a pull request conversation
   comment.
 - `bot.createIssueComment` creates an issue comment.
+- `bot.getPullRequest` and `bot.listPullRequestFiles` inspect pull request
+  metadata and changed-file patches for inline review work.
 - `bot.getCheckRun`, `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
   `bot.listWorkflowRunJobs` inspect CI failures using GitHub's Checks and
   Actions REST interfaces.
@@ -160,7 +162,7 @@ Policy match fields are GitHub-shaped. Empty fields are wildcards, values within
 a field are ORed, and fields are ANDed. Event matching prefers the
 `X-GitHub-Event` header when present. `branches` matches PR head/base refs, CI
 `head_branch`, and push refs. `action.mode` defaults operations as follows:
-`observe` grants read-only CI tools, `comment` adds
+`observe` grants read-only pull request and CI tools, `comment` adds
 `bot.createPullRequestReview`, `bot.createPullRequestConversationComment`, and
 `bot.createIssueComment`, `branch_commit` adds `bot.commitFiles`, and
 `pull_request` adds the comment, commit, and pull request tools. Use
@@ -169,10 +171,11 @@ request conversation operation for PR timeline comments, and the issue comment
 operation for Issues. `allowedOperations` can narrow or replace those defaults;
 an explicit empty list grants no tools.
 
-Compatibility note: existing policies that use `action.mode: comment` or
-`action.mode: pull_request` without explicit `allowedOperations` now expose
+Compatibility note: existing policies that use `action.mode` without explicit
+`allowedOperations` now expose `bot.getPullRequest`,
+`bot.listPullRequestFiles`, and, for comment-capable modes,
 `bot.createPullRequestReview`. Add an explicit `allowedOperations` list to keep
-previous timeline-only comment behavior.
+previous CI-read-only or timeline-only comment behavior.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and calls
@@ -249,6 +252,12 @@ plugins:
         credentialMode: none
       - plugin: github
         operation: bot.createIssueComment
+        credentialMode: none
+      - plugin: github
+        operation: bot.getPullRequest
+        credentialMode: none
+      - plugin: github
+        operation: bot.listPullRequestFiles
         credentialMode: none
       - plugin: github
         operation: bot.getCheckRun
@@ -377,6 +386,21 @@ Create a pull request review with inline file/line comments using
   ]
 }
 ```
+
+Inspect a pull request before creating inline comments with
+`bot.getPullRequest` and `bot.listPullRequestFiles`:
+
+```json
+{"owner": "acme", "repo": "widgets", "pull_number": 42}
+```
+
+```json
+{"owner": "acme", "repo": "widgets", "pull_number": 42, "per_page": 100, "page": 1}
+```
+
+`bot.listPullRequestFiles` returns each changed file's `filename`, `status`,
+optional `previous_filename`, change counts, file URLs, exact bounded `patch`,
+`patch_truncated`, and `patch_limit`.
 
 Create a pull request conversation comment with
 `bot.createPullRequestConversationComment`:
