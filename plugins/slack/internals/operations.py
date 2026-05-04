@@ -23,6 +23,18 @@ def parse_message_url(url: str) -> tuple[str, str] | None:
     return channel, ts
 
 
+def find_message_urls(text: str) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for match in SLACK_MESSAGE_URL_PATTERN.finditer(text):
+        url = match.group(0)
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+    return urls
+
+
 def get_message(token: str, channel: str, ts: str) -> dict[str, Any]:
     data = slack_get(
         "conversations.history",

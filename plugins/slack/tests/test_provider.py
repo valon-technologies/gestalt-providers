@@ -30,12 +30,13 @@ authorization_pb2: Any = _authorization_pb2
 workflow_pb2: Any = _workflow_pb2
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parents[1]
 BASE_EVENT_TOOL_REFS = [
+    ("slack", "conversations.getThreadContext"),
+    ("slack", "conversations.getMessage"),
+    ("slack", "files.get"),
     ("slack", "events.setStatus"),
     ("slack", "events.deleteStatus"),
     ("slack", "events.addReaction"),
     ("slack", "events.removeReaction"),
-    ("slack", "conversations.getThreadContext"),
-    ("slack", "files.get"),
 ]
 ASSISTANT_EVENT_TOOL_REFS = [
     ("slack", "events.setAssistantStatus"),
@@ -879,7 +880,7 @@ class SlackProviderTests(unittest.TestCase):
                 "user": "U456",
                 "channel": "C789",
                 "channel_type": "channel",
-                "text": "<@UBOT> summarize deploy status",
+                "text": "<@UBOT> summarize deploy status https://valon-technologies.slack.com/archives/C123/p1712161800000100",
                 "ts": "1712161829.000300",
                 "files": [
                     {
@@ -1003,9 +1004,19 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_payload["slack"]["assistant_context_present"], False)
         self.assertEqual(
             signal_payload["slack"]["text"], "<@UBOT> summarize deploy status"
+            " https://valon-technologies.slack.com/archives/C123/p1712161800000100"
         )
         self.assertIn(
             "operation: slack.conversations.getThreadContext",
+            signal_payload["user_prompt"],
+        )
+        self.assertIn("Slack message permalink tools:", signal_payload["user_prompt"])
+        self.assertIn(
+            "- url: https://valon-technologies.slack.com/archives/C123/p1712161800000100",
+            signal_payload["user_prompt"],
+        )
+        self.assertIn(
+            'input: {"url": "https://valon-technologies.slack.com/archives/C123/p1712161800000100"}',
             signal_payload["user_prompt"],
         )
         self.assertIn(
@@ -2545,12 +2556,13 @@ class SlackProviderTests(unittest.TestCase):
             [
                 ("linear", "searchIssues"),
                 ("deploymentViewer", "status"),
+                ("supportSlackbot", "conversations.getThreadContext"),
+                ("supportSlackbot", "conversations.getMessage"),
+                ("supportSlackbot", "files.get"),
                 ("supportSlackbot", "events.setStatus"),
                 ("supportSlackbot", "events.deleteStatus"),
                 ("supportSlackbot", "events.addReaction"),
                 ("supportSlackbot", "events.removeReaction"),
-                ("supportSlackbot", "conversations.getThreadContext"),
-                ("supportSlackbot", "files.get"),
                 ("supportSlackbot", "interactions.request"),
             ],
         )
