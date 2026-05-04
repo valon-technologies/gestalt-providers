@@ -10,7 +10,7 @@ The first cut is intentionally small:
 - one SDK client per turn
 - no Claude resume, branching, or fork support
 - no provider-side search RPC call
-- built-in Claude tools disabled with `tools=[]`
+- Claude Code native MCP Tool Search over `mcp__gestalt__*`
 - Gestalt tool calls routed through `AgentHost.ExecuteTool`
 
 ## Local Usage

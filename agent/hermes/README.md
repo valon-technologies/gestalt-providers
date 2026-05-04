@@ -50,12 +50,18 @@ still records the requested model, but the provider does not call ACP
 The provider exposes Gestalt MCP catalog tools through ACP HTTP `mcpServers`.
 For MCP catalog turns, Gestalt supplies an internal run grant, the provider
 starts a localhost MCP bridge for that turn, and Hermes calls Gestalt tools
-through the bridge. Hermes must advertise ACP HTTP MCP support, which requires a
-Hermes install with MCP support enabled.
+through the bridge.
 
-Native Gestalt tool search, resolved inline tools, and structured output are not
-supported. Hermes may still emit its own ACP tool-progress updates; they are
-surfaced as turn events only.
+The bridge exposes a small provider-owned catalog proxy instead of eagerly
+listing every authorized integration tool. Hermes sees `gestalt_search_tools`,
+`gestalt_get_tool_schema`, and `gestalt_call_tool`; the search response returns
+opaque `mcp_name` values that Hermes passes back unchanged when loading a schema
+or calling a tool. The proxy searches only catalog metadata returned by
+`AgentHost.ListTools`, and tool execution still goes through
+`AgentHost.ExecuteTool` with the per-turn run grant.
+
+Resolved inline tools and structured output are not supported. Hermes may still
+emit its own ACP tool-progress updates; they are surfaced as turn events only.
 
 The provider auto-approves ACP permission requests. Hermes CLI must be installed
 separately; `Hermes Agent v0.12.0` or newer is expected.
