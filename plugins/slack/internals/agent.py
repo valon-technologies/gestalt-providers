@@ -191,8 +191,7 @@ def _slack_interaction_log_context(
     )
 
 
-def _workflow_response_log_context(response: Any) -> str:
-    fields = _workflow_signal_response_fields(response)
+def _workflow_signal_fields_log_context(fields: dict[str, Any]) -> str:
     return _log_context(
         workflow_provider=fields["workflow_provider"],
         workflow_run_id=fields["workflow_run_id"],
@@ -224,6 +223,14 @@ def _workflow_signal_response_fields(
             _field_value(response, "started_run", "startedRun")
         ),
         "status": _workflow_run_status_name(_field_value(run, "status")),
+    }
+
+
+def _workflow_dispatched_ack_fallback() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "workflow_dispatched": True,
+        "workflow_acknowledgement_failed": True,
     }
 
 
@@ -434,22 +441,20 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         return _server_error(f"failed to signal workflow run: {err}")
 
     try:
+        fields = _workflow_signal_response_fields(
+            workflow_response, fallback_workflow_key=_agent_session_ref(event)
+        )
         logger.info(
             "signaled Slack event workflow %s %s",
             log_context,
-            _workflow_response_log_context(workflow_response),
+            _workflow_signal_fields_log_context(fields),
         )
-        response = {
-            "ok": True,
-            **_workflow_signal_response_fields(
-                workflow_response, fallback_workflow_key=_agent_session_ref(event)
-            ),
-        }
-    except Exception as err:
+        response = {"ok": True, **fields}
+    except Exception:
         logger.exception("failed to ack Slack event workflow %s", log_context)
         if publish_response is not None:
             return publish_response
-        return _server_error(f"failed to ack workflow run: {err}")
+        response = _workflow_dispatched_ack_fallback()
     if acknowledgement_reaction_error:
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
@@ -571,18 +576,21 @@ def handle_slack_interaction(
         logger.exception("failed to signal Slack interaction workflow %s", log_context)
         return _server_error(f"failed to signal workflow run: {err}")
 
-    logger.info(
-        "signaled Slack interaction workflow %s %s",
-        log_context,
-        _workflow_response_log_context(workflow_response),
-    )
-    return {
-        "ok": True,
-        **_workflow_signal_response_fields(
+    try:
+        fields = _workflow_signal_response_fields(
             workflow_response, fallback_workflow_key=verified_ref.workflow_key
-        ),
-        "action_id": verified_ref.action_id,
-    }
+        )
+        logger.info(
+            "signaled Slack interaction workflow %s %s",
+            log_context,
+            _workflow_signal_fields_log_context(fields),
+        )
+        response = {"ok": True, **fields}
+    except Exception:
+        logger.exception("failed to ack Slack interaction workflow %s", log_context)
+        response = _workflow_dispatched_ack_fallback()
+    response["action_id"] = verified_ref.action_id
+    return response
 
 
 def reply_to_slack_event(
@@ -1217,7 +1225,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -1509,13 +1517,8 @@ def _publish_matching_workflow_events(
                 workflow_request = _build_workflow_publish_event_request(
                     event, route, payload
                 )
-                workflow_response = workflow_manager.publish_event(workflow_request)
-                workflow_event_ids.append(
-                    str(
-                        getattr(workflow_response, "id", "")
-                        or workflow_request.event.id
-                    )
-                )
+                workflow_manager.publish_event(workflow_request)
+                workflow_event_ids.append(str(workflow_request.event.id))
                 route_ids.append(route.id)
     except Exception as err:
         logger.exception("failed to publish Slack workflow event %s", log_context)
@@ -2514,7 +2517,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except TypeError, ValueError, AttributeError:
+    except (TypeError, ValueError, AttributeError):
         return str(status)
 
 
