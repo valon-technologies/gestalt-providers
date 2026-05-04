@@ -8,6 +8,7 @@ import time
 import types as py_types
 import unittest
 from concurrent import futures
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import grpc
@@ -17,12 +18,13 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
 
 import provider as provider_module
-from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime
+from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime, indexeddb_socket_env
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge
+from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -33,11 +35,15 @@ struct_pb2: Any = _struct_pb2
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
+_indexeddb_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
+_indexeddb_socket = ""
 _host_servicer: "_FakeAgentHost | None" = None
+_indexeddb_servicer: "FakeIndexedDB | None" = None
 _previous_agent_host_socket: str | None = None
 _previous_agent_host_token: str | None = None
+_previous_indexeddb_socket: str | None = None
 
 
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
@@ -141,8 +147,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
         if request.tool_id == "tool-linear-reconnect":
             return agent_pb2.ExecuteAgentToolResponse(
-                status=424,
-                body='{"error":{"code":"reconnect_required","plugin":"linear"}}',
+                status=424, body='{"error":{"code":"reconnect_required","plugin":"linear"}}'
             )
         return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
 
@@ -222,7 +227,9 @@ class _FakeClaudeSDKClient:
 class ClaudeProviderTests(unittest.TestCase):
     def setUp(self) -> None:
         assert _host_servicer is not None
+        assert _indexeddb_servicer is not None
         _host_servicer.reset()
+        _indexeddb_servicer.reset()
         _FakeClaudeSDKClient.mode = "success"
         _FakeClaudeSDKClient.instances.clear()
 
@@ -253,6 +260,11 @@ class ClaudeProviderTests(unittest.TestCase):
 
         fetched = _wait_for_turn(provider_client, "turn-claude", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(fetched.output_text, "Claude completed")
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-claude"))
+        self.assertEqual(
+            [event.type for event in events.events], ["turn.started", "assistant.message", "turn.completed"]
+        )
+        self.assertEqual([event.visibility for event in events.events], ["external", "external", "external"])
 
         self.assertEqual(len(_FakeClaudeSDKClient.instances), 1)
         fake_client = _FakeClaudeSDKClient.instances[0]
@@ -292,6 +304,196 @@ class ClaudeProviderTests(unittest.TestCase):
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
+
+    def test_indexeddb_persists_session_for_new_provider_instance(self) -> None:
+        provider_a = provider_module.ClaudeCodeAgentProvider()
+        server_a, socket_a, channel_a, lifecycle_a, client_a = _start_provider_runtime(provider_a)
+        self.addCleanup(_stop_runtime, provider_a, server_a, socket_a, channel_a)
+        _configure_lifecycle(lifecycle_a, provider_a)
+
+        client_a.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(
+                session_id="session-durable",
+                model="sonnet-session",
+                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
+            )
+        )
+        _stop_runtime(provider_a, server_a, socket_a, channel_a)
+
+        provider_b = provider_module.ClaudeCodeAgentProvider()
+        server_b, socket_b, channel_b, lifecycle_b, client_b = _start_provider_runtime(provider_b)
+        self.addCleanup(_stop_runtime, provider_b, server_b, socket_b, channel_b)
+        _configure_lifecycle(lifecycle_b, provider_b)
+
+        fetched_session = client_b.GetSession(agent_pb2.GetAgentProviderSessionRequest(session_id="session-durable"))
+        self.assertEqual(fetched_session.id, "session-durable")
+        started = client_b.CreateTurn(
+            _turn_request(
+                turn_id="turn-durable",
+                session_id="session-durable",
+                messages=[agent_pb2.AgentMessage(role="user", text="Continue after restart")],
+            )
+        )
+        self.assertEqual(started.session_id, "session-durable")
+
+        fetched_turn = client_b.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-durable"))
+        self.assertEqual(fetched_turn.id, "turn-durable")
+        _wait_for_turn(client_b, "turn-durable", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+    def test_missing_indexeddb_socket_fails_first_store_rpc_with_failed_precondition(self) -> None:
+        missing_socket = _fresh_socket("claude-agent-missing-indexeddb")
+        previous_socket = os.environ.get(indexeddb_socket_env())
+        os.environ[indexeddb_socket_env()] = missing_socket
+
+        try:
+            lifecycle, provider_client = _configure_provider()
+            identity = lifecycle.GetProviderIdentity(empty_pb2.Empty())
+            self.assertEqual(identity.name, "claude")
+
+            with self.assertRaises(grpc.RpcError) as raised:
+                provider_client.CreateSession(
+                    agent_pb2.CreateAgentProviderSessionRequest(session_id="session-missing-indexeddb")
+                )
+        finally:
+            if previous_socket is None:
+                os.environ.pop(indexeddb_socket_env(), None)
+            else:
+                os.environ[indexeddb_socket_env()] = previous_socket
+            if os.path.exists(missing_socket):
+                os.remove(missing_socket)
+
+        error = cast(Any, raised.exception)
+        self.assertEqual(error.code(), grpc.StatusCode.FAILED_PRECONDITION)
+        self.assertIn("IndexedDB host socket binding", error.details())
+
+    def test_turn_idempotency_key_is_scoped_to_session(self) -> None:
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-idem-a"))
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-idem-b"))
+
+        first = provider_client.CreateTurn(
+            _turn_request(turn_id="turn-idem-a", session_id="session-idem-a", idempotency_key="repeatable")
+        )
+        replay = provider_client.CreateTurn(
+            _turn_request(turn_id="turn-idem-a-replay", session_id="session-idem-a", idempotency_key="repeatable")
+        )
+        second_session = provider_client.CreateTurn(
+            _turn_request(turn_id="turn-idem-b", session_id="session-idem-b", idempotency_key="repeatable")
+        )
+
+        self.assertEqual(first.id, "turn-idem-a")
+        self.assertEqual(replay.id, "turn-idem-a")
+        self.assertEqual(second_session.id, "turn-idem-b")
+        _wait_for_turn(provider_client, "turn-idem-a", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        _wait_for_turn(provider_client, "turn-idem-b", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+    def test_session_idempotency_replays_after_indexeddb_add_conflict(self) -> None:
+        indexeddb = _indexeddb_servicer
+        assert indexeddb is not None
+        _, provider_client = _configure_provider()
+        store = provider_module.provider._store
+        assert store is not None
+
+        def seed_conflict(
+            db: FakeIndexedDB, transaction_stores: dict[str, dict[str, Any]], store_name: str, request: Any
+        ) -> None:
+            del request
+            if store_name != store._session_idempotency_store_name:
+                return
+            now = datetime.now(tz=UTC)
+            db.put_record(
+                store._session_store_name,
+                {
+                    "id": "session-race-winner",
+                    "idempotency_key": "session-race",
+                    "provider_name": "claude",
+                    "model": "sonnet-config",
+                    "client_ref": "",
+                    "state": agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                    "metadata": {},
+                    "created_by": {"subject_id": "user-123", "subject_kind": "human"},
+                    "created_at": now,
+                    "updated_at": now,
+                    "last_turn_at": None,
+                },
+                transaction_stores=transaction_stores,
+            )
+            db.put_record(
+                store._session_idempotency_store_name,
+                {
+                    "id": "session-race",
+                    "session_id": "session-race-winner",
+                    "provider_name": "claude",
+                    "created_at": now,
+                },
+                transaction_stores=transaction_stores,
+            )
+
+        indexeddb.inject_before_transaction_add(seed_conflict)
+        replayed = provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(
+                session_id="session-race-loser",
+                idempotency_key="session-race",
+                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
+            )
+        )
+
+        self.assertEqual(replayed.id, "session-race-winner")
+
+    def test_turn_idempotency_replays_after_indexeddb_add_conflict(self) -> None:
+        indexeddb = _indexeddb_servicer
+        assert indexeddb is not None
+        _, provider_client = _configure_provider()
+        store = provider_module.provider._store
+        assert store is not None
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-turn-race"))
+
+        def seed_conflict(
+            db: FakeIndexedDB, transaction_stores: dict[str, dict[str, Any]], store_name: str, request: Any
+        ) -> None:
+            del request
+            if store_name != store._turn_idempotency_store_name:
+                return
+            now = datetime.now(tz=UTC)
+            db.put_record(
+                store._run_store_name,
+                {
+                    "id": "turn-race-winner",
+                    "session_id": "session-turn-race",
+                    "idempotency_key": "turn-race",
+                    "provider_name": "claude",
+                    "model": "sonnet-config",
+                    "status": agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
+                    "messages": [{"role": "user", "text": "winner"}],
+                    "output_text": "",
+                    "status_message": "",
+                    "created_by": {"subject_id": "user-123", "subject_kind": "human"},
+                    "created_at": now,
+                    "started_at": now,
+                    "completed_at": None,
+                    "execution_ref": "turn-race-winner",
+                },
+                transaction_stores=transaction_stores,
+            )
+            db.put_record(
+                store._turn_idempotency_store_name,
+                {
+                    "id": "session-turn-race\x1fturn-race",
+                    "session_id": "session-turn-race",
+                    "idempotency_key": "turn-race",
+                    "turn_id": "turn-race-winner",
+                    "provider_name": "claude",
+                    "created_at": now,
+                },
+                transaction_stores=transaction_stores,
+            )
+
+        indexeddb.inject_before_transaction_add(seed_conflict)
+        replayed = provider_client.CreateTurn(
+            _turn_request(turn_id="turn-race-loser", session_id="session-turn-race", idempotency_key="turn-race")
+        )
+
+        self.assertEqual(replayed.id, "turn-race-winner")
 
     def test_sdk_mcp_bridge_exposes_direct_tools_for_small_grants(self) -> None:
         host = _host_servicer
@@ -333,13 +535,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(visible_tools[-1], "linear__operation_59")
         self.assertEqual([request["page_token"] for request in host.list_requests], [""])
 
-        execute_result = asyncio.run(
-            _call_sdk_tool(
-                options,
-                name="github__operation_0",
-                arguments={"query": "mine"},
-            )
-        )
+        execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
         self.assertEqual(execute_result.content[0].text, '{"ok":true}')
         self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
@@ -545,21 +741,31 @@ class ClaudeProviderTests(unittest.TestCase):
 
 
 def setUpModule() -> None:
-    global _runtime_server, _host_server, _runtime_socket, _host_socket, _host_servicer
-    global _previous_agent_host_socket, _previous_agent_host_token
+    global _runtime_server, _host_server, _indexeddb_server, _runtime_socket, _host_socket, _indexeddb_socket
+    global _host_servicer, _indexeddb_servicer
+    global _previous_agent_host_socket, _previous_agent_host_token, _previous_indexeddb_socket
 
     _runtime_socket = _fresh_socket("claude-sdk-agent-runtime")
     _host_socket = _fresh_socket("claude-sdk-agent-host")
+    _indexeddb_socket = _fresh_socket("claude-sdk-agent-indexeddb")
     _previous_agent_host_socket = os.environ.get(ENV_AGENT_HOST_SOCKET)
     _previous_agent_host_token = os.environ.get(ENV_AGENT_HOST_SOCKET_TOKEN)
+    _previous_indexeddb_socket = os.environ.get(indexeddb_socket_env())
     os.environ[ENV_AGENT_HOST_SOCKET] = _host_socket
     os.environ[ENV_AGENT_HOST_SOCKET_TOKEN] = "relay-token"
+    os.environ[indexeddb_socket_env()] = _indexeddb_socket
 
     _host_servicer = _FakeAgentHost()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     agent_pb2_grpc.add_AgentHostServicer_to_server(_host_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
+
+    _indexeddb_servicer = FakeIndexedDB()
+    _indexeddb_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _indexeddb_server)
+    _indexeddb_server.add_insecure_port(f"unix:{_indexeddb_socket}")
+    _indexeddb_server.start()
 
     _runtime_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     adapter = _runtime._servable_target(provider_module.provider, runtime_kind=ProviderKind.AGENT)
@@ -571,22 +777,28 @@ def setUpModule() -> None:
 def tearDownModule() -> None:
     if provider_module.provider is not None:
         provider_module.provider.close()
-    for server in (_runtime_server, _host_server):
+    for server in (_runtime_server, _host_server, _indexeddb_server):
         if server is not None:
             server.stop(0)
-    for path in (_runtime_socket, _host_socket):
+    for path in (_runtime_socket, _host_socket, _indexeddb_socket):
         try:
             os.unlink(path)
         except OSError:
             pass
     _restore_env(ENV_AGENT_HOST_SOCKET, _previous_agent_host_socket)
     _restore_env(ENV_AGENT_HOST_SOCKET_TOKEN, _previous_agent_host_token)
+    _restore_env(indexeddb_socket_env(), _previous_indexeddb_socket)
 
 
 def _configure_provider() -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+    _configure_lifecycle(lifecycle, provider_module.provider)
+    return lifecycle, provider_client
+
+
+def _configure_lifecycle(lifecycle: Any, provider_obj: Any) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="claude", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     request.config.update(
         {
@@ -597,9 +809,31 @@ def _configure_provider() -> tuple[Any, Any]:
         }
     )
     lifecycle.ConfigureProvider(request)
-    assert provider_module.provider._runner is not None
-    provider_module.provider._runner._client_factory = _FakeClaudeSDKClient
-    return lifecycle, provider_client
+    assert provider_obj._runner is not None
+    provider_obj._runner._client_factory = _FakeClaudeSDKClient
+
+
+def _start_provider_runtime(provider_obj: Any) -> tuple[Any, str, Any, Any, Any]:
+    runtime_socket = _fresh_socket("claude-sdk-agent-runtime-extra")
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    adapter = _runtime._servable_target(provider_obj, runtime_kind=ProviderKind.AGENT)
+    _runtime._register_services(server=server, servable=adapter)
+    server.add_insecure_port(f"unix:{runtime_socket}")
+    server.start()
+    channel = grpc.insecure_channel(f"unix:{runtime_socket}")
+    lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
+    provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+    return server, runtime_socket, channel, lifecycle, provider_client
+
+
+def _stop_runtime(provider_obj: Any, server: Any, runtime_socket: str, channel: Any) -> None:
+    provider_obj.close()
+    channel.close()
+    server.stop(0)
+    try:
+        os.unlink(runtime_socket)
+    except OSError:
+        pass
 
 
 def _turn_request(
@@ -609,6 +843,7 @@ def _turn_request(
     messages: list[Any] | None = None,
     run_grant: str = "grant-claude",
     execution_ref: str = "",
+    idempotency_key: str = "",
     response_schema: Any | None = None,
     model_options: Any | None = None,
 ) -> Any:
@@ -619,6 +854,7 @@ def _turn_request(
         tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         run_grant=run_grant,
         execution_ref=execution_ref,
+        idempotency_key=idempotency_key,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
     )
     linear = request.tool_refs.add()

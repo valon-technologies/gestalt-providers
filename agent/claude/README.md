@@ -6,9 +6,9 @@ named `gestalt` and calls tools through `AgentHost.ExecuteTool`.
 
 The first cut is intentionally small:
 
-- in-memory AgentProvider sessions and turns
+- provider-owned IndexedDB persistence for AgentProvider sessions, turns, and turn events
 - one SDK client per turn
-- no durable Claude session store, resume, branching, or fork support
+- no Claude resume, branching, or fork support
 - no provider-side search RPC call
 - built-in Claude tools disabled with `tools=[]`
 - Gestalt tool calls routed through `AgentHost.ExecuteTool`
@@ -17,10 +17,23 @@ The first cut is intentionally small:
 
 ```yaml
 providers:
+  indexeddb:
+    main:
+      source: /absolute/path/to/gestalt-providers/indexeddb/relationaldb/manifest.yaml
+      config:
+        dsn: sqlite:///tmp/gestalt-claude-agent.db
+
+  secrets:
+    env:
+      source: env
+
   agent:
     claude:
       source: /absolute/path/to/gestalt-providers/agent/claude/manifest.yaml
       default: true
+      indexeddb:
+        provider: main
+        db: claude_agent
       config:
         defaultModel: claude-sonnet-4-5-20250929
         workingDirectory: /path/to/trusted/workspace
@@ -29,6 +42,13 @@ providers:
         anthropicApiKey:
           secret: ANTHROPIC_API_KEY
 ```
+
+Normal runtime usage requires an agent `indexeddb` binding. The provider gets
+the host socket through the Gestalt Python SDK `IndexedDB()` binding
+(`GESTALT_INDEXEDDB_SOCKET`) and derives collision-safe object-store names from
+the configured provider name. `configure` does not open the socket; if the
+binding is missing or unreachable, the first session/turn RPC fails with
+`FAILED_PRECONDITION`.
 
 Use exact, plugin-level, or global tool refs with the MCP catalog source:
 
