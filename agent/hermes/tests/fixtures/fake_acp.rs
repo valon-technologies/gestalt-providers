@@ -111,8 +111,8 @@ fn main() {
                     continue;
                 }
                 update("agent_thought_chunk", "thinking");
-                if mode == "mcp-call" || mode == "mcp-call-no-cap" {
-                    match exercise_mcp_server(mcp_server.as_ref()) {
+                if mode.starts_with("mcp-") {
+                    match exercise_mcp_server(mcp_server.as_ref(), &mode) {
                         Ok(result) => {
                             log_event(json!({"event": "mcp_result", "result": result}));
                             update("agent_message_chunk", "Hermes used Gestalt MCP");
@@ -138,7 +138,7 @@ fn main() {
     }
 }
 
-fn exercise_mcp_server(server: Option<&Value>) -> Result<Value, String> {
+fn exercise_mcp_server(server: Option<&Value>, mode: &str) -> Result<Value, String> {
     let server = server.ok_or_else(|| "missing MCP server".to_string())?;
     let url = server
         .get("url")
@@ -175,29 +175,142 @@ fn exercise_mcp_server(server: Option<&Value>) -> Result<Value, String> {
             "params": {}
         }),
     )?;
-    let tool_name = listed
-        .pointer("/result/tools/0/name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("no MCP tool in list response: {listed}"))?;
-    let called = mcp_post(
+    if mode == "mcp-list-only" {
+        return Ok(json!({
+            "initialize": initialize,
+            "unauthorizedStatus": unauthorized_status,
+            "list": listed
+        }));
+    }
+
+    let search = call_proxy_tool(
         url,
         &auth_header,
+        3,
+        "gestalt_search_tools",
+        match mode {
+            "mcp-search-schema-only" => json!({"query": "schemaOnlySecret"}),
+            "mcp-input-caps" => json!({"query": "x".repeat(513)}),
+            _ => json!({"query": "linear issues"}),
+        },
+    )?;
+    if matches!(
+        mode,
+        "mcp-search-only" | "mcp-search-schema-only" | "mcp-input-caps"
+    ) {
+        return Ok(json!({
+            "initialize": initialize,
+            "unauthorizedStatus": unauthorized_status,
+            "list": listed,
+            "search": search
+        }));
+    }
+
+    if mode == "mcp-ambiguous-ref" {
+        let schema = call_proxy_tool(
+            url,
+            &auth_header,
+            4,
+            "gestalt_get_tool_schema",
+            json!({"ref": {"plugin": "linear", "operation": "issues"}}),
+        )?;
+        return Ok(json!({
+            "initialize": initialize,
+            "unauthorizedStatus": unauthorized_status,
+            "list": listed,
+            "search": search,
+            "schema": schema
+        }));
+    }
+
+    if mode == "mcp-invalid-selector" {
+        let schema = call_proxy_tool(
+            url,
+            &auth_header,
+            4,
+            "gestalt_get_tool_schema",
+            json!({"mcp_name": "linear.issues", "ref": {"plugin": "linear", "operation": "issues"}}),
+        )?;
+        return Ok(json!({
+            "initialize": initialize,
+            "unauthorizedStatus": unauthorized_status,
+            "list": listed,
+            "search": search,
+            "schema": schema
+        }));
+    }
+
+    let mcp_name = first_search_mcp_name(&search)?;
+    if mode == "mcp-schema" {
+        let schema = call_proxy_tool(
+            url,
+            &auth_header,
+            4,
+            "gestalt_get_tool_schema",
+            json!({"mcp_name": mcp_name}),
+        )?;
+        return Ok(json!({
+            "initialize": initialize,
+            "unauthorizedStatus": unauthorized_status,
+            "list": listed,
+            "search": search,
+            "schema": schema
+        }));
+    }
+
+    let called = call_proxy_tool(
+        url,
+        &auth_header,
+        4,
+        "gestalt_call_tool",
         json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": {"query": "Ada Lovelace"}
-            }
+            "mcp_name": mcp_name,
+            "arguments": {"query": "Ada Lovelace"}
         }),
     )?;
     Ok(json!({
         "initialize": initialize,
         "unauthorizedStatus": unauthorized_status,
         "list": listed,
+        "search": search,
         "call": called
     }))
+}
+
+fn call_proxy_tool(
+    url: &str,
+    auth_header: &str,
+    id: i32,
+    name: &str,
+    arguments: Value,
+) -> Result<Value, String> {
+    mcp_post(
+        url,
+        auth_header,
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": name,
+                "arguments": arguments
+            }
+        }),
+    )
+}
+
+fn first_search_mcp_name(search: &Value) -> Result<String, String> {
+    let text = search
+        .pointer("/result/content/0/text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("search result has no text content: {search}"))?;
+    let payload: Value = serde_json::from_str(text)
+        .map_err(|err| format!("decode search result text {text:?}: {err}"))?;
+    payload
+        .pointer("/tools/0/mcp_name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("search result has no first tool mcp_name: {payload}"))
 }
 
 fn mcp_post(url: &str, auth_header: &str, body: Value) -> Result<Value, String> {
