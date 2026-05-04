@@ -927,7 +927,8 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             workflow_request.workflow_key, "slack:T123:C789:1712161829.000300"
         )
-        self.assertEqual(workflow_request.idempotency_key, "slack:event:Ev123")
+        expected_idempotency_key = "slack:event:T123:C789:1712161829.000300:U456"
+        self.assertEqual(workflow_request.idempotency_key, expected_idempotency_key)
 
         agent_target = workflow_request.target.agent
         self.assertEqual(agent_target.provider_name, "simple")
@@ -996,7 +997,7 @@ class SlackProviderTests(unittest.TestCase):
 
         signal = workflow_request.signal
         self.assertEqual(signal.name, "slack.event")
-        self.assertEqual(signal.idempotency_key, "slack:event:Ev123")
+        self.assertEqual(signal.idempotency_key, expected_idempotency_key)
         signal_payload = json_format.MessageToDict(signal.payload)
         self.assertEqual(signal_payload["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_payload["slack"]["file_ids"], ["F123"])
@@ -1160,6 +1161,70 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
         self.assertEqual(signal_payload["slack"]["assistant_context_present"], False)
         self.assertEqual(signal_payload["slack"]["bot_user_id"], "UBOT")
+
+    def test_app_mention_and_message_event_share_agent_signal_idempotency(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        base_event = {
+            "user": "U456",
+            "channel": "C789",
+            "channel_type": "channel",
+            "text": "<@UBOT> show me my linear tickets",
+            "ts": "1712161829.000300",
+            "client_msg_id": "163efdd3-cb7d-4348-92fc-e6e2815b2bcb",
+        }
+        app_mention = {
+            "type": "event_callback",
+            "event_id": "EvMention",
+            "team_id": "T123",
+            "event": {"type": "app_mention", **base_event},
+        }
+        message = {
+            "type": "event_callback",
+            "event_id": "EvMessage",
+            "team_id": "T123",
+            "event": {"type": "message", **base_event},
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            provider_module.slack_events_handle(app_mention, request)
+            provider_module.slack_events_handle(message, request)
+
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 2)
+        first, second = workflow_manager.signal_or_start_requests
+        expected_idempotency_key = "slack:event:T123:C789:1712161829.000300:U456"
+        self.assertEqual(first.workflow_key, "slack:T123:C789:1712161829.000300")
+        self.assertEqual(second.workflow_key, first.workflow_key)
+        self.assertEqual(first.idempotency_key, expected_idempotency_key)
+        self.assertEqual(second.idempotency_key, expected_idempotency_key)
+        self.assertEqual(first.signal.idempotency_key, expected_idempotency_key)
+        self.assertEqual(second.signal.idempotency_key, expected_idempotency_key)
+        first_metadata = json_format.MessageToDict(first.signal.metadata)
+        second_metadata = json_format.MessageToDict(second.signal.metadata)
+        self.assertEqual(first_metadata["slack"]["event_type"], "app_mention")
+        self.assertEqual(second_metadata["slack"]["event_type"], "message")
 
     def test_slack_event_ack_failure_still_acks_dispatched_workflow(self) -> None:
         provider_module.configure(
@@ -2719,8 +2784,14 @@ class SlackProviderTests(unittest.TestCase):
             self.assertNotIn("event_id", target_metadata["slack"])
             self.assertNotIn("user_id", target_metadata["slack"])
 
-        self.assertEqual(requests[0].idempotency_key, "slack:event:EvFirst")
-        self.assertEqual(requests[1].idempotency_key, "slack:event:EvSecond")
+        self.assertEqual(
+            requests[0].idempotency_key,
+            "slack:event:T123:C789:1712161829.000300:U456",
+        )
+        self.assertEqual(
+            requests[1].idempotency_key,
+            "slack:event:T123:C789:1712161835.000400:U999",
+        )
         first_metadata = json_format.MessageToDict(requests[0].signal.metadata)
         second_metadata = json_format.MessageToDict(requests[1].signal.metadata)
         self.assertEqual(first_metadata["slack"]["user_id"], "U456")

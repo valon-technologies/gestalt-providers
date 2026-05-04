@@ -2714,6 +2714,8 @@ def _agent_session_ref(event: SlackAgentEvent) -> str:
 
 
 def _agent_turn_idempotency_key(event: SlackAgentEvent) -> str:
+    if event.event_type in (SlackEventType.APP_MENTION, SlackEventType.MESSAGE):
+        return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
     if event.event_id:
         return f"slack:event:{event.event_id}"
     return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
