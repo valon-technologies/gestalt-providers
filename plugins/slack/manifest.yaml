@@ -45,7 +45,7 @@ spec:
       baseUrl: https://slack.com
       operations:
       - name: conversations.list
-        description: List conversations/channels
+        description: List conversations/channels. Do not use this to resolve Slack permalinks; prefer conversations.getMessage or conversations.getThreadContext with the URL.
         method: GET
         path: /api/conversations.list
         connectionSelector:
@@ -325,7 +325,7 @@ spec:
           type: bool
           in: body
       - name: conversations.history
-        description: Read message history for a channel
+        description: Read message history for a channel. For Slack permalinks, prefer conversations.getMessage or conversations.getThreadContext with the URL instead of listing channels or scanning history.
         method: GET
         path: /api/conversations.history
         connectionSelector:

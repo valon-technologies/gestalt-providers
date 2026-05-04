@@ -3104,6 +3104,50 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(data["files"][0]["content"]["encoding"], "utf-8")
         self.assertEqual(data["files"][0]["content"]["text"], "hello thread")
 
+    def test_get_thread_context_accepts_slack_message_url_contract(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(authorization_header(request), "Bearer test-token")
+
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/conversations.replies")
+            self.assertEqual(
+                urllib.parse.parse_qs(parsed.query),
+                {
+                    "channel": ["C123ABC456"],
+                    "ts": ["1712161829.000300"],
+                    "limit": ["15"],
+                },
+            )
+            return FakeHTTPResponse(
+                """
+                {
+                  "ok": true,
+                  "messages": [
+                    {"ts": "1712161829.000300", "text": "hello", "user": "U123"}
+                  ]
+                }
+                """
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.conversations_get_thread_context(
+                provider_module.GetThreadContextInput(
+                    url="https://valon.slack.com/archives/C123ABC456/p1712161829000300"
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        data = result["data"]
+        self.assertEqual(data["channel"], "C123ABC456")
+        self.assertEqual(data["thread_ts"], "1712161829.000300")
+        self.assertEqual(data["root_message"]["text"], "hello")
+
     def test_files_get_rejects_non_slack_private_url_contract(self) -> None:
         result = provider_module.files_get(
             provider_module.GetFileInput(
@@ -3203,6 +3247,56 @@ class SlackProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.TOO_MANY_REQUESTS)
         self.assertEqual(response.body, {"error": "rate_limited"})
+
+    def test_get_message_retries_slack_http_rate_limit_with_retry_after(
+        self,
+    ) -> None:
+        calls = 0
+        headers = Message()
+        headers.add_header("Retry-After", "0")
+        rate_limit = urllib.error.HTTPError(
+            url="https://slack.com/api/conversations.history",
+            code=429,
+            msg="ratelimited",
+            hdrs=headers,
+            fp=io.BytesIO(b'{"ok": false, "error": "ratelimited"}'),
+        )
+
+        def fake_urlopen(
+            _request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            nonlocal calls
+            calls += 1
+            self.assertEqual(timeout, 30)
+            if calls == 1:
+                raise rate_limit
+            return FakeHTTPResponse(
+                """
+                {
+                  "ok": true,
+                  "messages": [
+                    {"ts": "1234567890.123456", "text": "after retry"}
+                  ]
+                }
+                """
+            )
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch("internals.client.time.sleep") as sleep,
+        ):
+            result = provider_module.conversations_get_message(
+                provider_module.GetMessageInput(
+                    channel="C123", ts="1234567890.123456"
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertEqual(calls, 2)
+        sleep.assert_called_once_with(0.0)
+        self.assertEqual(result["data"]["message"]["text"], "after retry")
 
 
 if __name__ == "__main__":

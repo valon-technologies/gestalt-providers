@@ -340,16 +340,20 @@ operations:
     default: true
 - id: conversations.getThreadContext
   method: POST
-  description: Build rich Slack thread context with messages, participants, and files
+  description: Build rich Slack thread context by Slack URL or channel/timestamp, with messages, participants, and files
   parameters:
+  - name: url
+    type: string
+    description: Slack message URL
+    default: ''
   - name: channel
     type: string
     description: Channel ID containing the thread
-    required: true
+    default: ''
   - name: ts
     type: string
     description: Parent or root message timestamp
-    required: true
+    default: ''
   - name: cursor
     type: string
     description: Slack pagination cursor from a previous response
