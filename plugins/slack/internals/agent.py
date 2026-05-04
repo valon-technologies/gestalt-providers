@@ -103,6 +103,9 @@ in the Slack thread; reuse the returned status_ts to update or delete the same
 status message.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
+For Slack message permalinks, call the Slack message or thread-context tool with
+the URL directly. Do not enumerate channels or scan channel history just to
+resolve a Slack permalink.
 Use the current signal's reply_ref only for Slack event helper tools that require
 it, such as visible progress, reactions, or interactions.
 When you answer the Slack user, return the complete Slack message body as your

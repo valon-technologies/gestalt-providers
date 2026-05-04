@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from http import HTTPStatus
@@ -12,6 +13,8 @@ from urllib.parse import urlencode
 SLACK_BASE_URL = "https://slack.com/api"
 SLACK_FILE_DOWNLOAD_HOSTS = {"files.slack.com"}
 SLACK_FILE_DOWNLOAD_HOST_SUFFIXES = (".slack-files.com",)
+MAX_RATE_LIMIT_RETRIES = 2
+MAX_RETRY_AFTER_SECONDS = 5.0
 
 
 class SlackAPIError(RuntimeError):
@@ -114,13 +117,26 @@ class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def _request_json(request: urllib.request.Request) -> dict[str, Any]:
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read()
-    except urllib.error.HTTPError as exc:
-        raise SlackAPIError(exc.code, _decode_error_body(exc.read(), exc.code)) from exc
-    except urllib.error.URLError as exc:
-        raise SlackClientError(f"slack API request failed: {exc.reason}") from exc
+    body = b""
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read()
+            break
+        except urllib.error.HTTPError as exc:
+            retry_after = _retry_after_seconds(exc)
+            if (
+                exc.code == HTTPStatus.TOO_MANY_REQUESTS
+                and retry_after is not None
+                and attempt < MAX_RATE_LIMIT_RETRIES
+            ):
+                time.sleep(retry_after)
+                continue
+            raise SlackAPIError(
+                exc.code, _decode_error_body(exc.read(), exc.code)
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise SlackClientError(f"slack API request failed: {exc.reason}") from exc
 
     try:
         payload = json.loads(body)
@@ -134,10 +150,28 @@ def _request_json(request: urllib.request.Request) -> dict[str, Any]:
     if isinstance(ok, bool) and not ok:
         error = payload.get("error")
         if isinstance(error, str) and error:
-            raise SlackAPIError(HTTPStatus.BAD_GATEWAY, {"error": error})
+            status = (
+                HTTPStatus.TOO_MANY_REQUESTS
+                if error in {"ratelimited", "rate_limited"}
+                else HTTPStatus.BAD_GATEWAY
+            )
+            raise SlackAPIError(status, {"error": error})
         raise SlackAPIError(HTTPStatus.BAD_GATEWAY, {"error": "slack API error"})
 
     return payload
+
+
+def _retry_after_seconds(error: urllib.error.HTTPError) -> float | None:
+    raw = error.headers.get("Retry-After") if error.headers is not None else None
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, MAX_RETRY_AFTER_SECONDS)
 
 
 def _decode_error_body(body: bytes, status: int) -> dict[str, str]:

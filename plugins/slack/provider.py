@@ -134,8 +134,15 @@ class GetThreadParticipantsInput(gestalt.Model):
 
 
 class GetThreadContextInput(gestalt.Model):
-    channel: str = gestalt.field(description="Channel ID containing the thread")
-    ts: str = gestalt.field(description="Parent or root message timestamp")
+    url: str = gestalt.field(
+        description="Slack message URL", default="", required=False
+    )
+    channel: str = gestalt.field(
+        description="Channel ID containing the thread", default="", required=False
+    )
+    ts: str = gestalt.field(
+        description="Parent or root message timestamp", default="", required=False
+    )
     cursor: str = gestalt.field(
         description="Slack pagination cursor from a previous response",
         default="",
@@ -715,7 +722,7 @@ def conversations_get_thread_participants(
 @gestalt.operation(
     id=SLACK_CONTEXT_OPERATION,
     method="POST",
-    description="Build rich Slack thread context with messages, participants, and files",
+    description="Build rich Slack thread context by Slack URL or channel/timestamp, with messages, participants, and files",
 )
 def conversations_get_thread_context(
     input: GetThreadContextInput, req: gestalt.Request
@@ -723,16 +730,25 @@ def conversations_get_thread_context(
     token_error = _validate_token(req)
     if token_error is not None:
         return token_error
-    if not input.channel:
+
+    channel = input.channel
+    ts = input.ts
+    if input.url:
+        parsed = parse_message_url(input.url)
+        if parsed is None:
+            return _bad_request(f"invalid Slack message URL: {input.url}")
+        channel, ts = parsed
+
+    if not channel:
         return _bad_request("channel is required")
-    if not input.ts:
+    if not ts:
         return _bad_request("ts is required")
 
     try:
         return get_thread_context(
             req.token,
-            channel=input.channel,
-            ts=input.ts,
+            channel=channel,
+            ts=ts,
             cursor=input.cursor,
             limit=input.limit,
             include_user_info=input.include_user_info,
