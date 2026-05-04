@@ -49,6 +49,7 @@ from .operations import (
     add_reaction,
     append_stream,
     delete_message,
+    find_message_urls,
     post_message,
     remove_reaction,
     set_assistant_thread_status,
@@ -86,8 +87,10 @@ SLACK_ASSISTANT_PROMPTS_OPERATION = "events.setSuggestedPrompts"
 SLACK_STREAM_START_OPERATION = "events.startStream"
 SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
+SLACK_MESSAGE_OPERATION = "conversations.getMessage"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
+MAX_PROMPT_MESSAGE_URLS = 5
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
@@ -104,8 +107,9 @@ status message.
 Use {context_tool} when you need the current Slack thread history, participants,
 or attached files. Use {file_tool} to read Slack file contents or image bytes.
 For Slack message permalinks, call the Slack message or thread-context tool with
-the URL directly. Do not enumerate channels or scan channel history just to
-resolve a Slack permalink.
+the URL directly. If the current Slack request includes a "Slack message
+permalink tools" section, use the listed operation and URL input exactly. Do not
+enumerate channels or scan channel history just to resolve a Slack permalink.
 Use the current signal's reply_ref only for Slack event helper tools that require
 it, such as visible progress, reactions, or interactions.
 When you answer the Slack user, return the complete Slack message body as your
@@ -2481,12 +2485,13 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
         *(route.agent_tools if route is not None else ()),
     ]
     operations = [
+        SLACK_CONTEXT_OPERATION,
+        SLACK_MESSAGE_OPERATION,
+        SLACK_FILE_GET_OPERATION,
         SLACK_STATUS_OPERATION,
         SLACK_DELETE_STATUS_OPERATION,
         SLACK_ADD_REACTION_OPERATION,
         SLACK_REMOVE_REACTION_OPERATION,
-        SLACK_CONTEXT_OPERATION,
-        SLACK_FILE_GET_OPERATION,
     ]
     if _agent_config.assistant.enabled:
         operations.extend(
@@ -2635,10 +2640,17 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
         f"channel: {event.channel_id}",
         f"ts: {root_ts}",
-        "",
-        "File content tool:",
-        f"operation: {_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
     ]
+    permalink_summaries = _event_permalink_summaries(event)
+    if permalink_summaries:
+        lines.extend(["", "Slack message permalink tools:", *permalink_summaries])
+    lines.extend(
+        [
+            "",
+            "File content tool:",
+            f"operation: {_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
+        ]
+    )
     file_summaries = _event_file_summaries(event)
     if file_summaries:
         lines.extend(["files:", *file_summaries])
@@ -2650,6 +2662,19 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _event_permalink_summaries(event: SlackAgentEvent) -> list[str]:
+    summaries: list[str] = []
+    for url in find_message_urls(event.text)[:MAX_PROMPT_MESSAGE_URLS]:
+        summaries.extend(
+            [
+                f"- url: {url}",
+                f"  operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+                f"  input: {json.dumps({'url': url}, separators=(',', ': '))}",
+            ]
+        )
+    return summaries
 
 
 def _event_file_summaries(event: SlackAgentEvent) -> list[str]:
