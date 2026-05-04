@@ -3,6 +3,7 @@ package externalcredentials
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -12,13 +13,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.4"
+const providerVersion = "0.0.1-alpha.7"
 
 type Provider struct {
-	mu    sync.RWMutex
-	cfg   config
-	store *store
-	now   func() time.Time
+	mu            sync.RWMutex
+	cfg           config
+	store         *store
+	refreshCancel context.CancelFunc
+	refreshDone   <-chan struct{}
+	now           func() time.Time
 }
 
 func New() *Provider {
@@ -37,9 +40,25 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	}
 
 	p.mu.Lock()
+	oldCancel := p.refreshCancel
+	oldDone := p.refreshDone
 	oldStore := p.store
+	p.refreshCancel = nil
+	p.refreshDone = nil
+	p.mu.Unlock()
+
+	waitCredentialRefreshLoop(oldCancel, oldDone)
+
+	p.mu.Lock()
 	p.cfg = cfg
 	p.store = st
+	if len(cfg.CredentialRefresh.Targets) > 0 {
+		refreshCtx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		p.refreshCancel = cancel
+		p.refreshDone = done
+		go p.credentialRefreshLoop(refreshCtx, st, cfg.CredentialRefresh.Targets, done)
+	}
 	p.mu.Unlock()
 
 	if oldStore != nil {
@@ -69,14 +88,70 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 
 func (p *Provider) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	cancel := p.refreshCancel
+	done := p.refreshDone
+	p.refreshCancel = nil
+	p.refreshDone = nil
+	st := p.store
+	p.store = nil
+	p.mu.Unlock()
 
-	if p.store == nil {
+	waitCredentialRefreshLoop(cancel, done)
+
+	if st == nil {
 		return nil
 	}
-	err := p.store.Close()
-	p.store = nil
-	return err
+	return st.Close()
+}
+
+func waitCredentialRefreshLoop(cancel context.CancelFunc, done <-chan struct{}) {
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
+}
+
+func (p *Provider) credentialRefreshLoop(ctx context.Context, st *store, targets []credentialRefreshTarget, done chan<- struct{}) {
+	defer close(done)
+	interval := minCredentialRefreshInterval(targets)
+	if interval <= 0 {
+		return
+	}
+	p.logCredentialRefreshStats(p.runCredentialRefreshOnceWith(ctx, st, targets))
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.logCredentialRefreshStats(p.runCredentialRefreshOnceWith(ctx, st, targets))
+		}
+	}
+}
+
+func (p *Provider) logCredentialRefreshStats(stats credentialRefreshStats) {
+	if stats.Errors > 0 {
+		slog.Warn("external credential refresh completed with errors", "checked", stats.Checked, "refreshed", stats.Refreshed, "deleted", stats.Deleted, "errors", stats.Errors)
+	} else if stats.Checked > 0 || stats.Refreshed > 0 || stats.Deleted > 0 {
+		slog.Info("external credential refresh completed", "checked", stats.Checked, "refreshed", stats.Refreshed, "deleted", stats.Deleted)
+	}
+}
+
+func minCredentialRefreshInterval(targets []credentialRefreshTarget) time.Duration {
+	var min time.Duration
+	for _, target := range targets {
+		interval := target.RefreshIntervalDuration
+		if interval <= 0 {
+			continue
+		}
+		if min == 0 || interval < min {
+			min = interval
+		}
+	}
+	return min
 }
 
 func (p *Provider) UpsertCredential(ctx context.Context, req *gestalt.UpsertExternalCredentialRequest) (*gestalt.ExternalCredential, error) {

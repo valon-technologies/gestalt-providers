@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_admin_datatransfer
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Google Admin Data Transfer
 description: Transfer data between Google Workspace users using the Admin SDK Data Transfer API.
 iconFile: assets/icon.svg
@@ -26,3 +26,6 @@ spec:
         authorizationParams:
           access_type: offline
           prompt: consent
+      credentialRefresh:
+        refreshInterval: 15m
+        refreshBeforeExpiry: 30m

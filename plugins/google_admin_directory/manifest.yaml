@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_admin_directory
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: Google Admin Directory
 description: Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API.
 iconFile: assets/icon.svg
@@ -157,3 +157,6 @@ spec:
         authorizationParams:
           access_type: offline
           prompt: consent
+      credentialRefresh:
+        refreshInterval: 15m
+        refreshBeforeExpiry: 30m

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/google_slides
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 displayName: Google Slides
 description: Create and update Google Slides presentations.
 iconFile: assets/icon.svg
@@ -32,3 +32,6 @@ spec:
         authorizationParams:
           access_type: offline
           prompt: consent
+      credentialRefresh:
+        refreshInterval: 15m
+        refreshBeforeExpiry: 30m
