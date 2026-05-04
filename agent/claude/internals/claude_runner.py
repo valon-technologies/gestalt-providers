@@ -188,9 +188,10 @@ class ClaudeSDKRunner:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
+        gestalt_tools = allowed_gestalt_mcp_tools()
         return ClaudeAgentOptions(
-            tools=[],
-            allowed_tools=allowed_gestalt_mcp_tools(),
+            tools=gestalt_tools,
+            allowed_tools=gestalt_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
                     session_id=session_id, turn_id=turn_id, run_grant=run_grant
