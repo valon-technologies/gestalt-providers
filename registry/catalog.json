@@ -931,9 +931,9 @@
       "displayName": "Default External Credentials",
       "iconUrl": null,
       "kind": "external_credentials",
-      "latestInstallableVersion": "0.0.1-alpha.5",
+      "latestInstallableVersion": "0.0.1-alpha.6",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/external_credentials/default/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.5",
+      "manifestVersion": "0.0.1-alpha.6",
       "name": "default",
       "package": "github.com/valon-technologies/gestalt-providers/external_credentials/default",
       "packagePath": "external_credentials/default",
@@ -941,6 +941,19 @@
       "registryPath": "/providers/external_credentials/default/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/external_credentials/default",
       "versions": [
+        {
+          "kind": "external_credentials",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.6/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.6"
+        },
         {
           "kind": "external_credentials",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.5/provider-release.yaml",
