@@ -9,3 +9,5 @@ against a concrete backend.
 Current packages:
 
 - `indexeddb`: single-process workflow provider backed by IndexedDB object stores
+- `temporal`: Temporal Cloud-backed workflow provider using Temporal workflows,
+  schedules, and sharded provider index workflows
