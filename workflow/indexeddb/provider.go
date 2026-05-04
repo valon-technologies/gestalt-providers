@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +33,7 @@ import (
 )
 
 const (
-	providerVersion           = "0.0.1-alpha.45"
+	providerVersion           = "0.0.1-alpha.46"
 	defaultPollInterval       = time.Second
 	defaultWorkerCount        = 4
 	defaultMaxSignalsPerBatch = 25
@@ -62,6 +63,8 @@ const (
 	configManagedWorkflowSubject = "system:config"
 	configManagedWorkflowAuth    = "config"
 	configManagedWorkflowKind    = "system"
+	workflowMetadataKey          = "workflow"
+	dispatchPriorityMetadataKey  = "dispatchPriority"
 	staleRunStatusMessage        = "workflow provider restarted while run was in progress"
 
 	signalStatePending   = "pending"
@@ -3331,31 +3334,16 @@ func nextPendingRun(ctx context.Context, store *gestalt.ObjectStoreClient) (work
 }
 
 func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferredRunID string, now time.Time) (workflowRunRecord, bool, error) {
-	triedPreferred := ""
-	if preferredRunID = strings.TrimSpace(preferredRunID); preferredRunID != "" {
-		run, found, err := loadRunRecord(ctx, state.runStore, "", preferredRunID)
-		if err != nil {
-			return workflowRunRecord{}, false, err
-		}
-		if found {
-			triedPreferred = run.ID
-			claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
-			if err != nil {
-				return workflowRunRecord{}, false, err
-			}
-			if claimed {
-				return claimedRun, true, nil
-			}
-		}
-	}
+	preferredRunID = strings.TrimSpace(preferredRunID)
+	triedPreferred := false
 	runs, err := listRunRecords(ctx, state.runStore, "")
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
 	runs = sortRunRecordsForDispatch(runs)
 	for _, run := range runs {
-		if triedPreferred != "" && run.ID == triedPreferred {
-			continue
+		if preferredRunID != "" && run.ID == preferredRunID {
+			triedPreferred = true
 		}
 		claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
 		if err != nil {
@@ -3363,6 +3351,21 @@ func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferr
 		}
 		if claimed {
 			return claimedRun, true, nil
+		}
+	}
+	if preferredRunID != "" && !triedPreferred {
+		run, found, err := loadRunRecord(ctx, state.runStore, "", preferredRunID)
+		if err != nil {
+			return workflowRunRecord{}, false, err
+		}
+		if found {
+			claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
+			if err != nil {
+				return workflowRunRecord{}, false, err
+			}
+			if claimed {
+				return claimedRun, true, nil
+			}
 		}
 	}
 	return workflowRunRecord{}, false, nil
@@ -3389,6 +3392,12 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 	if run.TriggerKind == triggerKindEvent && run.Target != nil && run.Target.GetPlugin() != nil {
 		return 0
 	}
+	// Agent metadata may opt runs into a custom dispatch tier via
+	// _gestalt.workflow.dispatchPriority. Priority 0 is reserved for plugin
+	// event ingestion, so custom priorities start at 1.
+	if priority, ok := workflowRunMetadataDispatchPriority(run); ok {
+		return priority
+	}
 	if strings.TrimSpace(run.WorkflowKey) != "" {
 		return 10
 	}
@@ -3402,6 +3411,53 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 		return 40
 	}
 	return 50
+}
+
+func workflowRunMetadataDispatchPriority(run workflowRunRecord) (int, bool) {
+	if run.Target == nil || run.Target.GetAgent() == nil || run.Target.GetAgent().GetMetadata() == nil {
+		return 0, false
+	}
+	metadata := run.Target.GetAgent().GetMetadata().AsMap()
+	rawGestalt, ok := metadata[gestaltInputKey]
+	if !ok {
+		return 0, false
+	}
+	gestaltMetadata, ok := rawGestalt.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	rawWorkflow, ok := gestaltMetadata[workflowMetadataKey]
+	if !ok {
+		return 0, false
+	}
+	workflowMetadata, ok := rawWorkflow.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	priority, ok := parseWorkflowDispatchPriority(workflowMetadata[dispatchPriorityMetadataKey])
+	if !ok || priority < 1 {
+		return 0, false
+	}
+	return priority, true
+}
+
+func parseWorkflowDispatchPriority(raw any) (int, bool) {
+	switch value := raw.(type) {
+	case float64:
+		priority := int(value)
+		if float64(priority) != value {
+			return 0, false
+		}
+		return priority, true
+	case string:
+		priority, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return 0, false
+		}
+		return priority, true
+	default:
+		return 0, false
+	}
 }
 
 func claimRunnableRun(ctx context.Context, state *configuredState, run workflowRunRecord, now time.Time) (workflowRunRecord, bool, error) {
