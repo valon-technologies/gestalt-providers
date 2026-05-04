@@ -254,6 +254,7 @@ class GitHubProviderTests(unittest.TestCase):
         catalog = yaml.safe_load((plugin_root / "catalog.yaml").read_text())
         operations = {operation["id"]: operation for operation in catalog["operations"]}
 
+        event = operations[provider_module.GITHUB_EVENT_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
@@ -261,12 +262,15 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
         ]
         issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
+        self.assertIn("workflow targets", event["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
         self.assertIn("issue comment", issue_comment["description"])
-        self.assertIn("pull_number", [parameter["name"] for parameter in pr["parameters"]])
+        self.assertIn(
+            "pull_number", [parameter["name"] for parameter in pr["parameters"]]
+        )
         self.assertIn(
             "per_page",
             [parameter["name"] for parameter in pr_files["parameters"]],
@@ -295,9 +299,9 @@ class GitHubProviderTests(unittest.TestCase):
         schema = yaml.safe_load(
             (plugin_root / "schemas" / "config.schema.yaml").read_text()
         )
-        enum = schema["properties"]["webhookPolicies"]["items"]["properties"][
-            "action"
-        ]["properties"]["allowedOperations"]["items"]["enum"]
+        enum = schema["properties"]["webhookPolicies"]["items"]["properties"]["action"][
+            "properties"
+        ]["allowedOperations"]["items"]["enum"]
         self.assertIn(provider_module.BOT_GET_PULL_REQUEST_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION, enum)
         self.assertIn(provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, enum)
@@ -306,6 +310,17 @@ class GitHubProviderTests(unittest.TestCase):
             enum,
         )
         self.assertIn(provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION, enum)
+        workflow_schema = schema["properties"]["webhookPolicies"]["items"][
+            "properties"
+        ]["workflow"]["properties"]
+        plugin_target_schema = workflow_schema["target"]["properties"]["plugin"]
+        self.assertEqual(plugin_target_schema["required"], ["plugin", "operation"])
+        self.assertIn("plugin", plugin_target_schema["properties"])
+        self.assertIn("operation", plugin_target_schema["properties"])
+        self.assertIn("connection", plugin_target_schema["properties"])
+        self.assertIn("instance", plugin_target_schema["properties"])
+        self.assertEqual(plugin_target_schema["properties"]["input"]["type"], "object")
+        self.assertNotIn("pluginName", plugin_target_schema["properties"])
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
         def fake_urlopen(
@@ -882,6 +897,122 @@ class GitHubProviderTests(unittest.TestCase):
             data["agent_request"]["user_prompt"],
         )
 
+    def test_explicit_policy_can_dispatch_to_configured_plugin_workflow_target(
+        self,
+    ) -> None:
+        payload = {
+            "action": "synchronize",
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "pull_request": {
+                "number": 7,
+                "title": "Fix widgets",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            },
+            "headers": {
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "delivery-pr-review",
+            },
+            "sender": {"login": "octocat"},
+        }
+
+        def configure_policy(workflow_config: dict[str, Any]) -> None:
+            provider_module.configure(
+                "github",
+                {
+                    "appId": "12345",
+                    "appPrivateKey": "unused-in-tests",
+                    "workflow": {"provider": "local"},
+                    "agent": {"provider": "simple", "model": "fallback"},
+                    "webhookPolicies": [
+                        {
+                            "id": "pr-review",
+                            "match": {
+                                "events": ["pull_request"],
+                                "actions": ["synchronize"],
+                            },
+                            "workflow": workflow_config,
+                        }
+                    ],
+                },
+            )
+
+        configure_policy({"provider": "temporal"})
+        agent_request = self._workflow_signal_request(payload)
+
+        configure_policy(
+            {
+                "provider": "temporal",
+                "target": {
+                    "plugin": {
+                        "plugin": "github_review",
+                        "operation": "reviewPullRequest",
+                        "connection": "review-bot",
+                        "instance": "prod",
+                        "input": {
+                            "maxComments": 10,
+                            "changedLinesOnly": True,
+                            "_gestalt": {
+                                "eventRunPermissions": [
+                                    {
+                                        "plugin": "github",
+                                        "operation": "bot.createPullRequestReview",
+                                    }
+                                ]
+                            },
+                        },
+                    }
+                },
+            }
+        )
+        plugin_request = self._workflow_signal_request(payload)
+
+        self.assertEqual(plugin_request.provider_name, agent_request.provider_name)
+        self.assertEqual(plugin_request.workflow_key, agent_request.workflow_key)
+        self.assertEqual(plugin_request.idempotency_key, agent_request.idempotency_key)
+        self.assertEqual(plugin_request.signal.name, agent_request.signal.name)
+        self.assertEqual(
+            plugin_request.signal.idempotency_key,
+            agent_request.signal.idempotency_key,
+        )
+        self.assertEqual(
+            json_format.MessageToDict(plugin_request.signal.payload),
+            json_format.MessageToDict(agent_request.signal.payload),
+        )
+        self.assertEqual(
+            json_format.MessageToDict(plugin_request.signal.metadata),
+            json_format.MessageToDict(agent_request.signal.metadata),
+        )
+        self.assertEqual(agent_request.target.WhichOneof("kind"), "agent")
+        self.assertEqual(plugin_request.target.WhichOneof("kind"), "plugin")
+
+        plugin = plugin_request.target.plugin
+        self.assertEqual(plugin.plugin_name, "github_review")
+        self.assertEqual(plugin.operation, "reviewPullRequest")
+        self.assertEqual(plugin.connection, "review-bot")
+        self.assertEqual(plugin.instance, "prod")
+
+        target_input = json_format.MessageToDict(plugin.input)
+        self.assertEqual(target_input["maxComments"], 10)
+        self.assertEqual(target_input["changedLinesOnly"], True)
+        self.assertEqual(
+            target_input["_gestalt"]["eventRunPermissions"],
+            [{"plugin": "github", "operation": "bot.createPullRequestReview"}],
+        )
+        self.assertNotIn("pull_request", target_input)
+        self.assertNotIn("repository", target_input)
+
+        signal_payload = json_format.MessageToDict(plugin_request.signal.payload)
+        self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
+        self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
+
     def test_explicit_policy_webhook_events_allowlist_semantics(self) -> None:
         push_payload = {
             "ref": "refs/heads/feature",
@@ -1014,6 +1145,119 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 },
                 "unknown operation",
+            ),
+            (
+                {"workflow": "local"},
+                "workflow must be an object",
+            ),
+            (
+                {
+                    "workflow": {
+                        "provider": "local",
+                        "target": {
+                            "plugin": {
+                                "plugin": "github_review",
+                                "operation": "reviewPullRequest",
+                            }
+                        },
+                    }
+                },
+                "workflow.target is not supported",
+            ),
+            (
+                {"webhookPolicies": [{"id": "bad-workflow", "workflow": "nope"}]},
+                "workflow must be an object",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {"id": "bad-target", "workflow": {"target": "plugin"}}
+                    ]
+                },
+                "workflow.target must be an object",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {"id": "missing-plugin", "workflow": {"target": {}}}
+                    ]
+                },
+                "workflow.target.plugin is required",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-plugin-target",
+                            "workflow": {"target": {"plugin": "github_review"}},
+                        }
+                    ]
+                },
+                "workflow.target.plugin must be an object",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "missing-plugin-name",
+                            "workflow": {
+                                "target": {"plugin": {"operation": "reviewPullRequest"}}
+                            },
+                        }
+                    ]
+                },
+                "workflow.target.plugin.plugin is required",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "missing-plugin-operation",
+                            "workflow": {
+                                "target": {"plugin": {"plugin": "github_review"}}
+                            },
+                        }
+                    ]
+                },
+                "workflow.target.plugin.operation is required",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-plugin-input",
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github_review",
+                                        "operation": "reviewPullRequest",
+                                        "input": "bad",
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                "workflow.target.plugin.input must be an object",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "non-json-plugin-input",
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github_review",
+                                        "operation": "reviewPullRequest",
+                                        "input": {"bad": object()},
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                "workflow.target.plugin.input must be JSON-compatible",
             ),
         ):
             with self.subTest(expected=expected):

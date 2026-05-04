@@ -7,7 +7,11 @@ from typing import Any
 import gestalt
 from google.protobuf import struct_pb2 as _struct_pb2
 
-from .config import GitHubWebhookPolicy, get_github_config
+from .config import (
+    GitHubWebhookPolicy,
+    GitHubWorkflowPluginTarget,
+    get_github_config,
+)
 from .constants import (
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
@@ -37,7 +41,7 @@ def build_workflow_signal_or_start_request(
         provider_name=workflow_provider(policy),
         workflow_key=agent_session_ref(summary, policy),
         idempotency_key=idempotency_key,
-        target=workflow_agent_target(summary, policy),
+        target=workflow_target(summary, policy),
         signal=gestalt.WorkflowSignal(
             name=GITHUB_WORKFLOW_SIGNAL_NAME,
             idempotency_key=idempotency_key,
@@ -53,6 +57,25 @@ def workflow_provider(policy: GitHubWebhookPolicy | None) -> str:
     if policy is not None and policy.workflow_provider:
         return policy.workflow_provider
     return config.workflow_provider
+
+
+def workflow_target(
+    summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
+) -> Any:
+    if policy is not None and policy.workflow_target is not None:
+        return workflow_plugin_target(policy.workflow_target)
+    return workflow_agent_target(summary, policy)
+
+
+def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
+    plugin = gestalt.BoundWorkflowPluginTarget(
+        plugin_name=target.plugin_name,
+        operation=target.operation,
+        connection=target.connection,
+        instance=target.instance,
+    )
+    plugin.input.CopyFrom(dict_to_struct(target.input))
+    return gestalt.BoundWorkflowTarget(plugin=plugin)
 
 
 def workflow_agent_target(
@@ -223,8 +246,6 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
     if BOT_CREATE_ISSUE_COMMENT_OPERATION in operations:
         lines.append("Use bot.createIssueComment only for issue comments.")
     return "\n".join(lines)
-
-
 
 
 def agent_user_prompt(

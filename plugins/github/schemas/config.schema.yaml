@@ -38,8 +38,9 @@ properties:
     type: array
     description: >-
       Ordered webhook policies. When present, the first matching policy selects
-      the workflow/agent target and GitHub bot operations exposed to the agent.
-      If no policy matches, the webhook is acknowledged and ignored.
+      the workflow provider, optional workflow target, and GitHub bot operations
+      exposed to fallback agent targets. If no policy matches, the webhook is
+      acknowledged and ignored.
     items:
       type: object
       additionalProperties: false
@@ -97,6 +98,43 @@ properties:
             provider:
               type: string
               description: Workflow provider override for this policy.
+            target:
+              type: object
+              additionalProperties: false
+              required:
+                - plugin
+              description: >-
+                Optional workflow target for this policy. If omitted, the
+                webhook starts or signals the generated agent target.
+              properties:
+                plugin:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - plugin
+                    - operation
+                  properties:
+                    plugin:
+                      type: string
+                      minLength: 1
+                      description: Workflow target plugin name.
+                    operation:
+                      type: string
+                      minLength: 1
+                      description: Workflow target operation.
+                    connection:
+                      type: string
+                      description: Optional workflow target connection.
+                    instance:
+                      type: string
+                      description: Optional workflow target instance.
+                    input:
+                      type: object
+                      description: >-
+                        Static workflow target input. Webhook event data is
+                        delivered in workflow signals, not merged into this
+                        object.
+                      additionalProperties: true
         agent:
           type: object
           additionalProperties: false

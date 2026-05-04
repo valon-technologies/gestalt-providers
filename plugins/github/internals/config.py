@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from google.protobuf import struct_pb2 as _struct_pb2
+
 from .constants import (
     BOT_OPERATION_ORDER,
     DEFAULT_WEBHOOK_EVENTS,
@@ -17,6 +19,8 @@ from .constants import (
 
 
 _POLICY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+struct_pb2: Any = _struct_pb2
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +36,15 @@ class GitHubWebhookPolicyMatch:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubWorkflowPluginTarget:
+    plugin_name: str
+    operation: str
+    connection: str = ""
+    instance: str = ""
+    input: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubWebhookPolicy:
     id: str
     match: GitHubWebhookPolicyMatch = field(default_factory=GitHubWebhookPolicyMatch)
@@ -40,6 +53,7 @@ class GitHubWebhookPolicy:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] | None = None
+    workflow_target: GitHubWorkflowPluginTarget | None = None
     action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
     allowed_operations: tuple[str, ...] = ()
 
@@ -184,7 +198,7 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
         seen_ids.add(policy_id)
 
         match_config = config_dict(policy_config, "match")
-        workflow_config = config_dict(policy_config, "workflow")
+        workflow_config = policy_config_object(policy_config, "workflow", index)
         agent_config = config_dict(policy_config, "agent")
         action_config = config_dict(policy_config, "action")
         action_mode = (
@@ -226,11 +240,89 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                     agent_config, "systemPrompt", "system_prompt", "prompt"
                 ),
                 agent_model_options=model_options,
+                workflow_target=parse_policy_workflow_target(workflow_config, index),
                 action_mode=action_mode,
                 allowed_operations=allowed_operations,
             )
         )
     return tuple(policies)
+
+
+def parse_policy_workflow_target(
+    workflow_config: dict[str, Any], policy_index: int
+) -> GitHubWorkflowPluginTarget | None:
+    if "target" not in workflow_config:
+        return None
+    target_path = f"webhookPolicies[{policy_index}].workflow.target"
+    target_config = required_config_object(workflow_config, "target", target_path)
+    plugin_path = f"{target_path}.plugin"
+    plugin_config = required_config_object(target_config, "plugin", plugin_path)
+
+    input_value: dict[str, Any] = {}
+    input_path = f"{plugin_path}.input"
+    if "input" in plugin_config:
+        input_config = plugin_config.get("input")
+        if not isinstance(input_config, dict):
+            raise ValueError(f"{input_path} must be an object")
+        input_value = dict(input_config)
+    validate_struct_compatible(input_value, input_path)
+
+    return GitHubWorkflowPluginTarget(
+        plugin_name=required_string(plugin_config, "plugin", f"{plugin_path}.plugin"),
+        operation=required_string(
+            plugin_config, "operation", f"{plugin_path}.operation"
+        ),
+        connection=optional_string(
+            plugin_config, "connection", f"{plugin_path}.connection"
+        ),
+        instance=optional_string(plugin_config, "instance", f"{plugin_path}.instance"),
+        input=input_value,
+    )
+
+
+def policy_config_object(
+    config: dict[str, Any], key: str, policy_index: int
+) -> dict[str, Any]:
+    if key not in config:
+        return {}
+    value = config.get(key)
+    if isinstance(value, dict):
+        return dict(value)
+    raise ValueError(f"webhookPolicies[{policy_index}].{key} must be an object")
+
+
+def required_config_object(
+    config: dict[str, Any], key: str, path: str
+) -> dict[str, Any]:
+    if key not in config:
+        raise ValueError(f"{path} is required")
+    value = config.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must be an object")
+    return dict(value)
+
+
+def required_string(config: dict[str, Any], key: str, path: str) -> str:
+    value = config.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{path} is required")
+    return value.strip()
+
+
+def optional_string(config: dict[str, Any], key: str, path: str) -> str:
+    if key not in config:
+        return ""
+    value = config.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"{path} must be a string")
+    return value.strip()
+
+
+def validate_struct_compatible(input_value: dict[str, Any], path: str) -> None:
+    try:
+        struct_pb2.Struct().update(input_value)
+    except Exception as err:
+        raise ValueError(f"{path} must be JSON-compatible") from err
 
 
 def policy_allowed_operations(
@@ -284,8 +376,23 @@ def config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 
 def workflow_config_string(config: dict[str, Any], *keys: str) -> str:
-    workflow = config_dict(config, "workflow")
+    workflow = root_workflow_config(config)
     return config_string(workflow, *keys)
+
+
+def root_workflow_config(config: dict[str, Any]) -> dict[str, Any]:
+    if "workflow" not in config:
+        return {}
+    workflow = config.get("workflow")
+    if not isinstance(workflow, dict):
+        raise ValueError("workflow must be an object")
+    workflow_config = dict(workflow)
+    if "target" in workflow_config:
+        raise ValueError(
+            "workflow.target is not supported; configure "
+            "webhookPolicies[].workflow.target instead"
+        )
+    return workflow_config
 
 
 def agent_config_string(config: dict[str, Any], *keys: str) -> str:
