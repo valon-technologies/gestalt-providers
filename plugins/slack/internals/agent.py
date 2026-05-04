@@ -28,6 +28,7 @@ from .models import (
     SlackAgentConfig,
     SlackAgentEvent,
     SlackAgentRoute,
+    SlackAgentToolRef,
     SlackCallbackType,
     SlackChannelType,
     SlackEventPublishCallback,
@@ -87,7 +88,6 @@ SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
-AGENT_GLOBAL_TOOL_SEARCH_PLUGIN = "*"
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
@@ -1406,6 +1406,8 @@ def _slack_agent_event_from_payload(
         return None, "unsupported_event_type"
 
     team_id = _slack_team_id(payload, event)
+    bot_user_ids = _slack_bot_user_ids(payload)
+    bot_user_id = bot_user_ids[0] if bot_user_ids else ""
     if event_type in ASSISTANT_THREAD_EVENT_TYPES:
         assistant_thread = map_field(event, "assistant_thread")
         assistant_context = map_field(assistant_thread, "context")
@@ -1435,6 +1437,9 @@ def _slack_agent_event_from_payload(
                 message_ts=thread_ts,
                 thread_ts=thread_ts,
                 reply_thread_ts=thread_ts,
+                addressed_to_bot=True,
+                assistant_context_present=True,
+                bot_user_id=bot_user_id,
                 files=(),
             ),
             "",
@@ -1446,9 +1451,22 @@ def _slack_agent_event_from_payload(
     message_ts = str(event.get("ts") or event.get("event_ts") or "").strip()
     thread_ts = str(event.get("thread_ts") or "").strip()
     files = tuple(map_slice(event.get("files")))
-    reply_thread_ts = thread_ts
-    if event_type == SlackEventType.APP_MENTION and not reply_thread_ts:
-        reply_thread_ts = message_ts
+    assistant_context_present = _slack_assistant_context_present(event)
+    addressed_to_bot = _slack_message_addressed_to_bot(
+        event=event,
+        event_type=event_type,
+        channel_type=channel_type,
+        text=text,
+        assistant_context_present=assistant_context_present,
+        bot_user_ids=bot_user_ids,
+    )
+    reply_thread_ts = _slack_reply_thread_ts(
+        event_type=event_type,
+        channel_type=channel_type,
+        message_ts=message_ts,
+        thread_ts=thread_ts,
+        addressed_to_bot=addressed_to_bot,
+    )
 
     if not user_id:
         return None, "missing_user"
@@ -1470,6 +1488,15 @@ def _slack_agent_event_from_payload(
             message_ts=message_ts,
             thread_ts=thread_ts,
             reply_thread_ts=reply_thread_ts,
+            client_msg_id=str(event.get("client_msg_id") or "").strip(),
+            addressed_to_bot=addressed_to_bot,
+            assistant_context_present=assistant_context_present,
+            bot_user_id=_slack_addressed_bot_user_id(
+                event=event,
+                text=text,
+                assistant_context_present=assistant_context_present,
+                bot_user_ids=bot_user_ids,
+            ),
             files=files,
         ),
         "",
@@ -1770,6 +1797,114 @@ def _slack_team_id(payload: dict[str, Any], event: dict[str, Any]) -> str:
                 team_id = str(authorization.get("team_id") or "").strip()
                 if team_id:
                     return team_id
+    return ""
+
+
+def _slack_bot_user_ids(payload: dict[str, Any]) -> tuple[str, ...]:
+    user_ids: list[str] = []
+    configured = _agent_config.bot.user_id.strip()
+    if configured:
+        user_ids.append(configured)
+    authorizations = payload.get("authorizations")
+    if isinstance(authorizations, list):
+        for authorization in authorizations:
+            if not isinstance(authorization, dict):
+                continue
+            if not _truthy_slack_value(authorization.get("is_bot")):
+                continue
+            user_id = str(authorization.get("user_id") or "").strip()
+            if user_id:
+                user_ids.append(user_id)
+    return tuple(dict.fromkeys(user_ids))
+
+
+def _truthy_slack_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return False
+
+
+def _slack_assistant_context_present(event: dict[str, Any]) -> bool:
+    assistant_thread = map_field(event, "assistant_thread")
+    if not assistant_thread:
+        return False
+    return bool(
+        string_field(assistant_thread, "action_token")
+        or string_field(assistant_thread, "thread_ts")
+        or map_field(assistant_thread, "context")
+    )
+
+
+def _slack_message_addressed_to_bot(
+    *,
+    event: dict[str, Any],
+    event_type: str,
+    channel_type: str,
+    text: str,
+    assistant_context_present: bool,
+    bot_user_ids: tuple[str, ...],
+) -> bool:
+    if event_type in ASSISTANT_THREAD_EVENT_TYPES:
+        return True
+    if event_type == SlackEventType.APP_MENTION:
+        return True
+    if event_type != SlackEventType.MESSAGE:
+        return False
+    if channel_type in DIRECT_MESSAGE_CHANNEL_TYPES:
+        return True
+    if assistant_context_present:
+        return True
+    return bool(_slack_addressed_bot_user_id(event, text, False, bot_user_ids))
+
+
+def _slack_addressed_bot_user_id(
+    event: dict[str, Any],
+    text: str,
+    assistant_context_present: bool,
+    bot_user_ids: tuple[str, ...],
+) -> str:
+    for user_id in bot_user_ids:
+        if f"<@{user_id}>" in text or _slack_blocks_mention_user(
+            event.get("blocks"), user_id
+        ):
+            return user_id
+    if assistant_context_present and bot_user_ids:
+        return bot_user_ids[0]
+    return ""
+
+
+def _slack_blocks_mention_user(value: Any, user_id: str) -> bool:
+    if isinstance(value, dict):
+        if value.get("type") == "user" and str(value.get("user_id") or "") == user_id:
+            return True
+        return any(
+            _slack_blocks_mention_user(child, user_id) for child in value.values()
+        )
+    if isinstance(value, list):
+        return any(_slack_blocks_mention_user(child, user_id) for child in value)
+    return False
+
+
+def _slack_reply_thread_ts(
+    *,
+    event_type: str,
+    channel_type: str,
+    message_ts: str,
+    thread_ts: str,
+    addressed_to_bot: bool,
+) -> str:
+    if thread_ts:
+        return thread_ts
+    if event_type == SlackEventType.APP_MENTION:
+        return message_ts
+    if (
+        event_type == SlackEventType.MESSAGE
+        and channel_type not in DIRECT_MESSAGE_CHANNEL_TYPES
+        and addressed_to_bot
+    ):
+        return message_ts
     return ""
 
 
@@ -2076,9 +2211,11 @@ def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None,
     if _agent_config.routes:
         for route in _agent_config.routes:
             if route.match.matches(event):
-                return route, ""
+                if _agent_event_can_start_agent(event):
+                    return route, ""
+                return None, "unsupported_event_type"
         return None, "no_matching_agent_route"
-    if _default_agent_route_matches(event):
+    if _agent_event_can_start_agent(event):
         return None, ""
     return None, "unsupported_event_type"
 
@@ -2093,15 +2230,16 @@ def _agent_route_by_id(route_id: str) -> SlackAgentRoute | None:
     return None
 
 
-def _default_agent_route_matches(event: SlackAgentEvent) -> bool:
-    return (
-        event.event_type in ASSISTANT_THREAD_EVENT_TYPES
-        or (event.event_type == SlackEventType.APP_MENTION)
-        or (
-            event.event_type == SlackEventType.MESSAGE
-            and event.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES
-        )
-    )
+def _agent_event_can_start_agent(event: SlackAgentEvent) -> bool:
+    if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
+        return True
+    if event.event_type == SlackEventType.APP_MENTION:
+        return True
+    if event.event_type != SlackEventType.MESSAGE:
+        return False
+    if event.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES:
+        return True
+    return event.addressed_to_bot or event.assistant_context_present
 
 
 def _build_workflow_signal_or_start_request(
@@ -2201,6 +2339,10 @@ def _slack_workflow_signal_payload(event: SlackAgentEvent, reply_ref: str) -> An
                 "message_ts": event.message_ts,
                 "thread_ts": event.thread_ts,
                 "reply_thread_ts": event.reply_thread_ts,
+                "client_msg_id": event.client_msg_id,
+                "addressed_to_bot": event.addressed_to_bot,
+                "assistant_context_present": event.assistant_context_present,
+                "bot_user_id": event.bot_user_id,
                 "text": event.text,
                 "file_ids": _event_file_ids(event),
                 "files": [dict(file_data) for file_data in event.files],
@@ -2314,17 +2456,37 @@ def _interaction_user_prompt(
     return "\n".join(lines)
 
 
-def _agent_tool_ref(*, plugin: str, operation: str) -> Any:
-    return gestalt.AgentToolRef(plugin=plugin, operation=operation)
+def _agent_tool_ref(
+    *,
+    plugin: str,
+    operation: str,
+    connection: str = "",
+    instance: str = "",
+    title: str = "",
+    description: str = "",
+) -> Any:
+    return gestalt.AgentToolRef(
+        plugin=plugin,
+        operation=operation,
+        connection=connection,
+        instance=instance,
+        title=title,
+        description=description,
+    )
 
 
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
-    _ = route
+    refs = [
+        *_agent_config.agent_tools,
+        *(route.agent_tools if route is not None else ()),
+    ]
     operations = [
         SLACK_STATUS_OPERATION,
         SLACK_DELETE_STATUS_OPERATION,
         SLACK_ADD_REACTION_OPERATION,
         SLACK_REMOVE_REACTION_OPERATION,
+        SLACK_CONTEXT_OPERATION,
+        SLACK_FILE_GET_OPERATION,
     ]
     if _agent_config.assistant.enabled:
         operations.extend(
@@ -2337,15 +2499,41 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
         )
     operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
     return [
-        _agent_tool_ref(plugin=AGENT_GLOBAL_TOOL_SEARCH_PLUGIN, operation=""),
-        *[
-            _agent_tool_ref(
-                plugin=_agent_config.plugin_name,
-                operation=operation,
-            )
-            for operation in operations
-        ],
+        _agent_tool_ref(
+            plugin=ref.plugin,
+            operation=ref.operation,
+            connection=ref.connection,
+            instance=ref.instance,
+            title=ref.title,
+            description=ref.description,
+        )
+        for ref in _dedupe_agent_tool_refs(
+            [
+                *refs,
+                *[
+                    SlackAgentToolRef(
+                        plugin=_agent_config.plugin_name,
+                        operation=operation,
+                    )
+                    for operation in operations
+                ],
+            ]
+        )
     ]
+
+
+def _dedupe_agent_tool_refs(
+    refs: Iterable[SlackAgentToolRef],
+) -> list[SlackAgentToolRef]:
+    deduped: list[SlackAgentToolRef] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for ref in refs:
+        key = (ref.plugin, ref.operation, ref.connection, ref.instance)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
 
 
 def _agent_session_metadata(event: SlackAgentEvent) -> Any:
@@ -2380,6 +2568,10 @@ def _agent_metadata(
                 "message_ts": event.message_ts,
                 "thread_ts": event.thread_ts,
                 "reply_thread_ts": event.reply_thread_ts,
+                "client_msg_id": event.client_msg_id,
+                "addressed_to_bot": event.addressed_to_bot,
+                "assistant_context_present": event.assistant_context_present,
+                "bot_user_id": event.bot_user_id,
                 "file_ids": _event_file_ids(event),
                 "agent_route_id": route.id if route is not None else "",
             }

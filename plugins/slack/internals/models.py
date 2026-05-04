@@ -67,6 +67,10 @@ class SlackAgentEvent:
     message_ts: str
     thread_ts: str
     reply_thread_ts: str
+    client_msg_id: str = ""
+    addressed_to_bot: bool = False
+    assistant_context_present: bool = False
+    bot_user_id: str = ""
     files: tuple[dict[str, Any], ...] = ()
 
 
@@ -93,6 +97,16 @@ class SlackAgentRouteMatch:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackAgentToolRef:
+    plugin: str
+    operation: str
+    connection: str = ""
+    instance: str = ""
+    title: str = ""
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
@@ -100,6 +114,7 @@ class SlackAgentRoute:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] = field(default_factory=dict)
+    agent_tools: tuple[SlackAgentToolRef, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +199,7 @@ class SlackEventsConfig:
 @dataclass(frozen=True, slots=True)
 class SlackBotConfig:
     token: str = ""
+    user_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +238,7 @@ class SlackAgentConfig:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] = field(default_factory=dict)
+    agent_tools: tuple[SlackAgentToolRef, ...] = ()
     routes: tuple[SlackAgentRoute, ...] = ()
 
 
