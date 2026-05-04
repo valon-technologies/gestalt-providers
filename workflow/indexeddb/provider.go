@@ -3331,31 +3331,16 @@ func nextPendingRun(ctx context.Context, store *gestalt.ObjectStoreClient) (work
 }
 
 func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferredRunID string, now time.Time) (workflowRunRecord, bool, error) {
-	triedPreferred := ""
-	if preferredRunID = strings.TrimSpace(preferredRunID); preferredRunID != "" {
-		run, found, err := loadRunRecord(ctx, state.runStore, "", preferredRunID)
-		if err != nil {
-			return workflowRunRecord{}, false, err
-		}
-		if found {
-			triedPreferred = run.ID
-			claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
-			if err != nil {
-				return workflowRunRecord{}, false, err
-			}
-			if claimed {
-				return claimedRun, true, nil
-			}
-		}
-	}
+	preferredRunID = strings.TrimSpace(preferredRunID)
+	triedPreferred := false
 	runs, err := listRunRecords(ctx, state.runStore, "")
 	if err != nil {
 		return workflowRunRecord{}, false, err
 	}
 	runs = sortRunRecordsForDispatch(runs)
 	for _, run := range runs {
-		if triedPreferred != "" && run.ID == triedPreferred {
-			continue
+		if preferredRunID != "" && run.ID == preferredRunID {
+			triedPreferred = true
 		}
 		claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
 		if err != nil {
@@ -3363,6 +3348,21 @@ func nextClaimedRunnableRun(ctx context.Context, state *configuredState, preferr
 		}
 		if claimed {
 			return claimedRun, true, nil
+		}
+	}
+	if preferredRunID != "" && !triedPreferred {
+		run, found, err := loadRunRecord(ctx, state.runStore, "", preferredRunID)
+		if err != nil {
+			return workflowRunRecord{}, false, err
+		}
+		if found {
+			claimedRun, claimed, err := claimRunnableRun(ctx, state, run, now)
+			if err != nil {
+				return workflowRunRecord{}, false, err
+			}
+			if claimed {
+				return claimedRun, true, nil
+			}
 		}
 	}
 	return workflowRunRecord{}, false, nil
@@ -3389,6 +3389,9 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 	if run.TriggerKind == triggerKindEvent && run.Target != nil && run.Target.GetPlugin() != nil {
 		return 0
 	}
+	if workflowRunHasInteractiveAgentOutput(run) {
+		return 5
+	}
 	if strings.TrimSpace(run.WorkflowKey) != "" {
 		return 10
 	}
@@ -3402,6 +3405,27 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 		return 40
 	}
 	return 50
+}
+
+func workflowRunHasInteractiveAgentOutput(run workflowRunRecord) bool {
+	if run.Target == nil {
+		return false
+	}
+	agent := run.Target.GetAgent()
+	if agent == nil {
+		return false
+	}
+	if metadata := agent.GetMetadata(); metadata != nil {
+		if _, ok := metadata.GetFields()["slack"]; ok {
+			return true
+		}
+	}
+	delivery := agent.GetOutputDelivery()
+	if delivery == nil || delivery.GetTarget() == nil {
+		return false
+	}
+	target := delivery.GetTarget()
+	return target.GetPluginName() == "slack" && strings.HasPrefix(target.GetOperation(), "events.")
 }
 
 func claimRunnableRun(ctx context.Context, state *configuredState, run workflowRunRecord, now time.Time) (workflowRunRecord, bool, error) {

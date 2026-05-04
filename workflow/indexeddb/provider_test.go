@@ -1280,9 +1280,11 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 		t.Fatalf("initial call signal count = %d, want max batch %d", got, defaultMaxSignalsPerBatch)
 	}
 
+	slackTarget := protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
+	slackTarget.GetAgent().Metadata = mustStruct(t, map[string]any{"slack": map[string]any{"channel_id": "C123"}})
 	preferred, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "slack:T123:C123:1700000000.000001",
-		Target:       protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread"),
+		Target:       slackTarget,
 		ExecutionRef: "agent-ref",
 		Signal:       protoWorkflowSignal(t, "", "slack-event-1", "new"),
 	})
@@ -3135,7 +3137,7 @@ func TestProviderTickPreservesFIFOWithinDispatchPriority(t *testing.T) {
 	}
 }
 
-func TestProviderTickPreferredRunStillWinsOverDispatchPriority(t *testing.T) {
+func TestProviderTickPreferredWakeDoesNotBypassDispatchPriority(t *testing.T) {
 	ctx := context.Background()
 	start := time.Date(2026, time.May, 3, 18, 0, 0, 0, time.UTC)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -3175,8 +3177,80 @@ func TestProviderTickPreferredRunStillWinsOverDispatchPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	if call.GetRunId() != preferred.ID {
-		t.Fatalf("run_id = %q, want preferred run %q", call.GetRunId(), preferred.ID)
+	if call.GetRunId() != pluginEvent.ID {
+		t.Fatalf("run_id = %q, want higher-priority run %q", call.GetRunId(), pluginEvent.ID)
+	}
+}
+
+func TestProviderTickPreferredWakePreservesFIFOWithinDispatchPriority(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, time.May, 3, 18, 15, 0, 0, time.UTC)
+	host := newWorkflowHostStub(202, `{"ok":true}`)
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, host)
+
+	provider := New()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	oldWorkflowKey := "github:127579767:valon-technologies/toolshed:1289:policy:github-thread-work"
+	oldRun := workflowRunRecord{
+		ID:          "older-github-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Review older GitHub work"),
+		TriggerKind: triggerKindManual,
+		WorkflowKey: oldWorkflowKey,
+		CreatedAt:   start.Add(-time.Minute),
+	}
+	newWorkflowKey := "github:127579767:valon-technologies/toolshed:1290:policy:github-thread-work"
+	newRun := workflowRunRecord{
+		ID:          "newer-github-agent-run",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      protoAgentTarget("managed", "gpt-5.5", "Review GitHub"),
+		TriggerKind: triggerKindManual,
+		WorkflowKey: newWorkflowKey,
+		CreatedAt:   start,
+	}
+	for _, run := range []workflowRunRecord{newRun, oldRun} {
+		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
+			t.Fatalf("Put(%s): %v", run.ID, err)
+		}
+	}
+	for _, tc := range []struct {
+		runID       string
+		workflowKey string
+		signalID    string
+		createdAt   time.Time
+	}{
+		{runID: oldRun.ID, workflowKey: oldWorkflowKey, signalID: "older-slack-signal", createdAt: oldRun.CreatedAt},
+		{runID: newRun.ID, workflowKey: newWorkflowKey, signalID: "newer-github-signal", createdAt: newRun.CreatedAt},
+	} {
+		signal := protoWorkflowSignal(t, tc.signalID, tc.signalID+"-idem", tc.signalID)
+		if err := provider.signalStore.Put(ctx, workflowSignalRecord{
+			ID:             signal.GetId(),
+			RunID:          tc.runID,
+			WorkflowKey:    tc.workflowKey,
+			State:          signalStatePending,
+			Signal:         signal,
+			IdempotencyKey: signal.GetIdempotencyKey(),
+			Sequence:       1,
+			CreatedAt:      tc.createdAt,
+		}.toRecord()); err != nil {
+			t.Fatalf("Put(signal %s): %v", tc.signalID, err)
+		}
+	}
+
+	if err := provider.tick(ctx, newRun.ID); err != nil {
+		t.Fatalf("tick(preferred): %v", err)
+	}
+	call, err := host.waitForCall(time.Second)
+	if err != nil {
+		t.Fatalf("waitForCall: %v", err)
+	}
+	if call.GetRunId() != oldRun.ID {
+		t.Fatalf("run_id = %q, want older same-priority run %q", call.GetRunId(), oldRun.ID)
 	}
 }
 
