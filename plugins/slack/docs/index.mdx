@@ -1,0 +1,106 @@
+---
+title: Overview
+---
+
+# Slack
+
+Read public and private conversations, DMs, and group DMs; send messages; and
+manage channels.
+
+## Install
+
+Reference this provider in your Gestalt configuration:
+
+```yaml
+plugins:
+  slack:
+    source: github.com/valon-technologies/gestalt-providers/plugins/slack
+    version: ...
+```
+
+See [Getting Started](https://gestaltd.ai/getting-started) and
+[Configuration](https://gestaltd.ai/configuration).
+
+## Bot Configuration
+
+Slack Events API agent replies and declarative REST operations that run as the
+bot use the app's bot token. Generic workflow event publishing does not require
+a bot token. Configure the token as both a provider secret-backed value for event
+helper code and an internal deployment-owned `bot` connection for runtime-only
+REST calls when agent replies or bot REST operations are enabled:
+
+```yaml
+plugins:
+  slack:
+    config:
+      bot:
+        userId: U0123456789
+        token:
+          secret:
+            provider: secrets
+            name: slack-bot-token
+    connections:
+      bot:
+        mode: platform
+        exposure: internal
+        auth:
+          type: bearer
+          token:
+            secret:
+              provider: secrets
+              name: slack-bot-token
+```
+
+Because Gestalt does not perform Slack bot OAuth for this connection, the Slack
+app that issues `slack-bot-token` must be granted the bot scopes needed by the
+enabled behaviors.
+
+## Bot Scopes
+
+The full scope set used by this provider's bot behaviors is:
+
+- `app_mentions:read`
+- `channels:read`
+- `channels:history`
+- `groups:read`
+- `groups:history`
+- `im:read`
+- `im:history`
+- `mpim:read`
+- `mpim:history`
+- `im:write`
+- `mpim:write`
+- `users:read`
+- `files:read`
+- `chat:write`
+- `assistant:write`
+- `reactions:write`
+- `channels:manage`
+- `groups:write`
+- `canvases:write`
+
+## Capabilities
+
+This is a source-backed Python provider with both a REST surface and an
+[MCP](https://modelcontextprotocol.io/) surface.
+
+It exposes operations for listing and creating channels, reading message history
+and threads, sending and scheduling messages, opening or resuming DMs, searching
+messages, managing reactions, setting channel topics, inviting users, creating
+canvases, building thread context, and reading Slack file or image contents.
+
+User operations authenticate with Slack OAuth 2.0 user scope. Operations with
+fixed bot behavior use the internal deployment-owned `bot` bearer connection.
+Public REST and MCP callers use the user OAuth connection by default; hidden
+selector parameters such as `actor` are runtime-only and are not part of the
+public invocation contract.
+
+The requested scopes cover public channels, private channels, direct messages,
+and multi-person direct messages. That matches the provider's current
+conversation history, thread, search, and message URL lookup behavior.
+
+## Events
+
+The provider also exposes a Slack Events API ingress for agent replies,
+assistant status updates, and workflow event publishing. See [Events](events.mdx)
+for setup details.

@@ -52,6 +52,8 @@ PLATFORM_ORDER = {
 TAG_PATTERN = re.compile(
     r"^(?P<dir>.+)/v(?P<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$"
 )
+DOC_EXTENSIONS = (".mdx", ".md")
+DOC_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,15 @@ class Release:
     runtime: str
     platforms: tuple[str, ...]
     metadata_url: str
+
+
+@dataclass(frozen=True)
+class ProviderDoc:
+    path: str
+    title: str
+    source_path: str
+    raw_url: str
+    edit_url: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -677,6 +688,110 @@ def repository_raw_url(path: str) -> str:
     return f"https://raw.githubusercontent.com/{REPOSITORY}/main/{path}"
 
 
+def title_from_filename(path: pathlib.Path) -> str:
+    if path.stem == "index":
+        return "Overview"
+    return path.stem.replace("-", " ").replace("_", " ").title()
+
+
+def split_frontmatter(text: str, source: str) -> tuple[dict[str, Any], str]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() != "---":
+            continue
+        raw_frontmatter = "\n".join(lines[1:index])
+        try:
+            data = yaml.safe_load(raw_frontmatter) if raw_frontmatter.strip() else {}
+        except yaml.YAMLError as exc:
+            raise SystemExit(f"{source}: invalid docs frontmatter: {exc}") from exc
+        if data is not None and not isinstance(data, dict):
+            raise SystemExit(f"{source}: docs frontmatter must be a mapping")
+        return data or {}, "\n".join(lines[index + 1 :])
+    return {}, text
+
+
+def markdown_title(path: pathlib.Path, source_path: str) -> str:
+    text = path.read_text(encoding="utf-8")
+    frontmatter, body = split_frontmatter(text, source_path)
+    frontmatter_title = scalar(frontmatter.get("title"))
+    if frontmatter_title:
+        return frontmatter_title
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip().strip("#").strip()
+    return title_from_filename(path)
+
+
+def doc_entry(repo_root: pathlib.Path, path: pathlib.Path, doc_path: str) -> ProviderDoc:
+    source_path = path.relative_to(repo_root).as_posix()
+    title = markdown_title(path, source_path)
+    if not title:
+        raise SystemExit(f"{source_path}: provider doc title must not be empty")
+    return ProviderDoc(
+        path=doc_path,
+        title=title,
+        source_path=source_path,
+        raw_url=repository_raw_url(source_path),
+        edit_url=repository_blob_url(source_path),
+    )
+
+
+def provider_doc_path(path: pathlib.Path) -> str:
+    if path.stem == "index":
+        return "/"
+    slug = path.stem
+    if not DOC_SLUG_PATTERN.fullmatch(slug):
+        raise SystemExit(
+            f"{path.as_posix()}: provider docs filenames must be lowercase kebab-case"
+        )
+    return f"/{slug}/"
+
+
+def discover_provider_docs(repo_root: pathlib.Path, package_dir: str) -> list[ProviderDoc]:
+    package_root = repo_root / package_dir
+    docs_dir = package_root / "docs"
+    readme_path = package_root / "README.md"
+    if not docs_dir.is_dir():
+        if readme_path.is_file():
+            return [doc_entry(repo_root, readme_path, "/")]
+        return []
+
+    nested_docs = [
+        path
+        for path in docs_dir.rglob("*")
+        if path.is_file() and path.suffix in DOC_EXTENSIONS and path.parent != docs_dir
+    ]
+    if nested_docs:
+        first_nested = nested_docs[0].relative_to(repo_root).as_posix()
+        raise SystemExit(f"{first_nested}: provider docs must be top-level files in docs/")
+
+    index_path = next(
+        (docs_dir / filename for filename in ("index.mdx", "index.md") if (docs_dir / filename).is_file()),
+        None,
+    )
+    if index_path is None:
+        raise SystemExit(f"{package_dir}/docs: docs directory must include index.mdx or index.md")
+
+    doc_files = [
+        path
+        for path in sorted(docs_dir.iterdir())
+        if path.is_file() and path.suffix in DOC_EXTENSIONS and path.name not in {index_path.name}
+    ]
+    ordered_files = [index_path, *doc_files]
+    docs: list[ProviderDoc] = []
+    seen_paths: set[str] = set()
+    for path in ordered_files:
+        doc_path = provider_doc_path(path)
+        if doc_path in seen_paths:
+            raise SystemExit(f"{path.relative_to(repo_root).as_posix()}: duplicate provider docs path {doc_path}")
+        seen_paths.add(doc_path)
+        docs.append(doc_entry(repo_root, path, doc_path))
+    return docs
+
+
 def catalog_provider(
     repo_root: pathlib.Path,
     source: str,
@@ -717,6 +832,16 @@ def catalog_provider(
         icon_path = pathlib.PurePosixPath(package_dir) / manifest.icon_file
         if (repo_root / icon_path).is_file():
             icon_url = repository_raw_url(icon_path.as_posix())
+    docs = [
+        {
+            "path": doc.path,
+            "title": doc.title,
+            "sourcePath": doc.source_path,
+            "rawUrl": doc.raw_url,
+            "editUrl": doc.edit_url,
+        }
+        for doc in discover_provider_docs(repo_root, package_dir)
+    ]
     return {
         "package": source,
         "packagePath": package_dir,
@@ -737,6 +862,7 @@ def catalog_provider(
         if (repo_root / manifest_path).is_file()
         else None,
         "iconUrl": icon_url,
+        "docs": docs,
     }
 
 
