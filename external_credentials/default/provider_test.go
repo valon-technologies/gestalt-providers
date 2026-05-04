@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -504,6 +505,456 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 	}
 }
 
+func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	provider := New()
+	lifecycle, providerConn := startTestProviderServerWithProvider(t, provider)
+	defer func() { _ = providerConn.Close() }()
+
+	var refreshCalls int
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshCalls++
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+		}
+		if r.Form.Get("grant_type") != "refresh_token" {
+			t.Errorf("grant_type = %q, want refresh_token", r.Form.Get("grant_type"))
+		}
+		if r.Form.Get("refresh_token") != "due-refresh-token" {
+			t.Errorf("refresh_token = %q, want due-refresh-token", r.Form.Get("refresh_token"))
+		}
+		if r.Form.Get("client_id") != "client-id" || r.Form.Get("client_secret") != "client-secret" {
+			t.Errorf("client credentials = %q/%q", r.Form.Get("client_id"), r.Form.Get("client_secret"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"maintained-access-token","refresh_token":"maintained-refresh-token","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+
+	configureProvider(t, lifecycle, credentialRefreshProviderConfig("maintenance-refresh-key", tokenServer.URL))
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	now := time.Now()
+	seedCredential(t, client, &proto.ExternalCredential{
+		SubjectId:    "user:due",
+		ConnectionId: "gmail:default",
+		Instance:     "default",
+		AccessToken:  "old-due-access-token",
+		RefreshToken: "due-refresh-token",
+		ExpiresAt:    timestamppb.New(now.Add(5 * time.Minute)),
+	})
+	seedCredential(t, client, &proto.ExternalCredential{
+		SubjectId:    "user:future",
+		ConnectionId: "gmail:default",
+		Instance:     "default",
+		AccessToken:  "future-access-token",
+		RefreshToken: "future-refresh-token",
+		ExpiresAt:    timestamppb.New(now.Add(2 * time.Hour)),
+	})
+	seedCredential(t, client, &proto.ExternalCredential{
+		SubjectId:    "user:slack",
+		ConnectionId: "slack:default",
+		Instance:     "default",
+		AccessToken:  "slack-access-token",
+		RefreshToken: "slack-refresh-token",
+		ExpiresAt:    timestamppb.New(now.Add(5 * time.Minute)),
+	})
+	db, err := gestalt.IndexedDB()
+	if err != nil {
+		t.Fatalf("IndexedDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.ObjectStore(storeName).Put(context.Background(), gestalt.Record{
+		"id":                      "corrupt-non-target",
+		"subject_id":              "user:corrupt",
+		"connection_id":           "slack:default",
+		"instance":                "default",
+		"access_token_encrypted":  "not-ciphertext",
+		"refresh_token_encrypted": "not-ciphertext",
+		"created_at":              now,
+		"updated_at":              now,
+	}); err != nil {
+		t.Fatalf("Put(corrupt non-target): %v", err)
+	}
+
+	stats := provider.runCredentialRefreshOnce(context.Background())
+	if stats.Errors != 0 {
+		t.Fatalf("maintenance stats = %+v, want no errors", stats)
+	}
+	if refreshCalls != 1 {
+		t.Fatalf("refreshCalls = %d, want one due target refresh", refreshCalls)
+	}
+
+	gotDue := getCredential(t, client, "user:due", "gmail:default", "default")
+	if gotDue.GetAccessToken() != "maintained-access-token" || gotDue.GetRefreshToken() != "maintained-refresh-token" || gotDue.GetRefreshErrorCount() != 0 {
+		t.Fatalf("due credential = access:%q refresh:%q errors:%d", gotDue.GetAccessToken(), gotDue.GetRefreshToken(), gotDue.GetRefreshErrorCount())
+	}
+	gotFuture := getCredential(t, client, "user:future", "gmail:default", "default")
+	if gotFuture.GetAccessToken() != "future-access-token" {
+		t.Fatalf("future access token = %q, want unchanged", gotFuture.GetAccessToken())
+	}
+	gotSlack := getCredential(t, client, "user:slack", "slack:default", "default")
+	if gotSlack.GetAccessToken() != "slack-access-token" {
+		t.Fatalf("non-target access token = %q, want unchanged", gotSlack.GetAccessToken())
+	}
+}
+
+func TestExternalCredentialProviderCredentialMaintenanceRejectsConflictingResolvedConnections(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	cfg := credentialRefreshProviderConfig("maintenance-conflict-key", "https://token-a.example.test")
+	connections := cfg["resolvedConnections"].([]any)
+	duplicate := map[string]any{
+		"provider":     "google_calendar",
+		"connection":   "default",
+		"connectionId": "gmail:default",
+		"mode":         "user",
+		"auth": map[string]any{
+			"type":         "oauth2",
+			"tokenUrl":     "https://token-b.example.test",
+			"clientId":     "client-id",
+			"clientSecret": "client-secret",
+		},
+		"credentialRefresh": map[string]any{
+			"refreshInterval":     "30m",
+			"refreshBeforeExpiry": "45m",
+		},
+	}
+	cfg["resolvedConnections"] = append(connections, duplicate)
+	pbConfig, err := structpb.NewStruct(cfg)
+	if err != nil {
+		t.Fatalf("structpb.NewStruct: %v", err)
+	}
+	_, err = lifecycle.ConfigureProvider(context.Background(), &proto.ConfigureProviderRequest{
+		Name:            "default",
+		Config:          pbConfig,
+		ProtocolVersion: proto.CurrentProtocolVersion,
+	}, grpc.WaitForReady(true))
+	if err == nil {
+		t.Fatal("ConfigureProvider error = nil, want conflicting connectionId rejection")
+	}
+	if !strings.Contains(err.Error(), "conflicting credential refresh config") {
+		t.Fatalf("ConfigureProvider error = %v, want conflicting credential refresh config", err)
+	}
+}
+
+func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthConfig(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	cfg := credentialRefreshProviderConfig("maintenance-invalid-auth-key", "https://token.example.test")
+	connections := cfg["resolvedConnections"].([]any)
+	target := connections[0].(map[string]any)
+	auth := target["auth"].(map[string]any)
+	auth["tokenExchange"] = "xml"
+	pbConfig, err := structpb.NewStruct(cfg)
+	if err != nil {
+		t.Fatalf("structpb.NewStruct: %v", err)
+	}
+	_, err = lifecycle.ConfigureProvider(context.Background(), &proto.ConfigureProviderRequest{
+		Name:            "default",
+		Config:          pbConfig,
+		ProtocolVersion: proto.CurrentProtocolVersion,
+	}, grpc.WaitForReady(true))
+	if err == nil {
+		t.Fatal("ConfigureProvider error = nil, want unsupported auth rejection")
+	}
+	if !strings.Contains(err.Error(), "unknown tokenExchange") {
+		t.Fatalf("ConfigureProvider error = %v, want unknown tokenExchange", err)
+	}
+}
+
+func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	provider := New()
+	if err := provider.Configure(context.Background(), "default", map[string]any{
+		"encryptionKey": "maintenance-immediate-key",
+	}); err != nil {
+		t.Fatalf("Configure(seed): %v", err)
+	}
+	defer func() { _ = provider.Close() }()
+
+	_, err := provider.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
+		Credential: &proto.ExternalCredential{
+			SubjectId:    "user:immediate",
+			ConnectionId: "gmail:default",
+			Instance:     "default",
+			AccessToken:  "old-access-token",
+			RefreshToken: "immediate-refresh-token",
+			ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertCredential(seed): %v", err)
+	}
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"immediate-access-token","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+
+	if err := provider.Configure(context.Background(), "default", credentialRefreshProviderConfig("maintenance-immediate-key", tokenServer.URL)); err != nil {
+		t.Fatalf("Configure(refresh): %v", err)
+	}
+	waitForCondition(t, 2*time.Second, func() (bool, error) {
+		got, err := provider.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
+			Lookup: &proto.ExternalCredentialLookup{
+				SubjectId:    "user:immediate",
+				ConnectionId: "gmail:default",
+				Instance:     "default",
+			},
+		})
+		if err != nil {
+			return false, err
+		}
+		if got.GetAccessToken() != "immediate-access-token" {
+			return false, fmt.Errorf("access token = %q, want immediate-access-token", got.GetAccessToken())
+		}
+		return true, nil
+	})
+}
+
+func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSingleflight(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	provider := New()
+	if err := provider.Configure(context.Background(), "default", map[string]any{
+		"encryptionKey": "maintenance-singleflight-key",
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	defer func() { _ = provider.Close() }()
+
+	_, err := provider.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
+		Credential: &proto.ExternalCredential{
+			SubjectId:    "user:singleflight",
+			ConnectionId: "gmail:default",
+			Instance:     "default",
+			AccessToken:  "old-access-token",
+			RefreshToken: "rotating-refresh-token",
+			ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertCredential(seed): %v", err)
+	}
+
+	firstRequestStarted := make(chan struct{})
+	releaseFirstRequest := make(chan struct{})
+	var requestCount atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		count := requestCount.Add(1)
+		if count == 1 {
+			close(firstRequestStarted)
+			<-releaseFirstRequest
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"singleflight-access-token","refresh_token":"rotated-refresh-token","expires_in":3600}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer tokenServer.Close()
+
+	auth := &proto.ExternalCredentialAuthConfig{
+		Type:         "oauth2",
+		TokenUrl:     tokenServer.URL,
+		ClientId:     "client-id",
+		ClientSecret: "client-secret",
+	}
+	target := credentialRefreshTarget{
+		Provider:                    "gmail",
+		Connection:                  "default",
+		ConnectionID:                "gmail:default",
+		RefreshBeforeExpiryDuration: 30 * time.Minute,
+		Auth:                        auth,
+	}
+	st, err := provider.configuredStore()
+	if err != nil {
+		t.Fatalf("configuredStore: %v", err)
+	}
+	maintenanceDone := make(chan credentialRefreshStats, 1)
+	go func() {
+		maintenanceDone <- provider.runCredentialRefreshOnceWith(context.Background(), st, []credentialRefreshTarget{target})
+	}()
+	select {
+	case <-firstRequestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("maintenance refresh did not reach token endpoint")
+	}
+
+	resolveDone := make(chan error, 1)
+	go func() {
+		_, err := provider.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+			Provider:            "gmail",
+			Connection:          "default",
+			ConnectionId:        "gmail:default",
+			Mode:                "user",
+			CredentialSubjectId: "user:singleflight",
+			Instance:            "default",
+			Auth:                auth,
+		})
+		resolveDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(releaseFirstRequest)
+
+	stats := <-maintenanceDone
+	if stats.Errors != 0 || stats.Refreshed != 1 {
+		t.Fatalf("maintenance stats = %+v, want one successful refresh", stats)
+	}
+	if err := <-resolveDone; err != nil {
+		t.Fatalf("ResolveCredential: %v", err)
+	}
+	if requestCount.Load() != 1 {
+		t.Fatalf("token endpoint requests = %d, want singleflight to share one refresh", requestCount.Load())
+	}
+	got, err := provider.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
+		Lookup: &proto.ExternalCredentialLookup{
+			SubjectId:    "user:singleflight",
+			ConnectionId: "gmail:default",
+			Instance:     "default",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetCredential: %v", err)
+	}
+	if got.GetAccessToken() != "singleflight-access-token" || got.GetRefreshToken() != "rotated-refresh-token" {
+		t.Fatalf("credential = access:%q refresh:%q", got.GetAccessToken(), got.GetRefreshToken())
+	}
+}
+
+func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailures(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	provider := New()
+	lifecycle, providerConn := startTestProviderServerWithProvider(t, provider)
+	defer func() { _ = providerConn.Close() }()
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"temporarily_unavailable","error_description":"transient secret should not leak"}`))
+	}))
+	defer tokenServer.Close()
+
+	configureProvider(t, lifecycle, credentialRefreshProviderConfig("maintenance-transient-key", tokenServer.URL))
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	seedCredential(t, client, &proto.ExternalCredential{
+		SubjectId:    "user:transient",
+		ConnectionId: "gmail:default",
+		Instance:     "default",
+		AccessToken:  "old-access-token",
+		RefreshToken: "refresh-token",
+		ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+	})
+
+	_ = provider.runCredentialRefreshOnce(context.Background())
+
+	got := getCredential(t, client, "user:transient", "gmail:default", "default")
+	if got.GetAccessToken() != "old-access-token" || got.GetRefreshToken() != "refresh-token" || got.GetRefreshErrorCount() != 1 {
+		t.Fatalf("credential after transient failure = access:%q refresh:%q errors:%d", got.GetAccessToken(), got.GetRefreshToken(), got.GetRefreshErrorCount())
+	}
+}
+
+func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	provider := New()
+	lifecycle, providerConn := startTestProviderServerWithProvider(t, provider)
+	defer func() { _ = providerConn.Close() }()
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"revoked secret should not leak"}`))
+	}))
+	defer tokenServer.Close()
+
+	configureProvider(t, lifecycle, credentialRefreshProviderConfig("maintenance-invalid-grant-key", tokenServer.URL))
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	seedCredential(t, client, &proto.ExternalCredential{
+		SubjectId:    "user:invalid-grant",
+		ConnectionId: "gmail:default",
+		Instance:     "default",
+		AccessToken:  "old-access-token",
+		RefreshToken: "revoked-refresh-token",
+		ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+	})
+
+	_ = provider.runCredentialRefreshOnce(context.Background())
+
+	_, err = client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
+		Lookup: &proto.ExternalCredentialLookup{
+			SubjectId:    "user:invalid-grant",
+			ConnectionId: "gmail:default",
+			Instance:     "default",
+		},
+	})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("GetCredential after invalid_grant code = %v, want %v", status.Code(err), codes.NotFound)
+	}
+}
+
+func TestExternalCredentialProviderCredentialMaintenanceLifecycleCancelsLoops(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	provider := New()
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"access-token","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+
+	if err := provider.Configure(context.Background(), "default", credentialRefreshProviderConfig("maintenance-lifecycle-key", tokenServer.URL)); err != nil {
+		t.Fatalf("Configure(first): %v", err)
+	}
+	provider.mu.RLock()
+	firstDone := provider.refreshDone
+	provider.mu.RUnlock()
+	if firstDone == nil {
+		t.Fatal("first refresh loop was not started")
+	}
+
+	if err := provider.Configure(context.Background(), "default", credentialRefreshProviderConfig("maintenance-lifecycle-key-2", tokenServer.URL)); err != nil {
+		t.Fatalf("Configure(second): %v", err)
+	}
+	select {
+	case <-firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first refresh loop was not canceled on reconfigure")
+	}
+	provider.mu.RLock()
+	secondDone := provider.refreshDone
+	provider.mu.RUnlock()
+	if secondDone == nil {
+		t.Fatal("second refresh loop was not started")
+	}
+
+	if err := provider.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-secondDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second refresh loop was not canceled on close")
+	}
+}
+
 func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -858,6 +1309,10 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 }
 
 func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc.ClientConn) {
+	return startTestProviderServerWithProvider(t, New())
+}
+
+func startTestProviderServerWithProvider(t *testing.T, provider *Provider) (proto.ProviderLifecycleClient, *grpc.ClientConn) {
 	t.Helper()
 
 	socketPath := newSocketPath(t, "external-credentials.sock")
@@ -867,7 +1322,7 @@ func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- gestalt.ServeExternalCredentialProvider(ctx, New())
+		errCh <- gestalt.ServeExternalCredentialProvider(ctx, provider)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -876,6 +1331,52 @@ func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc
 
 	conn := newUnixConn(t, socketPath)
 	return proto.NewProviderLifecycleClient(conn), conn
+}
+
+func credentialRefreshProviderConfig(encryptionKey, tokenURL string) map[string]any {
+	return map[string]any{
+		"encryptionKey": encryptionKey,
+		"resolvedConnections": []any{
+			map[string]any{
+				"provider":     "gmail",
+				"connection":   "default",
+				"connectionId": "gmail:default",
+				"mode":         "user",
+				"auth": map[string]any{
+					"type":         "oauth2",
+					"tokenUrl":     tokenURL,
+					"clientId":     "client-id",
+					"clientSecret": "client-secret",
+				},
+				"credentialRefresh": map[string]any{
+					"refreshInterval":     "1h",
+					"refreshBeforeExpiry": "30m",
+				},
+			},
+		},
+	}
+}
+
+func seedCredential(t *testing.T, client *gestalt.ExternalCredentialClient, credential *proto.ExternalCredential) {
+	t.Helper()
+	if _, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{Credential: credential}); err != nil {
+		t.Fatalf("UpsertCredential(seed %s/%s): %v", credential.GetSubjectId(), credential.GetConnectionId(), err)
+	}
+}
+
+func getCredential(t *testing.T, client *gestalt.ExternalCredentialClient, subjectID, connectionID, instance string) *proto.ExternalCredential {
+	t.Helper()
+	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
+		Lookup: &proto.ExternalCredentialLookup{
+			SubjectId:    subjectID,
+			ConnectionId: connectionID,
+			Instance:     instance,
+		},
+	})
+	if err != nil {
+		t.Fatalf("GetCredential(%s/%s/%s): %v", subjectID, connectionID, instance, err)
+	}
+	return got
 }
 
 func configureProvider(t *testing.T, lifecycle proto.ProviderLifecycleClient, cfg map[string]any) {
