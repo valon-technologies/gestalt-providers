@@ -14,6 +14,7 @@ from internals.constants import (
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+    BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
@@ -29,10 +30,12 @@ from internals.operations import (
     GitHubCreateIssueCommentRequest,
     GitHubCreatePullRequestConversationCommentRequest,
     GitHubCreatePullRequestRequest,
+    GitHubCreatePullRequestReviewRequest,
     GitHubFileChange,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListWorkflowRunJobsRequest,
     GitHubOpenPullRequestRequest,
+    GitHubPullRequestReviewComment,
     GitHubWorkflowRunRequest,
     check_run_annotation_summary,
     check_run_summary,
@@ -40,6 +43,7 @@ from internals.operations import (
     commit_result_dict,
     create_issue_comment,
     create_pull_request_conversation_comment,
+    create_pull_request_review,
     create_pull_request_with_files,
     get_check_run,
     get_workflow_run,
@@ -47,6 +51,7 @@ from internals.operations import (
     list_check_run_annotations,
     list_workflow_run_jobs,
     open_pull_request,
+    pull_request_review_summary,
     pull_request_summary,
     workflow_run_job_summary,
     workflow_run_summary,
@@ -260,6 +265,55 @@ class CreatePullRequestConversationCommentInput(gestalt.Model):
     repo: str = gestalt.field(description="Repository name")
     pull_number: int = gestalt.field(description="Pull request number")
     body: str = gestalt.field(description="Comment body")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class PullRequestReviewCommentInput(gestalt.Model):
+    path: str = gestalt.field(description="Repository-relative file path")
+    body: str = gestalt.field(description="Inline review comment body")
+    line: int = gestalt.field(
+        description="Line number in the pull request diff", default=0, required=False
+    )
+    side: str = gestalt.field(
+        description="Diff side for line, either LEFT or RIGHT", default="", required=False
+    )
+    start_line: int = gestalt.field(
+        description="First line in a multi-line review comment",
+        default=0,
+        required=False,
+    )
+    start_side: str = gestalt.field(
+        description="Diff side for start_line, either LEFT or RIGHT",
+        default="",
+        required=False,
+    )
+    position: int = gestalt.field(
+        description="Deprecated diff position alternative to line and side",
+        default=0,
+        required=False,
+    )
+
+
+class CreatePullRequestReviewInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    body: str = gestalt.field(description="Pull request review body")
+    comments: list[PullRequestReviewCommentInput] = gestalt.field(
+        description=(
+            "Inline review comments. Each item accepts path, body, line, side, "
+            "start_line, start_side, and position."
+        )
+    )
+    commit_id: str = gestalt.field(
+        description="Optional commit SHA to review. Defaults to GitHub's latest PR commit.",
+        default="",
+        required=False,
+    )
     installation_id: int = gestalt.field(
         description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
         default=0,
@@ -609,6 +663,39 @@ def bot_create_issue_comment(
 
 
 @plugin.operation(
+    id=BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+    method="POST",
+    description="Create a pull request review with inline comments using a GitHub App installation token",
+    tags=["pr", "prs", "review"],
+)
+def bot_create_pull_request_review(
+    input: CreatePullRequestReviewInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        review = create_pull_request_review(
+            GitHubCreatePullRequestReviewRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                body=input.body,
+                comments=_pull_request_review_comments_from_input(input.comments),
+                commit_id=input.commit_id,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"review": pull_request_review_summary(review)}}
+
+
+@plugin.operation(
     id=BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     method="POST",
     description="Create a pull request conversation comment using a GitHub App installation token",
@@ -817,6 +904,23 @@ def _coauthors_from_input(
     return tuple(
         GitHubCoAuthor(name=coauthor.name, email=coauthor.email)
         for coauthor in coauthors
+    )
+
+
+def _pull_request_review_comments_from_input(
+    comments: list[PullRequestReviewCommentInput],
+) -> tuple[GitHubPullRequestReviewComment, ...]:
+    return tuple(
+        GitHubPullRequestReviewComment(
+            path=comment.path,
+            body=comment.body,
+            line=comment.line,
+            side=comment.side,
+            start_line=comment.start_line,
+            start_side=comment.start_side,
+            position=comment.position,
+        )
+        for comment in comments
     )
 
 

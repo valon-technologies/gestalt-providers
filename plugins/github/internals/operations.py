@@ -121,6 +121,28 @@ class GitHubCreatePullRequestConversationCommentRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubPullRequestReviewComment:
+    path: str
+    body: str
+    line: int = 0
+    side: str = ""
+    start_line: int = 0
+    start_side: str = ""
+    position: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreatePullRequestReviewRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    body: str
+    comments: tuple[GitHubPullRequestReviewComment, ...]
+    commit_id: str = ""
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubCheckRunRequest:
     owner: str
     repo: str
@@ -481,6 +503,40 @@ def create_pull_request_conversation_comment(
     )
 
 
+def create_pull_request_review(
+    request: GitHubCreatePullRequestReviewRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    body = require_text(request.body, "body")
+    comments = normalize_pull_request_review_comments(request.comments)
+    if not comments:
+        raise ValueError("comments must contain at least one comment")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    payload: JsonObject = {
+        "body": body,
+        "event": "COMMENT",
+        "comments": [
+            pull_request_review_comment_payload(comment) for comment in comments
+        ],
+    }
+    commit_id = request.commit_id.strip()
+    if commit_id:
+        payload["commit_id"] = commit_id
+    path = repo_path(owner, repo, "pulls", str(pull_number), "reviews")
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "write"}
+    )
+    return github.github_json("POST", path, token, payload)
+
+
 def get_check_run(
     request: GitHubCheckRunRequest,
     *,
@@ -678,6 +734,101 @@ def normalize_file_changes(
     return tuple(normalized)
 
 
+def normalize_pull_request_review_comments(
+    comments: Sequence[GitHubPullRequestReviewComment],
+) -> tuple[GitHubPullRequestReviewComment, ...]:
+    normalized: list[GitHubPullRequestReviewComment] = []
+    for index, item in enumerate(comments):
+        path = normalize_review_comment_path(item.path)
+        body = require_text(item.body, f"comments[{index}].body")
+        line = optional_positive_int(item.line, f"comments[{index}].line")
+        start_line = optional_positive_int(
+            item.start_line, f"comments[{index}].start_line"
+        )
+        position = optional_positive_int(item.position, f"comments[{index}].position")
+        side = item.side.strip().upper()
+        start_side = item.start_side.strip().upper()
+
+        if position and (line or side or start_line or start_side):
+            raise ValueError(
+                f"{path}: position cannot be combined with line, side, "
+                "start_line, or start_side"
+            )
+        if position:
+            normalized.append(
+                GitHubPullRequestReviewComment(
+                    path=path,
+                    body=body,
+                    position=position,
+                )
+            )
+            continue
+
+        if line <= 0:
+            raise ValueError(f"{path}: line is required unless position is set")
+        side = require_review_side(side, f"{path}: side")
+        if start_line:
+            if start_line > line:
+                raise ValueError(f"{path}: start_line must be less than or equal to line")
+            start_side = require_review_side(start_side, f"{path}: start_side")
+        elif start_side:
+            raise ValueError(f"{path}: start_side requires start_line")
+
+        normalized.append(
+            GitHubPullRequestReviewComment(
+                path=path,
+                body=body,
+                line=line,
+                side=side,
+                start_line=start_line,
+                start_side=start_side,
+            )
+        )
+    return tuple(normalized)
+
+
+def normalize_review_comment_path(path: str) -> str:
+    normalized = path.strip().lstrip("/")
+    if not normalized:
+        raise ValueError("comment path is required")
+    if normalized in {".", ".."} or "/../" in f"/{normalized}/":
+        raise ValueError(f"{normalized}: path must not contain '..'")
+    return normalized
+
+
+def optional_positive_int(value: int, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"{name} must be an integer") from err
+    if number < 0:
+        raise ValueError(f"{name} must be greater than 0 when set")
+    return number
+
+
+def require_review_side(value: str, name: str) -> str:
+    if value not in {"LEFT", "RIGHT"}:
+        raise ValueError(f"{name} must be LEFT or RIGHT")
+    return value
+
+
+def pull_request_review_comment_payload(
+    comment: GitHubPullRequestReviewComment,
+) -> JsonObject:
+    payload: JsonObject = {"path": comment.path, "body": comment.body}
+    if comment.position:
+        payload["position"] = comment.position
+        return payload
+    payload["line"] = comment.line
+    payload["side"] = comment.side
+    if comment.start_line:
+        payload["start_line"] = comment.start_line
+        payload["start_side"] = comment.start_side
+    return payload
+
+
 def scoped_installation_id(
     subject: Any, *, owner: str, repo: str, explicit: int
 ) -> int:
@@ -806,6 +957,23 @@ def issue_comment_summary(comment: Mapping[str, Any]) -> dict[str, Any]:
             "user": _compact_dict({"login": str_field(user, "login")}),
             "created_at": str_field(comment, "created_at"),
             "updated_at": str_field(comment, "updated_at"),
+        }
+    )
+
+
+def pull_request_review_summary(review: Mapping[str, Any]) -> dict[str, Any]:
+    user = map_field(review, "user")
+    return _compact_dict(
+        {
+            "id": int_field(review, "id"),
+            "node_id": str_field(review, "node_id"),
+            "state": str_field(review, "state"),
+            "html_url": str_field(review, "html_url"),
+            "pull_request_url": str_field(review, "pull_request_url"),
+            "commit_id": str_field(review, "commit_id"),
+            "body": str_field(review, "body"),
+            "user": _compact_dict({"login": str_field(user, "login")}),
+            "submitted_at": str_field(review, "submitted_at"),
         }
     )
 

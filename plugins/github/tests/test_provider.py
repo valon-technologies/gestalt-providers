@@ -254,12 +254,18 @@ class GitHubProviderTests(unittest.TestCase):
         catalog = yaml.safe_load((plugin_root / "catalog.yaml").read_text())
         operations = {operation["id"]: operation for operation in catalog["operations"]}
 
+        pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
         pr_comment = operations[
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
         ]
         issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
+        self.assertIn("inline comments", pr_review["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
         self.assertIn("issue comment", issue_comment["description"])
+        self.assertIn(
+            "comments",
+            [parameter["name"] for parameter in pr_review["parameters"]],
+        )
         self.assertIn(
             "pull_number",
             [parameter["name"] for parameter in pr_comment["parameters"]],
@@ -279,6 +285,7 @@ class GitHubProviderTests(unittest.TestCase):
         enum = schema["properties"]["webhookPolicies"]["items"]["properties"][
             "action"
         ]["properties"]["allowedOperations"]["items"]["enum"]
+        self.assertIn(provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, enum)
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             enum,
@@ -622,6 +629,10 @@ class GitHubProviderTests(unittest.TestCase):
         agent = request.target.agent
         self.assertEqual(agent.provider_name, "simple")
         self.assertEqual(agent.model, "deep")
+        self.assertNotIn("bot.createPullRequestReview", agent.messages[0].text)
+        self.assertNotIn(
+            "bot.createPullRequestConversationComment", agent.messages[0].text
+        )
         self.assertEqual(
             [tool.plugin for tool in agent.tool_refs],
             ["github", "github", "github"],
@@ -815,6 +826,10 @@ class GitHubProviderTests(unittest.TestCase):
         )
         agent = request.target.agent
         self.assertEqual(agent.model, "deep")
+        self.assertIn("bot.createPullRequestReview", agent.messages[0].text)
+        self.assertIn(
+            "bot.createPullRequestConversationComment", agent.messages[0].text
+        )
         self.assertEqual(
             [tool.operation for tool in agent.tool_refs],
             [
@@ -822,6 +837,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
                 provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
                 provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
                 provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION,
             ],
@@ -1606,6 +1622,238 @@ class GitHubProviderTests(unittest.TestCase):
             [{"pull_requests": "write"}],
         )
 
+    def test_create_pull_request_review_posts_inline_comments_with_pr_write_permission(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"pull_requests": "write"})
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/pulls/7/reviews":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(
+                    body,
+                    {
+                        "body": "Bugbot review: I found two concrete issues.",
+                        "event": "COMMENT",
+                        "comments": [
+                            {
+                                "path": "src/widget.py",
+                                "body": "This branch can throw when config is missing.",
+                                "line": 27,
+                                "side": "RIGHT",
+                            },
+                            {
+                                "path": "src/widget.py",
+                                "body": "This loop skips empty inputs.",
+                                "line": 45,
+                                "side": "RIGHT",
+                                "start_line": 41,
+                                "start_side": "RIGHT",
+                            },
+                            {
+                                "path": "README.md",
+                                "body": "This legacy diff position still works.",
+                                "position": 6,
+                            },
+                        ],
+                        "commit_id": "ecdd80bb57125d7ba9641ffaa4d7d2c19d3f3091",
+                    },
+                )
+                return FakeHTTPResponse(
+                    {
+                        "id": 80,
+                        "node_id": "PRR_kw",
+                        "state": "COMMENTED",
+                        "html_url": "https://github.com/acme/widgets/pull/7#pullrequestreview-80",
+                        "pull_request_url": "https://api.github.com/repos/acme/widgets/pulls/7",
+                        "commit_id": "ecdd80bb57125d7ba9641ffaa4d7d2c19d3f3091",
+                        "body": "Bugbot review: I found two concrete issues.",
+                        "user": {"login": "example-app[bot]"},
+                        "submitted_at": "2026-05-01T00:00:00Z",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_create_pull_request_review(
+                provider_module.CreatePullRequestReviewInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    body="Bugbot review: I found two concrete issues.",
+                    commit_id="ecdd80bb57125d7ba9641ffaa4d7d2c19d3f3091",
+                    comments=[
+                        provider_module.PullRequestReviewCommentInput(
+                            path="/src/widget.py",
+                            body="This branch can throw when config is missing.",
+                            line=27,
+                            side="right",
+                        ),
+                        provider_module.PullRequestReviewCommentInput(
+                            path="src/widget.py",
+                            body="This loop skips empty inputs.",
+                            start_line=41,
+                            start_side="RIGHT",
+                            line=45,
+                            side="RIGHT",
+                        ),
+                        provider_module.PullRequestReviewCommentInput(
+                            path="README.md",
+                            body="This legacy diff position still works.",
+                            position=6,
+                        ),
+                    ],
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["review"]
+        self.assertEqual(data["id"], 80)
+        self.assertEqual(data["state"], "COMMENTED")
+        self.assertEqual(data["user"]["login"], "example-app[bot]")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"pull_requests": "write"}],
+        )
+
+    def test_create_pull_request_review_rejects_invalid_inputs_before_github_calls(
+        self,
+    ) -> None:
+        invalid_comments = [
+            (
+                [],
+                "comments must contain at least one comment",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py", body="Missing line.", side="RIGHT"
+                    )
+                ],
+                "line is required unless position is set",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py",
+                        body="Invalid line.",
+                        line=-1,
+                        side="RIGHT",
+                    )
+                ],
+                "line must be greater than 0",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py",
+                        body="Invalid side.",
+                        line=1,
+                        side="CENTER",
+                    )
+                ],
+                "side must be LEFT or RIGHT",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py",
+                        body="Invalid range.",
+                        start_line=3,
+                        line=2,
+                        side="RIGHT",
+                        start_side="RIGHT",
+                    )
+                ],
+                "start_line must be less than or equal to line",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py",
+                        body="Invalid start side.",
+                        line=2,
+                        side="RIGHT",
+                        start_side="RIGHT",
+                    )
+                ],
+                "start_side requires start_line",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py",
+                        body="Ambiguous coordinates.",
+                        position=6,
+                        line=2,
+                        side="RIGHT",
+                    )
+                ],
+                "position cannot be combined",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="../widget.py",
+                        body="Invalid path.",
+                        position=6,
+                    )
+                ],
+                "path must not contain '..'",
+            ),
+            (
+                [
+                    provider_module.PullRequestReviewCommentInput(
+                        path="src/widget.py",
+                        body="",
+                        position=6,
+                    )
+                ],
+                "body is required",
+            ),
+        ]
+
+        for comments, expected in invalid_comments:
+            with self.subTest(expected=expected):
+                with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+                    result = provider_module.bot_create_pull_request_review(
+                        provider_module.CreatePullRequestReviewInput(
+                            owner="acme",
+                            repo="widgets",
+                            pull_number=7,
+                            body="Review body",
+                            comments=comments,
+                        ),
+                        github_request(),
+                    )
+
+                self.assertIsInstance(result, gestalt.Response)
+                response = cast(gestalt.Response[dict[str, str]], result)
+                self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+                self.assertIn(expected, response.body["error"])
+                urlopen.assert_not_called()
+
     def test_ci_read_operations_use_github_shapes_and_pagination(self) -> None:
         calls: list[tuple[str, str, dict[str, Any]]] = []
 
@@ -1813,6 +2061,31 @@ class GitHubProviderTests(unittest.TestCase):
         urlopen.assert_not_called()
 
         with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_create_pull_request_review(
+                provider_module.CreatePullRequestReviewInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    body="Review body",
+                    comments=[
+                        provider_module.PullRequestReviewCommentInput(
+                            path="README.md",
+                            body="Inline comment.",
+                            position=1,
+                        )
+                    ],
+                    installation_id=100,
+                ),
+                github_request(installation_id=99),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("installation_id", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
             result = provider_module.bot_open_pull_request(
                 provider_module.OpenPullRequestInput(
                     owner="acme",
@@ -1820,6 +2093,30 @@ class GitHubProviderTests(unittest.TestCase):
                     title="Update README",
                     head="feature",
                     base="main",
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("repository", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_create_pull_request_review(
+                provider_module.CreatePullRequestReviewInput(
+                    owner="acme",
+                    repo="other",
+                    pull_number=7,
+                    body="Review body",
+                    comments=[
+                        provider_module.PullRequestReviewCommentInput(
+                            path="README.md",
+                            body="Inline comment.",
+                            position=1,
+                        )
+                    ],
                 ),
                 github_request(installation_id=99, repo="acme/widgets"),
             )

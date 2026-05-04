@@ -35,6 +35,8 @@ connection:
 - `bot.openPullRequest` opens a pull request using an installation access token.
 - `bot.createPullRequest` commits file changes and opens a pull request in one
   operation.
+- `bot.createPullRequestReview` creates a pull request review with inline
+  file/line comments.
 - `bot.createPullRequestConversationComment` creates a pull request conversation
   comment.
 - `bot.createIssueComment` creates an issue comment.
@@ -45,7 +47,7 @@ connection:
 The bot operations do not require a GitHub user OAuth connection. The GitHub App
 must be installed on the target repository and must have the permissions needed
 for the action, typically Contents write for commits and Pull requests write for
-pull requests.
+pull requests and pull request reviews.
 
 ## GitHub App Bot Configuration
 
@@ -149,6 +151,7 @@ plugins:
             allowedOperations:
               - bot.getCheckRun
               - bot.listCheckRunAnnotations
+              - bot.createPullRequestReview
               - bot.createPullRequestConversationComment
               - bot.createPullRequest
 ```
@@ -158,11 +161,18 @@ a field are ORed, and fields are ANDed. Event matching prefers the
 `X-GitHub-Event` header when present. `branches` matches PR head/base refs, CI
 `head_branch`, and push refs. `action.mode` defaults operations as follows:
 `observe` grants read-only CI tools, `comment` adds
-`bot.createPullRequestConversationComment` and `bot.createIssueComment`,
-`branch_commit` adds `bot.commitFiles`, and `pull_request` adds the comment,
-commit, and pull request tools. Use the pull request conversation operation for
-PRs and the issue comment operation for Issues. `allowedOperations` can narrow
-or replace those defaults; an explicit empty list grants no tools.
+`bot.createPullRequestReview`, `bot.createPullRequestConversationComment`, and
+`bot.createIssueComment`, `branch_commit` adds `bot.commitFiles`, and
+`pull_request` adds the comment, commit, and pull request tools. Use
+`bot.createPullRequestReview` for inline file/line PR review comments, the pull
+request conversation operation for PR timeline comments, and the issue comment
+operation for Issues. `allowedOperations` can narrow or replace those defaults;
+an explicit empty list grants no tools.
+
+Compatibility note: existing policies that use `action.mode: comment` or
+`action.mode: pull_request` without explicit `allowedOperations` now expose
+`bot.createPullRequestReview`. Add an explicit `allowedOperations` list to keep
+previous timeline-only comment behavior.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and calls
@@ -189,7 +199,7 @@ responses as retryable enqueue failures.
   "webhook_policy": {
     "id": "failed-ci-comment",
     "mode": "comment",
-    "tool_refs": ["bot.getCheckRun", "bot.createPullRequestConversationComment"]
+    "tool_refs": ["bot.getCheckRun", "bot.createPullRequestReview"]
   },
   "summary": {"repository": "acme/widgets", "number": 7},
   "agent_request": {
@@ -230,6 +240,9 @@ plugins:
         credentialMode: none
       - plugin: github
         operation: bot.createPullRequest
+        credentialMode: none
+      - plugin: github
+        operation: bot.createPullRequestReview
         credentialMode: none
       - plugin: github
         operation: bot.createPullRequestConversationComment
@@ -331,6 +344,35 @@ Commit files and open the pull request in one call with
     {
       "name": "Ada Lovelace",
       "email": "ada@example.com"
+    }
+  ]
+}
+```
+
+Create a pull request review with inline file/line comments using
+`bot.createPullRequestReview`:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "pull_number": 42,
+  "body": "Bugbot review: I found two concrete issues.",
+  "commit_id": "ecdd80bb57125d7ba9641ffaa4d7d2c19d3f3091",
+  "comments": [
+    {
+      "path": "src/widget.py",
+      "line": 27,
+      "side": "RIGHT",
+      "body": "This branch can throw when config is missing."
+    },
+    {
+      "path": "src/widget.py",
+      "start_line": 41,
+      "start_side": "RIGHT",
+      "line": 45,
+      "side": "RIGHT",
+      "body": "This loop skips empty inputs."
     }
   ]
 }
