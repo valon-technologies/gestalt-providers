@@ -7,6 +7,7 @@ EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
 GITHUB_EXTERNAL_IDENTITY_TYPE = "github_identity"
 
 GITHUB_EVENT_OPERATION = "events.handle"
+REVIEW_PULL_REQUEST_OPERATION = "reviewPullRequest"
 BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CREATE_PULL_REQUEST_OPERATION = "bot.createPullRequest"

@@ -76,6 +76,30 @@ class FakeWorkflowManager:
         )
 
 
+class FakeAgentManager:
+    def __init__(self, findings: list[dict[str, Any]]) -> None:
+        self.findings = findings
+        self.sessions: list[Any] = []
+        self.turns: list[Any] = []
+
+    def create_session(self, request: Any) -> Any:
+        self.sessions.append(request)
+        return agent_pb2.AgentSession(id="agent-session-1")
+
+    def create_turn(self, request: Any) -> Any:
+        self.turns.append(request)
+        turn = agent_pb2.AgentTurn(
+            id="agent-turn-1",
+            session_id=request.session_id,
+            status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+        )
+        turn.structured_output.update({"findings": self.findings})
+        return turn
+
+    def get_turn(self, request: Any) -> Any:
+        raise AssertionError(f"unexpected get_turn call for {request.turn_id}")
+
+
 def request_json(request: urllib.request.Request) -> dict[str, Any]:
     data = request.data
     if data is None:
@@ -255,6 +279,7 @@ class GitHubProviderTests(unittest.TestCase):
         operations = {operation["id"]: operation for operation in catalog["operations"]}
 
         event = operations[provider_module.GITHUB_EVENT_OPERATION]
+        review = operations[provider_module.REVIEW_PULL_REQUEST_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
@@ -263,6 +288,7 @@ class GitHubProviderTests(unittest.TestCase):
         ]
         issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
         self.assertIn("workflow targets", event["description"])
+        self.assertIn("pull_request workflow signal", review["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
@@ -952,21 +978,13 @@ class GitHubProviderTests(unittest.TestCase):
                 "provider": "temporal",
                 "target": {
                     "plugin": {
-                        "plugin": "github_review",
+                        "plugin": "github",
                         "operation": "reviewPullRequest",
                         "connection": "review-bot",
                         "instance": "prod",
                         "input": {
                             "maxComments": 10,
                             "changedLinesOnly": True,
-                            "_gestalt": {
-                                "eventRunPermissions": [
-                                    {
-                                        "plugin": "github",
-                                        "operation": "bot.createPullRequestReview",
-                                    }
-                                ]
-                            },
                         },
                     }
                 },
@@ -994,7 +1012,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(plugin_request.target.WhichOneof("kind"), "plugin")
 
         plugin = plugin_request.target.plugin
-        self.assertEqual(plugin.plugin_name, "github_review")
+        self.assertEqual(plugin.plugin_name, "github")
         self.assertEqual(plugin.operation, "reviewPullRequest")
         self.assertEqual(plugin.connection, "review-bot")
         self.assertEqual(plugin.instance, "prod")
@@ -1002,16 +1020,207 @@ class GitHubProviderTests(unittest.TestCase):
         target_input = json_format.MessageToDict(plugin.input)
         self.assertEqual(target_input["maxComments"], 10)
         self.assertEqual(target_input["changedLinesOnly"], True)
-        self.assertEqual(
-            target_input["_gestalt"]["eventRunPermissions"],
-            [{"plugin": "github", "operation": "bot.createPullRequestReview"}],
-        )
         self.assertNotIn("pull_request", target_input)
         self.assertNotIn("repository", target_input)
 
         signal_payload = json_format.MessageToDict(plugin_request.signal.payload)
         self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
         self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
+
+    def test_review_pull_request_posts_validated_inline_comments(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "This can throw when config is missing.",
+                    "severity": "high",
+                },
+                {
+                    "path": "src/widget.py",
+                    "line": 1,
+                    "body": "This is context and cannot receive a RIGHT-side comment.",
+                },
+            ]
+        )
+        created_reviews: list[Any] = []
+
+        def fake_create_pull_request_review(request: Any, *, subject: Any) -> Any:
+            created_reviews.append((request, subject))
+            return {
+                "id": 80,
+                "state": "COMMENTED",
+                "html_url": "https://github.com/acme/widgets/pull/7#pullrequestreview-80",
+                "commit_id": "abc123",
+                "body": "Automated review found 1 concrete issue.",
+                "user": {"login": "example-app[bot]"},
+            }
+
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "delivery_id": "delivery-pr-review",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "agent_request": {
+                            "pull_request": {
+                                "number": 7,
+                                "head_sha": "abc123",
+                            }
+                        },
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/7",
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changes": 1,
+                        "patch": "@@ -1,2 +1,3 @@\n context\n+bad = True\n more",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=fake_create_pull_request_review,
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(
+                    agentProvider="claude",
+                    model="claude-opus-4-7",
+                    maxComments=10,
+                    changedLinesOnly=True,
+                ),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["ok"], True)
+        self.assertEqual(data["posted"], True)
+        self.assertEqual(data["comments"], 1)
+        self.assertEqual(data["droppedFindings"], 1)
+        self.assertEqual(data["repository"], "acme/widgets")
+        self.assertEqual(data["pullNumber"], 7)
+
+        self.assertEqual(len(agent_manager.sessions), 1)
+        self.assertEqual(agent_manager.sessions[0].provider_name, "claude")
+        self.assertEqual(len(agent_manager.turns), 1)
+        prompt = agent_manager.turns[0].messages[1].text
+        self.assertIn('"repository": "acme/widgets"', prompt)
+        self.assertIn("+bad = True", prompt)
+        self.assertTrue(agent_manager.turns[0].response_schema.fields)
+
+        self.assertEqual(len(created_reviews), 1)
+        review_request, review_subject = created_reviews[0]
+        self.assertEqual(review_subject.id, request.subject.id)
+        self.assertEqual(review_request.owner, "acme")
+        self.assertEqual(review_request.repo, "widgets")
+        self.assertEqual(review_request.pull_number, 7)
+        self.assertEqual(review_request.installation_id, 99)
+        self.assertEqual(review_request.commit_id, "abc123")
+        self.assertEqual(len(review_request.comments), 1)
+        self.assertEqual(review_request.comments[0].path, "src/widget.py")
+        self.assertEqual(review_request.comments[0].line, 2)
+        self.assertEqual(review_request.comments[0].side, "RIGHT")
+        self.assertEqual(
+            review_request.comments[0].body,
+            "[high] This can throw when config is missing.",
+        )
+
+    def test_review_pull_request_drops_unanchored_findings_without_posting(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 1,
+                    "body": "This is context and cannot receive a RIGHT-side comment.",
+                }
+            ]
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "opened",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+added = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("review should not be posted"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], False)
+        self.assertEqual(data["comments"], 0)
+        self.assertEqual(data["reason"], "no_valid_findings")
+        self.assertEqual(data["droppedFindings"], 1)
 
     def test_explicit_policy_webhook_events_allowlist_semantics(self) -> None:
         push_payload = {
@@ -1156,7 +1365,7 @@ class GitHubProviderTests(unittest.TestCase):
                         "provider": "local",
                         "target": {
                             "plugin": {
-                                "plugin": "github_review",
+                                "plugin": "github",
                                 "operation": "reviewPullRequest",
                             }
                         },
@@ -1189,7 +1398,7 @@ class GitHubProviderTests(unittest.TestCase):
                     "webhookPolicies": [
                         {
                             "id": "bad-plugin-target",
-                            "workflow": {"target": {"plugin": "github_review"}},
+                            "workflow": {"target": {"plugin": "github"}},
                         }
                     ]
                 },
@@ -1214,7 +1423,7 @@ class GitHubProviderTests(unittest.TestCase):
                         {
                             "id": "missing-plugin-operation",
                             "workflow": {
-                                "target": {"plugin": {"plugin": "github_review"}}
+                                "target": {"plugin": {"plugin": "github"}}
                             },
                         }
                     ]
@@ -1229,7 +1438,7 @@ class GitHubProviderTests(unittest.TestCase):
                             "workflow": {
                                 "target": {
                                     "plugin": {
-                                        "plugin": "github_review",
+                                        "plugin": "github",
                                         "operation": "reviewPullRequest",
                                         "input": "bad",
                                     }
@@ -1248,7 +1457,7 @@ class GitHubProviderTests(unittest.TestCase):
                             "workflow": {
                                 "target": {
                                     "plugin": {
-                                        "plugin": "github_review",
+                                        "plugin": "github",
                                         "operation": "reviewPullRequest",
                                         "input": {"bad": object()},
                                     }

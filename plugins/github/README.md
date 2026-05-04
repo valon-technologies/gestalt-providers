@@ -139,19 +139,11 @@ plugins:
             provider: temporal
             target:
               plugin:
-                plugin: github_review
+                plugin: github
                 operation: reviewPullRequest
                 input:
                   maxComments: 10
                   changedLinesOnly: true
-                  _gestalt:
-                    eventRunPermissions:
-                      - plugin: github
-                        operation: bot.getPullRequest
-                      - plugin: github
-                        operation: bot.listPullRequestFiles
-                      - plugin: github
-                        operation: bot.createPullRequestReview
         - id: failed-ci-comment
           match:
             events: [check_run, workflow_run]
@@ -202,11 +194,14 @@ previous CI-read-only or timeline-only comment behavior.
 Set `workflow.target.plugin` on a policy to dispatch the matched webhook to a
 deterministic workflow/plugin target instead of the generated agent target. The
 target `input` is static configuration only; webhook event details are delivered
-through the workflow signal payload and are not merged into `input`. Workflow
-providers derive plugin-target access from the target plugin plus optional
-`_gestalt.eventRunPermissions` entries in target input, so include the GitHub
-bot operations there when the target workflow needs to inspect or write PR
-state.
+through the workflow signal payload and are not merged into `input`. Use
+`plugin: github` with `operation: reviewPullRequest` for the built-in
+workflow-backed PR reviewer; it fetches the PR, validates agent findings against
+changed RIGHT-side diff lines, and posts one inline review only when it has
+line-anchored findings. Workflow providers derive plugin-target access from the
+target plugin plus optional `_gestalt.eventRunPermissions` entries in target
+input; include extra permissions only when a target operation calls other
+plugins through the host invoker.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and

@@ -5,6 +5,52 @@ operations:
   description: Handle GitHub App webhook callbacks and delegate repository events
     to configured Gestalt workflow targets
   visible: false
+- id: reviewPullRequest
+  method: POST
+  description: Review the latest GitHub pull_request workflow signal and post validated
+    inline comments
+  tags: [pr, prs, review]
+  parameters:
+  - name: agentProvider
+    type: string
+    description: Agent provider used to inspect the pull request diff
+    default: ''
+  - name: model
+    type: string
+    description: Agent model used to inspect the pull request diff
+    default: ''
+  - name: systemPrompt
+    type: string
+    description: System prompt for the pull request review agent
+    default: ''
+  - name: maxComments
+    type: integer
+    description: Maximum inline review comments to post
+    default: 10
+  - name: maxFiles
+    type: integer
+    description: Maximum changed files to inspect
+    default: 50
+  - name: maxPatchChars
+    type: integer
+    description: Maximum patch characters per changed file to send to the agent
+    default: 80000
+  - name: changedLinesOnly
+    type: boolean
+    description: Only allow comments on added RIGHT-side diff lines
+    default: true
+  - name: dryRun
+    type: boolean
+    description: Return validated findings without posting a GitHub review
+    default: false
+  - name: turnTimeoutMs
+    type: integer
+    description: Maximum time to wait for the review agent turn
+    default: 180000
+  - name: pollIntervalMs
+    type: integer
+    description: Polling interval while waiting for the review agent turn
+    default: 1000
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
