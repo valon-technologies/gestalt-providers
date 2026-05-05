@@ -2,8 +2,10 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +14,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const maxIndexFanoutConcurrency = 16
 
 func (b *temporalBackend) ensureScope(ctx context.Context) error {
 	startOp := b.client.NewWithStartWorkflowOperation(b.startOptions(metadataWorkflowID(b.cfg.ScopeID)), scopeMetadataWorkflow, scopeMetadata{ScopeID: b.cfg.ScopeID, IndexShardCount: b.cfg.IndexShardCount})
@@ -161,16 +165,75 @@ func (b *temporalBackend) compactIndexShard(ctx context.Context, shard int) erro
 }
 
 func (b *temporalBackend) updateAllIndexes(ctx context.Context, updateName string, outFactory func() any, consume func(any) error) error {
-	for shard := 0; shard < b.cfg.IndexShardCount; shard++ {
-		out := outFactory()
-		if err := b.queryIndexShard(ctx, shard, updateName, nil, out); err != nil {
-			if !isNotFoundLike(err) && !isQueryHandlerUnavailable(err) {
-				return status.Errorf(codes.Internal, "query temporal index shard %d: %v", shard, err)
+	shardCount := b.cfg.IndexShardCount
+	if shardCount <= 0 {
+		return nil
+	}
+	fanoutCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	concurrency := shardCount
+	if concurrency > maxIndexFanoutConcurrency {
+		concurrency = maxIndexFanoutConcurrency
+	}
+	sem := make(chan struct{}, concurrency)
+	results := make([]any, shardCount)
+	errs := make([]error, shardCount)
+	var wg sync.WaitGroup
+	for shard := 0; shard < shardCount; shard++ {
+		shard := shard
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-fanoutCtx.Done():
+				errs[shard] = fanoutCtx.Err()
+				return
 			}
-			if err := b.updateIndexShard(ctx, shard, updateName, nil, out); err != nil {
-				return err
+			out := outFactory()
+			if err := b.queryIndexShard(fanoutCtx, shard, updateName, nil, out); err != nil {
+				if !isNotFoundLike(err) && !isQueryHandlerUnavailable(err) {
+					errs[shard] = status.Errorf(codes.Internal, "query temporal index shard %d: %v", shard, err)
+					cancel()
+					return
+				}
+				if err := b.updateIndexShard(fanoutCtx, shard, updateName, nil, out); err != nil {
+					errs[shard] = err
+					cancel()
+					return
+				}
 			}
+			results[shard] = out
+		}()
+	}
+	wg.Wait()
+	var firstErr error
+	var canceledErr error
+	for _, err := range errs {
+		if err == nil {
+			continue
 		}
+		if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+			if canceledErr == nil {
+				canceledErr = err
+			}
+			continue
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if canceledErr != nil {
+		return canceledErr
+	}
+	for _, out := range results {
 		if err := consume(out); err != nil {
 			return err
 		}
