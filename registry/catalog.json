@@ -265,7 +265,7 @@
       ],
       "iconUrl": null,
       "kind": "agent",
-      "latestInstallableVersion": "0.0.1-alpha.3",
+      "latestInstallableVersion": "0.0.1-alpha.4",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/codex/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.4",
       "name": "codex",
@@ -275,6 +275,19 @@
       "registryPath": "/providers/agent/codex/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/codex",
       "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.4/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.4"
+        },
         {
           "kind": "agent",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.3/provider-release.yaml",
