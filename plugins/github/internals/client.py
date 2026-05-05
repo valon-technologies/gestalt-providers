@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from .config import (
     GitHubAppConfig,
     GitHubBotIdentity,
+    GitHubUserIdentity,
     get_cached_bot_identity,
     get_github_config,
     set_cached_bot_identity,
@@ -86,6 +87,8 @@ class GitHubAPIClient(Protocol):
 
     def bot_identity_or_none(self) -> GitHubBotIdentity | None: ...
 
+    def user_identity_by_id(self, user_id: str) -> GitHubUserIdentity | None: ...
+
     def commit_url(self, owner: str, repo: str, sha: str) -> str: ...
 
 
@@ -153,6 +156,9 @@ class GitHubAppClient:
 
     def bot_identity_or_none(self) -> GitHubBotIdentity | None:
         return bot_identity_or_none()
+
+    def user_identity_by_id(self, user_id: str) -> GitHubUserIdentity | None:
+        return user_identity_by_id(user_id)
 
     def commit_url(self, owner: str, repo: str, sha: str) -> str:
         return commit_url(owner, repo, sha)
@@ -441,6 +447,29 @@ def bot_identity_or_none() -> GitHubBotIdentity | None:
         return bot_identity()
     except (GitHubAPIError, GitHubConfigError):
         return None
+
+
+def user_identity_by_id(user_id: str) -> GitHubUserIdentity | None:
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return None
+    try:
+        user = github_json("GET", f"/user/{urllib.parse.quote(user_id, safe='')}", None)
+    except GitHubAPIError:
+        return None
+
+    response_user_id = int_field(user, "id")
+    login = str_field(user, "login")
+    if response_user_id <= 0 or not login:
+        return None
+
+    normalized_user_id = str(response_user_id)
+    return GitHubUserIdentity(
+        name=str_field(user, "name") or login,
+        login=login,
+        user_id=normalized_user_id,
+        email=f"{normalized_user_id}+{login}@users.noreply.github.com",
+    )
 
 
 def bot_identity() -> GitHubBotIdentity:

@@ -154,6 +154,14 @@ class GitHubBotIdentity:
     email: str
 
 
+@dataclass(frozen=True, slots=True)
+class GitHubUserIdentity:
+    name: str
+    login: str
+    user_id: str
+    email: str
+
+
 _github_config = GitHubAppConfig()
 _github_bot_identity: GitHubBotIdentity | None = None
 
