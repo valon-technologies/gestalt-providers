@@ -623,6 +623,16 @@ packages:
     displayName: "Default External Credentials"
     description: "External credentials provider backed by the host IndexedDB service."
     versions:
+      "0.0.1-alpha.8":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.8/provider-release.yaml"
+        kind: "external_credentials"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
       "0.0.1-alpha.7":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.7/provider-release.yaml"
         kind: "external_credentials"
