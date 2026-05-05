@@ -19,7 +19,7 @@
       ],
       "iconUrl": null,
       "kind": "agent",
-      "latestInstallableVersion": "0.0.1-alpha.16",
+      "latestInstallableVersion": "0.0.1-alpha.17",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/claude/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.17",
       "name": "claude",
@@ -29,6 +29,18 @@
       "registryPath": "/providers/agent/claude/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/claude",
       "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.17/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.17"
+        },
         {
           "kind": "agent",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.16/provider-release.yaml",
@@ -241,7 +253,7 @@
       ],
       "iconUrl": null,
       "kind": "agent",
-      "latestInstallableVersion": "0.0.1-alpha.2",
+      "latestInstallableVersion": "0.0.1-alpha.3",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/codex/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.3",
       "name": "codex",
@@ -251,6 +263,19 @@
       "registryPath": "/providers/agent/codex/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/codex",
       "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.3/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.3"
+        },
         {
           "kind": "agent",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.2/provider-release.yaml",
@@ -297,7 +322,7 @@
       ],
       "iconUrl": null,
       "kind": "agent",
-      "latestInstallableVersion": "0.0.1-alpha.2",
+      "latestInstallableVersion": "0.0.1-alpha.3",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/cursor/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.3",
       "name": "cursor",
@@ -307,6 +332,16 @@
       "registryPath": "/providers/agent/cursor/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/cursor",
       "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/cursor/v0.0.1-alpha.3/provider-release.yaml",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.3"
+        },
         {
           "kind": "agent",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/cursor/v0.0.1-alpha.2/provider-release.yaml",
@@ -2067,7 +2102,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.26",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/github/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.26",
+      "manifestVersion": "0.0.1-alpha.27",
       "name": "github",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/github",
       "packagePath": "plugins/github",
@@ -3374,7 +3409,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/intercom/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.2",
+      "manifestVersion": "0.0.1-alpha.3",
       "name": "intercom",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/intercom",
       "packagePath": "plugins/intercom",

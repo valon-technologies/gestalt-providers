@@ -52,9 +52,11 @@ connection:
 - `bot.requestReviewers` requests GitHub users or team slugs as PR reviewers.
 - `bot.getPullRequest` and `bot.listPullRequestFiles` inspect pull request
   metadata and changed-file patches for inline review work.
-- `bot.getCheckRun`, `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
+- `bot.getCheckRun`, `bot.listCheckSuiteCheckRuns`,
+  `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
   `bot.listWorkflowRunJobs` inspect CI failures using GitHub's Checks and
-  Actions REST interfaces.
+  Actions REST interfaces. Use `bot.listCheckSuiteCheckRuns` to expand a
+  `check_suite` webhook into specific failed check runs.
 
 The bot operations do not require a GitHub user OAuth connection. The GitHub App
 must be installed on the target repository and must have the permissions needed
@@ -160,7 +162,7 @@ plugins:
                   changedLinesOnly: true
         - id: failed-ci-comment
           match:
-            events: [check_run, workflow_run]
+            events: [check_run, check_suite, workflow_run]
             actions: [completed]
             conclusions: [failure, timed_out, action_required]
             repositories: [acme/widgets]
@@ -170,6 +172,8 @@ plugins:
           agent:
             model: gpt-5.4
             systemPrompt: Investigate failed CI and leave a concise PR comment.
+          comments:
+            suppressStaleHead: true
           action:
             mode: comment
         - id: failed-ci-pr
@@ -180,6 +184,7 @@ plugins:
             mode: pull_request
             allowedOperations:
               - bot.getCheckRun
+              - bot.listCheckSuiteCheckRuns
               - bot.listCheckRunAnnotations
               - bot.createPullRequestReview
               - bot.createPullRequestConversationComment
@@ -199,6 +204,71 @@ request conversation operation for PR timeline comments, and the issue comment
 operation for Issues. `allowedOperations` can narrow or replace those defaults;
 an explicit empty list grants no tools. Reaction, label, reviewer-request, and
 review-thread resolution tools are explicit opt-ins through `allowedOperations`.
+Set `action.allowCodeReviewComments: false` to remove PR review comment tools
+even when `mode` or `allowedOperations` would otherwise expose them. Set
+`action.allowSelfFix: false` to remove code-changing self-fix tools
+(`bot.commitFiles`, `bot.openPullRequest`, and `bot.createPullRequest`) from the
+effective tool list.
+
+`actionPreferences` optionally layers per-subject preferences over those static
+gates. The static config values remain hard ceilings: a stored preference can
+disable inline review comments or self-fix for one identity, but it cannot grant
+tools that `mode`, `allowedOperations`, `allowCodeReviewComments`, or
+`allowSelfFix` do not already allow. When `actionPreferences` is omitted, no
+IndexedDB or authorization lookup is performed and the policy behaves exactly as
+configured.
+
+```yaml
+providers:
+  indexeddb:
+    main:
+      source: /absolute/path/to/gestalt-providers/indexeddb/relationaldb/manifest.yaml
+      config:
+        dsn: sqlite:///var/lib/gestalt/github-preferences.db
+
+  plugin:
+    github:
+      config:
+        actionPreferences:
+          indexeddb: main
+          store: github_action_preferences
+          failureMode: config_default
+        webhookPolicies:
+          - id: pr-review
+            match:
+              events: [pull_request, check_run]
+            action:
+              mode: pull_request
+              allowCodeReviewComments: true
+              allowSelfFix: true
+              preferenceSubject: pull_request_author
+```
+
+`action.preferenceSubject` chooses which GitHub identity is used for the lookup:
+`pull_request_author`, `comment_author`, or `sender`. The provider keys GitHub
+identities by numeric user ID as `github_identity:user:<id>` and then
+best-effort resolves a Gestalt subject through authorization. Lookup precedence
+is repository + policy + GitHub external identity, then repository + policy +
+Gestalt subject ID, then config defaults. If the store cannot be read with
+`failureMode: config_default`, the webhook still dispatches with static config.
+
+Callers can manage their own preference records with:
+
+```json
+POST github.actionPreferences.set
+{
+  "repository": "valon-technologies/gestalt-providers",
+  "policy_id": "pr-review",
+  "identity_kind": "external_subject_id",
+  "allow_code_review_comments": false,
+  "allow_self_fix": null
+}
+```
+
+`actionPreferences.get` and `actionPreferences.delete` use the same identity
+selection. These operations require a linked GitHub external identity for
+`external_subject_id` or a human agent subject for `subject_id`; service-account
+only calls are rejected.
 
 Use `trigger`, `dedupe`, and `comments` to make webhook-triggered agents less
 noisy:
@@ -218,8 +288,11 @@ webhookPolicies:
     comments:
       timelinePolicy: actionable_only
       inlinePolicy: findings_only
+      suppressStaleHead: true
     action:
       mode: comment
+      allowCodeReviewComments: false
+      allowSelfFix: false
   - id: manual-pr-review
     match:
       events: [issue_comment, pull_request_review_comment]
@@ -255,13 +328,19 @@ provider semantics rather than GitHub SDK enum names; GitHub's REST and GraphQL
 APIs do not expose matching configuration enums for bot review noisiness. For
 built-in GitHub workflow targets, the provider rejects contradictory
 configuration such as `comments.inlinePolicy: never` with
-`workflow.target.plugin.operation: reviewPullRequest`.
+`workflow.target.plugin.operation: reviewPullRequest`. It also rejects
+`action.allowCodeReviewComments: false` for that built-in review target because
+the target's purpose is to post validated inline review comments.
+For CI webhook events, `comments.suppressStaleHead: true` fetches the current PR
+head before dispatch and ignores the event when the failed CI SHA is no longer
+the PR head SHA.
 
 Compatibility note: existing policies that use `action.mode` without explicit
 `allowedOperations` now expose `bot.getPullRequest`,
-`bot.listPullRequestFiles`, and, for comment-capable modes,
-`bot.createPullRequestReview`. Add an explicit `allowedOperations` list to keep
-previous CI-read-only or timeline-only comment behavior.
+`bot.listPullRequestFiles`, `bot.listCheckSuiteCheckRuns`, and, for
+comment-capable modes, `bot.createPullRequestReview`. Add an explicit
+`allowedOperations` list to keep previous CI-read-only or timeline-only comment
+behavior.
 
 `reviewPullRequest` adds hidden provider markers only to inline comments it
 creates itself. By default, after a successful current review, or after an agent

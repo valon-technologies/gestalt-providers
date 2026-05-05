@@ -34,6 +34,7 @@ from .constants import (
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_REMOVE_LABELS_OPERATION,
@@ -43,6 +44,7 @@ from .constants import (
     GITHUB_WORKFLOW_SIGNAL_NAME,
     MAX_AGENT_USER_PROMPT_CHARS,
 )
+from .policy_metadata import policy_base_metadata
 from .webhook import bounded_text
 from .workflow_dispatch import workflow_signal_data
 
@@ -244,6 +246,16 @@ def agent_system_prompt(policy: GitHubWebhookPolicy | None = None) -> str:
 def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
     operations = set(agent_operations(policy))
     lines: list[str] = []
+    if policy is not None and not policy.allow_code_review_comments:
+        lines.append(
+            "Do not post pull request code review comments; this policy disables "
+            "code review comments."
+        )
+    if policy is not None and not policy.allow_self_fix:
+        lines.append(
+            "Do not commit code changes, open pull requests, or otherwise self-fix "
+            "the pull request; this policy disables self-fix tools."
+        )
     if (
         BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations
         and BOT_LIST_PULL_REQUEST_FILES_OPERATION in operations
@@ -273,6 +285,11 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
         lines.append(
             "Use bot.listPullRequestReviewThreads to inspect existing inline "
             "review threads."
+        )
+    if BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION in operations:
+        lines.append(
+            "Use bot.listCheckSuiteCheckRuns to expand check suite webhooks into "
+            "their individual check runs before diagnosing CI failures."
         )
     if BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION in operations:
         lines.append(
@@ -308,6 +325,11 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
                 "Only create inline review comments for concrete line-anchored "
                 "findings."
             )
+        if policy.comments.suppress_stale_head:
+            lines.append(
+                "CI signals whose head SHA is no longer the pull request head are "
+                "suppressed before this agent runs."
+            )
     return "\n".join(lines)
 
 
@@ -331,6 +353,14 @@ def agent_user_prompt(
         lines.append(f"dedupe_scope: {policy.dedupe.scope}")
         lines.append(f"timeline_policy: {policy.comments.timeline_policy}")
         lines.append(f"inline_policy: {policy.comments.inline_policy}")
+        lines.append(f"suppress_stale_head: {policy.comments.suppress_stale_head}")
+        lines.append(
+            f"allow_code_review_comments: {policy.allow_code_review_comments}"
+        )
+        lines.append(f"allow_self_fix: {policy.allow_self_fix}")
+        if policy.action_preferences is not None:
+            preference_source = str(policy.action_preferences.get("source", ""))
+            lines.append(f"action_preferences_source: {preference_source}")
         operations = agent_operations(policy)
         if operations:
             lines.append(f"available_operations: {', '.join(operations)}")
@@ -567,21 +597,7 @@ def policy_frequency_idempotency_key(
 def policy_metadata(
     policy: GitHubWebhookPolicy, summary: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "id": policy.id,
-        "mode": policy.action_mode,
-        "tool_refs": list(effective_policy_operations(policy)),
-        "trigger": {
-            "frequency": policy.trigger.frequency,
-            "include_drafts": policy.trigger.include_drafts,
-            "manual_commands": list(policy.trigger.manual_commands),
-        },
-        "dedupe": {"scope": policy.dedupe.scope},
-        "comments": {
-            "timeline_policy": policy.comments.timeline_policy,
-            "inline_policy": policy.comments.inline_policy,
-        },
-    }
+    metadata: dict[str, Any] = policy_base_metadata(policy)
     if summary is not None:
         metadata["canonical"] = policy_canonical_metadata(summary, policy)
     return metadata

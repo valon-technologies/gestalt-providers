@@ -9,9 +9,12 @@ from typing import Any, cast
 from google.protobuf import struct_pb2 as _struct_pb2
 
 from .constants import (
+    BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
+    BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+    BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_OPERATION_ORDER,
     DEFAULT_WEBHOOK_EVENTS,
     DEFAULT_POLICY_OPERATIONS_BY_MODE,
@@ -25,6 +28,7 @@ from .constants import (
 
 
 _POLICY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_STORE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 WEBHOOK_TRIGGER_EVERY_DELIVERY = "every_delivery"
 WEBHOOK_TRIGGER_ONCE_PER_PR = "once_per_pr"
@@ -68,6 +72,18 @@ WEBHOOK_INLINE_POLICIES = (
     WEBHOOK_INLINE_FINDINGS_ONLY,
 )
 
+WEBHOOK_PREFERENCE_SUBJECT_PULL_REQUEST_AUTHOR = "pull_request_author"
+WEBHOOK_PREFERENCE_SUBJECT_COMMENT_AUTHOR = "comment_author"
+WEBHOOK_PREFERENCE_SUBJECT_SENDER = "sender"
+WEBHOOK_PREFERENCE_SUBJECTS = (
+    WEBHOOK_PREFERENCE_SUBJECT_PULL_REQUEST_AUTHOR,
+    WEBHOOK_PREFERENCE_SUBJECT_COMMENT_AUTHOR,
+    WEBHOOK_PREFERENCE_SUBJECT_SENDER,
+)
+
+ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT = "config_default"
+ACTION_PREFERENCES_FAILURE_MODES = (ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,)
+
 struct_pb2: Any = _struct_pb2
 
 
@@ -108,6 +124,7 @@ class GitHubWebhookDedupe:
 class GitHubWebhookComments:
     timeline_policy: str = WEBHOOK_TIMELINE_ALLOW
     inline_policy: str = WEBHOOK_INLINE_ALLOW
+    suppress_stale_head: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +141,19 @@ class GitHubWebhookPolicy:
     agent_model_options: dict[str, Any] | None = None
     workflow_target: GitHubWorkflowPluginTarget | None = None
     action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
+    allow_code_review_comments: bool = True
+    allow_self_fix: bool = True
     allowed_operations: tuple[str, ...] = ()
+    action_preference_subject: str = ""
+    action_preferences: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubActionPreferencesConfig:
+    enabled: bool = False
+    indexeddb_provider: str = ""
+    store: str = ""
+    failure_mode: str = ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +173,9 @@ class GitHubAppConfig:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] = field(default_factory=dict)
+    action_preferences: GitHubActionPreferencesConfig = field(
+        default_factory=GitHubActionPreferencesConfig
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,10 +198,12 @@ _github_config = GitHubAppConfig()
 _github_bot_identity: GitHubBotIdentity | None = None
 
 
-def configure_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
+def configure_from_mapping(
+    config: dict[str, Any], provider_name: str = "github"
+) -> GitHubAppConfig:
     global _github_bot_identity, _github_config
 
-    _github_config = github_config_from_mapping(config)
+    _github_config = github_config_from_mapping(config, provider_name=provider_name)
     _github_bot_identity = None
     return _github_config
 
@@ -188,7 +222,9 @@ def set_cached_bot_identity(identity: GitHubBotIdentity) -> None:
     _github_bot_identity = identity
 
 
-def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
+def github_config_from_mapping(
+    config: dict[str, Any], provider_name: str = "github"
+) -> GitHubAppConfig:
     app_id = (
         config_string(config, "appId", "app_id")
         or os.environ.get("GITHUB_APP_ID", "").strip()
@@ -215,6 +251,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
 
     webhook_events = config_string_list(config, "webhookEvents", "webhook_events")
     workflow_provider = workflow_config_string(config, "provider")
+    action_preferences = parse_action_preferences_config(config, provider_name)
     webhook_policies = parse_webhook_policies(config)
     api_base_url = (
         config_string(config, "apiBaseUrl", "api_base_url")
@@ -256,7 +293,51 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
             config, "systemPrompt", "system_prompt", "prompt"
         ),
         agent_model_options=agent_config_dict(config, "modelOptions", "model_options"),
+        action_preferences=action_preferences,
     )
+
+
+def parse_action_preferences_config(
+    config: dict[str, Any], provider_name: str
+) -> GitHubActionPreferencesConfig:
+    if "actionPreferences" not in config and "action_preferences" not in config:
+        return GitHubActionPreferencesConfig()
+    action_preferences = config.get(
+        "actionPreferences", config.get("action_preferences")
+    )
+    if not isinstance(action_preferences, dict):
+        raise ValueError("actionPreferences must be an object")
+    pref_config = cast(dict[str, Any], action_preferences)
+    indexeddb_provider = config_string(
+        pref_config, "indexeddb", "indexeddbProvider", "indexeddb_provider"
+    )
+    store = config_string(pref_config, "store") or derive_action_preferences_store_name(
+        provider_name
+    )
+    if not _STORE_NAME_RE.fullmatch(store):
+        raise ValueError(
+            f"actionPreferences.store must match {_STORE_NAME_RE.pattern}"
+        )
+    failure_mode = enum_string(
+        pref_config,
+        "failureMode",
+        "actionPreferences.failureMode",
+        ACTION_PREFERENCES_FAILURE_MODES,
+        ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,
+        "failure_mode",
+    )
+    return GitHubActionPreferencesConfig(
+        enabled=True,
+        indexeddb_provider=indexeddb_provider,
+        store=store,
+        failure_mode=failure_mode,
+    )
+
+
+def derive_action_preferences_store_name(provider_name: str) -> str:
+    raw = provider_name.strip() or "github"
+    slug = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_") or "github"
+    return f"{slug}_action_preferences"
 
 
 def derive_graphql_base_url(explicit: str, api_base_url: str) -> str:
@@ -315,9 +396,34 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 f"webhookPolicies[{index}].action.mode must be one of "
                 + ", ".join(WEBHOOK_POLICY_ACTION_MODES)
             )
+        allow_code_review_comments = optional_bool(
+            action_config,
+            "allowCodeReviewComments",
+            "allow_code_review_comments",
+            path=f"webhookPolicies[{index}].action.allowCodeReviewComments",
+            default=True,
+        )
+        allow_self_fix = optional_bool(
+            action_config,
+            "allowSelfFix",
+            "allow_self_fix",
+            path=f"webhookPolicies[{index}].action.allowSelfFix",
+            default=True,
+        )
+        action_preference_subject = enum_string(
+            action_config,
+            "preferenceSubject",
+            f"webhookPolicies[{index}].action.preferenceSubject",
+            WEBHOOK_PREFERENCE_SUBJECTS,
+            "",
+            "preference_subject",
+        )
 
         allowed_operations = policy_allowed_operations(
             action_config, action_mode, index
+        )
+        validate_policy_action_gates_for_workflow_target(
+            workflow_target, allow_code_review_comments, index
         )
         model_options = (
             config_dict(agent_config, "modelOptions", "model_options")
@@ -351,7 +457,10 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 agent_model_options=model_options,
                 workflow_target=workflow_target,
                 action_mode=action_mode,
+                allow_code_review_comments=allow_code_review_comments,
+                allow_self_fix=allow_self_fix,
                 allowed_operations=allowed_operations,
+                action_preference_subject=action_preference_subject,
             )
         )
     return tuple(policies)
@@ -424,6 +533,13 @@ def parse_policy_comments(
             WEBHOOK_INLINE_ALLOW,
             "inline_policy",
         ),
+        suppress_stale_head=optional_bool(
+            comments_config,
+            "suppressStaleHead",
+            "suppress_stale_head",
+            path=f"webhookPolicies[{policy_index}].comments.suppressStaleHead",
+            default=False,
+        ),
     )
 
 
@@ -444,6 +560,23 @@ def effective_policy_operations(policy: GitHubWebhookPolicy) -> tuple[str, ...]:
             operation
             for operation in operations
             if operation != BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION
+        ]
+    if not policy.allow_code_review_comments:
+        operations = [
+            operation
+            for operation in operations
+            if operation != BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION
+        ]
+    if not policy.allow_self_fix:
+        operations = [
+            operation
+            for operation in operations
+            if operation
+            not in {
+                BOT_COMMIT_FILES_OPERATION,
+                BOT_OPEN_PULL_REQUEST_OPERATION,
+                BOT_CREATE_PULL_REQUEST_OPERATION,
+            }
         ]
     return tuple(operations)
 
@@ -495,6 +628,24 @@ def validate_policy_comments_for_workflow_target(
         raise ValueError(
             f"webhookPolicies[{policy_index}].comments.inlinePolicy cannot be "
             "never when workflow.target.plugin uses github.reviewPullRequest"
+        )
+
+
+def validate_policy_action_gates_for_workflow_target(
+    target: GitHubWorkflowPluginTarget | None,
+    allow_code_review_comments: bool,
+    policy_index: int,
+) -> None:
+    if target is None:
+        return
+    if (
+        target.plugin_name == "github"
+        and target.operation == REVIEW_PULL_REQUEST_OPERATION
+        and not allow_code_review_comments
+    ):
+        raise ValueError(
+            f"webhookPolicies[{policy_index}].action.allowCodeReviewComments cannot "
+            "be false when workflow.target.plugin uses github.reviewPullRequest"
         )
 
 

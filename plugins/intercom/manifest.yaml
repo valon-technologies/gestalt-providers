@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/intercom
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.3
 displayName: Intercom
 description: Read and update contacts, companies, conversations, and notes.
 iconFile: assets/icon.svg
@@ -107,6 +107,7 @@ spec:
     listSubscriptionsForAContact: {}
     listTags: {}
     listTagsForAContact: {}
+    listTeams: {}
     listTicketTypes: {}
     manageConversation: {}
     notifyAttributeCollected: {}

@@ -21,7 +21,9 @@ from gestalt._gen.v1 import workflow_pb2 as _workflow_pb2
 import yaml
 
 import internals.client as client_module
+import internals.identity as identity_module
 import internals.operations as operations_module
+import internals.preferences as preferences_module
 import internals.review as review_module
 from internals.config import GitHubBotIdentity, GitHubUserIdentity
 from internals.errors import GitHubAPIError
@@ -76,6 +78,60 @@ class FakeWorkflowManager:
             started_run=True,
             workflow_key=request.workflow_key,
         )
+
+
+class FakeObjectStore:
+    def __init__(self, records: dict[str, dict[str, Any]]) -> None:
+        self.records = records
+        self.fail = False
+
+    def get(self, record_id: str) -> dict[str, Any]:
+        if self.fail:
+            raise RuntimeError("indexeddb unavailable")
+        if record_id not in self.records:
+            raise gestalt.NotFoundError("record not found")
+        return dict(self.records[record_id])
+
+    def put(self, record: dict[str, Any]) -> None:
+        if self.fail:
+            raise RuntimeError("indexeddb unavailable")
+        self.records[str(record["id"])] = dict(record)
+
+    def delete(self, record_id: str) -> None:
+        if self.fail:
+            raise RuntimeError("indexeddb unavailable")
+        if record_id not in self.records:
+            raise gestalt.NotFoundError("record not found")
+        del self.records[record_id]
+
+
+class FakeIndexedDB:
+    def __init__(self, records: dict[str, dict[str, Any]] | None = None) -> None:
+        self.records = records if records is not None else {}
+        self.created_stores: list[str] = []
+        self.object_store_client = FakeObjectStore(self.records)
+
+    def create_object_store(self, name: str) -> None:
+        self.created_stores.append(name)
+
+    def object_store(self, _name: str) -> FakeObjectStore:
+        return self.object_store_client
+
+    def close(self) -> None:
+        return None
+
+
+class FakeAuthorization:
+    def __init__(self, subjects: list[Any] | None = None, *, fail: bool = False) -> None:
+        self.subjects = subjects if subjects is not None else []
+        self.fail = fail
+        self.requests: list[Any] = []
+
+    def search_subjects(self, request: Any) -> Any:
+        self.requests.append(request)
+        if self.fail:
+            raise RuntimeError("authorization unavailable")
+        return SimpleNamespace(subjects=self.subjects)
 
 
 class FakeAgentManager:
@@ -384,6 +440,9 @@ class GitHubProviderTests(unittest.TestCase):
         add_labels = operations[provider_module.BOT_ADD_LABELS_OPERATION]
         remove_labels = operations[provider_module.BOT_REMOVE_LABELS_OPERATION]
         request_reviewers = operations[provider_module.BOT_REQUEST_REVIEWERS_OPERATION]
+        suite_check_runs = operations[
+            provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION
+        ]
         self.assertIn("workflow targets", event["description"])
         self.assertIn("pull_request workflow signal", review["description"])
         self.assertIn("installation", installation["description"])
@@ -399,6 +458,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("labels", add_labels["description"])
         self.assertIn("labels", remove_labels["description"])
         self.assertIn("reviewers", request_reviewers["description"])
+        self.assertIn("check suite", suite_check_runs["description"])
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
         )
@@ -454,6 +514,10 @@ class GitHubProviderTests(unittest.TestCase):
             "team_reviewers",
             [parameter["name"] for parameter in request_reviewers["parameters"]],
         )
+        self.assertIn(
+            "check_suite_id",
+            [parameter["name"] for parameter in suite_check_runs["parameters"]],
+        )
 
         schema = yaml.safe_load(
             (plugin_root / "schemas" / "config.schema.yaml").read_text()
@@ -481,6 +545,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_REQUEST_REVIEWERS_OPERATION, enum)
         self.assertIn(provider_module.BOT_RESOLVE_INSTALLATION_OPERATION, enum)
         self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
+        self.assertIn(provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
         ]["workflow"]["properties"]
@@ -514,6 +579,32 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             policy_schema["comments"]["properties"]["inlinePolicy"]["enum"],
             ["allow", "never", "findings_only"],
+        )
+        self.assertEqual(
+            policy_schema["comments"]["properties"]["suppressStaleHead"]["type"],
+            "boolean",
+        )
+        self.assertEqual(
+            policy_schema["action"]["properties"]["allowCodeReviewComments"]["type"],
+            "boolean",
+        )
+        self.assertEqual(
+            policy_schema["action"]["properties"]["allowSelfFix"]["type"],
+            "boolean",
+        )
+        self.assertEqual(
+            policy_schema["action"]["properties"]["preferenceSubject"]["enum"],
+            ["pull_request_author", "comment_author", "sender"],
+        )
+        self.assertEqual(
+            schema["properties"]["actionPreferences"]["properties"]["failureMode"][
+                "enum"
+            ],
+            ["config_default"],
+        )
+        self.assertEqual(
+            schema["properties"]["actionPreferences"]["properties"]["indexeddb"]["type"],
+            "string",
         )
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
@@ -1379,6 +1470,619 @@ class GitHubProviderTests(unittest.TestCase):
             timeline_operations,
         )
 
+    def test_policy_action_gates_filter_code_review_and_self_fix_tools(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "no-review-no-fix",
+                        "action": {
+                            "mode": "pull_request",
+                            "allowCodeReviewComments": False,
+                            "allowSelfFix": False,
+                            "allowedOperations": [
+                                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+                                provider_module.BOT_COMMIT_FILES_OPERATION,
+                                provider_module.BOT_OPEN_PULL_REQUEST_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+        request = self._workflow_signal_request(
+            {
+                "action": "opened",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "pull_request": {"number": 7},
+                "headers": {"X-GitHub-Event": "pull_request"},
+                "sender": {"login": "octocat"},
+            }
+        )
+
+        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        self.assertEqual(
+            operations,
+            [
+                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            ],
+        )
+        system_prompt = request.target.agent.messages[0].text
+        self.assertIn("disables code review comments", system_prompt)
+        self.assertIn("disables self-fix tools", system_prompt)
+        self.assertNotIn("bot.createPullRequestReview", system_prompt)
+        self.assertNotIn("bot.commitFiles", system_prompt)
+        data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(request.signal.payload),
+        )
+        self.assertEqual(data["webhook_policy"]["tool_refs"], operations)
+        self.assertEqual(
+            data["webhook_policy"]["action"]["allow_code_review_comments"], False
+        )
+        self.assertEqual(data["webhook_policy"]["action"]["allow_self_fix"], False)
+        self.assertIn(
+            "allow_code_review_comments: False",
+            data["agent_request"]["user_prompt"],
+        )
+        self.assertIn("allow_self_fix: False", data["agent_request"]["user_prompt"])
+
+    def test_action_preferences_absent_preserves_static_dispatch_without_lookup(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "static-comment",
+                        "match": {"events": ["pull_request"]},
+                        "action": {"mode": "comment"},
+                    }
+                ],
+            },
+        )
+
+        with (
+            mock.patch.object(
+                gestalt, "IndexedDB", side_effect=AssertionError("no indexeddb")
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                side_effect=AssertionError("no authorization"),
+            ),
+        ):
+            request = self._workflow_signal_request(
+                {
+                    "action": "opened",
+                    "installation": {"id": 99},
+                    "repository": {"full_name": "acme/widgets"},
+                    "pull_request": {"number": 7, "user": {"id": 101}},
+                    "headers": {"X-GitHub-Event": "pull_request"},
+                    "sender": {"id": 202, "login": "octocat"},
+                }
+            )
+
+        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        self.assertNotIn("action_preferences", data["webhook_policy"])
+        self.assertIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+            [tool.operation for tool in request.target.agent.tool_refs],
+        )
+
+    def test_action_preferences_external_record_disables_inline_review_tool(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            self._action_preferences_config(
+                action={"mode": "comment", "preferenceSubject": "pull_request_author"}
+            ),
+        )
+        identity = identity_module.GitHubPreferenceIdentity(
+            preference_subject="pull_request_author",
+            repository="acme/widgets",
+            external_identity_type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+            external_subject_id="user:101",
+            subject_id="user:ada",
+        )
+        record_id = preferences_module.preference_record_id(
+            repository="acme/widgets",
+            policy_id="review-policy",
+            identity=identity,
+            identity_kind="external_subject_id",
+        )
+        fake_db = FakeIndexedDB(
+            {
+                record_id: {
+                    "id": record_id,
+                    "schema_version": 1,
+                    "repository": "acme/widgets",
+                    "policy_id": "review-policy",
+                    "identity_kind": "external_subject_id",
+                    "external_identity_type": provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                    "external_subject_id": "user:101",
+                    "allow_code_review_comments": False,
+                    "allow_self_fix": None,
+                }
+            }
+        )
+        authorization = FakeAuthorization(
+            [SimpleNamespace(type="subject", id="user:ada")]
+        )
+
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request, "authorization", return_value=authorization
+            ),
+        ):
+            request = self._workflow_signal_request(self._preference_pr_payload())
+
+        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, operations
+        )
+        self.assertIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            operations,
+        )
+        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        preferences = data["webhook_policy"]["action_preferences"]
+        self.assertEqual(preferences["source"], "external_subject_id")
+        self.assertEqual(preferences["record_id"], record_id)
+        self.assertEqual(
+            preferences["effective"]["allow_code_review_comments"], False
+        )
+        self.assertIn(
+            "action_preferences_source: external_subject_id",
+            data["agent_request"]["user_prompt"],
+        )
+
+    def test_action_preferences_subject_record_fallback_disables_self_fix(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            self._action_preferences_config(action={"mode": "pull_request"}),
+        )
+        identity = identity_module.GitHubPreferenceIdentity(
+            preference_subject="pull_request_author",
+            repository="acme/widgets",
+            external_identity_type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+            external_subject_id="user:101",
+            subject_id="user:ada",
+        )
+        record_id = preferences_module.preference_record_id(
+            repository="acme/widgets",
+            policy_id="review-policy",
+            identity=identity,
+            identity_kind="subject_id",
+        )
+        fake_db = FakeIndexedDB(
+            {
+                record_id: {
+                    "id": record_id,
+                    "schema_version": 1,
+                    "repository": "acme/widgets",
+                    "policy_id": "review-policy",
+                    "identity_kind": "subject_id",
+                    "subject_id": "user:ada",
+                    "allow_code_review_comments": None,
+                    "allow_self_fix": False,
+                }
+            }
+        )
+
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                return_value=FakeAuthorization(
+                    [SimpleNamespace(type="subject", id="user:ada")]
+                ),
+            ),
+        ):
+            request = self._workflow_signal_request(self._preference_pr_payload())
+
+        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
+        self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations
+        )
+        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        self.assertEqual(
+            data["webhook_policy"]["action_preferences"]["source"], "subject_id"
+        )
+
+    def test_action_preferences_true_cannot_exceed_static_policy_ceiling(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            self._action_preferences_config(
+                action={
+                    "mode": "pull_request",
+                    "allowCodeReviewComments": False,
+                    "allowSelfFix": False,
+                }
+            ),
+        )
+        identity = identity_module.GitHubPreferenceIdentity(
+            preference_subject="pull_request_author",
+            repository="acme/widgets",
+            external_identity_type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+            external_subject_id="user:101",
+        )
+        record_id = preferences_module.preference_record_id(
+            repository="acme/widgets",
+            policy_id="review-policy",
+            identity=identity,
+            identity_kind="external_subject_id",
+        )
+        fake_db = FakeIndexedDB(
+            {
+                record_id: {
+                    "id": record_id,
+                    "schema_version": 1,
+                    "repository": "acme/widgets",
+                    "policy_id": "review-policy",
+                    "identity_kind": "external_subject_id",
+                    "external_identity_type": provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                    "external_subject_id": "user:101",
+                    "allow_code_review_comments": True,
+                    "allow_self_fix": True,
+                }
+            }
+        )
+
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request, "authorization", return_value=FakeAuthorization()
+            ),
+        ):
+            request = self._workflow_signal_request(self._preference_pr_payload())
+
+        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, operations
+        )
+        self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
+
+    def test_action_preferences_store_or_record_failure_falls_back_to_config(
+        self,
+    ) -> None:
+        for record in (
+            None,
+            {
+                "id": "bad",
+                "schema_version": 999,
+                "repository": "acme/widgets",
+                "policy_id": "review-policy",
+                "identity_kind": "external_subject_id",
+                "external_identity_type": provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                "external_subject_id": "user:101",
+            },
+        ):
+            with self.subTest(record=record):
+                provider_module.configure(
+                    "github",
+                    self._action_preferences_config(action={"mode": "comment"}),
+                )
+                records: dict[str, dict[str, Any]] = {}
+                if record is not None:
+                    identity = identity_module.GitHubPreferenceIdentity(
+                        preference_subject="pull_request_author",
+                        repository="acme/widgets",
+                        external_identity_type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                        external_subject_id="user:101",
+                    )
+                    record_id = preferences_module.preference_record_id(
+                        repository="acme/widgets",
+                        policy_id="review-policy",
+                        identity=identity,
+                        identity_kind="external_subject_id",
+                    )
+                    records[record_id] = {**record, "id": record_id}
+                fake_db = FakeIndexedDB(records)
+                if record is None:
+                    fake_db.object_store_client.fail = True
+                with (
+                    mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+                    mock.patch.object(
+                        gestalt.Request,
+                        "authorization",
+                        return_value=FakeAuthorization(),
+                    ),
+                ):
+                    request = self._workflow_signal_request(
+                        self._preference_pr_payload()
+                    )
+                self.assertIn(
+                    provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+                    [tool.operation for tool in request.target.agent.tool_refs],
+                )
+
+    def test_action_preferences_dynamic_false_ignores_builtin_review_target(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            {
+                **self._action_preferences_config(action={"mode": "comment"}),
+                "webhookPolicies": [
+                    {
+                        "id": "review-policy",
+                        "match": {"events": ["pull_request"]},
+                        "workflow": {
+                            "target": {
+                                "plugin": {
+                                    "plugin": "github",
+                                    "operation": "reviewPullRequest",
+                                }
+                            }
+                        },
+                        "action": {"mode": "comment"},
+                    }
+                ],
+            },
+        )
+        identity = identity_module.GitHubPreferenceIdentity(
+            preference_subject="pull_request_author",
+            repository="acme/widgets",
+            external_identity_type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+            external_subject_id="user:101",
+        )
+        record_id = preferences_module.preference_record_id(
+            repository="acme/widgets",
+            policy_id="review-policy",
+            identity=identity,
+            identity_kind="external_subject_id",
+        )
+        fake_db = FakeIndexedDB(
+            {
+                record_id: {
+                    "id": record_id,
+                    "schema_version": 1,
+                    "repository": "acme/widgets",
+                    "policy_id": "review-policy",
+                    "identity_kind": "external_subject_id",
+                    "external_identity_type": provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                    "external_subject_id": "user:101",
+                    "allow_code_review_comments": False,
+                    "allow_self_fix": None,
+                }
+            }
+        )
+        workflow_manager = FakeWorkflowManager()
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request, "authorization", return_value=FakeAuthorization()
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._preference_pr_payload(), gestalt.Request()
+            )
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "ignored": "policy_preference_disabled:code_review_comments",
+            },
+        )
+        self.assertEqual(workflow_manager.requests, [])
+
+    def test_action_preferences_comment_author_and_sender_modes(self) -> None:
+        cases = [
+            (
+                "comment_author",
+                "issue_comment",
+                {
+                    "action": "created",
+                    "installation": {"id": 99},
+                    "repository": {"full_name": "acme/widgets"},
+                    "issue": {"number": 7, "pull_request": {}},
+                    "comment": {"id": 123, "user": {"id": 303, "login": "reviewer"}},
+                    "headers": {"X-GitHub-Event": "issue_comment"},
+                    "sender": {"id": 202, "login": "octocat"},
+                },
+                "user:303",
+            ),
+            (
+                "sender",
+                "issues",
+                {
+                    "action": "opened",
+                    "installation": {"id": 99},
+                    "repository": {"full_name": "acme/widgets"},
+                    "issue": {"number": 8},
+                    "headers": {"X-GitHub-Event": "issues"},
+                    "sender": {"id": 202, "login": "octocat"},
+                },
+                "user:202",
+            ),
+        ]
+        for preference_subject, event_name, payload, external_subject_id in cases:
+            with self.subTest(preference_subject=preference_subject):
+                provider_module.configure(
+                    "github",
+                    self._action_preferences_config(
+                        match={"events": [event_name]},
+                        action={
+                            "mode": "comment",
+                            "preferenceSubject": preference_subject,
+                        },
+                    ),
+                )
+                identity = identity_module.GitHubPreferenceIdentity(
+                    preference_subject=preference_subject,
+                    repository="acme/widgets",
+                    external_identity_type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                    external_subject_id=external_subject_id,
+                )
+                record_id = preferences_module.preference_record_id(
+                    repository="acme/widgets",
+                    policy_id="review-policy",
+                    identity=identity,
+                    identity_kind="external_subject_id",
+                )
+                fake_db = FakeIndexedDB(
+                    {
+                        record_id: {
+                            "id": record_id,
+                            "schema_version": 1,
+                            "repository": "acme/widgets",
+                            "policy_id": "review-policy",
+                            "identity_kind": "external_subject_id",
+                            "external_identity_type": provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                            "external_subject_id": external_subject_id,
+                            "allow_code_review_comments": False,
+                            "allow_self_fix": None,
+                        }
+                    }
+                )
+                with (
+                    mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+                    mock.patch.object(
+                        gestalt.Request,
+                        "authorization",
+                        return_value=FakeAuthorization(),
+                    ),
+                ):
+                    request = self._workflow_signal_request(payload)
+                data = cast(
+                    dict[str, Any], json_format.MessageToDict(request.signal.payload)
+                )
+                self.assertEqual(
+                    data["webhook_policy"]["action_preferences"]["identity"][
+                        "external_subject_id"
+                    ],
+                    external_subject_id,
+                )
+
+    def test_action_preference_operations_manage_callers_own_identity(self) -> None:
+        provider_module.configure(
+            "github",
+            self._action_preferences_config(action={"mode": "comment"}),
+        )
+        fake_db = FakeIndexedDB()
+        req = gestalt.Request(
+            agent_external_identity=gestalt.ExternalIdentity(
+                type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE, id="user:101"
+            ),
+            agent_subject=gestalt.Subject(id="user:ada", kind="human"),
+        )
+
+        with mock.patch.object(gestalt, "IndexedDB", return_value=fake_db) as indexeddb:
+            set_result = provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="review-policy",
+                    allow_code_review_comments=False,
+                    allow_self_fix=None,
+                ),
+                req,
+            )
+            get_result = provider_module.github_action_preferences_get(
+                provider_module.ActionPreferenceInput(
+                    repository="acme/widgets", policy_id="review-policy"
+                ),
+                req,
+            )
+            delete_result = provider_module.github_action_preferences_delete(
+                provider_module.ActionPreferenceInput(
+                    repository="acme/widgets", policy_id="review-policy"
+                ),
+                req,
+            )
+            get_after_delete = provider_module.github_action_preferences_get(
+                provider_module.ActionPreferenceInput(
+                    repository="acme/widgets", policy_id="review-policy"
+                ),
+                req,
+            )
+
+        indexeddb.assert_called_once_with("github_prefs")
+        preference = set_result["data"]["preference"]
+        self.assertEqual(preference["identity_kind"], "external_subject_id")
+        self.assertEqual(preference["external_subject_id"], "user:101")
+        self.assertEqual(preference["allow_code_review_comments"], False)
+        self.assertEqual(get_result["data"]["preference"]["id"], preference["id"])
+        self.assertEqual(delete_result["data"]["deleted"], True)
+        self.assertEqual(get_after_delete["data"]["found"], False)
+
+    def test_action_preference_operations_reject_missing_store_or_identity(
+        self,
+    ) -> None:
+        result = provider_module.github_action_preferences_get(
+            provider_module.ActionPreferenceInput(
+                repository="acme/widgets", policy_id="review-policy"
+            ),
+            gestalt.Request(),
+        )
+        self.assertEqual(result.status, HTTPStatus.PRECONDITION_FAILED)
+
+        provider_module.configure(
+            "github",
+            self._action_preferences_config(action={"mode": "comment"}),
+        )
+        fake_db = FakeIndexedDB()
+        with mock.patch.object(gestalt, "IndexedDB", return_value=fake_db):
+            service_account_result = provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="review-policy",
+                    allow_code_review_comments=False,
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(
+                        id="service_account:github_app_installation:99",
+                        kind="service_account",
+                    )
+                ),
+            )
+            unavailable_external_result = provider_module.github_action_preferences_get(
+                provider_module.ActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="review-policy",
+                    identity_kind="external_subject_id",
+                ),
+                gestalt.Request(
+                    agent_subject=gestalt.Subject(id="user:ada", kind="human")
+                ),
+            )
+
+        self.assertEqual(service_account_result.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(unavailable_external_result.status, HTTPStatus.BAD_REQUEST)
+
     def test_policy_manual_commands_and_drafts_fall_through(self) -> None:
         provider_module.configure(
             "github",
@@ -1668,6 +2372,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
                 provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
@@ -1696,6 +2401,89 @@ class GitHubProviderTests(unittest.TestCase):
             "bot.createPullRequestConversationComment",
             data["agent_request"]["user_prompt"],
         )
+
+    def test_ci_policy_suppresses_stale_head_before_dispatch(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "failed-ci-comment",
+                        "match": {
+                            "events": ["check_suite"],
+                            "actions": ["completed"],
+                            "conclusions": ["failure"],
+                        },
+                        "comments": {"suppressStaleHead": True},
+                        "action": {"mode": "comment"},
+                    }
+                ],
+            },
+        )
+        calls: list[tuple[str, str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body))
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"pull_requests": "read"})
+                return FakeHTTPResponse({"token": "pull-token"})
+            if path == "/repos/acme/widgets/pulls/7":
+                self.assertEqual(auth_header(request), "Bearer pull-token")
+                return FakeHTTPResponse(
+                    {"number": 7, "head": {"sha": "current-sha"}}
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        workflow_manager = FakeWorkflowManager()
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                {
+                    "action": "completed",
+                    "installation": {"id": 99},
+                    "repository": {
+                        "full_name": "acme/widgets",
+                        "name": "widgets",
+                        "owner": {"login": "acme"},
+                    },
+                    "check_suite": {
+                        "id": 321,
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "head_sha": "stale-sha",
+                        "pull_requests": [{"number": 7}],
+                    },
+                    "headers": {"X-GitHub-Event": "check_suite"},
+                    "sender": {"login": "octocat"},
+                },
+                github_request(),
+            )
+
+        self.assertEqual(
+            result, {"ok": True, "ignored": "stale_head:stale-sha:current-sha"}
+        )
+        self.assertEqual(workflow_manager.requests, [])
+        self.assertEqual(len(calls), 2)
 
     def test_explicit_policy_can_dispatch_to_configured_plugin_workflow_target(
         self,
@@ -2500,6 +3288,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
                 provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
@@ -2789,6 +3578,25 @@ class GitHubProviderTests(unittest.TestCase):
                 },
                 "comments.inlinePolicy cannot be never",
             ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "gated-review-target",
+                            "action": {"allowCodeReviewComments": False},
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github",
+                                        "operation": "reviewPullRequest",
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                "action.allowCodeReviewComments cannot be false",
+            ),
         ):
             with self.subTest(expected=expected):
                 with self.assertRaisesRegex(ValueError, expected):
@@ -3058,6 +3866,46 @@ class GitHubProviderTests(unittest.TestCase):
             dict[str, Any],
             json_format.MessageToDict(request.signal.payload),
         )
+
+    def _action_preferences_config(
+        self,
+        *,
+        match: dict[str, Any] | None = None,
+        action: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "appId": "12345",
+            "appPrivateKey": "unused-in-tests",
+            "workflow": {"provider": "local"},
+            "agent": {"provider": "simple", "model": "deep"},
+            "actionPreferences": {
+                "indexeddb": "github_prefs",
+                "store": "github_action_preferences",
+                "failureMode": "config_default",
+            },
+            "webhookPolicies": [
+                {
+                    "id": "review-policy",
+                    "match": match or {"events": ["pull_request"]},
+                    "action": action or {"mode": "comment"},
+                }
+            ],
+        }
+
+    def _preference_pr_payload(self) -> dict[str, Any]:
+        return {
+            "action": "opened",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {
+                "number": 7,
+                "user": {"id": 101, "login": "ada"},
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            },
+            "headers": {"X-GitHub-Event": "pull_request"},
+            "sender": {"id": 202, "login": "octocat"},
+        }
 
     def test_webhook_handler_compacts_issue_comment_and_review_context(self) -> None:
         long_body = "please update this workflow\n" + ("x" * 10000)
@@ -4824,6 +5672,27 @@ class GitHubProviderTests(unittest.TestCase):
                         }
                     ]
                 )
+            if path == "/repos/acme/widgets/check-suites/321/check-runs":
+                self.assertEqual(
+                    urllib.parse.urlparse(request.full_url).query,
+                    "check_name=Build+Gestalt&status=completed&filter=latest&per_page=4&page=2",
+                )
+                self.assertEqual(auth_header(request), "Bearer checks-token")
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 654,
+                                "name": "Build Gestalt",
+                                "status": "completed",
+                                "conclusion": "failure",
+                                "html_url": "https://github.com/acme/widgets/runs/654",
+                                "head_sha": "abc123",
+                            }
+                        ],
+                    }
+                )
             if path == "/repos/acme/widgets/actions/runs/456":
                 self.assertEqual(auth_header(request), "Bearer actions-token")
                 return FakeHTTPResponse(
@@ -4881,6 +5750,19 @@ class GitHubProviderTests(unittest.TestCase):
                 ),
                 github_request(),
             )
+            suite_runs = provider_module.bot_list_check_suite_check_runs(
+                provider_module.ListCheckSuiteCheckRunsInput(
+                    owner="acme",
+                    repo="widgets",
+                    check_suite_id=321,
+                    check_name="Build Gestalt",
+                    status="completed",
+                    filter="latest",
+                    per_page=4,
+                    page=2,
+                ),
+                github_request(),
+            )
             workflow_run = provider_module.bot_get_workflow_run(
                 provider_module.GetWorkflowRunInput(
                     owner="acme", repo="widgets", run_id=456
@@ -4905,6 +5787,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             cast(dict[str, Any], annotations)["data"]["annotations"][0]["message"],
             "broken",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], suite_runs)["data"]["check_runs"][0]["id"], 654
         )
         self.assertEqual(
             cast(dict[str, Any], workflow_run)["data"]["workflow_run"]["name"], "CI"
