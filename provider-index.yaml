@@ -162,6 +162,16 @@ packages:
     displayName: "Codex MCP Agent"
     description: "Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant."
     versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
       "0.0.1-alpha.2":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/codex/v0.0.1-alpha.2/provider-release.yaml"
         kind: "agent"
