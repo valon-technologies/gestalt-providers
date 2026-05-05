@@ -77,6 +77,7 @@ interface AgentComposerState {
 }
 
 const EMPTY_OPERATIONS: IntegrationOperation[] = [];
+const AGENT_BOOTSTRAP_TIMEOUT_MS = 15_000;
 
 export default function AgentsPage() {
   const router = useRouter();
@@ -110,6 +111,7 @@ export default function AgentsPage() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [streamNonce, setStreamNonce] = useState(0);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [integrationsError, setIntegrationsError] = useState<string | null>(
     null,
@@ -163,39 +165,44 @@ export default function AgentsPage() {
     if (initial) setLoading(true);
     else setRefreshing(true);
 
-    Promise.allSettled([
-      getAgentProviders(),
-      getAgentSessions({ view: "summary", limit: 100 }),
-      getIntegrations(),
-    ])
-      .then(([providersResult, sessionsResult, integrationsResult]) => {
+    withLoadTimeout(getAgentProviders(), "Loading agent providers")
+      .then((value) => {
         if (!active) return;
+        setProviders(value);
+        setProvidersError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setProvidersError(errorMessage(err, "Failed to load agent providers"));
+      });
 
-        if (providersResult.status === "fulfilled") {
-          setProviders(providersResult.value);
-        }
+    withLoadTimeout(getIntegrations(), "Loading plugins")
+      .then((value) => {
+        if (!active) return;
+        setIntegrations(value);
+        setIntegrationsError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setIntegrationsError(errorMessage(err, "Failed to load plugins"));
+      });
 
-        if (integrationsResult.status === "fulfilled") {
-          setIntegrations(integrationsResult.value);
-          setIntegrationsError(null);
-        } else {
-          setIntegrationsError(
-            errorMessage(integrationsResult.reason, "Failed to load plugins"),
-          );
+    withLoadTimeout(
+      getAgentSessions({ view: "summary", limit: 100 }),
+      "Loading agent sessions",
+    )
+      .then((value) => {
+        if (!active) return;
+        setSessions(value);
+        setSessionsError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        if (isAPIErrorStatus(err, 412)) {
+          router.replace("/");
+          return;
         }
-
-        if (sessionsResult.status === "fulfilled") {
-          setSessions(sessionsResult.value);
-          setSessionsError(null);
-        } else {
-          if (isAPIErrorStatus(sessionsResult.reason, 412)) {
-            router.replace("/");
-            return;
-          }
-          setSessionsError(
-            errorMessage(sessionsResult.reason, "Failed to load agent sessions"),
-          );
-        }
+        setSessionsError(errorMessage(err, "Failed to load agent sessions"));
       })
       .finally(() => {
         if (!active) return;
@@ -263,10 +270,15 @@ export default function AgentsPage() {
 
     async function replayTurns() {
       let state = createTranscriptState();
-      for (const turn of sortTurnsAscending(turns)) {
+      const sortedTurns = sortTurnsAscending(turns);
+      const eventResults = await Promise.all(
+        sortedTurns.map((turn) => getAllAgentTurnEvents(turn.id, { limit: 100 })),
+      );
+      if (!active) return;
+      for (let index = 0; index < sortedTurns.length; index += 1) {
+        const turn = sortedTurns[index];
+        const result = eventResults[index];
         state = appendTurnMessages(state, turn);
-        const result = await getAllAgentTurnEvents(turn.id, { limit: 100 });
-        if (!active) return;
         for (const event of result.events) {
           state = applyTurnEvent(state, event);
         }
@@ -670,6 +682,7 @@ export default function AgentsPage() {
                     composer={composer}
                     selectedSession={selectedSession}
                     providers={providers}
+                    providersError={providersError}
                     integrations={agentIntegrations}
                     integrationsError={integrationsError}
                     operationsByPlugin={operationsByPlugin}
@@ -1055,6 +1068,7 @@ function AgentComposer({
   composer,
   selectedSession,
   providers,
+  providersError,
   integrations,
   integrationsError,
   operationsByPlugin,
@@ -1070,6 +1084,7 @@ function AgentComposer({
   composer: AgentComposerState;
   selectedSession: AgentSession | null;
   providers: AgentProvider[];
+  providersError: string | null;
   integrations: Integration[];
   integrationsError: string | null;
   operationsByPlugin: Record<string, IntegrationOperation[]>;
@@ -1151,6 +1166,9 @@ function AgentComposer({
       </div>
 
       {formError ? <p className="mt-4 text-sm text-ember-500">{formError}</p> : null}
+      {providersError ? (
+        <p className="mt-4 text-sm text-ember-500">{providersError}</p>
+      ) : null}
 
       <div className="mt-5 space-y-4">
         {!selectedSession ? (
@@ -1860,4 +1878,29 @@ function errorMessage(reason: unknown, fallback: string): string {
   if (reason instanceof Error && reason.message) return reason.message;
   if (typeof reason === "string" && reason) return reason;
   return fallback;
+}
+
+function withLoadTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(
+        new Error(
+          `${label} timed out after ${Math.round(
+            AGENT_BOOTSTRAP_TIMEOUT_MS / 1000,
+          )} seconds.`,
+        ),
+      );
+    }, AGENT_BOOTSTRAP_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
