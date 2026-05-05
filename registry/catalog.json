@@ -19,7 +19,7 @@
       ],
       "iconUrl": null,
       "kind": "agent",
-      "latestInstallableVersion": "0.0.1-alpha.17",
+      "latestInstallableVersion": "0.0.1-alpha.18",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/claude/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.18",
       "name": "claude",
@@ -29,6 +29,18 @@
       "registryPath": "/providers/agent/claude/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/claude",
       "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.18/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.18"
+        },
         {
           "kind": "agent",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/claude/v0.0.1-alpha.17/provider-release.yaml",
