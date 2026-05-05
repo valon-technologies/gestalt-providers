@@ -31,6 +31,7 @@ MAX_PAGES = 1_000
 MAX_CATALOG_TOOLS = 10_000
 TOOL_ERROR_NAME = "gestalt__tools_unavailable"
 TOOL_ERROR_MAX_CHARS = 1200
+TOOL_SEARCH_METADATA_MAX_CHARS = 800
 _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
@@ -41,6 +42,8 @@ class ToolEntry:
     mcp_name: str
     title: str
     description: str
+    tags: list[str]
+    search_text: str
     input_schema: dict[str, Any]
     annotations: ToolAnnotations | None
 
@@ -263,7 +266,7 @@ def _tool_to_json(tool: Tool) -> dict[str, Any]:
 def _mcp_tool(entry: ToolEntry) -> Tool:
     return Tool(
         name=entry.mcp_name,
-        description=entry.description or entry.title or entry.mcp_name,
+        description=_tool_description(entry),
         inputSchema=entry.input_schema,
         annotations=entry.annotations,
     )
@@ -279,6 +282,8 @@ def _tool_error_entry(exc: Exception) -> ToolEntry:
             "Gestalt tool discovery failed. Use this diagnostic tool, then tell the user the "
             f"integration needs attention before retrying. Error: {message}"
         ),
+        tags=[],
+        search_text="",
         input_schema={"type": "object", "additionalProperties": False},
         annotations=ToolAnnotations(title="Gestalt tools unavailable", readOnlyHint=True),
     )
@@ -311,9 +316,55 @@ def _tool_entry(tool_proto: Any) -> ToolEntry:
         mcp_name=mcp_name,
         title=str(tool_proto.title or "").strip(),
         description=str(tool_proto.description or "").strip(),
+        tags=_string_list(getattr(tool_proto, "tags", [])),
+        search_text=str(getattr(tool_proto, "search_text", "") or "").strip(),
         input_schema=_schema_from_json(str(tool_proto.input_schema or "")),
         annotations=_annotations(tool_proto.annotations, title=str(tool_proto.title or "").strip()),
     )
+
+
+def _tool_description(entry: ToolEntry) -> str:
+    description = entry.description or entry.title or entry.mcp_name
+    metadata = _tool_search_metadata(entry)
+    if not metadata:
+        return description
+    return f"{description}\n\nSearch metadata: {metadata}."
+
+
+def _tool_search_metadata(entry: ToolEntry) -> str:
+    values: list[str] = []
+    seen: set[str] = set()
+    for value in [*entry.tags, entry.search_text]:
+        for part in _metadata_parts(value):
+            normalized = part.lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            values.append(part)
+    if not values:
+        return ""
+    text = ", ".join(values)
+    if len(text) > TOOL_SEARCH_METADATA_MAX_CHARS:
+        text = text[: TOOL_SEARCH_METADATA_MAX_CHARS - 3].rstrip(" ,") + "..."
+    return text
+
+
+def _metadata_parts(value: str) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    if "," in raw:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    return [raw]
+
+
+def _string_list(value: Any) -> list[str]:
+    out: list[str] = []
+    for item in value or []:
+        text = str(item or "").strip()
+        if text:
+            out.append(text)
+    return out
 
 
 def _execute_tool(

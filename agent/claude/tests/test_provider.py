@@ -52,6 +52,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests: list[dict[str, Any]] = []
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.metadata_supported = False
         self.list_error = ""
         self.execute_error = ""
 
@@ -60,6 +61,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests.clear()
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.metadata_supported = False
         self.list_error = ""
         self.execute_error = ""
 
@@ -86,6 +88,11 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 tool.mcp_name = f"{plugin}__operation_{index}"
                 tool.title = f"{plugin.title()} operation {index}"
                 tool.description = f"{plugin.title()} catalog operation {index}"
+                if hasattr(tool, "tags"):
+                    self.metadata_supported = True
+                    if plugin == "github":
+                        tool.tags.extend(["pr", "prs"])
+                        tool.search_text = "github pull request repository owner number"
                 tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
                 setattr(tool.ref, "plugin", plugin)
                 setattr(tool.ref, "operation", f"operation{index}")
@@ -126,6 +133,10 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             tool.mcp_name = "github__pulls_list"
             tool.title = "List GitHub pull requests"
             tool.description = "List pull requests from GitHub"
+            if hasattr(tool, "tags"):
+                self.metadata_supported = True
+                tool.tags.extend(["pr", "prs"])
+                tool.search_text = "github pull request repository owner number"
             tool.input_schema = '{"type":"object"}'
             setattr(tool.ref, "plugin", "github")
             setattr(tool.ref, "operation", "pulls/list")
@@ -534,6 +545,15 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(visible_tools[0], "github__operation_0")
         self.assertEqual(visible_tools[-1], "linear__operation_59")
         self.assertEqual([request["page_token"] for request in host.list_requests], [""])
+        if host.metadata_supported:
+            self.assertIn("Search metadata:", sdk_tools[0].description)
+            self.assertIn("pr", sdk_tools[0].description)
+            self.assertIn("pull request", sdk_tools[0].description)
+            bridged = asyncio.run(_list_tools_json_through_sdk_bridge(options))
+            bridged_description = bridged["result"]["tools"][0]["description"]
+            self.assertIn("Search metadata:", bridged_description)
+            self.assertIn("pr", bridged_description)
+            self.assertIn("pull request", bridged_description)
 
         execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
@@ -898,6 +918,14 @@ async def _list_tools_through_sdk_bridge(options: Any) -> tuple[dict[str, Any], 
         bridge, "gestalt", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"cursor": "page-2"}}
     )
     return first, second
+
+
+async def _list_tools_json_through_sdk_bridge(options: Any) -> dict[str, Any]:
+    from claude_agent_sdk._internal.query import Query
+
+    bridge = py_types.SimpleNamespace(sdk_mcp_servers={"gestalt": options.mcp_servers["gestalt"]["instance"]})
+    handle_request = cast(Any, Query._handle_sdk_mcp_request)
+    return await handle_request(bridge, "gestalt", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
 
 
 def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
