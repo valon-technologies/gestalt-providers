@@ -59,7 +59,6 @@ type Store struct {
 	tablePrefix string
 	conn        connectionOptions
 	mu          sync.RWMutex
-	meta        map[string]*storeMeta
 }
 
 func NewStore(dsn string) (*Store, error) {
@@ -90,7 +89,6 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		schemaName:  options.Schema,
 		tablePrefix: options.TablePrefix,
 		conn:        options.Connection,
-		meta:        make(map[string]*storeMeta),
 	}
 
 	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
@@ -102,10 +100,6 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		return nil, err
 	}
 
-	if err := s.loadMetadata(context.Background()); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	return s, nil
 }
 
@@ -143,34 +137,7 @@ func (s *Store) metadataStoreKey(storeName string) string {
 	return s.tablePrefix + storeName
 }
 
-func (s *Store) loadMetadata(ctx context.Context) error {
-	rows, err := s.query(ctx, "SELECT "+quoteIdent(s.dialect, "name")+", "+quoteIdent(s.dialect, "schema_json")+
-		" FROM "+quoteTableName(s.dialect, s.metadataTable()))
-	if err != nil {
-		return fmt.Errorf("relationaldb: load metadata: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var name, schemaJSON string
-		if err := rows.Scan(&name, &schemaJSON); err != nil {
-			return fmt.Errorf("relationaldb: scan metadata: %w", err)
-		}
-		var stored storedSchema
-		if err := decodeStoredSchema([]byte(schemaJSON), &stored); err != nil {
-			continue
-		}
-		if logicalName, ok := s.currentMetadataStoreName(name); ok {
-			s.meta[logicalName] = stored.toMeta(logicalName)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("relationaldb: load metadata rows: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) refreshStoreMetadataLocked(ctx context.Context, storeName string) error {
+func (s *Store) loadStoreMetadata(ctx context.Context, storeName string) (*storeMeta, bool, error) {
 	var schemaJSON string
 	err := s.scanOne(ctx,
 		"SELECT "+quoteIdent(s.dialect, "schema_json")+
@@ -180,30 +147,17 @@ func (s *Store) refreshStoreMetadataLocked(ctx context.Context, storeName string
 		&schemaJSON,
 	)
 	if err == sql.ErrNoRows {
-		delete(s.meta, storeName)
-		return nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("relationaldb: refresh metadata for %q: %w", storeName, err)
+		return nil, false, fmt.Errorf("relationaldb: load metadata for %q: %w", storeName, err)
 	}
 
 	var stored storedSchema
 	if err := decodeStoredSchema([]byte(schemaJSON), &stored); err != nil {
-		delete(s.meta, storeName)
-		return nil
+		return nil, false, nil
 	}
-	s.meta[storeName] = stored.toMeta(storeName)
-	return nil
-}
-
-func (s *Store) currentMetadataStoreName(key string) (string, bool) {
-	if !s.usesNamespacedMetadata() {
-		return key, true
-	}
-	if !strings.HasPrefix(key, s.tablePrefix) {
-		return "", false
-	}
-	return strings.TrimPrefix(key, s.tablePrefix), true
+	return stored.toMeta(storeName), true, nil
 }
 
 func (s *Store) HealthCheck(ctx context.Context) error {
@@ -279,10 +233,11 @@ func (s *Store) withTx(ctx context.Context, fn func(context.Context, *sql.Tx) er
 	})
 }
 
-func (s *Store) getMeta(name string) (*storeMeta, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	m, ok := s.meta[name]
+func (s *Store) getMeta(ctx context.Context, name string) (*storeMeta, error) {
+	m, ok, err := s.loadStoreMetadata(ctx, name)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load metadata for %q: %v", name, err)
+	}
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
 	}
@@ -297,7 +252,7 @@ func (s *Store) getMetaForContext(ctx context.Context, name string) (*storeMeta,
 		}
 		return m, nil
 	}
-	return s.getMeta(name)
+	return s.getMeta(ctx, name)
 }
 
 func (s *Store) ensureGenericTables(ctx context.Context) error {
@@ -465,7 +420,6 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, sche
 		return status.Errorf(codes.Internal, "persist metadata: %v", err)
 	}
 
-	s.meta[storeName] = newStoredSchema(schema).toMeta(storeName)
 	return nil
 }
 
@@ -476,10 +430,11 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 	defer s.mu.Unlock()
 
 	schema := req.GetSchema()
-	if err := s.refreshStoreMetadataLocked(ctx, req.Name); err != nil {
-		return nil, status.Errorf(codes.Internal, "refresh metadata: %v", err)
+	existing, ok, err := s.loadStoreMetadata(ctx, req.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load metadata: %v", err)
 	}
-	if existing, ok := s.meta[req.Name]; ok {
+	if ok {
 		if genericStoreSchemaMatches(existing, schema) {
 			return &emptypb.Empty{}, nil
 		}
@@ -564,7 +519,9 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.meta[req.Name]; ok {
+	if _, ok, err := s.loadStoreMetadata(ctx, req.Name); err != nil {
+		return nil, status.Errorf(codes.Internal, "load metadata: %v", err)
+	} else if ok {
 		if err := s.clearGeneric(ctx, req.Name); err != nil {
 			return nil, err
 		}
@@ -573,7 +530,6 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 		"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
 		s.metadataStoreKey(req.Name),
 	)
-	delete(s.meta, req.Name)
 	return &emptypb.Empty{}, nil
 }
 

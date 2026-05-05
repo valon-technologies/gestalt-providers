@@ -20,10 +20,19 @@ func (s *Store) beginTransaction(ctx context.Context, req *proto.BeginTransactio
 	s.mu.RLock()
 
 	scope := make(map[string]struct{}, len(req.GetStores()))
+	meta := make(map[string]*storeMeta, len(req.GetStores()))
 	for _, store := range req.GetStores() {
-		if _, ok := s.meta[store]; !ok {
-			s.mu.RUnlock()
-			return nil, status.Errorf(codes.NotFound, "object store not found: %s", store)
+		if _, ok := scope[store]; !ok {
+			storeMeta, found, err := s.loadStoreMetadata(ctx, store)
+			if err != nil {
+				s.mu.RUnlock()
+				return nil, status.Errorf(codes.Internal, "load metadata for %q: %v", store, err)
+			}
+			if !found {
+				s.mu.RUnlock()
+				return nil, status.Errorf(codes.NotFound, "object store not found: %s", store)
+			}
+			meta[store] = storeMeta
 		}
 		scope[store] = struct{}{}
 	}
@@ -38,19 +47,11 @@ func (s *Store) beginTransaction(ctx context.Context, req *proto.BeginTransactio
 		store: s,
 		tx:    sqlTx,
 		scope: scope,
-		meta:  copyRelationalMeta(scope, s.meta),
+		meta:  meta,
 		unlock: func() {
 			s.mu.RUnlock()
 		},
 	}, nil
-}
-
-func copyRelationalMeta(scope map[string]struct{}, meta map[string]*storeMeta) map[string]*storeMeta {
-	out := make(map[string]*storeMeta, len(scope))
-	for name := range scope {
-		out[name] = meta[name]
-	}
-	return out
 }
 
 type relationalTransaction struct {

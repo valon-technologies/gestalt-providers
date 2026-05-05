@@ -387,7 +387,7 @@ func TestFullLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteObjectStore: %v", err)
 	}
-	_, err = s.getMeta("widgets")
+	_, err = s.getMeta(ctx, "widgets")
 	if err == nil {
 		t.Fatal("expected error after DeleteObjectStore, got nil")
 	}
@@ -403,7 +403,7 @@ func TestCreateObjectStoreUsesGenericTables(t *testing.T) {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
-	meta, err := s.getMeta("widgets")
+	meta, err := s.getMeta(ctx, "widgets")
 	if err != nil {
 		t.Fatalf("getMeta: %v", err)
 	}
@@ -718,7 +718,7 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("Add(%s): %v", tc.prefix, err)
 		}
-		meta, err := tc.store.getMeta("tasks")
+		meta, err := tc.store.getMeta(ctx, "tasks")
 		if err != nil {
 			t.Fatalf("getMeta(%s): %v", tc.prefix, err)
 		}
