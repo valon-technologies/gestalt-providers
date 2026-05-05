@@ -21,6 +21,7 @@ from internals.constants import (
     BOT_GET_CHECK_RUN_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
+    BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
@@ -46,6 +47,7 @@ from internals.operations import (
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
     GitHubFileChange,
+    GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
     GitHubListPullRequestReviewThreadsRequest,
@@ -75,6 +77,7 @@ from internals.operations import (
     installation_subject_summary,
     issue_comment_summary,
     label_summary,
+    list_check_suite_check_runs,
     list_check_run_annotations,
     list_pull_request_files,
     list_pull_request_review_threads,
@@ -641,6 +644,38 @@ class ListCheckRunAnnotationsInput(gestalt.Model):
     )
 
 
+class ListCheckSuiteCheckRunsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    check_suite_id: int = gestalt.field(description="GitHub check suite ID")
+    check_name: str = gestalt.field(
+        description="Optional check run name filter", default="", required=False
+    )
+    status: str = gestalt.field(
+        description="Optional check run status filter",
+        default="",
+        required=False,
+    )
+    filter: str = gestalt.field(
+        description="GitHub check runs filter, either latest or all",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
 class GetWorkflowRunInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
@@ -730,6 +765,18 @@ def github_events_handle(
         policy = select_webhook_policy(config, input, summary)
         if policy is None:
             return {"ok": True, "ignored": "policy_not_matched"}
+        try:
+            stale_reason = _stale_ci_head_ignored_reason(req, summary, policy)
+        except ValueError as err:
+            return _bad_request(str(err))
+        except GitHubAuthorizationError as err:
+            return _forbidden(str(err))
+        except GitHubConfigError as err:
+            return _server_error(str(err))
+        except GitHubAPIError as err:
+            return _github_error(err)
+        if stale_reason:
+            return {"ok": True, "ignored": stale_reason}
 
     return _signal_or_start_webhook_workflow(input, req, summary=summary, policy=policy)
 
@@ -812,6 +859,59 @@ def _signal_or_start_webhook_workflow(
         "workflow_signal_id": str(getattr(signal, "id", "")),
         "workflow_started_run": bool(getattr(response, "started_run", False)),
     }
+
+
+def _stale_ci_head_ignored_reason(
+    req: gestalt.Request,
+    summary: dict[str, Any],
+    policy: Any,
+) -> str:
+    if not getattr(getattr(policy, "comments", None), "suppress_stale_head", False):
+        return ""
+    if str(summary.get("event_type", "")).strip() not in (
+        "check_run",
+        "check_suite",
+        "workflow_run",
+    ):
+        return ""
+    event_head_sha = str(summary.get("head_sha", "")).strip()
+    if not event_head_sha:
+        return ""
+    owner = str(summary.get("repository_owner", "")).strip()
+    repo = str(summary.get("repository_name", "")).strip()
+    pull_number = _single_pull_request_number(summary.get("pull_request_numbers"))
+    if not owner or not repo or pull_number <= 0:
+        return ""
+    pull = get_pull_request(
+        GitHubPullRequestRequest(
+            owner=owner,
+            repo=repo,
+            pull_number=pull_number,
+            installation_id=int(summary.get("installation_id", 0) or 0),
+        ),
+        subject=req.subject,
+    )
+    current_head_sha = _pull_request_head_sha(pull)
+    if current_head_sha and current_head_sha != event_head_sha:
+        return f"stale_head:{event_head_sha[:12]}:{current_head_sha[:12]}"
+    return ""
+
+
+def _single_pull_request_number(value: Any) -> int:
+    if not isinstance(value, list) or len(value) != 1:
+        return 0
+    number = value[0]
+    if isinstance(number, bool) or not isinstance(number, (int, float)):
+        return 0
+    return int(number) if int(number) > 0 else 0
+
+
+def _pull_request_head_sha(pull: dict[str, Any]) -> str:
+    head = pull.get("head")
+    if not isinstance(head, dict):
+        return ""
+    value = head.get("sha")
+    return value.strip() if isinstance(value, str) else ""
 
 
 @plugin.operation(
@@ -1379,6 +1479,52 @@ def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> Operatio
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"check_run": check_run_summary(check_run)}}
+
+
+@plugin.operation(
+    id=BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
+    method="GET",
+    description="List check runs in a GitHub check suite using a GitHub App installation token",
+)
+def bot_list_check_suite_check_runs(
+    input: ListCheckSuiteCheckRunsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        check_runs = list_check_suite_check_runs(
+            GitHubListCheckSuiteCheckRunsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                check_suite_id=input.check_suite_id,
+                check_name=input.check_name,
+                status=input.status,
+                filter=input.filter,
+                per_page=input.per_page,
+                page=input.page,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    raw_check_runs = check_runs.get("check_runs")
+    if not isinstance(raw_check_runs, list):
+        raw_check_runs = []
+    return {
+        "data": {
+            "total_count": check_runs.get("total_count", len(raw_check_runs)),
+            "check_runs": [
+                check_run_summary(check_run)
+                for check_run in raw_check_runs
+                if isinstance(check_run, dict)
+            ],
+        }
+    }
 
 
 @plugin.operation(

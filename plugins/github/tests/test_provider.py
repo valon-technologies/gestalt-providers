@@ -384,6 +384,9 @@ class GitHubProviderTests(unittest.TestCase):
         add_labels = operations[provider_module.BOT_ADD_LABELS_OPERATION]
         remove_labels = operations[provider_module.BOT_REMOVE_LABELS_OPERATION]
         request_reviewers = operations[provider_module.BOT_REQUEST_REVIEWERS_OPERATION]
+        suite_check_runs = operations[
+            provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION
+        ]
         self.assertIn("workflow targets", event["description"])
         self.assertIn("pull_request workflow signal", review["description"])
         self.assertIn("installation", installation["description"])
@@ -399,6 +402,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("labels", add_labels["description"])
         self.assertIn("labels", remove_labels["description"])
         self.assertIn("reviewers", request_reviewers["description"])
+        self.assertIn("check suite", suite_check_runs["description"])
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
         )
@@ -454,6 +458,10 @@ class GitHubProviderTests(unittest.TestCase):
             "team_reviewers",
             [parameter["name"] for parameter in request_reviewers["parameters"]],
         )
+        self.assertIn(
+            "check_suite_id",
+            [parameter["name"] for parameter in suite_check_runs["parameters"]],
+        )
 
         schema = yaml.safe_load(
             (plugin_root / "schemas" / "config.schema.yaml").read_text()
@@ -481,6 +489,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_REQUEST_REVIEWERS_OPERATION, enum)
         self.assertIn(provider_module.BOT_RESOLVE_INSTALLATION_OPERATION, enum)
         self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
+        self.assertIn(provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
         ]["workflow"]["properties"]
@@ -514,6 +523,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             policy_schema["comments"]["properties"]["inlinePolicy"]["enum"],
             ["allow", "never", "findings_only"],
+        )
+        self.assertEqual(
+            policy_schema["comments"]["properties"]["suppressStaleHead"]["type"],
+            "boolean",
         )
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
@@ -1668,6 +1681,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
                 provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
@@ -1696,6 +1710,89 @@ class GitHubProviderTests(unittest.TestCase):
             "bot.createPullRequestConversationComment",
             data["agent_request"]["user_prompt"],
         )
+
+    def test_ci_policy_suppresses_stale_head_before_dispatch(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "failed-ci-comment",
+                        "match": {
+                            "events": ["check_suite"],
+                            "actions": ["completed"],
+                            "conclusions": ["failure"],
+                        },
+                        "comments": {"suppressStaleHead": True},
+                        "action": {"mode": "comment"},
+                    }
+                ],
+            },
+        )
+        calls: list[tuple[str, str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body))
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"pull_requests": "read"})
+                return FakeHTTPResponse({"token": "pull-token"})
+            if path == "/repos/acme/widgets/pulls/7":
+                self.assertEqual(auth_header(request), "Bearer pull-token")
+                return FakeHTTPResponse(
+                    {"number": 7, "head": {"sha": "current-sha"}}
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        workflow_manager = FakeWorkflowManager()
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                {
+                    "action": "completed",
+                    "installation": {"id": 99},
+                    "repository": {
+                        "full_name": "acme/widgets",
+                        "name": "widgets",
+                        "owner": {"login": "acme"},
+                    },
+                    "check_suite": {
+                        "id": 321,
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "head_sha": "stale-sha",
+                        "pull_requests": [{"number": 7}],
+                    },
+                    "headers": {"X-GitHub-Event": "check_suite"},
+                    "sender": {"login": "octocat"},
+                },
+                github_request(),
+            )
+
+        self.assertEqual(
+            result, {"ok": True, "ignored": "stale_head:stale-sha:current-sha"}
+        )
+        self.assertEqual(workflow_manager.requests, [])
+        self.assertEqual(len(calls), 2)
 
     def test_explicit_policy_can_dispatch_to_configured_plugin_workflow_target(
         self,
@@ -2500,6 +2597,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
                 provider_module.BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
@@ -4824,6 +4922,27 @@ class GitHubProviderTests(unittest.TestCase):
                         }
                     ]
                 )
+            if path == "/repos/acme/widgets/check-suites/321/check-runs":
+                self.assertEqual(
+                    urllib.parse.urlparse(request.full_url).query,
+                    "check_name=Build+Gestalt&status=completed&filter=latest&per_page=4&page=2",
+                )
+                self.assertEqual(auth_header(request), "Bearer checks-token")
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 654,
+                                "name": "Build Gestalt",
+                                "status": "completed",
+                                "conclusion": "failure",
+                                "html_url": "https://github.com/acme/widgets/runs/654",
+                                "head_sha": "abc123",
+                            }
+                        ],
+                    }
+                )
             if path == "/repos/acme/widgets/actions/runs/456":
                 self.assertEqual(auth_header(request), "Bearer actions-token")
                 return FakeHTTPResponse(
@@ -4881,6 +5000,19 @@ class GitHubProviderTests(unittest.TestCase):
                 ),
                 github_request(),
             )
+            suite_runs = provider_module.bot_list_check_suite_check_runs(
+                provider_module.ListCheckSuiteCheckRunsInput(
+                    owner="acme",
+                    repo="widgets",
+                    check_suite_id=321,
+                    check_name="Build Gestalt",
+                    status="completed",
+                    filter="latest",
+                    per_page=4,
+                    page=2,
+                ),
+                github_request(),
+            )
             workflow_run = provider_module.bot_get_workflow_run(
                 provider_module.GetWorkflowRunInput(
                     owner="acme", repo="widgets", run_id=456
@@ -4905,6 +5037,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             cast(dict[str, Any], annotations)["data"]["annotations"][0]["message"],
             "broken",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], suite_runs)["data"]["check_runs"][0]["id"], 654
         )
         self.assertEqual(
             cast(dict[str, Any], workflow_run)["data"]["workflow_run"]["name"], "CI"

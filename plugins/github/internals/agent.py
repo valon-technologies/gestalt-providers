@@ -34,6 +34,7 @@ from .constants import (
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_REMOVE_LABELS_OPERATION,
@@ -274,6 +275,11 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
             "Use bot.listPullRequestReviewThreads to inspect existing inline "
             "review threads."
         )
+    if BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION in operations:
+        lines.append(
+            "Use bot.listCheckSuiteCheckRuns to expand check suite webhooks into "
+            "their individual check runs before diagnosing CI failures."
+        )
     if BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION in operations:
         lines.append(
             "Use bot.resolvePullRequestReviewThread only when a review thread is "
@@ -308,6 +314,11 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
                 "Only create inline review comments for concrete line-anchored "
                 "findings."
             )
+        if policy.comments.suppress_stale_head:
+            lines.append(
+                "CI signals whose head SHA is no longer the pull request head are "
+                "suppressed before this agent runs."
+            )
     return "\n".join(lines)
 
 
@@ -331,6 +342,7 @@ def agent_user_prompt(
         lines.append(f"dedupe_scope: {policy.dedupe.scope}")
         lines.append(f"timeline_policy: {policy.comments.timeline_policy}")
         lines.append(f"inline_policy: {policy.comments.inline_policy}")
+        lines.append(f"suppress_stale_head: {policy.comments.suppress_stale_head}")
         operations = agent_operations(policy)
         if operations:
             lines.append(f"available_operations: {', '.join(operations)}")
@@ -580,6 +592,7 @@ def policy_metadata(
         "comments": {
             "timeline_policy": policy.comments.timeline_policy,
             "inline_policy": policy.comments.inline_policy,
+            "suppress_stale_head": policy.comments.suppress_stale_head,
         },
     }
     if summary is not None:

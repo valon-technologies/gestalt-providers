@@ -108,6 +108,7 @@ class GitHubWebhookDedupe:
 class GitHubWebhookComments:
     timeline_policy: str = WEBHOOK_TIMELINE_ALLOW
     inline_policy: str = WEBHOOK_INLINE_ALLOW
+    suppress_stale_head: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,6 +424,13 @@ def parse_policy_comments(
             WEBHOOK_INLINE_POLICIES,
             WEBHOOK_INLINE_ALLOW,
             "inline_policy",
+        ),
+        suppress_stale_head=optional_bool(
+            comments_config,
+            "suppressStaleHead",
+            "suppress_stale_head",
+            path=f"webhookPolicies[{policy_index}].comments.suppressStaleHead",
+            default=False,
         ),
     )
 
