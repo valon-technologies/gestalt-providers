@@ -2100,7 +2100,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/github/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.26",
+      "latestInstallableVersion": "0.0.1-alpha.27",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/github/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.27",
       "name": "github",
@@ -2110,6 +2110,20 @@
       "registryPath": "/providers/plugin/github/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/github",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.27/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
+            "generic"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.27"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.26/provider-release.yaml",
@@ -3407,7 +3421,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/intercom/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.2",
+      "latestInstallableVersion": "0.0.1-alpha.3",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/intercom/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.3",
       "name": "intercom",
@@ -3417,6 +3431,15 @@
       "registryPath": "/providers/plugin/intercom/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/intercom",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.3/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.3"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.2/provider-release.yaml",
