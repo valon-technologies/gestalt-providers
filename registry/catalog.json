@@ -4795,7 +4795,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/vercel/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.12",
+      "latestInstallableVersion": "0.0.1-alpha.13",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/vercel/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.13",
       "name": "vercel",
@@ -4805,6 +4805,20 @@
       "registryPath": "/providers/plugin/vercel/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/vercel",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.13/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
+            "generic"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.13"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.12/provider-release.yaml",

@@ -2547,6 +2547,17 @@ packages:
     displayName: "Vercel"
     description: "Manage Vercel projects and deployments, and read or write Vercel Blob storage."
     versions:
+      "0.0.1-alpha.13":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.13/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
       "0.0.1-alpha.12":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.12/provider-release.yaml"
         kind: "plugin"
