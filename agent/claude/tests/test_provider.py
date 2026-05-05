@@ -302,7 +302,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 client_ref="",
                 created_by=py_types.SimpleNamespace(subject_id="user-123", subject_kind="human"),
             ),
-            _FakeProviderContext(),
+            cast(grpc.ServicerContext, _FakeProviderContext()),
         )
         metadata = json_format.MessageToDict(session.metadata)
         self.assertEqual(
@@ -332,7 +332,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 client_ref="",
                 created_by=py_types.SimpleNamespace(subject_id="user-123", subject_kind="human"),
             ),
-            _FakeProviderContext(),
+            cast(grpc.ServicerContext, _FakeProviderContext()),
         )
         self.assertEqual(replay.id, "session-start-provider")
 
@@ -357,14 +357,14 @@ class ClaudeProviderTests(unittest.TestCase):
                     session_id="reserved-session-start-create", metadata=metadata
                 )
             )
-        self.assertEqual(create_error.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
+        self.assertEqual(cast(Any, create_error.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
 
         provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="reserved-session-start"))
         with self.assertRaises(grpc.RpcError) as update_error:
             provider_client.UpdateSession(
                 agent_pb2.UpdateAgentProviderSessionRequest(session_id="reserved-session-start", metadata=metadata)
             )
-        self.assertEqual(update_error.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
+        self.assertEqual(cast(Any, update_error.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
 
     def test_provider_completes_turn_through_agent_sdk_with_catalog_tools(self) -> None:
         host = _host_servicer
