@@ -4797,7 +4797,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.12",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/vercel/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.12",
+      "manifestVersion": "0.0.1-alpha.13",
       "name": "vercel",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/vercel",
       "packagePath": "plugins/vercel",
