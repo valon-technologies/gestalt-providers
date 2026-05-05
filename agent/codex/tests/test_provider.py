@@ -7,6 +7,7 @@ import socket
 import sys
 import tempfile
 import time
+import types as py_types
 import unittest
 from concurrent import futures
 from typing import Any, cast
@@ -210,6 +211,8 @@ class CodexProviderTests(unittest.TestCase):
         self.assertFalse(capabilities.interactions)
         self.assertFalse(capabilities.resumable_turns)
         self.assertTrue(capabilities.bounded_list_hydration)
+        if hasattr(capabilities, "supports_prepared_workspace"):
+            self.assertTrue(capabilities.supports_prepared_workspace)
         self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "codex")
 
@@ -280,6 +283,33 @@ class CodexProviderTests(unittest.TestCase):
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["run_grant"], "grant-codex")
+
+    def test_provider_launches_codex_from_prepared_workspace(self) -> None:
+        if not hasattr(agent_pb2.CreateAgentProviderSessionRequest(), "prepared_workspace"):
+            self.skipTest("installed gestalt-sdk does not expose prepared workspaces yet")
+        _, provider_client = _configure_provider()
+        request = agent_pb2.CreateAgentProviderSessionRequest(session_id="session-codex-workspace")
+        request.prepared_workspace.root = "/sandbox/runtime/workspaces/session-codex-workspace"
+        request.prepared_workspace.cwd = "/sandbox/runtime/workspaces/session-codex-workspace/repo"
+        provider_client.CreateSession(request)
+        provider_client.CreateTurn(
+            _turn_request(
+                turn_id="turn-codex-workspace",
+                session_id="session-codex-workspace",
+                messages=[agent_pb2.AgentMessage(role="user", text="inspect repo")],
+            )
+        )
+        _wait_for_turn(provider_client, "turn-codex-workspace", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        fake_server = _FakeCodexMCPServer.instances[0]
+        self.assertEqual(fake_server.params["cwd"], "/sandbox/runtime/workspaces/session-codex-workspace/repo")
+        self.assertEqual(
+            fake_server.called_arguments["cwd"], "/sandbox/runtime/workspaces/session-codex-workspace/repo"
+        )
+
+    def test_prepared_workspace_requires_root_and_cwd(self) -> None:
+        with self.assertRaisesRegex(ValueError, "root and cwd are required"):
+            provider_module._prepared_workspace_to_dict(py_types.SimpleNamespace(root="/workspace", cwd=""))
 
     def test_provider_materializes_session_start_skills_for_codex_home(self) -> None:
         _, provider_client = _configure_provider()

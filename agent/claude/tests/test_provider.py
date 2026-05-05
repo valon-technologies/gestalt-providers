@@ -429,6 +429,8 @@ class ClaudeProviderTests(unittest.TestCase):
         lifecycle, provider_client = _configure_provider()
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
         self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
+        if hasattr(capabilities, "supports_prepared_workspace"):
+            self.assertTrue(capabilities.supports_prepared_workspace)
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "claude")
 
         provider_client.CreateSession(
@@ -494,6 +496,31 @@ class ClaudeProviderTests(unittest.TestCase):
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
+
+    def test_provider_launches_agent_sdk_from_prepared_workspace(self) -> None:
+        if not hasattr(agent_pb2.CreateAgentProviderSessionRequest(), "prepared_workspace"):
+            self.skipTest("installed gestalt-sdk does not expose prepared workspaces yet")
+        _, provider_client = _configure_provider()
+        request = agent_pb2.CreateAgentProviderSessionRequest(session_id="session-claude-workspace")
+        request.prepared_workspace.root = "/sandbox/runtime/workspaces/session-claude-workspace"
+        request.prepared_workspace.cwd = "/sandbox/runtime/workspaces/session-claude-workspace/repo"
+        provider_client.CreateSession(request)
+        provider_client.CreateTurn(
+            _turn_request(
+                turn_id="turn-claude-workspace",
+                session_id="session-claude-workspace",
+                messages=[agent_pb2.AgentMessage(role="user", text="inspect repo")],
+            )
+        )
+        _wait_for_turn(provider_client, "turn-claude-workspace", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        self.assertEqual(
+            _FakeClaudeSDKClient.instances[0].options.cwd, "/sandbox/runtime/workspaces/session-claude-workspace/repo"
+        )
+
+    def test_prepared_workspace_requires_root_and_cwd(self) -> None:
+        with self.assertRaisesRegex(ValueError, "root and cwd are required"):
+            provider_module._prepared_workspace_to_dict(py_types.SimpleNamespace(root="/workspace", cwd=""))
 
     def test_indexeddb_persists_session_for_new_provider_instance(self) -> None:
         provider_a = provider_module.ClaudeCodeAgentProvider()

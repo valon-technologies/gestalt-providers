@@ -41,6 +41,7 @@ import {
 import {
   InMemoryRunStore,
   StoreConflictError,
+  type PreparedWorkspace,
   sessionToProto,
   turnEventToProto,
   turnToProto,
@@ -138,6 +139,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       const sessionStart = (request as { sessionStart?: unknown }).sessionStart;
       let metadata = objectOrEmpty(request.metadata);
       validateSessionStartUserMetadata(metadata);
+      const preparedWorkspace = preparedWorkspaceFromRequest(request);
       if (hasSessionStartHooks(sessionStart)) {
         return await this.withSessionStartLock(async () => {
           const existing = this.existingSessionForCreate(
@@ -155,6 +157,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             model,
             clientRef: request.clientRef,
             metadata,
+            preparedWorkspace,
             createdBy: request.createdBy,
           });
           return sessionToProto(session);
@@ -167,6 +170,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model,
         clientRef: request.clientRef,
         metadata,
+        preparedWorkspace,
         createdBy: request.createdBy,
       });
       return sessionToProto(session);
@@ -279,6 +283,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model,
         messages: turn.messages,
         runGrant: request.runGrant.trim(),
+        cwd: session.preparedWorkspace?.cwd ?? "",
       });
     }
     return turnToProto(turn);
@@ -380,6 +385,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       resumableTurns: false,
       reasoningSummaries: false,
       supportsSessionStart: true,
+      supportsPreparedWorkspace: true,
       boundedListHydration: true,
       supportedToolSources: [AgentToolSourceMode.MCP_CATALOG],
     } as AgentCapabilitiesInit;
@@ -405,6 +411,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     model: string;
     messages: CreateAgentProviderTurnRequest["messages"];
     runGrant: string;
+    cwd: string;
   }): Promise<void> {
     try {
       const output = await input.runner.runTurn({
@@ -413,6 +420,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model: input.model,
         messages: input.messages,
         runGrant: input.runGrant,
+        cwd: input.cwd,
         onEvent: (eventType, data) => {
           this.store.appendEvent({
             turnId: input.turnId,
@@ -539,6 +547,24 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
     return {};
   }
   return value as Record<string, unknown>;
+}
+
+function preparedWorkspaceFromRequest(
+  request: CreateAgentProviderSessionRequest,
+): PreparedWorkspace | undefined {
+  const workspace = (request as { preparedWorkspace?: unknown }).preparedWorkspace;
+  if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) {
+    return undefined;
+  }
+  const root = String((workspace as { root?: unknown }).root ?? "").trim();
+  const cwd = String((workspace as { cwd?: unknown }).cwd ?? "").trim();
+  if (!root && !cwd) {
+    return undefined;
+  }
+  if (!root || !cwd) {
+    throw invalidArgument("preparedWorkspace root and cwd are required");
+  }
+  return { root, cwd };
 }
 
 function hasObjectData(value: unknown): boolean {

@@ -83,6 +83,11 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise RuntimeError("unreachable after context.abort") from exc
+        try:
+            prepared_workspace = _prepared_workspace_to_dict(_optional_field(request, "prepared_workspace"))
+        except ValueError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("unreachable after context.abort") from exc
         idempotency_key = str(request.idempotency_key or "").strip()
         session_start = _optional_field(request, "session_start")
         if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
@@ -102,6 +107,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     model=model,
                     client_ref=str(request.client_ref or "").strip(),
                     metadata=metadata,
+                    prepared_workspace=prepared_workspace,
                     created_by=_actor_to_dict(request.created_by),
                 )
                 return _session_to_proto(session)
@@ -112,6 +118,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             model=model,
             client_ref=str(request.client_ref or "").strip(),
             metadata=metadata,
+            prepared_workspace=prepared_workspace,
             created_by=_actor_to_dict(request.created_by),
         )
         return _session_to_proto(session)
@@ -178,6 +185,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         skill_roots = session_start_metadata_paths(
             session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
         )
+        cwd = _prepared_workspace_cwd(session.prepared_workspace)
         try:
             turn, created = store.begin_turn(
                 turn_id=str(request.turn_id or "").strip(),
@@ -207,6 +215,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "messages": list(turn.messages),
                     "run_grant": str(request.run_grant or "").strip(),
                     "skill_roots": skill_roots,
+                    "cwd": cwd,
                 },
                 daemon=True,
             ).start()
@@ -288,6 +297,8 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         )
         if hasattr(caps, "supports_session_start"):
             caps.supports_session_start = True
+        if hasattr(caps, "supports_prepared_workspace"):
+            caps.supports_prepared_workspace = True
         return caps
 
     def _require_runtime(
@@ -308,6 +319,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         messages: list[dict[str, Any]],
         run_grant: str,
         skill_roots: list[str],
+        cwd: str,
     ) -> None:
         try:
             output = runner.run_turn(
@@ -317,6 +329,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 messages=messages,
                 run_grant=run_grant,
                 skill_roots=skill_roots,
+                cwd=cwd,
             )
         except CodexExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))
@@ -545,6 +558,24 @@ def _struct_to_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     return json_format.MessageToDict(value)
+
+
+def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
+    if value is None:
+        return None
+    root = str(getattr(value, "root", "") or "").strip()
+    cwd = str(getattr(value, "cwd", "") or "").strip()
+    if not root and not cwd:
+        return None
+    if not root or not cwd:
+        raise ValueError("prepared_workspace root and cwd are required")
+    return {"root": root, "cwd": cwd}
+
+
+def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
+    if not value:
+        return ""
+    return str(value.get("cwd") or "").strip()
 
 
 def _optional_field(message: Any, field_name: str) -> Any | None:

@@ -41,6 +41,7 @@ class StoredSession:
     client_ref: str
     state: int
     metadata: dict[str, Any]
+    prepared_workspace: dict[str, str] | None
     created_by: dict[str, str]
     created_at: datetime
     updated_at: datetime
@@ -133,6 +134,7 @@ class IndexedDBRunStore:
         model: str,
         client_ref: str,
         metadata: dict[str, Any],
+        prepared_workspace: dict[str, str] | None,
         created_by: dict[str, str],
     ) -> tuple[StoredSession, bool]:
         session_id = session_id.strip()
@@ -161,6 +163,7 @@ class IndexedDBRunStore:
                 client_ref=client_ref,
                 state=gestalt.AGENT_SESSION_STATE_ACTIVE,
                 metadata=copy.deepcopy(metadata),
+                prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
                 created_by=_coerce_string_dict(created_by),
                 created_at=now,
                 updated_at=now,
@@ -634,6 +637,7 @@ def _session_to_record(session: StoredSession) -> dict[str, Any]:
         "client_ref": session.client_ref,
         "state": session.state,
         "metadata": copy.deepcopy(session.metadata),
+        "prepared_workspace": copy.deepcopy(session.prepared_workspace),
         "created_by": dict(session.created_by),
         "created_at": session.created_at,
         "updated_at": session.updated_at,
@@ -652,6 +656,7 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
         client_ref=str(record.get("client_ref") or ""),
         state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
         metadata=_coerce_optional_dict(record.get("metadata")) or {},
+        prepared_workspace=_coerce_optional_string_dict(record.get("prepared_workspace")),
         created_by=_coerce_string_dict(record.get("created_by")),
         created_at=_coerce_required_datetime(record.get("created_at")),
         updated_at=_coerce_required_datetime(record.get("updated_at")),
@@ -821,6 +826,14 @@ def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:
 def _coerce_string_dict(raw_value: Any) -> dict[str, str]:
     if not isinstance(raw_value, dict):
         return {}
+    return {str(key): str(value or "") for key, value in raw_value.items()}
+
+
+def _coerce_optional_string_dict(raw_value: Any) -> dict[str, str] | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        raise ValueError("stored value must be an object")
     return {str(key): str(value or "") for key, value in raw_value.items()}
 
 

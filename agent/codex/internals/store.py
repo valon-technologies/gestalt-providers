@@ -28,6 +28,7 @@ class StoredSession:
     client_ref: str
     state: int
     metadata: dict[str, Any]
+    prepared_workspace: dict[str, str] | None
     created_by: dict[str, str]
     created_at: datetime
     updated_at: datetime
@@ -90,6 +91,7 @@ class InMemoryRunStore:
         model: str,
         client_ref: str,
         metadata: dict[str, Any],
+        prepared_workspace: dict[str, str] | None,
         created_by: dict[str, str],
     ) -> tuple[StoredSession, bool]:
         session_id = session_id.strip()
@@ -109,6 +111,7 @@ class InMemoryRunStore:
                 client_ref=client_ref,
                 state=gestalt.AGENT_SESSION_STATE_ACTIVE,
                 metadata=copy.deepcopy(metadata),
+                prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
                 created_by=dict(created_by),
                 created_at=now,
                 updated_at=now,

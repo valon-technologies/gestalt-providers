@@ -3,6 +3,7 @@ import type { AgentMessage } from "@valon-technologies/gestalt";
 
 export const SESSION_START_PREFIX = "__gestalt.lifecycle.sessionStart";
 export const SESSION_START_ADDITIONAL_CONTEXT_KEY = `${SESSION_START_PREFIX}.additionalContext`;
+const RESERVED_METADATA_KEYS = new Set(["cwd", "workspacePath", "worktreePath"]);
 
 const DEFAULT_ENV_KEYS = [
   "HOME",
@@ -45,9 +46,9 @@ export function validateSessionStartUserMetadata(
     return;
   }
   for (const key of Object.keys(metadata)) {
-    if (key.startsWith(SESSION_START_PREFIX)) {
+    if (key.startsWith(SESSION_START_PREFIX) || RESERVED_METADATA_KEYS.has(key)) {
       throw new Error(
-        `agent session metadata key ${JSON.stringify(key)} is reserved for Gestalt lifecycle data`,
+        `agent session metadata key ${JSON.stringify(key)} is reserved for Gestalt lifecycle or workspace data`,
       );
     }
   }

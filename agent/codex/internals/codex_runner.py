@@ -113,6 +113,7 @@ class CodexMCPRunner:
         messages: list[dict[str, Any]],
         run_grant: str,
         skill_roots: list[str] | None = None,
+        cwd: str = "",
     ) -> str:
         try:
             return asyncio.run(
@@ -124,6 +125,7 @@ class CodexMCPRunner:
                         messages=messages,
                         run_grant=run_grant,
                         skill_roots=skill_roots or [],
+                        cwd=cwd,
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -159,6 +161,7 @@ class CodexMCPRunner:
         messages: list[dict[str, Any]],
         run_grant: str,
         skill_roots: list[str],
+        cwd: str,
     ) -> str:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
@@ -196,7 +199,7 @@ class CodexMCPRunner:
             with tempfile.TemporaryDirectory(prefix="gestalt-codex-home-") as codex_home:
                 _materialize_codex_skills(codex_home=codex_home, skill_roots=skill_roots)
                 server = self._server_factory(
-                    params=cast(Any, self._server_params(codex_home=codex_home)),
+                    params=cast(Any, self._server_params(codex_home=codex_home, cwd=cwd)),
                     name="Codex CLI",
                     client_session_timeout_seconds=self._config.timeout_seconds,
                 )
@@ -208,7 +211,7 @@ class CodexMCPRunner:
                 result = await server.call_tool(
                     CODEX_TOOL_NAME,
                     self._codex_tool_arguments(
-                        model=model, prompt=prompt, listed_tools=listed_tools, bridge_url=bridge.url
+                        model=model, prompt=prompt, listed_tools=listed_tools, bridge_url=bridge.url, cwd=cwd
                     ),
                 )
                 self._raise_if_canceled(turn_id)
@@ -230,7 +233,7 @@ class CodexMCPRunner:
                 except Exception:
                     logger.exception("failed to stop Gestalt MCP HTTP bridge")
 
-    def _server_params(self, *, codex_home: str) -> dict[str, Any]:
+    def _server_params(self, *, codex_home: str, cwd: str = "") -> dict[str, Any]:
         env: dict[str, str] = {"CODEX_HOME": codex_home}
         openai_api_key = self._config.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
         if openai_api_key:
@@ -240,8 +243,9 @@ class CodexMCPRunner:
             "args": list(self._config.codex_args),
             "env": env,
         }
-        if self._config.working_directory:
-            params["cwd"] = self._config.working_directory
+        working_directory = cwd or self._config.working_directory
+        if working_directory:
+            params["cwd"] = working_directory
         return params
 
     async def _assert_codex_tool(self, server: Any) -> None:
@@ -250,7 +254,7 @@ class CodexMCPRunner:
             raise CodexExecutionError("Codex MCP server did not expose the codex tool")
 
     def _codex_tool_arguments(
-        self, *, model: str, prompt: str, listed_tools: list[ToolEntry], bridge_url: str
+        self, *, model: str, prompt: str, listed_tools: list[ToolEntry], bridge_url: str, cwd: str = ""
     ) -> dict[str, Any]:
         arguments: dict[str, Any] = {
             "prompt": prompt,
@@ -261,8 +265,9 @@ class CodexMCPRunner:
         }
         if model:
             arguments["model"] = model
-        if self._config.working_directory:
-            arguments["cwd"] = self._config.working_directory
+        working_directory = cwd or self._config.working_directory
+        if working_directory:
+            arguments["cwd"] = working_directory
         if self._config.system_prompt:
             arguments["base-instructions"] = self._config.system_prompt
         return arguments
