@@ -90,7 +90,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     super({
       displayName: "Cursor Agent SDK",
       description: "Runs the Cursor Agent SDK with Gestalt MCP catalog tools.",
-      version: "0.0.1-alpha.3",
+      version: "0.0.1-alpha.4",
     });
     this.store = dependencies.store ?? new InMemoryRunStore();
     this.runnerFactory = dependencies.runnerFactory;
