@@ -3672,7 +3672,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/pagerduty/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.2",
+      "manifestVersion": "0.0.1-alpha.3",
       "name": "pagerduty",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/pagerduty",
       "packagePath": "plugins/pagerduty",
