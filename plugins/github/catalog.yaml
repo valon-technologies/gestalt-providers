@@ -56,6 +56,72 @@ operations:
     type: integer
     description: Polling interval while waiting for the review agent turn
     default: 1000
+- id: actionPreferences.get
+  method: GET
+  description: Get this caller's GitHub webhook action preferences for a policy
+  parameters:
+  - name: repository
+    type: string
+    description: Repository full name, owner/repo
+    required: true
+  - name: policy_id
+    type: string
+    description: GitHub webhook policy id
+    required: true
+  - name: identity_kind
+    type: string
+    description: >-
+      Preference identity kind: external_subject_id or subject_id. Defaults to
+      the caller's linked GitHub identity when present.
+    default: ''
+- id: actionPreferences.set
+  method: POST
+  description: Set this caller's GitHub webhook action preferences for a policy
+  parameters:
+  - name: repository
+    type: string
+    description: Repository full name, owner/repo
+    required: true
+  - name: policy_id
+    type: string
+    description: GitHub webhook policy id
+    required: true
+  - name: identity_kind
+    type: string
+    description: >-
+      Preference identity kind: external_subject_id or subject_id. Defaults to
+      the caller's linked GitHub identity when present.
+    default: ''
+  - name: allow_code_review_comments
+    type: boolean
+    description: >-
+      Whether this caller allows inline code review comments for this policy.
+      Null leaves the policy default in effect.
+    default: null
+  - name: allow_self_fix
+    type: boolean
+    description: >-
+      Whether this caller allows self-fix commits or pull requests for this
+      policy. Null leaves the policy default in effect.
+    default: null
+- id: actionPreferences.delete
+  method: POST
+  description: Delete this caller's GitHub webhook action preferences for a policy
+  parameters:
+  - name: repository
+    type: string
+    description: Repository full name, owner/repo
+    required: true
+  - name: policy_id
+    type: string
+    description: GitHub webhook policy id
+    required: true
+  - name: identity_kind
+    type: string
+    description: >-
+      Preference identity kind: external_subject_id or subject_id. Defaults to
+      the caller's linked GitHub identity when present.
+    default: ''
 - id: bot.resolveInstallation
   method: GET
   description: Resolve the GitHub App installation service-account subject for a repository

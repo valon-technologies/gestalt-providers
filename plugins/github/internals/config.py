@@ -28,6 +28,7 @@ from .constants import (
 
 
 _POLICY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_STORE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 WEBHOOK_TRIGGER_EVERY_DELIVERY = "every_delivery"
 WEBHOOK_TRIGGER_ONCE_PER_PR = "once_per_pr"
@@ -70,6 +71,18 @@ WEBHOOK_INLINE_POLICIES = (
     WEBHOOK_INLINE_NEVER,
     WEBHOOK_INLINE_FINDINGS_ONLY,
 )
+
+WEBHOOK_PREFERENCE_SUBJECT_PULL_REQUEST_AUTHOR = "pull_request_author"
+WEBHOOK_PREFERENCE_SUBJECT_COMMENT_AUTHOR = "comment_author"
+WEBHOOK_PREFERENCE_SUBJECT_SENDER = "sender"
+WEBHOOK_PREFERENCE_SUBJECTS = (
+    WEBHOOK_PREFERENCE_SUBJECT_PULL_REQUEST_AUTHOR,
+    WEBHOOK_PREFERENCE_SUBJECT_COMMENT_AUTHOR,
+    WEBHOOK_PREFERENCE_SUBJECT_SENDER,
+)
+
+ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT = "config_default"
+ACTION_PREFERENCES_FAILURE_MODES = (ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,)
 
 struct_pb2: Any = _struct_pb2
 
@@ -131,6 +144,16 @@ class GitHubWebhookPolicy:
     allow_code_review_comments: bool = True
     allow_self_fix: bool = True
     allowed_operations: tuple[str, ...] = ()
+    action_preference_subject: str = ""
+    action_preferences: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubActionPreferencesConfig:
+    enabled: bool = False
+    indexeddb_provider: str = ""
+    store: str = ""
+    failure_mode: str = ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +173,9 @@ class GitHubAppConfig:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] = field(default_factory=dict)
+    action_preferences: GitHubActionPreferencesConfig = field(
+        default_factory=GitHubActionPreferencesConfig
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,10 +198,12 @@ _github_config = GitHubAppConfig()
 _github_bot_identity: GitHubBotIdentity | None = None
 
 
-def configure_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
+def configure_from_mapping(
+    config: dict[str, Any], provider_name: str = "github"
+) -> GitHubAppConfig:
     global _github_bot_identity, _github_config
 
-    _github_config = github_config_from_mapping(config)
+    _github_config = github_config_from_mapping(config, provider_name=provider_name)
     _github_bot_identity = None
     return _github_config
 
@@ -194,7 +222,9 @@ def set_cached_bot_identity(identity: GitHubBotIdentity) -> None:
     _github_bot_identity = identity
 
 
-def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
+def github_config_from_mapping(
+    config: dict[str, Any], provider_name: str = "github"
+) -> GitHubAppConfig:
     app_id = (
         config_string(config, "appId", "app_id")
         or os.environ.get("GITHUB_APP_ID", "").strip()
@@ -221,6 +251,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
 
     webhook_events = config_string_list(config, "webhookEvents", "webhook_events")
     workflow_provider = workflow_config_string(config, "provider")
+    action_preferences = parse_action_preferences_config(config, provider_name)
     webhook_policies = parse_webhook_policies(config)
     api_base_url = (
         config_string(config, "apiBaseUrl", "api_base_url")
@@ -262,7 +293,51 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
             config, "systemPrompt", "system_prompt", "prompt"
         ),
         agent_model_options=agent_config_dict(config, "modelOptions", "model_options"),
+        action_preferences=action_preferences,
     )
+
+
+def parse_action_preferences_config(
+    config: dict[str, Any], provider_name: str
+) -> GitHubActionPreferencesConfig:
+    if "actionPreferences" not in config and "action_preferences" not in config:
+        return GitHubActionPreferencesConfig()
+    action_preferences = config.get(
+        "actionPreferences", config.get("action_preferences")
+    )
+    if not isinstance(action_preferences, dict):
+        raise ValueError("actionPreferences must be an object")
+    pref_config = cast(dict[str, Any], action_preferences)
+    indexeddb_provider = config_string(
+        pref_config, "indexeddb", "indexeddbProvider", "indexeddb_provider"
+    )
+    store = config_string(pref_config, "store") or derive_action_preferences_store_name(
+        provider_name
+    )
+    if not _STORE_NAME_RE.fullmatch(store):
+        raise ValueError(
+            f"actionPreferences.store must match {_STORE_NAME_RE.pattern}"
+        )
+    failure_mode = enum_string(
+        pref_config,
+        "failureMode",
+        "actionPreferences.failureMode",
+        ACTION_PREFERENCES_FAILURE_MODES,
+        ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,
+        "failure_mode",
+    )
+    return GitHubActionPreferencesConfig(
+        enabled=True,
+        indexeddb_provider=indexeddb_provider,
+        store=store,
+        failure_mode=failure_mode,
+    )
+
+
+def derive_action_preferences_store_name(provider_name: str) -> str:
+    raw = provider_name.strip() or "github"
+    slug = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_") or "github"
+    return f"{slug}_action_preferences"
 
 
 def derive_graphql_base_url(explicit: str, api_base_url: str) -> str:
@@ -335,6 +410,14 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
             path=f"webhookPolicies[{index}].action.allowSelfFix",
             default=True,
         )
+        action_preference_subject = enum_string(
+            action_config,
+            "preferenceSubject",
+            f"webhookPolicies[{index}].action.preferenceSubject",
+            WEBHOOK_PREFERENCE_SUBJECTS,
+            "",
+            "preference_subject",
+        )
 
         allowed_operations = policy_allowed_operations(
             action_config, action_mode, index
@@ -377,6 +460,7 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 allow_code_review_comments=allow_code_review_comments,
                 allow_self_fix=allow_self_fix,
                 allowed_operations=allowed_operations,
+                action_preference_subject=action_preference_subject,
             )
         )
     return tuple(policies)

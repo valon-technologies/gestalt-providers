@@ -44,6 +44,7 @@ from .constants import (
     GITHUB_WORKFLOW_SIGNAL_NAME,
     MAX_AGENT_USER_PROMPT_CHARS,
 )
+from .policy_metadata import policy_base_metadata
 from .webhook import bounded_text
 from .workflow_dispatch import workflow_signal_data
 
@@ -357,6 +358,9 @@ def agent_user_prompt(
             f"allow_code_review_comments: {policy.allow_code_review_comments}"
         )
         lines.append(f"allow_self_fix: {policy.allow_self_fix}")
+        if policy.action_preferences is not None:
+            preference_source = str(policy.action_preferences.get("source", ""))
+            lines.append(f"action_preferences_source: {preference_source}")
         operations = agent_operations(policy)
         if operations:
             lines.append(f"available_operations: {', '.join(operations)}")
@@ -593,26 +597,7 @@ def policy_frequency_idempotency_key(
 def policy_metadata(
     policy: GitHubWebhookPolicy, summary: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
-        "id": policy.id,
-        "mode": policy.action_mode,
-        "tool_refs": list(effective_policy_operations(policy)),
-        "trigger": {
-            "frequency": policy.trigger.frequency,
-            "include_drafts": policy.trigger.include_drafts,
-            "manual_commands": list(policy.trigger.manual_commands),
-        },
-        "dedupe": {"scope": policy.dedupe.scope},
-        "action": {
-            "allow_code_review_comments": policy.allow_code_review_comments,
-            "allow_self_fix": policy.allow_self_fix,
-        },
-        "comments": {
-            "timeline_policy": policy.comments.timeline_policy,
-            "inline_policy": policy.comments.inline_policy,
-            "suppress_stale_head": policy.comments.suppress_stale_head,
-        },
-    }
+    metadata: dict[str, Any] = policy_base_metadata(policy)
     if summary is not None:
         metadata["canonical"] = policy_canonical_metadata(summary, policy)
     return metadata

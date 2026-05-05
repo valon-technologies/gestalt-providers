@@ -210,6 +210,66 @@ even when `mode` or `allowedOperations` would otherwise expose them. Set
 (`bot.commitFiles`, `bot.openPullRequest`, and `bot.createPullRequest`) from the
 effective tool list.
 
+`actionPreferences` optionally layers per-subject preferences over those static
+gates. The static config values remain hard ceilings: a stored preference can
+disable inline review comments or self-fix for one identity, but it cannot grant
+tools that `mode`, `allowedOperations`, `allowCodeReviewComments`, or
+`allowSelfFix` do not already allow. When `actionPreferences` is omitted, no
+IndexedDB or authorization lookup is performed and the policy behaves exactly as
+configured.
+
+```yaml
+providers:
+  indexeddb:
+    main:
+      source: /absolute/path/to/gestalt-providers/indexeddb/relationaldb/manifest.yaml
+      config:
+        dsn: sqlite:///var/lib/gestalt/github-preferences.db
+
+  plugin:
+    github:
+      config:
+        actionPreferences:
+          indexeddb: main
+          store: github_action_preferences
+          failureMode: config_default
+        webhookPolicies:
+          - id: pr-review
+            match:
+              events: [pull_request, check_run]
+            action:
+              mode: pull_request
+              allowCodeReviewComments: true
+              allowSelfFix: true
+              preferenceSubject: pull_request_author
+```
+
+`action.preferenceSubject` chooses which GitHub identity is used for the lookup:
+`pull_request_author`, `comment_author`, or `sender`. The provider keys GitHub
+identities by numeric user ID as `github_identity:user:<id>` and then
+best-effort resolves a Gestalt subject through authorization. Lookup precedence
+is repository + policy + GitHub external identity, then repository + policy +
+Gestalt subject ID, then config defaults. If the store cannot be read with
+`failureMode: config_default`, the webhook still dispatches with static config.
+
+Callers can manage their own preference records with:
+
+```json
+POST github.actionPreferences.set
+{
+  "repository": "valon-technologies/gestalt-providers",
+  "policy_id": "pr-review",
+  "identity_kind": "external_subject_id",
+  "allow_code_review_comments": false,
+  "allow_self_fix": null
+}
+```
+
+`actionPreferences.get` and `actionPreferences.delete` use the same identity
+selection. These operations require a linked GitHub external identity for
+`external_subject_id` or a human agent subject for `subject_id`; service-account
+only calls are rejected.
+
 Use `trigger`, `dedupe`, and `comments` to make webhook-triggered agents less
 noisy:
 
