@@ -49,6 +49,54 @@ properties:
             - serviceAccountEmail
             - scopes
             - operations
+  platformConnection:
+    type: object
+    description: Internal Gmail platform connection used for provider-managed ingestion.
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: Whether to allow internal Gmail reads with a host-provided platform token.
+      email:
+        type: string
+        description: Gmail mailbox expected to own the host-provided platform token.
+      operations:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        description: Provider operation IDs eligible for platform connection reads.
+        items:
+          type: string
+          minLength: 1
+    allOf:
+      - if:
+          properties:
+            enabled:
+              const: true
+          required:
+            - enabled
+        then:
+          required:
+            - email
+            - operations
+allOf:
+  - not:
+      properties:
+        platformIdentity:
+          properties:
+            enabled:
+              const: true
+          required:
+            - enabled
+        platformConnection:
+          properties:
+            enabled:
+              const: true
+          required:
+            - enabled
+      required:
+        - platformIdentity
+        - platformConnection
 required:
   - clientId
   - clientSecret

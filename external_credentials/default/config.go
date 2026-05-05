@@ -47,6 +47,7 @@ type resolvedConnectionAuthConfig struct {
 	Token                string                                  `yaml:"token"`
 	TokenPrefix          string                                  `yaml:"tokenPrefix"`
 	GrantType            string                                  `yaml:"grantType"`
+	RefreshToken         string                                  `yaml:"refreshToken"`
 	TokenURL             string                                  `yaml:"tokenUrl"`
 	ClientID             string                                  `yaml:"clientId"`
 	ClientSecret         string                                  `yaml:"clientSecret"`
@@ -226,6 +227,7 @@ type credentialRefreshAuthComparable struct {
 	TokenURL        string
 	ClientID        string
 	ClientSecret    string
+	RefreshToken    string
 	ClientAuth      string
 	TokenExchange   string
 	AcceptHeader    string
@@ -242,6 +244,7 @@ func refreshAuthComparable(auth *gestalt.ExternalCredentialAuthConfig) credentia
 		TokenURL:        auth.GetTokenUrl(),
 		ClientID:        auth.GetClientId(),
 		ClientSecret:    auth.GetClientSecret(),
+		RefreshToken:    auth.GetRefreshToken(),
 		ClientAuth:      auth.GetClientAuth(),
 		TokenExchange:   auth.GetTokenExchange(),
 		AcceptHeader:    auth.GetAcceptHeader(),
@@ -266,6 +269,7 @@ func (auth resolvedConnectionAuthConfig) toProto() *gestalt.ExternalCredentialAu
 		Token:                auth.Token,
 		TokenPrefix:          auth.TokenPrefix,
 		GrantType:            auth.GrantType,
+		RefreshToken:         auth.RefreshToken,
 		TokenUrl:             auth.TokenURL,
 		ClientId:             auth.ClientID,
 		ClientSecret:         auth.ClientSecret,
