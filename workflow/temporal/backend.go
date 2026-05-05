@@ -11,15 +11,19 @@ import (
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const workflowScheduleMemoKey = "gestalt.workflow_schedule"
 
 type workflowHost interface {
 	InvokeOperation(context.Context, *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error)
@@ -443,9 +447,17 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 	}
 	schedule, found, err := b.getScheduleIndex(ctx, id)
 	if err != nil {
+		if temporalSchedule, temporalFound, temporalErr := b.describeTemporalSchedule(ctx, id); temporalErr == nil && temporalFound {
+			return temporalSchedule, nil
+		}
 		return nil, err
 	}
 	if !found {
+		if temporalSchedule, temporalFound, temporalErr := b.describeTemporalSchedule(ctx, id); temporalErr != nil {
+			return nil, temporalErr
+		} else if temporalFound {
+			return temporalSchedule, nil
+		}
 		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
 	}
 	b.fillScheduleNextRun(ctx, schedule)
@@ -453,12 +465,9 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 }
 
 func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
-	schedules, err := b.listSchedulesIndex(ctx)
+	schedules, err := b.listTemporalSchedules(ctx)
 	if err != nil {
 		return nil, err
-	}
-	for _, schedule := range schedules {
-		b.fillScheduleNextRun(ctx, schedule)
 	}
 	sortSchedules(schedules)
 	return &proto.ListWorkflowProviderSchedulesResponse{Schedules: schedules}, nil
@@ -767,6 +776,9 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
+	scheduleMemo := map[string]interface{}{
+		workflowScheduleMemoKey: cloneSchedule(schedule),
+	}
 	actionInput := runWorkflowOptions{
 		ProviderName:                  b.providerName,
 		ScopeID:                       b.cfg.ScopeID,
@@ -782,6 +794,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 		TaskQueue:           b.cfg.TaskQueue,
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout: b.cfg.WorkflowTaskTimeout,
+		Memo:                scheduleMemo,
 	}
 	temporalID := b.temporalScheduleID(schedule.GetId())
 	spec := client.ScheduleSpec{
@@ -801,6 +814,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 			Overlap:       enumspb.SCHEDULE_OVERLAP_POLICY_SKIP,
 			CatchupWindow: b.cfg.ScheduleCatchupWindow,
 			Paused:        schedule.GetPaused(),
+			Memo:          scheduleMemo,
 		})
 		if err != nil {
 			return status.Errorf(codes.Internal, "create temporal schedule: %v", err)
@@ -824,6 +838,183 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	return nil
 }
 
+func (b *temporalBackend) listTemporalSchedules(ctx context.Context) ([]*proto.BoundWorkflowSchedule, error) {
+	iter, err := b.client.ScheduleClient().List(ctx, client.ScheduleListOptions{PageSize: 1000})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list temporal schedules: %v", err)
+	}
+	prefix := b.temporalScheduleIDPrefix()
+	var schedules []*proto.BoundWorkflowSchedule
+	for iter.HasNext() {
+		entry, err := iter.Next()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "list temporal schedules: %v", err)
+		}
+		if entry == nil || !strings.HasPrefix(strings.TrimSpace(entry.ID), prefix) {
+			continue
+		}
+		schedule, found, err := b.describeTemporalScheduleByTemporalID(ctx, entry.ID, "")
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			schedules = append(schedules, schedule)
+		}
+	}
+	return schedules, nil
+}
+
+func (b *temporalBackend) describeTemporalSchedule(ctx context.Context, scheduleID string) (*proto.BoundWorkflowSchedule, bool, error) {
+	scheduleID = strings.TrimSpace(scheduleID)
+	if scheduleID == "" {
+		return nil, false, nil
+	}
+	return b.describeTemporalScheduleByTemporalID(ctx, b.temporalScheduleID(scheduleID), scheduleID)
+}
+
+func (b *temporalBackend) describeTemporalScheduleByTemporalID(ctx context.Context, temporalID, fallbackScheduleID string) (*proto.BoundWorkflowSchedule, bool, error) {
+	temporalID = strings.TrimSpace(temporalID)
+	if temporalID == "" {
+		return nil, false, nil
+	}
+	desc, err := b.client.ScheduleClient().GetHandle(ctx, temporalID).Describe(ctx)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, status.Errorf(codes.Internal, "describe temporal schedule: %v", err)
+	}
+	schedule, found, err := scheduleFromTemporalDescription(fallbackScheduleID, desc)
+	if err != nil {
+		return nil, false, status.Errorf(codes.Internal, "decode temporal schedule %q: %v", temporalID, err)
+	}
+	return schedule, found, nil
+}
+
+func scheduleFromTemporalDescription(fallbackScheduleID string, desc *client.ScheduleDescription) (*proto.BoundWorkflowSchedule, bool, error) {
+	if desc == nil {
+		return nil, false, nil
+	}
+	action, ok := desc.Schedule.Action.(*client.ScheduleWorkflowAction)
+	if !ok || action == nil {
+		return nil, false, nil
+	}
+	if schedule, found, err := scheduleFromTemporalActionMemo(action); found || err != nil {
+		if schedule != nil && schedule.GetId() == "" {
+			schedule.Id = strings.TrimSpace(fallbackScheduleID)
+		}
+		if schedule != nil {
+			applyTemporalScheduleDescription(schedule, desc)
+		}
+		return schedule, found, err
+	}
+	schedule, found, err := scheduleFromTemporalActionArgs(fallbackScheduleID, action)
+	if schedule != nil {
+		applyTemporalScheduleDescription(schedule, desc)
+	}
+	return schedule, found, err
+}
+
+func scheduleFromTemporalActionMemo(action *client.ScheduleWorkflowAction) (*proto.BoundWorkflowSchedule, bool, error) {
+	if action == nil || action.Memo == nil {
+		return nil, false, nil
+	}
+	payload, ok := temporalPayload(action.Memo[workflowScheduleMemoKey])
+	if !ok {
+		return nil, false, nil
+	}
+	var schedule proto.BoundWorkflowSchedule
+	if err := converter.GetDefaultDataConverter().FromPayload(payload, &schedule); err != nil {
+		return nil, false, err
+	}
+	return cloneSchedule(&schedule), schedule.GetId() != "", nil
+}
+
+func scheduleFromTemporalActionArgs(fallbackScheduleID string, action *client.ScheduleWorkflowAction) (*proto.BoundWorkflowSchedule, bool, error) {
+	if action == nil {
+		return nil, false, nil
+	}
+	dc := converter.GetDefaultDataConverter()
+	var opts runWorkflowOptions
+	if payload, ok := temporalActionArg(action, 0); ok {
+		if err := dc.FromPayload(payload, &opts); err != nil {
+			return nil, false, err
+		}
+	}
+	var target proto.BoundWorkflowTarget
+	if payload, ok := temporalActionArg(action, 1); ok {
+		if err := dc.FromPayload(payload, &target); err != nil {
+			return nil, false, err
+		}
+	}
+	var trigger proto.WorkflowRunTrigger
+	if payload, ok := temporalActionArg(action, 2); ok {
+		if err := dc.FromPayload(payload, &trigger); err != nil {
+			return nil, false, err
+		}
+	}
+	var createdBy proto.WorkflowActor
+	if payload, ok := temporalActionArg(action, 3); ok {
+		if err := dc.FromPayload(payload, &createdBy); err != nil {
+			return nil, false, err
+		}
+	}
+	scheduleID := strings.TrimSpace(opts.ScheduleID)
+	if scheduleID == "" {
+		scheduleID = strings.TrimSpace(trigger.GetSchedule().GetScheduleId())
+	}
+	if scheduleID == "" {
+		scheduleID = strings.TrimSpace(fallbackScheduleID)
+	}
+	if scheduleID == "" {
+		return nil, false, nil
+	}
+	return &proto.BoundWorkflowSchedule{
+		Id:           scheduleID,
+		Target:       cloneTarget(&target),
+		CreatedBy:    cloneActor(&createdBy),
+		ExecutionRef: strings.TrimSpace(opts.ExecutionRef),
+	}, true, nil
+}
+
+func applyTemporalScheduleDescription(schedule *proto.BoundWorkflowSchedule, desc *client.ScheduleDescription) {
+	if schedule == nil || desc == nil {
+		return
+	}
+	if spec := desc.Schedule.Spec; spec != nil {
+		if schedule.GetCron() == "" && len(spec.CronExpressions) > 0 {
+			schedule.Cron = spec.CronExpressions[0]
+		}
+		if schedule.GetTimezone() == "" {
+			schedule.Timezone = strings.TrimSpace(spec.TimeZoneName)
+		}
+	}
+	if state := desc.Schedule.State; state != nil {
+		schedule.Paused = state.Paused
+	}
+	if !desc.Info.CreatedAt.IsZero() && schedule.GetCreatedAt() == nil {
+		schedule.CreatedAt = timestamppb.New(desc.Info.CreatedAt.UTC())
+	}
+	if !desc.Info.LastUpdateAt.IsZero() {
+		schedule.UpdatedAt = timestamppb.New(desc.Info.LastUpdateAt.UTC())
+	}
+	if len(desc.Info.NextActionTimes) > 0 {
+		schedule.NextRunAt = timestamppb.New(desc.Info.NextActionTimes[0].UTC())
+	}
+}
+
+func temporalActionArg(action *client.ScheduleWorkflowAction, index int) (*commonpb.Payload, bool) {
+	if action == nil || index < 0 || index >= len(action.Args) {
+		return nil, false
+	}
+	return temporalPayload(action.Args[index])
+}
+
+func temporalPayload(value interface{}) (*commonpb.Payload, bool) {
+	payload, ok := value.(*commonpb.Payload)
+	return payload, ok && payload != nil
+}
+
 func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *proto.BoundWorkflowSchedule) {
 	desc, err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(schedule.GetId())).Describe(ctx)
 	if err != nil || len(desc.Info.NextActionTimes) == 0 {
@@ -834,6 +1025,10 @@ func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *pro
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {
 	return workflowID(b.cfg.ScopeID, "schedule", scheduleID)
+}
+
+func (b *temporalBackend) temporalScheduleIDPrefix() string {
+	return "gestalt/" + scopeHash(b.cfg.ScopeID) + "/schedule/"
 }
 
 func (b *temporalBackend) startOptions(workflowID string) client.StartWorkflowOptions {

@@ -350,6 +350,89 @@ func TestIndexWorkflowQueriesProviderIndexes(t *testing.T) {
 	}
 }
 
+func TestScheduleFromTemporalDescriptionUsesActionMemo(t *testing.T) {
+	createdAt := time.Unix(100, 0).UTC()
+	updatedAt := time.Unix(200, 0).UTC()
+	nextAt := time.Unix(300, 0).UTC()
+	schedule := &proto.BoundWorkflowSchedule{
+		Id:           "schedule-1",
+		Target:       pluginTarget("slack", "postMessage"),
+		CreatedBy:    &proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"},
+		ExecutionRef: "ref-1",
+	}
+	payload, err := converter.GetDefaultDataConverter().ToPayload(schedule)
+	if err != nil {
+		t.Fatalf("encode schedule memo: %v", err)
+	}
+
+	got, found, err := scheduleFromTemporalDescription("", &client.ScheduleDescription{
+		Schedule: client.Schedule{
+			Action: &client.ScheduleWorkflowAction{
+				Memo: map[string]interface{}{workflowScheduleMemoKey: payload},
+			},
+			Spec:  &client.ScheduleSpec{CronExpressions: []string{"0 * * * *"}, TimeZoneName: "America/New_York"},
+			State: &client.ScheduleState{Paused: true},
+		},
+		Info: client.ScheduleInfo{CreatedAt: createdAt, LastUpdateAt: updatedAt, NextActionTimes: []time.Time{nextAt}},
+	})
+	if err != nil {
+		t.Fatalf("scheduleFromTemporalDescription: %v", err)
+	}
+	if !found {
+		t.Fatalf("schedule not found")
+	}
+	if got.GetId() != "schedule-1" || got.GetCron() != "0 * * * *" || got.GetTimezone() != "America/New_York" || !got.GetPaused() {
+		t.Fatalf("decoded schedule = %#v", got)
+	}
+	if got.GetExecutionRef() != "ref-1" || got.GetTarget().GetPlugin().GetPluginName() != "slack" {
+		t.Fatalf("decoded schedule metadata = %#v", got)
+	}
+	if !got.GetCreatedAt().AsTime().Equal(createdAt) || !got.GetUpdatedAt().AsTime().Equal(updatedAt) || !got.GetNextRunAt().AsTime().Equal(nextAt) {
+		t.Fatalf("decoded schedule times = created %v updated %v next %v", got.GetCreatedAt(), got.GetUpdatedAt(), got.GetNextRunAt())
+	}
+}
+
+func TestScheduleFromTemporalDescriptionDecodesLegacyActionArgs(t *testing.T) {
+	nextAt := time.Unix(400, 0).UTC()
+	payloads, err := converter.GetDefaultDataConverter().ToPayloads(
+		runWorkflowOptions{ScheduleID: "schedule-legacy", ExecutionRef: "ref-legacy"},
+		pluginTarget("github", "PullRequests.List"),
+		scheduleTrigger("schedule-legacy", nextAt),
+		&proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"},
+	)
+	if err != nil {
+		t.Fatalf("encode action args: %v", err)
+	}
+	args := make([]interface{}, 0, len(payloads.GetPayloads()))
+	for _, payload := range payloads.GetPayloads() {
+		args = append(args, payload)
+	}
+
+	got, found, err := scheduleFromTemporalDescription("", &client.ScheduleDescription{
+		Schedule: client.Schedule{
+			Action: &client.ScheduleWorkflowAction{Args: args},
+			Spec:   &client.ScheduleSpec{CronExpressions: []string{"15 2 * * *"}, TimeZoneName: "UTC"},
+			State:  &client.ScheduleState{},
+		},
+		Info: client.ScheduleInfo{NextActionTimes: []time.Time{nextAt}},
+	})
+	if err != nil {
+		t.Fatalf("scheduleFromTemporalDescription: %v", err)
+	}
+	if !found {
+		t.Fatalf("schedule not found")
+	}
+	if got.GetId() != "schedule-legacy" || got.GetExecutionRef() != "ref-legacy" {
+		t.Fatalf("decoded schedule metadata = %#v", got)
+	}
+	if got.GetTarget().GetPlugin().GetPluginName() != "github" || got.GetTarget().GetPlugin().GetOperation() != "PullRequests.List" {
+		t.Fatalf("decoded schedule target = %#v", got.GetTarget())
+	}
+	if got.GetCron() != "15 2 * * *" || got.GetTimezone() != "UTC" || !got.GetNextRunAt().AsTime().Equal(nextAt) {
+		t.Fatalf("decoded schedule timing = %#v", got)
+	}
+}
+
 func TestIndexWorkflowCompactsViaSignal(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
