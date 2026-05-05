@@ -2162,7 +2162,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.27",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/github/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.27",
+      "manifestVersion": "0.0.1-alpha.28",
       "name": "github",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/github",
       "packagePath": "plugins/github",

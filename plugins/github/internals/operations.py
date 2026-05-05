@@ -399,6 +399,7 @@ REACTION_SUBJECT_TYPES = frozenset(
 LABEL_ISSUE = "issue"
 LABEL_PULL_REQUEST = "pull_request"
 LABEL_SUBJECT_TYPES = frozenset((LABEL_ISSUE, LABEL_PULL_REQUEST))
+PULL_REQUEST_CREATE_PERMISSIONS = {"contents": "read", "pull_requests": "write"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,7 +600,7 @@ def open_pull_request(
     token = github.installation_token(
         installation_id,
         repositories=[repo],
-        permissions={"pull_requests": "write"},
+        permissions=PULL_REQUEST_CREATE_PERMISSIONS,
     )
     return create_pull_request_on_github(
         token,
@@ -674,7 +675,7 @@ def create_pull_request_with_files(
     token = github.installation_token(
         commit.installation_id,
         repositories=[commit.repo],
-        permissions={"pull_requests": "write"},
+        permissions=PULL_REQUEST_CREATE_PERMISSIONS,
     )
     pull = create_pull_request_on_github(
         token,

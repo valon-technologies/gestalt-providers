@@ -149,7 +149,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-github"
-version = "0.0.1a27"
+version = "0.0.1a28"
 source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },
