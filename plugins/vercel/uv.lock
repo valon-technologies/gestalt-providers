@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "gestalt-vercel"
-version = "0.0.1a12"
+version = "0.0.1a13"
 source = { virtual = "." }
 dependencies = [
     { name = "gestalt-sdk" },
