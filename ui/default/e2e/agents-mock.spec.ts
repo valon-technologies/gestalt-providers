@@ -175,6 +175,61 @@ test.describe("Agents", () => {
     await expect(page.getByText("do not show")).toHaveCount(0);
   });
 
+  test("keeps the composer visible with a long transcript", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await mockAgentSessions(page, {
+      sessions: [
+        {
+          id: "agent_session_long",
+          provider: "simple",
+          model: "fast",
+          clientRef: "long-session",
+          state: "active",
+          createdAt: "2026-04-23T00:00:00Z",
+          updatedAt: "2026-04-23T00:00:00Z",
+          lastTurnAt: "2026-04-23T00:30:00Z",
+        },
+      ],
+      turns: {
+        agent_session_long: [
+          {
+            id: "agent_turn_long",
+            sessionId: "agent_session_long",
+            provider: "simple",
+            model: "fast",
+            status: "succeeded",
+            messages: [
+              { role: "user", text: "Review the long transcript." },
+              ...Array.from({ length: 35 }, (_, index) => ({
+                role: "assistant",
+                text: `Transcript line ${index + 1}`,
+              })),
+            ],
+            createdAt: "2026-04-23T00:00:00Z",
+            completedAt: "2026-04-23T00:30:00Z",
+          },
+        ],
+      },
+    });
+
+    await page.goto("/agents?session=agent_session_long&turn=agent_turn_long");
+
+    const composer = page.getByLabel("User message");
+    const latestMessage = page.getByText("Transcript line 35").first();
+    await expect(composer).toBeVisible();
+    await expect(latestMessage).toBeVisible();
+
+    const composerBox = await composer.boundingBox();
+    const latestBox = await latestMessage.boundingBox();
+    expect(composerBox).not.toBeNull();
+    expect(latestBox).not.toBeNull();
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(720);
+    expect(latestBox!.y).toBeGreaterThanOrEqual(0);
+    expect(latestBox!.y).toBeLessThanOrEqual(720);
+  });
+
   test("opens a deep-linked turn outside the session summary page", async ({
     authenticatedPage: page,
   }) => {
