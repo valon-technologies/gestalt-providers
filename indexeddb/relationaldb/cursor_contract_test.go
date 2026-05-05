@@ -89,7 +89,7 @@ func (h *relationalContractHarness) InsertUnreadablePayloadRow(t *testing.T, sto
 	}
 	defer store.Close()
 
-	if _, err := store.getMeta(storeName); err != nil {
+	if _, err := store.getMeta(context.Background(), storeName); err != nil {
 		t.Fatalf("getMeta(%s): %v", storeName, err)
 	}
 
