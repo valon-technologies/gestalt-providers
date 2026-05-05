@@ -549,6 +549,11 @@ class ClaudeProviderTests(unittest.TestCase):
             self.assertIn("Search metadata:", sdk_tools[0].description)
             self.assertIn("pr", sdk_tools[0].description)
             self.assertIn("pull request", sdk_tools[0].description)
+            bridged = asyncio.run(_list_tools_json_through_sdk_bridge(options))
+            bridged_description = bridged["result"]["tools"][0]["description"]
+            self.assertIn("Search metadata:", bridged_description)
+            self.assertIn("pr", bridged_description)
+            self.assertIn("pull request", bridged_description)
 
         execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
@@ -913,6 +918,14 @@ async def _list_tools_through_sdk_bridge(options: Any) -> tuple[dict[str, Any], 
         bridge, "gestalt", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"cursor": "page-2"}}
     )
     return first, second
+
+
+async def _list_tools_json_through_sdk_bridge(options: Any) -> dict[str, Any]:
+    from claude_agent_sdk._internal.query import Query
+
+    bridge = py_types.SimpleNamespace(sdk_mcp_servers={"gestalt": options.mcp_servers["gestalt"]["instance"]})
+    handle_request = cast(Any, Query._handle_sdk_mcp_request)
+    return await handle_request(bridge, "gestalt", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
 
 
 def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
