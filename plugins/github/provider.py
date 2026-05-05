@@ -36,6 +36,12 @@ from internals.constants import (
     REVIEW_PULL_REQUEST_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
+from internals.identity import (
+    GitHubPullRequestContext,
+    caller_preference_identity,
+    needs_pull_request_context_for_preferences,
+    preference_identity_from_webhook,
+)
 from internals.operations import (
     GitHubAddLabelsRequest,
     GitHubAddReactionRequest,
@@ -95,6 +101,14 @@ from internals.operations import (
     workflow_run_summary,
 )
 from internals.policy import select_webhook_policy, webhook_event_type_for_policy
+from internals.preferences import (
+    apply_action_preferences,
+    delete_action_preference,
+    get_action_preference,
+    normalize_identity_kind,
+    reset_action_preference_store,
+    set_action_preference,
+)
 from internals.review import review_pull_request
 from internals.webhook import (
     event_summary,
@@ -711,9 +725,33 @@ class ListWorkflowRunJobsInput(gestalt.Model):
     )
 
 
+class ActionPreferenceInput(gestalt.Model):
+    repository: str = gestalt.field(description="Repository full name, owner/repo")
+    policy_id: str = gestalt.field(description="GitHub webhook policy id")
+    identity_kind: str = gestalt.field(
+        description="Preference identity kind: external_subject_id or subject_id. Defaults to the caller's linked GitHub identity when present.",
+        default="",
+        required=False,
+    )
+
+
+class SetActionPreferenceInput(ActionPreferenceInput):
+    allow_code_review_comments: bool | None = gestalt.field(
+        description="Whether this caller allows inline code review comments for this policy. Null leaves the policy default in effect.",
+        default=None,
+        required=False,
+    )
+    allow_self_fix: bool | None = gestalt.field(
+        description="Whether this caller allows self-fix commits or pull requests for this policy. Null leaves the policy default in effect.",
+        default=None,
+        required=False,
+    )
+
+
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
-    configure_from_mapping(config)
+    reset_action_preference_store()
+    configure_from_mapping(config, provider_name=_name)
 
 
 @gestalt.post_connect
@@ -766,7 +804,12 @@ def github_events_handle(
         if policy is None:
             return {"ok": True, "ignored": "policy_not_matched"}
         try:
-            stale_reason = _stale_ci_head_ignored_reason(req, summary, policy)
+            pull_request_context = _pull_request_webhook_context(
+                input, req, summary, policy
+            )
+            stale_reason = _stale_ci_head_ignored_reason(
+                summary, policy, pull_request_context
+            )
         except ValueError as err:
             return _bad_request(str(err))
         except GitHubAuthorizationError as err:
@@ -777,6 +820,14 @@ def github_events_handle(
             return _github_error(err)
         if stale_reason:
             return {"ok": True, "ignored": stale_reason}
+        policy = _policy_with_action_preferences(
+            input, req, summary, policy, pull_request_context
+        )
+        if _review_pull_request_disabled_by_preference(policy):
+            return {
+                "ok": True,
+                "ignored": "policy_preference_disabled:code_review_comments",
+            }
 
     return _signal_or_start_webhook_workflow(input, req, summary=summary, policy=policy)
 
@@ -862,9 +913,9 @@ def _signal_or_start_webhook_workflow(
 
 
 def _stale_ci_head_ignored_reason(
-    req: gestalt.Request,
     summary: dict[str, Any],
     policy: Any,
+    pull_request_context: GitHubPullRequestContext | None,
 ) -> str:
     if not getattr(getattr(policy, "comments", None), "suppress_stale_head", False):
         return ""
@@ -877,11 +928,27 @@ def _stale_ci_head_ignored_reason(
     event_head_sha = str(summary.get("head_sha", "")).strip()
     if not event_head_sha:
         return ""
+    if pull_request_context is None:
+        return ""
+    current_head_sha = pull_request_context.head_sha
+    if current_head_sha and current_head_sha != event_head_sha:
+        return f"stale_head:{event_head_sha[:12]}:{current_head_sha[:12]}"
+    return ""
+
+
+def _pull_request_webhook_context(
+    input: dict[str, Any],
+    req: gestalt.Request,
+    summary: dict[str, Any],
+    policy: Any,
+) -> GitHubPullRequestContext | None:
+    if not _needs_pull_request_context(input, summary, policy):
+        return None
     owner = str(summary.get("repository_owner", "")).strip()
     repo = str(summary.get("repository_name", "")).strip()
     pull_number = _single_pull_request_number(summary.get("pull_request_numbers"))
     if not owner or not repo or pull_number <= 0:
-        return ""
+        return None
     pull = get_pull_request(
         GitHubPullRequestRequest(
             owner=owner,
@@ -891,10 +958,73 @@ def _stale_ci_head_ignored_reason(
         ),
         subject=req.subject,
     )
-    current_head_sha = _pull_request_head_sha(pull)
-    if current_head_sha and current_head_sha != event_head_sha:
-        return f"stale_head:{event_head_sha[:12]}:{current_head_sha[:12]}"
-    return ""
+    return GitHubPullRequestContext(pull_request=pull)
+
+
+def _needs_pull_request_context(
+    input: dict[str, Any], summary: dict[str, Any], policy: Any
+) -> bool:
+    if _needs_pull_request_context_for_stale(summary, policy):
+        return True
+    config = get_github_config()
+    return needs_pull_request_context_for_preferences(
+        policy,
+        input,
+        summary,
+        preferences_enabled=config.action_preferences.enabled,
+    )
+
+
+def _needs_pull_request_context_for_stale(summary: dict[str, Any], policy: Any) -> bool:
+    if not getattr(getattr(policy, "comments", None), "suppress_stale_head", False):
+        return False
+    if str(summary.get("event_type", "")).strip() not in (
+        "check_run",
+        "check_suite",
+        "workflow_run",
+    ):
+        return False
+    if not str(summary.get("head_sha", "")).strip():
+        return False
+    return _single_pull_request_number(summary.get("pull_request_numbers")) > 0
+
+
+def _policy_with_action_preferences(
+    input: dict[str, Any],
+    req: gestalt.Request,
+    summary: dict[str, Any],
+    policy: Any,
+    pull_request_context: GitHubPullRequestContext | None,
+) -> Any:
+    config = get_github_config()
+    if not config.action_preferences.enabled:
+        return policy
+    authorization = None
+    try:
+        authorization = req.authorization()
+    except Exception as err:
+        logger.warning("GitHub action preference authorization unavailable: %s", err)
+    identity = preference_identity_from_webhook(
+        input,
+        summary,
+        policy,
+        pull_request_context=pull_request_context,
+        authorization=authorization,
+    )
+    return apply_action_preferences(policy, config.action_preferences, identity)
+
+
+def _review_pull_request_disabled_by_preference(policy: Any) -> bool:
+    preferences = getattr(policy, "action_preferences", None)
+    if not preferences or preferences.get("source") == "config_default":
+        return False
+    target = getattr(policy, "workflow_target", None)
+    return (
+        target is not None
+        and getattr(target, "plugin_name", "") == "github"
+        and getattr(target, "operation", "") == REVIEW_PULL_REQUEST_OPERATION
+        and not getattr(policy, "allow_code_review_comments", True)
+    )
 
 
 def _single_pull_request_number(value: Any) -> int:
@@ -938,6 +1068,104 @@ def github_review_pull_request(
         return _github_error(err)
     except RuntimeError as err:
         return _service_unavailable(str(err))
+
+
+@plugin.operation(
+    id="actionPreferences.get",
+    method="GET",
+    description="Get this caller's GitHub webhook action preferences for a policy",
+)
+def github_action_preferences_get(
+    input: ActionPreferenceInput, req: gestalt.Request
+) -> OperationResult:
+    config = get_github_config().action_preferences
+    if not config.enabled:
+        return _failed_precondition("GitHub action preferences are not configured")
+    try:
+        identity = caller_preference_identity(req, input.identity_kind)
+        identity_kind = normalize_identity_kind(input.identity_kind, identity)
+        preference = get_action_preference(
+            config,
+            repository=input.repository,
+            policy_id=input.policy_id,
+            identity=identity,
+            identity_kind=identity_kind,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except RuntimeError as err:
+        return _failed_precondition(str(err))
+    except Exception as err:
+        return _service_unavailable(str(err))
+    return {
+        "data": {
+            "found": preference is not None,
+            "preference": _preference_summary(preference) if preference else None,
+        }
+    }
+
+
+@plugin.operation(
+    id="actionPreferences.set",
+    method="POST",
+    description="Set this caller's GitHub webhook action preferences for a policy",
+)
+def github_action_preferences_set(
+    input: SetActionPreferenceInput, req: gestalt.Request
+) -> OperationResult:
+    config = get_github_config().action_preferences
+    if not config.enabled:
+        return _failed_precondition("GitHub action preferences are not configured")
+    try:
+        identity = caller_preference_identity(req, input.identity_kind)
+        identity_kind = normalize_identity_kind(input.identity_kind, identity)
+        preference = set_action_preference(
+            config,
+            repository=input.repository,
+            policy_id=input.policy_id,
+            identity=identity,
+            identity_kind=identity_kind,
+            allow_code_review_comments=input.allow_code_review_comments,
+            allow_self_fix=input.allow_self_fix,
+            updated_by_subject_id=identity.subject_id,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except RuntimeError as err:
+        return _failed_precondition(str(err))
+    except Exception as err:
+        return _service_unavailable(str(err))
+    return {"data": {"preference": _preference_summary(preference)}}
+
+
+@plugin.operation(
+    id="actionPreferences.delete",
+    method="POST",
+    description="Delete this caller's GitHub webhook action preferences for a policy",
+)
+def github_action_preferences_delete(
+    input: ActionPreferenceInput, req: gestalt.Request
+) -> OperationResult:
+    config = get_github_config().action_preferences
+    if not config.enabled:
+        return _failed_precondition("GitHub action preferences are not configured")
+    try:
+        identity = caller_preference_identity(req, input.identity_kind)
+        identity_kind = normalize_identity_kind(input.identity_kind, identity)
+        deleted = delete_action_preference(
+            config,
+            repository=input.repository,
+            policy_id=input.policy_id,
+            identity=identity,
+            identity_kind=identity_kind,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except RuntimeError as err:
+        return _failed_precondition(str(err))
+    except Exception as err:
+        return _service_unavailable(str(err))
+    return {"data": {"deleted": deleted}}
 
 
 @plugin.operation(
@@ -1726,12 +1954,39 @@ def _pull_request_review_comments_from_input(
     )
 
 
+def _preference_summary(preference: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: preference[key]
+        for key in (
+            "id",
+            "repository",
+            "policy_id",
+            "identity_kind",
+            "external_identity_type",
+            "external_subject_id",
+            "subject_id",
+            "allow_code_review_comments",
+            "allow_self_fix",
+            "updated_by_subject_id",
+            "created_at",
+            "updated_at",
+        )
+        if key in preference
+    }
+
+
 def _bad_request(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": message})
 
 
 def _forbidden(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": message})
+
+
+def _failed_precondition(message: str) -> gestalt.Response[dict[str, Any]]:
+    return gestalt.Response(
+        status=HTTPStatus.PRECONDITION_FAILED, body={"error": message}
+    )
 
 
 def _server_error(message: str) -> gestalt.Response[dict[str, Any]]:

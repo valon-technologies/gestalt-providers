@@ -246,6 +246,16 @@ properties:
                 Whether this policy may expose code-changing self-fix tools such
                 as bot.commitFiles, bot.openPullRequest, and
                 bot.createPullRequest. Defaults to true.
+            preferenceSubject:
+              type: string
+              enum:
+                - pull_request_author
+                - comment_author
+                - sender
+              description: >-
+                Identity used to look up per-subject action preferences when
+                actionPreferences is configured. Defaults to pull_request_author
+                for PR-shaped events and sender otherwise.
             allowedOperations:
               type: array
               description: >-
@@ -286,6 +296,31 @@ properties:
         description: Workflow provider name that receives GitHub App webhook events.
     required:
       - provider
+  actionPreferences:
+    type: object
+    description: >-
+      Optional IndexedDB-backed per-subject action preferences for GitHub webhook
+      policies. When omitted, config-only policy gates are used.
+    additionalProperties: false
+    properties:
+      indexeddb:
+        type: string
+        description: >-
+          Optional named host IndexedDB provider binding used for dynamic
+          preference records. When omitted, the default IndexedDB binding is used.
+      store:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+$'
+        description: >-
+          Provider-owned IndexedDB object store for action preference records.
+          Defaults to a name derived from the provider instance.
+      failureMode:
+        type: string
+        enum:
+          - config_default
+        description: >-
+          Behavior when the preference store cannot be read. config_default logs
+          and falls back to static config gates.
   ignoreBotSender:
     type: boolean
     description: >-
