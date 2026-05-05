@@ -11,7 +11,7 @@ apiVersion: gestaltd.config/v5
 providers:
   workflow:
     temporal:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.2/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.3/provider-release.yaml
       config:
         hostPort: acme.a1b2c.tmprl.cloud:7233
         namespace: acme.a1b2c

@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
+	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -310,6 +312,118 @@ func TestIndexWorkflowPreventsTerminalRunRegression(t *testing.T) {
 	}
 }
 
+func TestIndexWorkflowQueriesProviderIndexes(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(indexWorkflow)
+
+	schedule := &proto.BoundWorkflowSchedule{
+		Id:        "schedule-1",
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+	var checked bool
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updatePutSchedule, "put-schedule", updateCallback(t, nil), schedule)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		value, err := env.QueryWorkflow(updateGetSchedule, "schedule-1")
+		if err != nil {
+			t.Fatalf("query schedule: %v", err)
+		}
+		var got proto.BoundWorkflowSchedule
+		if err := value.Get(&got); err != nil {
+			t.Fatalf("query value: %v", err)
+		}
+		if got.GetId() != schedule.GetId() {
+			t.Fatalf("queried schedule id = %q, want %q", got.GetId(), schedule.GetId())
+		}
+		checked = true
+		env.CancelWorkflow()
+	}, 2*time.Millisecond)
+
+	env.ExecuteWorkflow(indexWorkflow, indexInput{ScopeID: "scope", Shard: 0})
+
+	if !checked {
+		t.Fatalf("schedule query was not checked")
+	}
+}
+
+func TestIndexWorkflowCompactsViaSignal(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(indexWorkflow)
+
+	schedule := &proto.BoundWorkflowSchedule{
+		Id:        "schedule-1",
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updatePutSchedule, "put-schedule", updateCallback(t, nil), schedule)
+		env.SignalWorkflow(signalIndexCompact, "test")
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(indexWorkflow, indexInput{ScopeID: "scope", Shard: 0})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatalf("index workflow did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatalf("workflow error is nil, want continue-as-new")
+	}
+	var continueAsNew *sdkworkflow.ContinueAsNewError
+	if !errors.As(err, &continueAsNew) {
+		t.Fatalf("workflow error = %v, want continue-as-new", err)
+	}
+}
+
+func TestIndexInputStateDataConverterRoundTrip(t *testing.T) {
+	state := newIndexState()
+	state.Schedules["schedule-1"] = &proto.BoundWorkflowSchedule{
+		Id:        "schedule-1",
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+	state.Runs["run-1"] = &proto.BoundWorkflowRun{
+		Id:        "run-1",
+		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:    pluginTarget("slack", "postMessage"),
+		Trigger:   newManualTrigger(),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+
+	snapshot, err := indexSnapshotFromState(state)
+	if err != nil {
+		t.Fatalf("snapshot index state: %v", err)
+	}
+	payloads, err := converter.GetDefaultDataConverter().ToPayloads(indexInput{ScopeID: "scope", Shard: 0, Snapshot: snapshot})
+	if err != nil {
+		t.Fatalf("encode index input: %v", err)
+	}
+	var got indexInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(payloads, &got); err != nil {
+		t.Fatalf("decode index input: %v", err)
+	}
+	gotState, err := indexStateFromInput(got)
+	if err != nil {
+		t.Fatalf("decode index state: %v", err)
+	}
+	if got.ScopeID != "scope" || got.Shard != 0 {
+		t.Fatalf("decoded input = %#v", got)
+	}
+	if gotState.Schedules["schedule-1"].GetId() != "schedule-1" {
+		t.Fatalf("decoded schedules = %#v", gotState.Schedules)
+	}
+	if gotState.Runs["run-1"].GetId() != "run-1" {
+		t.Fatalf("decoded runs = %#v", gotState.Runs)
+	}
+}
+
 func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	tc := &recordingTemporalClient{}
 	backend := newTemporalBackend("temporal", config{
@@ -340,8 +454,8 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if _, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"}); err != nil {
 		t.Fatalf("matchTriggersIndex: %v", err)
 	}
-	if !tc.hasUpdate(matchWorkflowID, updateMatchTriggers) {
-		t.Fatalf("matchTriggersIndex did not read match shard %q; updates=%#v", matchWorkflowID, tc.updates)
+	if !tc.hasQuery(matchWorkflowID, updateMatchTriggers) {
+		t.Fatalf("matchTriggersIndex did not query match shard %q; queries=%#v", matchWorkflowID, tc.queries)
 	}
 
 	ref := &proto.WorkflowExecutionReference{
@@ -361,8 +475,8 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if _, err := backend.listExecutionRefsIndex(context.Background(), "user-1"); err != nil {
 		t.Fatalf("listExecutionRefsIndex: %v", err)
 	}
-	if !tc.hasUpdate(subjectWorkflowID, updateListRefsBySubject) {
-		t.Fatalf("listExecutionRefsIndex did not read subject shard %q; updates=%#v", subjectWorkflowID, tc.updates)
+	if !tc.hasQuery(subjectWorkflowID, updateListRefsBySubject) {
+		t.Fatalf("listExecutionRefsIndex did not query subject shard %q; queries=%#v", subjectWorkflowID, tc.queries)
 	}
 }
 
@@ -458,10 +572,17 @@ type recordedUpdate struct {
 	Args       []any
 }
 
+type recordedQuery struct {
+	WorkflowID string
+	Name       string
+	Args       []any
+}
+
 type recordingTemporalClient struct {
 	client.Client
 	pendingWorkflowIDs []string
 	updates            []recordedUpdate
+	queries            []recordedQuery
 }
 
 func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, _ interface{}, _ ...interface{}) client.WithStartWorkflowOperation {
@@ -484,9 +605,28 @@ func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, opt
 	return recordingUpdateHandle{update: update}, nil
 }
 
+func (c *recordingTemporalClient) QueryWorkflow(_ context.Context, workflowID string, _ string, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	query := recordedQuery{
+		WorkflowID: workflowID,
+		Name:       queryType,
+		Args:       args,
+	}
+	c.queries = append(c.queries, query)
+	return recordingEncodedValue{query: query}, nil
+}
+
 func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
 	for _, update := range c.updates {
 		if update.WorkflowID == workflowID && update.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *recordingTemporalClient) hasQuery(workflowID, name string) bool {
+	for _, query := range c.queries {
+		if query.WorkflowID == workflowID && query.Name == name {
 			return true
 		}
 	}
@@ -531,6 +671,16 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 			}
 		}
 	}
+	return nil
+}
+
+type recordingEncodedValue struct {
+	query recordedQuery
+}
+
+func (v recordingEncodedValue) HasValue() bool { return true }
+
+func (v recordingEncodedValue) Get(valuePtr interface{}) error {
 	return nil
 }
 
