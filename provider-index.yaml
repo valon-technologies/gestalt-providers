@@ -725,6 +725,16 @@ packages:
     displayName: "RelationalDB"
     description: "IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server."
     versions:
+      "0.0.1-alpha.22":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.22/provider-release.yaml"
+        kind: "indexeddb"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
       "0.0.1-alpha.21":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.21/provider-release.yaml"
         kind: "indexeddb"
