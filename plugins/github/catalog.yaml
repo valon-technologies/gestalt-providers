@@ -475,6 +475,144 @@ operations:
     description: GitHub App installation ID. If omitted, it is taken from the webhook
       service account subject.
     default: 0
+- id: bot.addReaction
+  method: POST
+  description: Add a reaction using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: subject_type
+    type: string
+    description: Reaction target type, one of issue, pull_request, issue_comment,
+      or pull_request_review_comment
+    required: true
+  - name: content
+    type: string
+    description: Reaction content, one of +1, -1, laugh, confused, heart, hooray,
+      rocket, or eyes
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue number when subject_type is issue
+    default: 0
+  - name: pull_number
+    type: integer
+    description: Pull request number when subject_type is pull_request
+    default: 0
+  - name: comment_id
+    type: integer
+    description: Comment ID when subject_type is issue_comment or pull_request_review_comment
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.addLabels
+  method: POST
+  description: Add labels to an issue or pull request using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: subject_type
+    type: string
+    description: Label target type, one of issue or pull_request
+    required: true
+  - name: labels
+    type: array
+    description: Label names to add
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue number when subject_type is issue
+    default: 0
+  - name: pull_number
+    type: integer
+    description: Pull request number when subject_type is pull_request
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.removeLabels
+  method: POST
+  description: Remove labels from an issue or pull request using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: subject_type
+    type: string
+    description: Label target type, one of issue or pull_request
+    required: true
+  - name: labels
+    type: array
+    description: Label names to remove
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue number when subject_type is issue
+    default: 0
+  - name: pull_number
+    type: integer
+    description: Pull request number when subject_type is pull_request
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.requestReviewers
+  method: POST
+  description: Request individual or team reviewers on a pull request using a GitHub
+    App installation token
+  tags: [pr, prs, review]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: reviewers
+    type: array
+    description: GitHub usernames to request as reviewers
+    default: []
+  - name: team_reviewers
+    type: array
+    description: GitHub team slugs to request as reviewers
+    default: []
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
 - id: bot.getCheckRun
   method: GET
   description: Get a GitHub check run using a GitHub App installation token

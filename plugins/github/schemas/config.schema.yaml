@@ -189,6 +189,10 @@ properties:
                   - bot.resolvePullRequestReviewThread
                   - bot.createPullRequestConversationComment
                   - bot.createIssueComment
+                  - bot.addReaction
+                  - bot.addLabels
+                  - bot.removeLabels
+                  - bot.requestReviewers
                   - bot.commitFiles
                   - bot.openPullRequest
                   - bot.closePullRequest

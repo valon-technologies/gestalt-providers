@@ -10,6 +10,8 @@ from internals.agent import build_workflow_signal_or_start_request
 from internals.client import user_external_identity_metadata
 from internals.config import configure_from_mapping, get_github_config
 from internals.constants import (
+    BOT_ADD_LABELS_OPERATION,
+    BOT_ADD_REACTION_OPERATION,
     BOT_CLOSE_PULL_REQUEST_OPERATION,
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
@@ -24,12 +26,16 @@ from internals.constants import (
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
+    BOT_REMOVE_LABELS_OPERATION,
+    BOT_REQUEST_REVIEWERS_OPERATION,
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     GITHUB_EVENT_OPERATION,
     REVIEW_PULL_REQUEST_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.operations import (
+    GitHubAddLabelsRequest,
+    GitHubAddReactionRequest,
     GitHubCoAuthor,
     GitHubCommitRequest,
     GitHubCheckRunRequest,
@@ -45,8 +51,12 @@ from internals.operations import (
     GitHubOpenPullRequestRequest,
     GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
+    GitHubRemoveLabelsRequest,
+    GitHubRequestReviewersRequest,
     GitHubResolvePullRequestReviewThreadRequest,
     GitHubWorkflowRunRequest,
+    add_labels,
+    add_reaction,
     check_run_annotation_summary,
     check_run_summary,
     close_pull_request,
@@ -60,6 +70,7 @@ from internals.operations import (
     get_pull_request,
     get_workflow_run,
     issue_comment_summary,
+    label_summary,
     list_check_run_annotations,
     list_pull_request_files,
     list_pull_request_review_threads,
@@ -68,6 +79,9 @@ from internals.operations import (
     pull_request_file_summary,
     pull_request_review_summary,
     pull_request_summary,
+    reaction_summary,
+    remove_labels,
+    request_reviewers,
     resolve_pull_request_review_thread,
     workflow_run_job_summary,
     workflow_run_summary,
@@ -307,7 +321,9 @@ class PullRequestReviewCommentInput(gestalt.Model):
         description="Line number in the pull request diff", default=0, required=False
     )
     side: str = gestalt.field(
-        description="Diff side for line, either LEFT or RIGHT", default="", required=False
+        description="Diff side for line, either LEFT or RIGHT",
+        default="",
+        required=False,
     )
     start_line: int = gestalt.field(
         description="First line in a multi-line review comment",
@@ -437,7 +453,109 @@ class ResolvePullRequestReviewThreadInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
     pull_number: int = gestalt.field(description="Pull request number")
-    thread_id: str = gestalt.field(description="GitHub GraphQL pull request review thread node ID")
+    thread_id: str = gestalt.field(
+        description="GitHub GraphQL pull request review thread node ID"
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class AddReactionInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    subject_type: str = gestalt.field(
+        description="Reaction target type: issue, pull_request, issue_comment, or pull_request_review_comment"
+    )
+    content: str = gestalt.field(
+        description="Reaction content: +1, -1, laugh, confused, heart, hooray, rocket, or eyes"
+    )
+    issue_number: int = gestalt.field(
+        description="Issue number when subject_type is issue",
+        default=0,
+        required=False,
+    )
+    pull_number: int = gestalt.field(
+        description="Pull request number when subject_type is pull_request",
+        default=0,
+        required=False,
+    )
+    comment_id: int = gestalt.field(
+        description="Comment ID when subject_type is issue_comment or pull_request_review_comment",
+        default=0,
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class AddLabelsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    subject_type: str = gestalt.field(
+        description="Label target type: issue or pull_request"
+    )
+    labels: list[str] = gestalt.field(description="Label names to add")
+    issue_number: int = gestalt.field(
+        description="Issue number when subject_type is issue",
+        default=0,
+        required=False,
+    )
+    pull_number: int = gestalt.field(
+        description="Pull request number when subject_type is pull_request",
+        default=0,
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class RemoveLabelsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    subject_type: str = gestalt.field(
+        description="Label target type: issue or pull_request"
+    )
+    labels: list[str] = gestalt.field(description="Label names to remove")
+    issue_number: int = gestalt.field(
+        description="Issue number when subject_type is issue",
+        default=0,
+        required=False,
+    )
+    pull_number: int = gestalt.field(
+        description="Pull request number when subject_type is pull_request",
+        default=0,
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class RequestReviewersInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    reviewers: list[str] = gestalt.field(
+        description="GitHub usernames to request as reviewers",
+        default_factory=list,
+        required=False,
+    )
+    team_reviewers: list[str] = gestalt.field(
+        description="GitHub team slugs to request as reviewers",
+        default_factory=list,
+        required=False,
+    )
     installation_id: int = gestalt.field(
         description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
         default=0,
@@ -967,6 +1085,136 @@ def bot_resolve_pull_request_review_thread(
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"thread": thread}}
+
+
+@plugin.operation(
+    id=BOT_ADD_REACTION_OPERATION,
+    method="POST",
+    description="Add a reaction using a GitHub App installation token",
+)
+def bot_add_reaction(input: AddReactionInput, req: gestalt.Request) -> OperationResult:
+    try:
+        reaction = add_reaction(
+            GitHubAddReactionRequest(
+                owner=input.owner,
+                repo=input.repo,
+                subject_type=input.subject_type,
+                content=input.content,
+                issue_number=input.issue_number,
+                pull_number=input.pull_number,
+                comment_id=input.comment_id,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"reaction": reaction_summary(reaction)}}
+
+
+@plugin.operation(
+    id=BOT_ADD_LABELS_OPERATION,
+    method="POST",
+    description="Add labels to an issue or pull request using a GitHub App installation token",
+)
+def bot_add_labels(input: AddLabelsInput, req: gestalt.Request) -> OperationResult:
+    try:
+        labels = add_labels(
+            GitHubAddLabelsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                subject_type=input.subject_type,
+                labels=tuple(input.labels),
+                issue_number=input.issue_number,
+                pull_number=input.pull_number,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"labels": [label_summary(label) for label in labels]}}
+
+
+@plugin.operation(
+    id=BOT_REMOVE_LABELS_OPERATION,
+    method="POST",
+    description="Remove labels from an issue or pull request using a GitHub App installation token",
+)
+def bot_remove_labels(
+    input: RemoveLabelsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        removed, labels = remove_labels(
+            GitHubRemoveLabelsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                subject_type=input.subject_type,
+                labels=tuple(input.labels),
+                issue_number=input.issue_number,
+                pull_number=input.pull_number,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "removed": list(removed),
+            "labels": [label_summary(label) for label in labels],
+        }
+    }
+
+
+@plugin.operation(
+    id=BOT_REQUEST_REVIEWERS_OPERATION,
+    method="POST",
+    description="Request individual or team reviewers on a pull request using a GitHub App installation token",
+    tags=["pr", "prs", "review"],
+)
+def bot_request_reviewers(
+    input: RequestReviewersInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        pull_request = request_reviewers(
+            GitHubRequestReviewersRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                reviewers=tuple(input.reviewers),
+                team_reviewers=tuple(input.team_reviewers),
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"pull_request": pull_request_summary(pull_request)}}
 
 
 @plugin.operation(

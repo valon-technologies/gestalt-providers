@@ -164,6 +164,50 @@ class GitHubResolvePullRequestReviewThreadRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubAddReactionRequest:
+    owner: str
+    repo: str
+    subject_type: str
+    content: str
+    issue_number: int = 0
+    pull_number: int = 0
+    comment_id: int = 0
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubAddLabelsRequest:
+    owner: str
+    repo: str
+    subject_type: str
+    labels: tuple[str, ...]
+    issue_number: int = 0
+    pull_number: int = 0
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubRemoveLabelsRequest:
+    owner: str
+    repo: str
+    subject_type: str
+    labels: tuple[str, ...]
+    issue_number: int = 0
+    pull_number: int = 0
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubRequestReviewersRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    reviewers: tuple[str, ...] = ()
+    team_reviewers: tuple[str, ...] = ()
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubPullRequestRequest:
     owner: str
     repo: str
@@ -317,6 +361,25 @@ mutation GestaltResolvePullRequestReviewThread($threadId: ID!) {
   }
 }
 """.strip()
+
+REACTION_CONTENTS = frozenset(
+    ("+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes")
+)
+REACTION_ISSUE = "issue"
+REACTION_PULL_REQUEST = "pull_request"
+REACTION_ISSUE_COMMENT = "issue_comment"
+REACTION_PULL_REQUEST_REVIEW_COMMENT = "pull_request_review_comment"
+REACTION_SUBJECT_TYPES = frozenset(
+    (
+        REACTION_ISSUE,
+        REACTION_PULL_REQUEST,
+        REACTION_ISSUE_COMMENT,
+        REACTION_PULL_REQUEST_REVIEW_COMMENT,
+    )
+)
+LABEL_ISSUE = "issue"
+LABEL_PULL_REQUEST = "pull_request"
+LABEL_SUBJECT_TYPES = frozenset((LABEL_ISSUE, LABEL_PULL_REQUEST))
 
 
 @dataclass(frozen=True, slots=True)
@@ -623,6 +686,145 @@ def create_issue_comment(
     )
 
 
+def add_reaction(
+    request: GitHubAddReactionRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    subject_type = require_subject_type(
+        request.subject_type, "subject_type", REACTION_SUBJECT_TYPES
+    )
+    content = require_reaction_content(request.content)
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+
+    if subject_type == REACTION_ISSUE:
+        issue_number = require_positive_int(request.issue_number, "issue_number")
+        path = repo_path(owner, repo, "issues", str(issue_number), "reactions")
+        permissions = {"issues": "write"}
+    elif subject_type == REACTION_PULL_REQUEST:
+        pull_number = require_positive_int(request.pull_number, "pull_number")
+        path = repo_path(owner, repo, "issues", str(pull_number), "reactions")
+        permissions = {"issues": "write"}
+    elif subject_type == REACTION_ISSUE_COMMENT:
+        comment_id = require_positive_int(request.comment_id, "comment_id")
+        path = repo_path(
+            owner, repo, "issues", "comments", str(comment_id), "reactions"
+        )
+        permissions = {"issues": "write"}
+    else:
+        comment_id = require_positive_int(request.comment_id, "comment_id")
+        path = repo_path(owner, repo, "pulls", "comments", str(comment_id), "reactions")
+        permissions = {"pull_requests": "write"}
+
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions=permissions
+    )
+    return github.github_json("POST", path, token, {"content": content})
+
+
+def add_labels(
+    request: GitHubAddLabelsRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    target_number, permissions = labels_target(
+        request.subject_type,
+        issue_number=request.issue_number,
+        pull_number=request.pull_number,
+    )
+    labels = normalize_unique_strings(request.labels, "labels")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions=permissions
+    )
+    data = github.github_json_value(
+        "POST",
+        repo_path(owner, repo, "issues", str(target_number), "labels"),
+        token,
+        {"labels": list(labels)},
+    )
+    return require_json_object_list(data, "GitHub labels response")
+
+
+def remove_labels(
+    request: GitHubRemoveLabelsRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> tuple[tuple[str, ...], list[JsonObject]]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    target_number, permissions = labels_target(
+        request.subject_type,
+        issue_number=request.issue_number,
+        pull_number=request.pull_number,
+    )
+    labels = normalize_unique_strings(request.labels, "labels")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions=permissions
+    )
+    remaining: list[JsonObject] = []
+    for label in labels:
+        data = github.github_json_value(
+            "DELETE",
+            repo_path(owner, repo, "issues", str(target_number), "labels", label),
+            token,
+        )
+        remaining = require_json_object_list(data, "GitHub labels response")
+    return labels, remaining
+
+
+def request_reviewers(
+    request: GitHubRequestReviewersRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    reviewers = normalize_unique_strings(request.reviewers, "reviewers", required=False)
+    team_reviewers = normalize_unique_strings(
+        request.team_reviewers, "team_reviewers", required=False
+    )
+    if not reviewers and not team_reviewers:
+        raise ValueError("reviewers or team_reviewers must contain at least one value")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    payload: JsonObject = {}
+    if reviewers:
+        payload["reviewers"] = list(reviewers)
+    if team_reviewers:
+        payload["team_reviewers"] = list(team_reviewers)
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "write"}
+    )
+    return github.github_json(
+        "POST",
+        repo_path(owner, repo, "pulls", str(pull_number), "requested_reviewers"),
+        token,
+        payload,
+    )
+
+
 def create_pull_request_conversation_comment(
     request: GitHubCreatePullRequestConversationCommentRequest,
     *,
@@ -713,9 +915,7 @@ def list_pull_request_review_threads(
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"pull_requests": "read"}
     )
-    response = github.graphql_json(
-        PULL_REQUEST_REVIEW_THREADS_QUERY, token, variables
-    )
+    response = github.graphql_json(PULL_REQUEST_REVIEW_THREADS_QUERY, token, variables)
     repository = map_field(map_field(response, "data"), "repository")
     if not repository:
         raise GitHubAPIError(
@@ -1083,7 +1283,9 @@ def normalize_pull_request_review_comments(
         side = require_review_side(side, f"{path}: side")
         if start_line:
             if start_line > line:
-                raise ValueError(f"{path}: start_line must be less than or equal to line")
+                raise ValueError(
+                    f"{path}: start_line must be less than or equal to line"
+                )
             start_side = require_review_side(start_side, f"{path}: start_side")
         elif start_side:
             raise ValueError(f"{path}: start_side requires start_line")
@@ -1126,6 +1328,66 @@ def require_review_side(value: str, name: str) -> str:
     if value not in {"LEFT", "RIGHT"}:
         raise ValueError(f"{name} must be LEFT or RIGHT")
     return value
+
+
+def require_reaction_content(value: str) -> str:
+    content = require_text(value, "content")
+    if content not in REACTION_CONTENTS:
+        raise ValueError(
+            "content must be one of +1, -1, laugh, confused, heart, "
+            "hooray, rocket, or eyes"
+        )
+    return content
+
+
+def require_subject_type(value: str, name: str, allowed: frozenset[str]) -> str:
+    subject_type = require_text(value, name).lower()
+    if subject_type not in allowed:
+        raise ValueError(f"{name} must be one of {', '.join(sorted(allowed))}")
+    return subject_type
+
+
+def labels_target(
+    subject_type: str, *, issue_number: int, pull_number: int
+) -> tuple[int, dict[str, str]]:
+    normalized = require_subject_type(subject_type, "subject_type", LABEL_SUBJECT_TYPES)
+    if normalized == LABEL_ISSUE:
+        return (
+            require_positive_int(issue_number, "issue_number"),
+            {"issues": "write"},
+        )
+    return (
+        require_positive_int(pull_number, "pull_number"),
+        {"pull_requests": "write"},
+    )
+
+
+def normalize_unique_strings(
+    values: Sequence[str], name: str, *, required: bool = True
+) -> tuple[str, ...]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{name} must be a list")
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            raise ValueError(f"{name}[{index}] must be a string")
+        trimmed = require_text(value, f"{name}[{index}]")
+        if trimmed in seen:
+            raise ValueError(f"{name}[{index}] duplicates {trimmed!r}")
+        seen.add(trimmed)
+        normalized.append(trimmed)
+    if required and not normalized:
+        raise ValueError(f"{name} must contain at least one value")
+    return tuple(normalized)
+
+
+def require_json_object_list(data: Any, name: str) -> list[JsonObject]:
+    if not isinstance(data, list):
+        raise GitHubAPIError(502, f"{name} was not a list")
+    if not all(isinstance(item, dict) for item in data):
+        raise GitHubAPIError(502, f"{name} contained a non-object item")
+    return data
 
 
 def pull_request_review_comment_payload(
@@ -1296,6 +1558,32 @@ def issue_comment_summary(comment: Mapping[str, Any]) -> dict[str, Any]:
             "user": _compact_dict({"login": str_field(user, "login")}),
             "created_at": str_field(comment, "created_at"),
             "updated_at": str_field(comment, "updated_at"),
+        }
+    )
+
+
+def reaction_summary(reaction: Mapping[str, Any]) -> dict[str, Any]:
+    user = map_field(reaction, "user")
+    return _compact_dict(
+        {
+            "id": int_field(reaction, "id"),
+            "node_id": str_field(reaction, "node_id"),
+            "content": str_field(reaction, "content"),
+            "user": _compact_dict({"login": str_field(user, "login")}),
+            "created_at": str_field(reaction, "created_at"),
+        }
+    )
+
+
+def label_summary(label: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(label, "id"),
+            "node_id": str_field(label, "node_id"),
+            "url": str_field(label, "url"),
+            "name": str_field(label, "name"),
+            "color": str_field(label, "color"),
+            "description": str_field(label, "description"),
         }
     )
 
