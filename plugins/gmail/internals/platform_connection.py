@@ -14,6 +14,7 @@ READ_ONLY_PLATFORM_OPERATIONS = frozenset(
     {
         "messages.list",
         "messages.get",
+        "messages.attachments.get",
         "threads.get",
         "labels.list",
         "getProfile",
@@ -76,7 +77,9 @@ def platform_connection_token_for_operation(
     config: PlatformConnectionConfig, operation: str, access_token: str
 ) -> str:
     if not config.enabled:
-        raise PlatformConnectionPolicyError("platform Gmail connection is not configured")
+        raise PlatformConnectionPolicyError(
+            "platform Gmail connection is not configured"
+        )
     if operation not in config.operations:
         raise PlatformConnectionPolicyError(
             f"platform Gmail connection is not enabled for {operation}"
@@ -124,9 +127,7 @@ def _required_string_list(raw: dict[str, Any], key: str) -> tuple[str, ...]:
     return tuple(strings)
 
 
-def _verify_profile_email(
-    config: PlatformConnectionConfig, access_token: str
-) -> None:
+def _verify_profile_email(config: PlatformConnectionConfig, access_token: str) -> None:
     cache_key = (_token_fingerprint(access_token), config.email)
     if cache_key in _PROFILE_CACHE:
         return

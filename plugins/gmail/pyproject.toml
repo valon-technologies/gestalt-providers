@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-gmail"
-version = "0.0.1a15"
+version = "0.0.1a16"
 requires-python = "==3.14.*"
 dependencies = ["gestalt-sdk"]
 
@@ -24,6 +24,7 @@ provider = "provider"
 vulture-ignore-names = [
   "messages_list",
   "messages_get",
+  "messages_attachments_get",
   "threads_get",
   "labels_list",
   "get_profile",

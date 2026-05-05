@@ -69,6 +69,14 @@ class GmailAPIClient(Protocol):
         fields: str = "",
     ) -> str: ...
 
+    def message_attachment_url(
+        self,
+        message_id: str,
+        attachment_id: str,
+        *,
+        fields: str = "",
+    ) -> str: ...
+
     def thread_url(
         self,
         thread_id: str,
@@ -145,6 +153,15 @@ class GmailHTTPClient:
             metadata_headers=metadata_headers,
             fields=fields,
         )
+
+    def message_attachment_url(
+        self,
+        message_id: str,
+        attachment_id: str,
+        *,
+        fields: str = "",
+    ) -> str:
+        return message_attachment_url(message_id, attachment_id, fields=fields)
 
     def thread_url(
         self,
@@ -331,6 +348,21 @@ def message_url(
     params.extend(("metadataHeaders", header) for header in metadata_headers)
     return _append_query(
         f"{gmail_base_url()}/messages/{quote(message_id, safe='')}", params
+    )
+
+
+def message_attachment_url(
+    message_id: str,
+    attachment_id: str,
+    *,
+    fields: str = "",
+) -> str:
+    return _append_query(
+        (
+            f"{gmail_base_url()}/messages/{quote(message_id, safe='')}"
+            f"/attachments/{quote(attachment_id, safe='')}"
+        ),
+        [("fields", fields)],
     )
 
 

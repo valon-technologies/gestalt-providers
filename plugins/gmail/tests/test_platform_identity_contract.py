@@ -59,22 +59,44 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         allowed = manifest["spec"]["allowedOperations"]
         self.assertIn("messages.list", allowed)
         self.assertIn("messages.get", allowed)
+        self.assertIn("messages.attachments.get", allowed)
         self.assertIn("threads.get", allowed)
         self.assertIn("labels.list", allowed)
         self.assertIn("getProfile", allowed)
         self.assertNotIn("gmail.users.messages.list", allowed)
         self.assertNotIn("gmail.users.messages.get", allowed)
+        self.assertNotIn("gmail.users.messages.attachments.get", allowed)
         self.assertNotIn("gmail.users.threads.get", allowed)
         platform_connection_manifest = manifest["spec"]["connections"]["platform"]
         self.assertEqual(platform_connection_manifest["mode"], "platform")
         self.assertEqual(platform_connection_manifest["exposure"], "internal")
         self.assertEqual(platform_connection_manifest["auth"], {"type": "manual"})
 
+        catalog = yaml.safe_load((PLUGIN_DIR / "catalog.yaml").read_text())
+        attachment_operation = {
+            operation["id"]: operation for operation in catalog["operations"]
+        }["messages.attachments.get"]
+        self.assertTrue(attachment_operation["read_only"])
+        self.assertEqual(
+            [parameter["name"] for parameter in attachment_operation["parameters"]],
+            ["messageId", "attachmentId", "fields"],
+        )
+        self.assertEqual(
+            {
+                parameter["name"]
+                for parameter in attachment_operation["parameters"]
+                if parameter.get("required")
+            },
+            {"messageId", "attachmentId"},
+        )
+
         schema = yaml.safe_load(
             (PLUGIN_DIR / "schemas" / "config.schema.yaml").read_text()
         )
         platform_identity_schema = schema["properties"]["platformIdentity"]
-        self.assertNotIn("const", platform_identity_schema["properties"]["subjectEmail"])
+        self.assertNotIn(
+            "const", platform_identity_schema["properties"]["subjectEmail"]
+        )
         self.assertIn("scopes", platform_identity_schema["properties"])
         self.assertNotIn(
             "enum", platform_identity_schema["properties"]["operations"]["items"]
@@ -101,7 +123,11 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
                         "https://www.googleapis.com/auth/gmail.readonly",
                         "https://www.googleapis.com/auth/gmail.metadata",
                     ],
-                    "operations": ["messages.list", "messages.modify"],
+                    "operations": [
+                        "messages.list",
+                        "messages.attachments.get",
+                        "messages.modify",
+                    ],
                 },
             },
         )
@@ -119,7 +145,13 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         )
         self.assertEqual(
             provider_module._platform_identity_config.operations,
-            frozenset({"messages.list", "messages.modify"}),
+            frozenset(
+                {
+                    "messages.list",
+                    "messages.attachments.get",
+                    "messages.modify",
+                }
+            ),
         )
 
     def test_platform_connection_config_uses_deployment_policy(self) -> None:
@@ -131,7 +163,11 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
                 "platformConnection": {
                     "enabled": True,
                     "email": "Aaron.Via@Gmail.com",
-                    "operations": ["messages.list", "threads.get"],
+                    "operations": [
+                        "messages.list",
+                        "messages.attachments.get",
+                        "threads.get",
+                    ],
                 },
             },
         )
@@ -143,7 +179,13 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         )
         self.assertEqual(
             provider_module._platform_connection_config.operations,
-            frozenset({"messages.list", "threads.get"}),
+            frozenset(
+                {
+                    "messages.list",
+                    "messages.attachments.get",
+                    "threads.get",
+                }
+            ),
         )
 
     def test_platform_config_rejects_multiple_internal_identity_modes(self) -> None:
@@ -323,6 +365,48 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertEqual(mint.call_args.args[1], "messages.list")
         self.assertEqual(get_json.call_args.args[1], "platform-token")
 
+    def test_credential_mode_none_attachment_read_mints_platform_identity_token(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformIdentity": {
+                    "enabled": True,
+                    "subjectEmail": "brain-ingest@example.com",
+                    "serviceAccountEmail": "gmail-ingest@example.iam.gserviceaccount.com",
+                    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+                    "operations": ["messages.attachments.get"],
+                },
+            },
+        )
+        with (
+            mock.patch.object(
+                provider_module,
+                "platform_token_for_operation",
+                return_value="platform-token",
+            ) as mint,
+            mock.patch.object(
+                client_module, "get_json", return_value={"data": "SGVsbG8"}
+            ) as get_json,
+        ):
+            result = provider_module.messages_attachments_get(
+                provider_module.MessageAttachmentGetInput(
+                    messageId="msg-1", attachmentId="att-1"
+                ),
+                gestalt.Request(
+                    token="",
+                    credential=gestalt.Credential(mode="none"),
+                ),
+            )
+
+        self.assertEqual(result, {"data": "SGVsbG8"})
+        mint.assert_called_once()
+        self.assertEqual(mint.call_args.args[1], "messages.attachments.get")
+        self.assertEqual(get_json.call_args.args[1], "platform-token")
+
     def test_platform_connection_read_uses_host_token_after_profile_verification(
         self,
     ) -> None:
@@ -374,6 +458,50 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertEqual(result, {"messages": [{"id": "m-1"}]})
         self.assertEqual(get_json.call_args.args[1], "platform-access-token")
         self.assertEqual(len(requests), 1)
+
+    def test_platform_connection_allows_attachment_read_operation(self) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "aaron.via@gmail.com",
+                    "operations": ["messages.attachments.get"],
+                },
+            },
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: int = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, platform_connection.GMAIL_PROFILE_URL)
+            return FakeHTTPResponse({"emailAddress": "aaron.via@gmail.com"})
+
+        with (
+            mock.patch.object(
+                platform_connection.urllib.request, "urlopen", fake_urlopen
+            ),
+            mock.patch.object(
+                client_module, "get_json", return_value={"data": "SGVsbG8"}
+            ) as get_json,
+        ):
+            result = provider_module.messages_attachments_get(
+                provider_module.MessageAttachmentGetInput(
+                    messageId="msg-1", attachmentId="att-1"
+                ),
+                gestalt.Request(
+                    token="platform-access-token",
+                    credential=gestalt.Credential(
+                        mode="platform", connection="platform"
+                    ),
+                ),
+            )
+
+        self.assertEqual(result, {"data": "SGVsbG8"})
+        self.assertEqual(get_json.call_args.args[1], "platform-access-token")
 
     def test_platform_connection_disallowed_operation_is_forbidden(self) -> None:
         provider_module.configure(
@@ -531,7 +659,9 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertEqual(response.body, {"error": "platform Gmail connection is read-only"})
+        self.assertEqual(
+            response.body, {"error": "platform Gmail connection is read-only"}
+        )
 
     def test_message_list_preserves_repeated_query_parameter_encoding(self) -> None:
         with mock.patch.object(

@@ -63,7 +63,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-gmail"
-version = "0.0.1a15"
+version = "0.0.1a16"
 source = { virtual = "." }
 dependencies = [
     { name = "gestalt-sdk" },

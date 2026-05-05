@@ -104,6 +104,16 @@ class MessageGetInput(gestalt.Model):
     )
 
 
+class MessageAttachmentGetInput(gestalt.Model):
+    messageId: str = gestalt.field(description="Message ID")
+    attachmentId: str = gestalt.field(description="Attachment ID")
+    fields: str = gestalt.field(
+        description="Partial response fields selector",
+        default="",
+        required=False,
+    )
+
+
 class ThreadGetInput(gestalt.Model):
     id: str = gestalt.field(description="Thread ID")
     format: str = gestalt.field(
@@ -252,6 +262,36 @@ def messages_get(input: MessageGetInput, req: gestalt.Request) -> OperationResul
                 input.id,
                 format=input.format,
                 metadata_headers=input.metadataHeaders,
+                fields=input.fields,
+            ),
+            token,
+        )
+    except GmailAPIError as err:
+        return gestalt.Response(status=err.status, body=err.raw_body)
+    except GmailClientError as err:
+        return _server_error(str(err))
+
+
+@plugin.operation(
+    id="messages.attachments.get",
+    method="GET",
+    description="Get a Gmail message attachment",
+    tags=["email", "mail"],
+    read_only=True,
+)
+def messages_attachments_get(
+    input: MessageAttachmentGetInput, req: gestalt.Request
+) -> OperationResult:
+    if not input.messageId or not input.attachmentId:
+        return _bad_request("messageId and attachmentId are required")
+    token = _read_token("messages.attachments.get", req)
+    if isinstance(token, gestalt.Response):
+        return token
+    try:
+        return client_module.get_json(
+            client_module.message_attachment_url(
+                input.messageId,
+                input.attachmentId,
                 fields=input.fields,
             ),
             token,
