@@ -10,6 +10,7 @@ from internals.agent import build_workflow_signal_or_start_request
 from internals.client import user_external_identity_metadata
 from internals.config import configure_from_mapping, get_github_config
 from internals.constants import (
+    BOT_CLOSE_PULL_REQUEST_OPERATION,
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
@@ -48,6 +49,7 @@ from internals.operations import (
     GitHubWorkflowRunRequest,
     check_run_annotation_summary,
     check_run_summary,
+    close_pull_request,
     commit_files,
     commit_result_dict,
     create_issue_comment,
@@ -195,6 +197,17 @@ class OpenPullRequestInput(gestalt.Model):
     maintainer_can_modify: bool = gestalt.field(
         description="Allow maintainers to modify the pull request branch",
         default=True,
+        required=False,
+    )
+
+
+class ClosePullRequestInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
         required=False,
     )
 
@@ -736,6 +749,36 @@ def bot_open_pull_request(
                 head_owner=input.head_owner,
                 draft=input.draft,
                 maintainer_can_modify=input.maintainer_can_modify,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"pull_request": pull_request_summary(pull)}}
+
+
+@plugin.operation(
+    id=BOT_CLOSE_PULL_REQUEST_OPERATION,
+    method="POST",
+    description="Close a pull request using a GitHub App installation token",
+    tags=["pr", "prs"],
+)
+def bot_close_pull_request(
+    input: ClosePullRequestInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        pull = close_pull_request(
+            GitHubPullRequestRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                installation_id=input.installation_id,
             ),
             subject=req.subject,
         )

@@ -191,6 +191,7 @@ properties:
                   - bot.createIssueComment
                   - bot.commitFiles
                   - bot.openPullRequest
+                  - bot.closePullRequest
                   - bot.createPullRequest
   workflow:
     type: object

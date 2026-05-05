@@ -42,6 +42,7 @@ vulture-ignore-names = [
   "pollIntervalMs",
   "bot_commit_files",
   "bot_open_pull_request",
+  "bot_close_pull_request",
   "bot_create_pull_request",
   "bot_create_pull_request_review",
   "bot_list_pull_request_review_threads",
