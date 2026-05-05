@@ -437,7 +437,7 @@ def object_sha(ref: Mapping[str, Any], name: str) -> str:
 def bot_identity_or_none() -> GitHubBotIdentity | None:
     try:
         return bot_identity()
-    except GitHubAPIError, GitHubConfigError:
+    except (GitHubAPIError, GitHubConfigError):
         return None
 
 

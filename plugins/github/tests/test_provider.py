@@ -450,6 +450,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_ADD_LABELS_OPERATION, enum)
         self.assertIn(provider_module.BOT_REMOVE_LABELS_OPERATION, enum)
         self.assertIn(provider_module.BOT_REQUEST_REVIEWERS_OPERATION, enum)
+        self.assertIn(provider_module.BOT_RESOLVE_INSTALLATION_OPERATION, enum)
         self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
