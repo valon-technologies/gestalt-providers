@@ -33,6 +33,8 @@ connection:
 - `bot.commitFiles` creates a commit on a branch using an installation access
   token.
 - `bot.openPullRequest` opens a pull request using an installation access token.
+- `bot.closePullRequest` closes a pull request using an installation access
+  token.
 - `bot.createPullRequest` commits file changes and opens a pull request in one
   operation.
 - `bot.createPullRequestReview` creates a pull request review with inline

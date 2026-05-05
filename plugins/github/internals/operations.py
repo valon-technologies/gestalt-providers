@@ -492,6 +492,32 @@ def open_pull_request(
     )
 
 
+def close_pull_request(
+    request: GitHubPullRequestRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id,
+        repositories=[repo],
+        permissions={"pull_requests": "write"},
+    )
+    return github.github_json(
+        "PATCH",
+        repo_path(owner, repo, "pulls", str(pull_number)),
+        token,
+        {"state": "closed"},
+    )
+
+
 def create_pull_request_with_files(
     request: GitHubCreatePullRequestRequest,
     *,

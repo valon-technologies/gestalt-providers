@@ -300,6 +300,7 @@ class GitHubProviderTests(unittest.TestCase):
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
+        close_pr = operations[provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION]
         pr_threads = operations[
             provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION
         ]
@@ -315,6 +316,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
+        self.assertIn("Close", close_pr["description"])
         self.assertIn("review threads", pr_threads["description"])
         self.assertIn("Resolve", resolve_thread["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
@@ -379,6 +381,7 @@ class GitHubProviderTests(unittest.TestCase):
             enum,
         )
         self.assertIn(provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION, enum)
+        self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
         ]["workflow"]["properties"]
@@ -2627,6 +2630,65 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             data["pull_request"]["html_url"],
             "https://github.com/acme/widgets/pull/42",
+        )
+
+    def test_close_pull_request_uses_pull_request_write_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"pull_requests": "write"})
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/pulls/7":
+                self.assertEqual(method, "PATCH")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body, {"state": "closed"})
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "title": "Update README",
+                        "state": "closed",
+                        "html_url": "https://github.com/acme/widgets/pull/7",
+                        "url": "https://api.github.com/repos/acme/widgets/pulls/7",
+                        "head": {"ref": "feature"},
+                        "base": {"ref": "main"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_close_pull_request(
+                provider_module.ClosePullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        self.assertEqual(data["number"], 7)
+        self.assertEqual(data["state"], "closed")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"pull_requests": "write"}],
         )
 
     def test_create_issue_comment_uses_issue_write_permission(self) -> None:
