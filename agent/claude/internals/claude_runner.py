@@ -206,12 +206,14 @@ class ClaudeSDKRunner:
             return "\n".join(tool_blocks).strip()
         return ""
 
-    def _options(self, *, model: str, session_id: str, turn_id: str, run_grant: str, plugin_paths: list[str]) -> Any:
+    def _options(
+        self, *, model: str, session_id: str, turn_id: str, run_grant: str, plugin_paths: list[str] | None = None
+    ) -> Any:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         gestalt_tools = allowed_gestalt_mcp_tools()
-        plugins: list[SdkPluginConfig] = [{"type": "local", "path": path} for path in plugin_paths]
+        plugins: list[SdkPluginConfig] = [{"type": "local", "path": path} for path in plugin_paths or []]
         return ClaudeAgentOptions(
             tools=gestalt_tools,
             allowed_tools=gestalt_tools,
