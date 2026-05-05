@@ -187,6 +187,12 @@ class IndexedDBRunStore:
     def get_session(self, session_id: str) -> StoredSession | None:
         return _record_to_session(_get_optional_record(self._sessions, session_id.strip()))
 
+    def get_session_by_idempotency_key(self, idempotency_key: str) -> StoredSession | None:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key:
+            return None
+        return _session_for_idempotency_key_from_stores(self._session_idempotency, self._sessions, idempotency_key)
+
     def list_sessions(
         self, *, session_ids: list[str] | None = None, subject_id: str = "", state: int = 0, limit: int = 0
     ) -> list[StoredSession]:

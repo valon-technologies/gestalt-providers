@@ -123,6 +123,17 @@ class InMemoryRunStore:
             session = self._sessions.get(session_id.strip())
             return copy.deepcopy(session) if session is not None else None
 
+    def get_session_by_idempotency_key(self, idempotency_key: str) -> StoredSession | None:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key:
+            return None
+        with self._lock:
+            session_id = self._session_idempotency.get(idempotency_key)
+            if not session_id:
+                return None
+            session = self._sessions.get(session_id)
+            return copy.deepcopy(session) if session is not None else None
+
     def list_sessions(
         self, *, session_ids: list[str] | None = None, subject_id: str = "", state: int = 0, limit: int = 0
     ) -> list[StoredSession]:

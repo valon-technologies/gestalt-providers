@@ -15,6 +15,11 @@ from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError
 from internals.codex_runner import CodexMCPRunner
 from internals.config import CodexAgentConfig
+from internals.session_start import (
+    prepend_session_start_context,
+    run_session_start_hooks,
+    validate_session_start_user_metadata,
+)
 from internals.store import StoreConflictError, StoredSession, StoredTurn, StoredTurnEvent
 from internals.store import InMemoryRunStore
 
@@ -30,6 +35,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         self._config: CodexAgentConfig | None = None
         self._store: InMemoryRunStore | None = None
         self._runner: CodexMCPRunner | None = None
+        self._session_start_lock = threading.Lock()
 
     def configure(self, name: str, config: dict[str, Any]) -> None:
         self._name = name.strip() or "codex"
@@ -70,13 +76,41 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             model = config.resolve_model(str(request.model or ""))
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        metadata = _struct_to_dict(request.metadata)
+        try:
+            validate_session_start_user_metadata(metadata)
+        except ValueError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("unreachable after context.abort") from exc
+        idempotency_key = str(request.idempotency_key or "").strip()
+        session_start = _optional_field(request, "session_start")
+        if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
+            with self._session_start_lock:
+                existing = _existing_session_for_create(store, session_id, idempotency_key)
+                if existing is not None:
+                    return _session_to_proto(existing)
+                try:
+                    metadata = run_session_start_hooks(session_start, metadata)
+                except Exception as exc:
+                    context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+                    raise RuntimeError("unreachable after context.abort") from exc
+                session, _ = store.create_session(
+                    session_id=session_id,
+                    idempotency_key=idempotency_key,
+                    provider_name=self._name,
+                    model=model,
+                    client_ref=str(request.client_ref or "").strip(),
+                    metadata=metadata,
+                    created_by=_actor_to_dict(request.created_by),
+                )
+                return _session_to_proto(session)
         session, _ = store.create_session(
             session_id=session_id,
-            idempotency_key=str(request.idempotency_key or "").strip(),
+            idempotency_key=idempotency_key,
             provider_name=self._name,
             model=model,
             client_ref=str(request.client_ref or "").strip(),
-            metadata=_struct_to_dict(request.metadata),
+            metadata=metadata,
             created_by=_actor_to_dict(request.created_by),
         )
         return _session_to_proto(session)
@@ -108,11 +142,17 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def UpdateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
+        metadata = _struct_to_dict(request.metadata) if request.HasField("metadata") else None
+        try:
+            validate_session_start_user_metadata(metadata)
+        except ValueError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("unreachable after context.abort") from exc
         session = store.update_session(
             session_id=str(request.session_id or "").strip(),
             client_ref=str(request.client_ref or "").strip(),
             state=int(request.state or 0),
-            metadata=_struct_to_dict(request.metadata) if request.HasField("metadata") else None,
+            metadata=metadata,
         )
         if session is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
@@ -133,6 +173,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
+        messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
         try:
             turn, created = store.begin_turn(
                 turn_id=str(request.turn_id or "").strip(),
@@ -140,7 +181,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 idempotency_key=str(request.idempotency_key or "").strip(),
                 provider_name=self._name,
                 model=model,
-                messages=_messages_to_dicts(request.messages),
+                messages=messages,
                 created_by=_actor_to_dict(request.created_by),
                 execution_ref=str(request.execution_ref or "").strip(),
             )
@@ -229,7 +270,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
         self._require_runtime(context)
-        return gestalt.AgentProviderCapabilities(
+        caps = gestalt.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
@@ -240,6 +281,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             bounded_list_hydration=True,
             supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
+        if hasattr(caps, "supports_session_start"):
+            caps.supports_session_start = True
+        return caps
 
     def _require_runtime(
         self, context: grpc.ServicerContext
@@ -490,6 +534,30 @@ def _struct_to_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     return json_format.MessageToDict(value)
+
+
+def _optional_field(message: Any, field_name: str) -> Any | None:
+    if message is None or not hasattr(message, field_name):
+        return None
+    has_field = getattr(message, "HasField", None)
+    if callable(has_field):
+        try:
+            if not has_field(field_name):
+                return None
+        except ValueError:
+            return None
+    return getattr(message, field_name)
+
+
+def _existing_session_for_create(
+    store: InMemoryRunStore, session_id: str, idempotency_key: str
+) -> StoredSession | None:
+    existing = store.get_session(session_id)
+    if existing is not None:
+        return existing
+    if not idempotency_key:
+        return None
+    return store.get_session_by_idempotency_key(idempotency_key)
 
 
 def _actor_to_dict(actor: Any) -> dict[str, str]:

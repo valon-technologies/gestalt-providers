@@ -34,6 +34,11 @@ import {
 import { CursorExecutionCanceled, CursorExecutionError } from "./errors.ts";
 import { CursorSDKRunner } from "./runner.ts";
 import {
+  prependSessionStartContext,
+  runSessionStartHooks,
+  validateSessionStartUserMetadata,
+} from "./session_start.ts";
+import {
   InMemoryRunStore,
   StoreConflictError,
   sessionToProto,
@@ -78,6 +83,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
   private readonly runnerFactory:
     | ((config: CursorAgentConfig) => CursorSDKRunner)
     | undefined;
+  private sessionStartLock: Promise<void> = Promise.resolve();
 
   constructor(dependencies: CursorAgentProviderDependencies = {}) {
     super({
@@ -129,17 +135,45 @@ export class CursorAgentProvider extends SDKAgentProvider {
     const { config } = this.requireRuntime();
     const model = modelFor(config, request.model);
     try {
+      const sessionStart = (request as { sessionStart?: unknown }).sessionStart;
+      let metadata = objectOrEmpty(request.metadata);
+      validateSessionStartUserMetadata(metadata);
+      if (hasSessionStartHooks(sessionStart)) {
+        return await this.withSessionStartLock(async () => {
+          const existing = this.existingSessionForCreate(
+            request.sessionId,
+            request.idempotencyKey,
+          );
+          if (existing) {
+            return sessionToProto(existing);
+          }
+          metadata = await runSessionStartHooks(sessionStart, metadata);
+          const { session } = this.store.createSession({
+            sessionId: request.sessionId,
+            idempotencyKey: request.idempotencyKey,
+            providerName: this.name,
+            model,
+            clientRef: request.clientRef,
+            metadata,
+            createdBy: request.createdBy,
+          });
+          return sessionToProto(session);
+        });
+      }
       const { session } = this.store.createSession({
         sessionId: request.sessionId,
         idempotencyKey: request.idempotencyKey,
         providerName: this.name,
         model,
         clientRef: request.clientRef,
-        metadata: objectOrEmpty(request.metadata),
+        metadata,
         createdBy: request.createdBy,
       });
       return sessionToProto(session);
     } catch (error) {
+      if (errorMessage(error).startsWith("sessionStart hook")) {
+        throw new ConnectError(errorMessage(error), Code.FailedPrecondition);
+      }
       throw invalidArgument(errorMessage(error));
     }
   }
@@ -178,14 +212,14 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: UpdateAgentProviderSessionRequest,
   ): Promise<AgentSessionInit> {
     this.requireRuntime();
+    const metadata =
+      request.metadata === undefined ? undefined : objectOrEmpty(request.metadata);
+    validateSessionStartUserMetadata(metadata);
     const session = this.store.updateSession({
       sessionId: request.sessionId,
       clientRef: request.clientRef,
       state: request.state || undefined,
-      metadata:
-        request.metadata === undefined
-          ? undefined
-          : objectOrEmpty(request.metadata),
+      metadata,
     });
     if (!session) {
       throw notFound(
@@ -220,7 +254,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         idempotencyKey: request.idempotencyKey,
         providerName: this.name,
         model,
-        messages: request.messages,
+        messages: prependSessionStartContext(request.messages, session.metadata),
         createdBy: request.createdBy,
         executionRef: request.executionRef,
       });
@@ -341,9 +375,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
       interactions: false,
       resumableTurns: false,
       reasoningSummaries: false,
+      supportsSessionStart: true,
       boundedListHydration: true,
       supportedToolSources: [AgentToolSourceMode.MCP_CATALOG],
-    };
+    } as AgentCapabilitiesInit;
   }
 
   private requireRuntime(): {
@@ -394,6 +429,32 @@ export class CursorAgentProvider extends SDKAgentProvider {
         return;
       }
       this.store.failTurn(input.turnId, errorMessage(error));
+    }
+  }
+
+  private existingSessionForCreate(
+    sessionId: string,
+    idempotencyKey: string,
+  ): ReturnType<InMemoryRunStore["getSession"]> {
+    return (
+      this.store.getSession(sessionId) ??
+      (idempotencyKey
+        ? this.store.getSessionByIdempotencyKey(idempotencyKey)
+        : undefined)
+    );
+  }
+
+  private async withSessionStartLock<T>(callback: () => Promise<T>): Promise<T> {
+    let release: () => void = () => {};
+    const previous = this.sessionStartLock;
+    this.sessionStartLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
     }
   }
 }
@@ -478,6 +539,14 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
 
 function hasObjectData(value: unknown): boolean {
   return Object.keys(objectOrEmpty(value)).length > 0;
+}
+
+function hasSessionStartHooks(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const hooks = (value as { hooks?: unknown }).hooks;
+  return Array.isArray(hooks) && hooks.length > 0;
 }
 
 function invalidArgument(message: string): ConnectError {
