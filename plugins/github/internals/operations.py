@@ -420,6 +420,11 @@ def resolve_installation_subject(
     # Mint a repo-restricted token to validate that this app installation can act on the repo.
     github.installation_token(installation_id, repositories=[repo])
     repository = f"{owner}/{repo}"
+    # TODO(hughhan1): This mirrors github_scope_from_subject's string parser.
+    # The expected subject format is
+    # `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
+    # That is a brittle cross-component contract; prefer a structured
+    # installation reference or provider-owned service-account registry.
     return GitHubInstallationSubject(
         installation_id=installation_id,
         owner=owner,
@@ -1477,6 +1482,13 @@ def github_scope_from_subject(subject: Any) -> GitHubSubjectScope:
         return GitHubSubjectScope()
     if not subject.id.startswith(GITHUB_INSTALLATION_SUBJECT_PREFIX):
         return GitHubSubjectScope()
+    # TODO(hughhan1): This authorization path depends on parsing the opaque
+    # subject id as
+    # `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
+    # It is intentionally provider-local, but still brittle: repo names, future
+    # scope types, or alternate installation identifiers would require changing
+    # this string grammar. Replace with structured subject metadata or a lookup
+    # against a provider-owned installation/service-account primitive.
     value = subject.id.removeprefix(GITHUB_INSTALLATION_SUBJECT_PREFIX)
     installation_text, separator, repo = value.partition(
         GITHUB_REPOSITORY_SUBJECT_SEPARATOR

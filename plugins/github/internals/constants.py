@@ -102,6 +102,12 @@ DEFAULT_POLICY_OPERATIONS_BY_MODE = {
 
 GITHUB_WORKFLOW_SIGNAL_NAME = "github.app.webhook"
 
+# TODO(hughhan1): This currently encodes GitHub installation scope in an opaque
+# subject string shaped like
+# `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
+# That is brittle because runtime/config and bot authorization have to agree on
+# a string convention. Replace this with a structured service-account or
+# provider-owned installation reference before supporting more delegation cases.
 GITHUB_INSTALLATION_SUBJECT_PREFIX = "service_account:github_app_installation:"
 GITHUB_REPOSITORY_SUBJECT_SEPARATOR = ":repo:"
 
