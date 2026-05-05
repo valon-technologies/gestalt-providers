@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -563,6 +564,43 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	}
 }
 
+func TestListTriggersIndexQueriesShardsConcurrently(t *testing.T) {
+	const shardCount = 4
+	queryStarted := make(chan recordedQuery, shardCount)
+	releaseQueries := make(chan struct{})
+	tc := &recordingTemporalClient{queryStarted: queryStarted, releaseQueries: releaseQueries}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             shardCount,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.listTriggersIndex(context.Background())
+		done <- err
+	}()
+
+	for i := 0; i < shardCount; i++ {
+		select {
+		case <-queryStarted:
+		case <-time.After(time.Second):
+			t.Fatalf("waited for query %d of %d; queries appear serialized", i+1, shardCount)
+		}
+	}
+	close(releaseQueries)
+	if err := <-done; err != nil {
+		t.Fatalf("listTriggersIndex: %v", err)
+	}
+	if got := tc.queryCount(updateListTriggers); got != shardCount {
+		t.Fatalf("query count = %d, want %d", got, shardCount)
+	}
+}
+
 func TestProviderSurfaceRequiresConfiguredBackend(t *testing.T) {
 	provider := New()
 	_, err := provider.ListRuns(context.Background(), &proto.ListWorkflowProviderRunsRequest{})
@@ -663,17 +701,24 @@ type recordedQuery struct {
 
 type recordingTemporalClient struct {
 	client.Client
+	mu                 sync.Mutex
 	pendingWorkflowIDs []string
 	updates            []recordedUpdate
 	queries            []recordedQuery
+	queryStarted       chan<- recordedQuery
+	releaseQueries     <-chan struct{}
 }
 
 func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, _ interface{}, _ ...interface{}) client.WithStartWorkflowOperation {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.pendingWorkflowIDs = append(c.pendingWorkflowIDs, options.ID)
 	return nil
 }
 
 func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, options client.UpdateWithStartWorkflowOptions) (client.WorkflowUpdateHandle, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	workflowID := ""
 	if len(c.pendingWorkflowIDs) > 0 {
 		workflowID = c.pendingWorkflowIDs[0]
@@ -688,17 +733,31 @@ func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, opt
 	return recordingUpdateHandle{update: update}, nil
 }
 
-func (c *recordingTemporalClient) QueryWorkflow(_ context.Context, workflowID string, _ string, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+func (c *recordingTemporalClient) QueryWorkflow(ctx context.Context, workflowID string, _ string, queryType string, args ...interface{}) (converter.EncodedValue, error) {
 	query := recordedQuery{
 		WorkflowID: workflowID,
 		Name:       queryType,
 		Args:       args,
 	}
+	c.mu.Lock()
 	c.queries = append(c.queries, query)
+	c.mu.Unlock()
+	if c.queryStarted != nil {
+		c.queryStarted <- query
+	}
+	if c.releaseQueries != nil {
+		select {
+		case <-c.releaseQueries:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	return recordingEncodedValue{query: query}, nil
 }
 
 func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, update := range c.updates {
 		if update.WorkflowID == workflowID && update.Name == name {
 			return true
@@ -708,12 +767,26 @@ func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
 }
 
 func (c *recordingTemporalClient) hasQuery(workflowID, name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, query := range c.queries {
 		if query.WorkflowID == workflowID && query.Name == name {
 			return true
 		}
 	}
 	return false
+}
+
+func (c *recordingTemporalClient) queryCount(name string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	count := 0
+	for _, query := range c.queries {
+		if query.Name == name {
+			count++
+		}
+	}
+	return count
 }
 
 type recordingUpdateHandle struct {
