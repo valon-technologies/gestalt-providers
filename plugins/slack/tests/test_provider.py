@@ -490,6 +490,24 @@ def agent_options(agent_target: Any) -> Any:
     )
 
 
+def slack_replies_response(
+    messages: list[dict[str, Any]] | None = None,
+    *,
+    has_more: bool = False,
+    next_cursor: str = "",
+) -> FakeHTTPResponse:
+    return FakeHTTPResponse(
+        json.dumps(
+            {
+                "ok": True,
+                "messages": messages or [],
+                "has_more": has_more,
+                "response_metadata": {"next_cursor": next_cursor},
+            }
+        )
+    )
+
+
 class SlackProviderTests(unittest.TestCase):
     def test_agent_module_reexports_model_interfaces(self) -> None:
         import internals.agent as agent_module
@@ -509,6 +527,7 @@ class SlackProviderTests(unittest.TestCase):
             "SlackEventType",
             "SlackInteractionRef",
             "SlackReplyRef",
+            "SlackThreadContextConfig",
             "SlackWorkflowConfig",
         ):
             self.assertIs(getattr(agent_module, name), getattr(models_module, name))
@@ -1045,6 +1064,339 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_metadata["slack"]["user_id"], "U456")
         self.assertEqual(signal_metadata["slack"]["file_ids"], ["F123"])
         self.assertEqual(signal_metadata["slack"]["addressed_to_bot"], True)
+
+    def test_thread_reply_prefetches_context_in_workflow_signal(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "threadContext": {"maxMessages": 50},
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvThreadReply",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> please summarize",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+        calls: list[dict[str, str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/conversations.replies")
+            query = dict(urllib.parse.parse_qsl(parsed.query))
+            calls.append(query)
+            self.assertEqual(query["channel"], "C789")
+            self.assertEqual(query["ts"], "1712161829.000300")
+            self.assertEqual(query["limit"], "50")
+            self.assertNotIn("cursor", query)
+            return slack_replies_response(
+                [
+                    {
+                        "type": "message",
+                        "user": "U123",
+                        "text": "Root request",
+                        "ts": "1712161829.000300",
+                        "reply_count": 2,
+                        "files": [{"id": "F123", "name": "context.txt"}],
+                    },
+                    {
+                        "type": "message",
+                        "user": "U456",
+                        "text": "Follow up with more details",
+                        "ts": "1712161835.000400",
+                        "thread_ts": "1712161829.000300",
+                    },
+                    {
+                        "type": "message",
+                        "bot_id": "B123",
+                        "username": "Deploy Bot",
+                        "text": "bot output",
+                        "ts": "1712161836.000500",
+                        "thread_ts": "1712161829.000300",
+                    },
+                ]
+            )
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
+        thread_context = signal_payload["slack"]["thread_context"]
+        self.assertEqual(thread_context["source"], "bot")
+        self.assertEqual(thread_context["channel"], "C789")
+        self.assertEqual(thread_context["thread_ts"], "1712161829.000300")
+        self.assertEqual(thread_context["messages_returned"], 3)
+        self.assertEqual(thread_context["has_more"], False)
+        self.assertEqual(thread_context["truncated"], False)
+        self.assertEqual(thread_context["messages"][2]["bot_id"], "B123")
+        self.assertEqual(thread_context["files"][0]["id"], "F123")
+        self.assertNotIn("thread_context_error", signal_payload["slack"])
+        self.assertIn(
+            "Prefetched thread context:", signal_payload["user_prompt"]
+        )
+        self.assertIn('"text": "Root request"', signal_payload["user_prompt"])
+        self.assertIn('"bot_id": "B123"', signal_payload["user_prompt"])
+        self.assertIn(
+            "operation: slack.conversations.getThreadContext",
+            signal_payload["user_prompt"],
+        )
+
+    def test_thread_context_prefetch_can_be_disabled(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "threadContext": {"enabled": False},
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvThreadNoPrefetch",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> please summarize",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch("internals.client.urllib.request.urlopen") as urlopen,
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        urlopen.assert_not_called()
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        self.assertNotIn("thread_context", signal_payload["slack"])
+        self.assertNotIn("thread_context_error", signal_payload["slack"])
+        self.assertNotIn("Prefetched thread context:", signal_payload["user_prompt"])
+        self.assertIn(
+            "operation: slack.conversations.getThreadContext",
+            signal_payload["user_prompt"],
+        )
+
+    def test_thread_context_prefetch_error_still_signals_workflow(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvThreadPrefetchError",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> please summarize",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/conversations.replies")
+            return FakeHTTPResponse('{"ok": false, "error": "channel_not_found"}')
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        error = signal_payload["slack"]["thread_context_error"]
+        self.assertEqual(error["source"], "bot")
+        self.assertEqual(error["channel"], "C789")
+        self.assertEqual(error["thread_ts"], "1712161829.000300")
+        self.assertEqual(error["type"], "slack_api")
+        self.assertEqual(error["status"], HTTPStatus.BAD_GATEWAY)
+        self.assertEqual(error["error"], "channel_not_found")
+        self.assertNotIn("thread_context", signal_payload["slack"])
+        self.assertIn(
+            "Prefetched thread context error:", signal_payload["user_prompt"]
+        )
+
+    def test_thread_context_prefetch_clamps_oversized_max_messages(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "threadContext": {"maxMessages": 10000},
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvThreadPrefetchClamp",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> please summarize",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/conversations.replies")
+            query = dict(urllib.parse.parse_qsl(parsed.query))
+            self.assertEqual(query["limit"], "1000")
+            return slack_replies_response(
+                [
+                    {
+                        "type": "message",
+                        "user": "U123",
+                        "text": "Root request",
+                        "ts": "1712161829.000300",
+                    }
+                ],
+                has_more=True,
+                next_cursor="next-page",
+            )
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        thread_context = signal_payload["slack"]["thread_context"]
+        self.assertEqual(thread_context["messages_returned"], 1)
+        self.assertEqual(thread_context["has_more"], True)
+        self.assertEqual(thread_context["next_cursor"], "next-page")
+        self.assertEqual(thread_context["truncated"], True)
 
     def test_group_message_with_assistant_context_starts_agent_thread(self) -> None:
         provider_module.configure(
@@ -2718,7 +3070,11 @@ class SlackProviderTests(unittest.TestCase):
             {
                 "bot": {"token": "xoxb-test-bot"},
                 "workflow": {"provider": "local"},
-                "agent": {"provider": "simple", "model": "deep"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "threadContext": {"enabled": False},
+                },
             },
         )
         self.addCleanup(provider_module.configure, "slack", {})

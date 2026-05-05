@@ -129,6 +129,9 @@ plugins:
         provider: simple
         model: deep
         systemPrompt: Use Slack formatting and keep replies concise.
+        threadContext:
+          enabled: true
+          maxMessages: 200
         tools:
           - plugin: workplaceHub
             operation: getMe
@@ -158,6 +161,9 @@ plugins:
       agent:
         provider: simple
         model: deep
+        threadContext:
+          enabled: true
+          maxMessages: 200
 ```
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
@@ -175,6 +181,20 @@ signal the existing keyed run instead of replacing its target or authorization
 context. The target also sets `output_delivery` so the workflow runtime delivers
 the agent's final assistant answer through `events.reply` with `text` sourced
 from the agent output and `reply_ref` sourced from the current signal payload.
+
+For workflow-dispatched `message` and `app_mention` events that include
+`thread_ts`, `events.handle` fetches one bounded page of thread replies with the
+configured bot token before signaling the workflow. On success, the signal
+payload includes `slack.thread_context` and the generated `user_prompt` includes
+a prefetched thread context section. If Slack returns an API/client error, the
+workflow still receives the event with `slack.thread_context_error` and the
+thread-context helper remains available as a fallback tool.
+
+The default prefetch limit is 200 messages and `agent.threadContext.maxMessages`
+is clamped to Slack's 1-1000 page-size range used by Marketplace and internal
+customer-built apps. New commercially distributed non-Marketplace Slack apps may
+have lower `conversations.replies` limits; set a lower `maxMessages` or disable
+prefetch with `agent.threadContext.enabled: false` for those deployments.
 
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are

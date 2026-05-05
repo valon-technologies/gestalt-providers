@@ -44,12 +44,14 @@ from .models import SlackAcknowledgementConfig as SlackAcknowledgementConfig  # 
 from .models import SlackAgentRouteMatch as SlackAgentRouteMatch  # noqa: F401
 from .models import SlackAssistantConfig as SlackAssistantConfig  # noqa: F401
 from .models import SlackBotConfig as SlackBotConfig  # noqa: F401
+from .models import SlackThreadContextConfig as SlackThreadContextConfig  # noqa: F401
 from .models import SlackWorkflowConfig as SlackWorkflowConfig  # noqa: F401
 from .operations import (
     add_reaction,
     append_stream,
     delete_message,
     find_message_urls,
+    get_thread_context,
     post_message,
     remove_reaction,
     set_assistant_thread_status,
@@ -2252,6 +2254,7 @@ def _build_workflow_signal_or_start_request(
     reply_ref: str,
 ) -> Any:
     workflow_key = _agent_session_ref(event)
+    thread_context = _prefetch_thread_context(event)
     request = gestalt.WorkflowManagerSignalOrStartRunRequest(
         provider_name=_agent_config.workflow.provider_name,
         workflow_key=workflow_key,
@@ -2262,7 +2265,9 @@ def _build_workflow_signal_or_start_request(
             idempotency_key=_agent_turn_idempotency_key(event),
         ),
     )
-    request.signal.payload.CopyFrom(_slack_workflow_signal_payload(event, reply_ref))
+    request.signal.payload.CopyFrom(
+        _slack_workflow_signal_payload(event, reply_ref, thread_context)
+    )
     request.signal.metadata.CopyFrom(_agent_metadata(event, route))
     return request
 
@@ -2327,30 +2332,106 @@ def _workflow_output_delivery() -> Any:
     )
 
 
-def _slack_workflow_signal_payload(event: SlackAgentEvent, reply_ref: str) -> Any:
+def _prefetch_thread_context(event: SlackAgentEvent) -> dict[str, Any] | None:
+    if not _agent_config.thread_context.enabled:
+        return None
+    if event.event_type not in {SlackEventType.APP_MENTION, SlackEventType.MESSAGE}:
+        return None
+    root_ts = event.thread_ts
+    if not root_ts:
+        return None
+
+    try:
+        result = get_thread_context(
+            _agent_config.bot.token,
+            channel=event.channel_id,
+            ts=root_ts,
+            cursor="",
+            limit=_agent_config.thread_context.max_messages,
+            include_user_info=False,
+            include_bots=True,
+            include_files=True,
+            include_file_content=False,
+            include_image_data=False,
+            max_file_bytes=200_000,
+        )
+    except SlackAPIError as err:
+        return {
+            "thread_context_error": {
+                "source": "bot",
+                "channel": event.channel_id,
+                "thread_ts": root_ts,
+                "type": "slack_api",
+                "status": int(err.status),
+                "error": str(err.body.get("error") or "slack API error"),
+            }
+        }
+    except SlackClientError as err:
+        return {
+            "thread_context_error": {
+                "source": "bot",
+                "channel": event.channel_id,
+                "thread_ts": root_ts,
+                "type": "slack_client",
+                "status": 0,
+                "error": str(err),
+            }
+        }
+
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        return {
+            "thread_context_error": {
+                "source": "bot",
+                "channel": event.channel_id,
+                "thread_ts": root_ts,
+                "type": "slack_client",
+                "status": 0,
+                "error": "Slack thread context response was missing data",
+            }
+        }
+    context = dict(data)
+    context["source"] = "bot"
+    context["truncated"] = bool(context.get("has_more") or context.get("next_cursor"))
+    return {"thread_context": context}
+
+
+def _slack_workflow_signal_payload(
+    event: SlackAgentEvent,
+    reply_ref: str,
+    thread_context: dict[str, Any] | None = None,
+) -> Any:
+    slack_payload: dict[str, Any] = {
+        "callback_type": event.callback_type,
+        "event_type": event.event_type,
+        "event_id": event.event_id,
+        "team_id": event.team_id,
+        "user_id": event.user_id,
+        "channel_id": event.channel_id,
+        "channel_type": event.channel_type,
+        "message_ts": event.message_ts,
+        "thread_ts": event.thread_ts,
+        "reply_thread_ts": event.reply_thread_ts,
+        "client_msg_id": event.client_msg_id,
+        "addressed_to_bot": event.addressed_to_bot,
+        "assistant_context_present": event.assistant_context_present,
+        "bot_user_id": event.bot_user_id,
+        "text": event.text,
+        "file_ids": _event_file_ids(event),
+        "files": [dict(file_data) for file_data in event.files],
+    }
+    if thread_context is not None:
+        prefetched = thread_context.get("thread_context")
+        if isinstance(prefetched, dict):
+            slack_payload["thread_context"] = prefetched
+        error = thread_context.get("thread_context_error")
+        if isinstance(error, dict):
+            slack_payload["thread_context_error"] = error
     return _dict_to_struct(
         {
-            "user_prompt": _agent_user_prompt(event, reply_ref),
+            "user_prompt": _agent_user_prompt(event, reply_ref, thread_context),
             "reply_ref": reply_ref,
-            "slack": {
-                "callback_type": event.callback_type,
-                "event_type": event.event_type,
-                "event_id": event.event_id,
-                "team_id": event.team_id,
-                "user_id": event.user_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "message_ts": event.message_ts,
-                "thread_ts": event.thread_ts,
-                "reply_thread_ts": event.reply_thread_ts,
-                "client_msg_id": event.client_msg_id,
-                "addressed_to_bot": event.addressed_to_bot,
-                "assistant_context_present": event.assistant_context_present,
-                "bot_user_id": event.bot_user_id,
-                "text": event.text,
-                "file_ids": _event_file_ids(event),
-                "files": [dict(file_data) for file_data in event.files],
-            },
+            "slack": slack_payload,
         }
     )
 
@@ -2624,7 +2705,11 @@ def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
     return "\n\n".join(parts)
 
 
-def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
+def _agent_user_prompt(
+    event: SlackAgentEvent,
+    reply_ref: str,
+    thread_context: dict[str, Any] | None = None,
+) -> str:
     root_ts = event.thread_ts or event.message_ts
     lines = [
         "Slack event:",
@@ -2635,12 +2720,19 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         f"thread_ts: {event.thread_ts}",
         f"reply_thread_ts: {event.reply_thread_ts}",
         f"reply_ref: {reply_ref}",
-        "",
-        "Thread context tool:",
-        f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
-        f"channel: {event.channel_id}",
-        f"ts: {root_ts}",
     ]
+    thread_context_lines = _thread_context_prompt_lines(thread_context)
+    if thread_context_lines:
+        lines.extend(["", *thread_context_lines])
+    lines.extend(
+        [
+            "",
+            "Thread context tool:",
+            f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+            f"channel: {event.channel_id}",
+            f"ts: {root_ts}",
+        ]
+    )
     permalink_summaries = _event_permalink_summaries(event)
     if permalink_summaries:
         lines.extend(["", "Slack message permalink tools:", *permalink_summaries])
@@ -2662,6 +2754,24 @@ def _agent_user_prompt(event: SlackAgentEvent, reply_ref: str) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _thread_context_prompt_lines(thread_context: dict[str, Any] | None) -> list[str]:
+    if thread_context is None:
+        return []
+    prefetched = thread_context.get("thread_context")
+    if isinstance(prefetched, dict):
+        return [
+            "Prefetched thread context:",
+            json.dumps(prefetched, ensure_ascii=False, indent=2, sort_keys=True),
+        ]
+    error = thread_context.get("thread_context_error")
+    if isinstance(error, dict):
+        return [
+            "Prefetched thread context error:",
+            json.dumps(error, ensure_ascii=False, indent=2, sort_keys=True),
+        ]
+    return []
 
 
 def _event_permalink_summaries(event: SlackAgentEvent) -> list[str]:
