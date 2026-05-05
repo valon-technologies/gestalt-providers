@@ -149,6 +149,12 @@ test.describe("Agents", () => {
     const startedTool = activityPanel.locator("details").filter({
       hasText: "linear-list",
     });
+    const inlineStartedTool = page.locator("article").filter({
+      hasText: "linear-list",
+    });
+    const inlineCompletedTool = page.locator("article").filter({
+      hasText: "GitHub",
+    });
     const customEvent = activityPanel.locator("details").filter({
       hasText: "custom.public",
     });
@@ -162,6 +168,16 @@ test.describe("Agents", () => {
     ).toBeVisible();
     await expect(page.getByText("Summarize open incidents.").first()).toBeVisible();
     await expect(page.getByText("Two incidents").first()).toBeVisible();
+    await expect(inlineStartedTool.getByText("linear-list").first()).toBeVisible();
+    await expect(inlineStartedTool.getByText("#2 started").first()).toBeVisible();
+    await inlineStartedTool.locator("summary").filter({ hasText: "Input" }).click();
+    await expect(inlineStartedTool.getByText('"query": "Ada"').first()).toBeVisible();
+    await expect(inlineCompletedTool.getByText("GitHub").first()).toBeVisible();
+    await inlineCompletedTool
+      .locator("summary")
+      .filter({ hasText: "Output" })
+      .click();
+    await expect(inlineCompletedTool.getByText('"count": 2').first()).toBeVisible();
     await expect(startedTool.getByText("linear-list").first()).toBeVisible();
     await expect(startedTool.getByText("started").first()).toBeVisible();
     await expect(activityPanel.getByText("GitHub", { exact: true })).toBeVisible();
