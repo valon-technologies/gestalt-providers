@@ -34,16 +34,20 @@ def run_session_start_hooks(session_start: Any, metadata: dict[str, Any]) -> dic
     return merged
 
 
+def validate_session_start_user_metadata(metadata: dict[str, Any] | None) -> None:
+    if metadata is None:
+        return
+    for key in metadata:
+        if str(key).startswith(RESERVED_PREFIX):
+            raise ValueError(f"agent session metadata key {key!r} is reserved for Gestalt lifecycle data")
+
+
 def prepend_session_start_context(messages: list[dict[str, Any]], metadata: dict[str, Any]) -> list[dict[str, Any]]:
     context = str(metadata.get(ADDITIONAL_CONTEXT_KEY) or "").strip()
     if not context:
         return messages
     return [
-        {
-            "role": "system",
-            "text": f"Session start context:\n\n{context}",
-            "metadata": {"source": RESERVED_PREFIX},
-        },
+        {"role": "system", "text": f"Session start context:\n\n{context}", "metadata": {"source": RESERVED_PREFIX}},
         *messages,
     ]
 
@@ -57,15 +61,19 @@ def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
     if not command:
         raise ValueError(f"sessionStart hook {hook_id!r} command is required")
     timeout = _parse_timeout(str(getattr(hook, "timeout", "") or ""))
-    completed = subprocess.run(
-        command,
-        cwd=str(getattr(hook, "cwd", "") or "") or None,
-        env=_hook_env(getattr(hook, "env", {}) or {}),
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(getattr(hook, "cwd", "") or "") or None,
+            env=_hook_env(getattr(hook, "env", {}) or {}),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        timeout_detail = str(getattr(hook, "timeout", "") or timeout or "").strip()
+        raise RuntimeError(f"sessionStart hook {hook_id!r} timed out after {timeout_detail}") from exc
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
     if completed.returncode != 0:
@@ -73,7 +81,12 @@ def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
         raise RuntimeError(f"sessionStart hook {hook_id!r} failed: {detail}")
     output = getattr(hook, "output", None)
     include_metadata = bool(getattr(output, "metadata", False))
-    result: dict[str, Any] = {"exitCode": completed.returncode}
+    result: dict[str, Any] = {
+        "status": "succeeded",
+        "exitCode": completed.returncode,
+        "timeout": str(getattr(hook, "timeout", "") or ""),
+        "timedOut": False,
+    }
     if include_metadata:
         result["stdout"] = stdout
         result["stderr"] = stderr

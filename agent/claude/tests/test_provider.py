@@ -14,6 +14,7 @@ from typing import Any, cast
 
 import grpc
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+from google.protobuf import json_format
 from google.protobuf import empty_pb2 as _empty_pb2
 from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
@@ -25,7 +26,7 @@ from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge
-from internals.session_start import prepend_session_start_context, run_session_start_hooks
+from internals.session_start import ADDITIONAL_CONTEXT_KEY, prepend_session_start_context, run_session_start_hooks
 from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 
 agent_pb2: Any = cast(Any, _agent_pb2)
@@ -237,6 +238,11 @@ class _FakeClaudeSDKClient:
         self.disconnected = True
 
 
+class _FakeProviderContext:
+    def abort(self, code: grpc.StatusCode, details: str) -> None:
+        raise grpc.RpcError(f"{code.name}: {details}")
+
+
 class ClaudeProviderTests(unittest.TestCase):
     def setUp(self) -> None:
         assert _host_servicer is not None
@@ -261,13 +267,104 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertEqual(metadata["caller"], "kept")
         self.assertEqual(
-            metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["stdout"],
-            "session context\n",
+            metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["stdout"], "session context\n"
         )
+        self.assertEqual(metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["status"], "succeeded")
+        self.assertFalse(metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["timedOut"])
         self.assertEqual(metadata["__gestalt.lifecycle.sessionStart.additionalContext"], "session context")
         messages = prepend_session_start_context([{"role": "user", "text": "hello"}], metadata)
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("session context", messages[0]["text"])
+
+    def test_provider_runs_session_start_once_and_prepends_context(self) -> None:
+        _, provider_client = _configure_provider()
+        session_start = py_types.SimpleNamespace(
+            hooks=[
+                py_types.SimpleNamespace(
+                    id="load-memory",
+                    type="command",
+                    command=[sys.executable, "-c", "print('session context from provider')"],
+                    cwd="",
+                    timeout="5s",
+                    env={},
+                    output=py_types.SimpleNamespace(additional_context=True, metadata=True),
+                )
+            ]
+        )
+
+        session = provider_module.provider.CreateSession(
+            py_types.SimpleNamespace(
+                session_id="session-start-provider",
+                idempotency_key="session-start-idem",
+                model="",
+                metadata=None,
+                session_start=session_start,
+                client_ref="",
+                created_by=py_types.SimpleNamespace(subject_id="user-123", subject_kind="human"),
+            ),
+            _FakeProviderContext(),
+        )
+        metadata = json_format.MessageToDict(session.metadata)
+        self.assertEqual(
+            metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["stdout"],
+            "session context from provider\n",
+        )
+
+        replay = provider_module.provider.CreateSession(
+            py_types.SimpleNamespace(
+                session_id="session-start-provider-replay",
+                idempotency_key="session-start-idem",
+                model="",
+                metadata=None,
+                session_start=py_types.SimpleNamespace(
+                    hooks=[
+                        py_types.SimpleNamespace(
+                            id="should-not-run",
+                            type="command",
+                            command=[sys.executable, "-c", "import sys; sys.exit(7)"],
+                            cwd="",
+                            timeout="",
+                            env={},
+                            output=py_types.SimpleNamespace(additional_context=False, metadata=False),
+                        )
+                    ]
+                ),
+                client_ref="",
+                created_by=py_types.SimpleNamespace(subject_id="user-123", subject_kind="human"),
+            ),
+            _FakeProviderContext(),
+        )
+        self.assertEqual(replay.id, "session-start-provider")
+
+        provider_client.CreateTurn(
+            _turn_request(
+                turn_id="turn-session-start-context",
+                session_id="session-start-provider",
+                messages=[agent_pb2.AgentMessage(role="user", text="hello")],
+            )
+        )
+        _wait_for_turn(provider_client, "turn-session-start-context", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertIn("session context from provider", _FakeClaudeSDKClient.instances[-1].prompt)
+
+    def test_provider_rejects_reserved_session_start_metadata(self) -> None:
+        _, provider_client = _configure_provider()
+        metadata = struct_pb2.Struct()
+        metadata.update({ADDITIONAL_CONTEXT_KEY: "spoofed"})
+
+        with self.assertRaises(grpc.RpcError) as create_error:
+            provider_client.CreateSession(
+                agent_pb2.CreateAgentProviderSessionRequest(
+                    session_id="reserved-session-start-create", metadata=metadata
+                )
+            )
+        self.assertEqual(create_error.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
+
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="reserved-session-start"))
+        with self.assertRaises(grpc.RpcError) as update_error:
+            provider_client.UpdateSession(
+                agent_pb2.UpdateAgentProviderSessionRequest(session_id="reserved-session-start", metadata=metadata)
+            )
+        self.assertEqual(update_error.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
     def test_provider_completes_turn_through_agent_sdk_with_catalog_tools(self) -> None:
         host = _host_servicer

@@ -38,6 +38,21 @@ export async function runSessionStartHooks(
   return merged;
 }
 
+export function validateSessionStartUserMetadata(
+  metadata: Record<string, unknown> | undefined,
+): void {
+  if (metadata === undefined) {
+    return;
+  }
+  for (const key of Object.keys(metadata)) {
+    if (key.startsWith(SESSION_START_PREFIX)) {
+      throw new Error(
+        `agent session metadata key ${JSON.stringify(key)} is reserved for Gestalt lifecycle data`,
+      );
+    }
+  }
+}
+
 export function prependSessionStartContext(
   messages: AgentMessage[],
   metadata: Record<string, unknown>,
@@ -79,19 +94,25 @@ async function runHook(hook: Record<string, unknown>): Promise<{
   if (command.length === 0) {
     throw new Error(`sessionStart hook ${JSON.stringify(id)} command is required`);
   }
+  const timeout = String(hook.timeout ?? "");
   const completed = await runCommand({
     command: command[0]!,
     args: command.slice(1),
     cwd: String(hook.cwd ?? "").trim() || undefined,
     env: hookEnv(isRecord(hook.env) ? hook.env : {}),
-    timeoutMs: parseTimeoutMs(String(hook.timeout ?? "")),
+    timeoutMs: parseTimeoutMs(timeout),
   });
   if (completed.code !== 0) {
     const detail = completed.stderr.trim() || completed.stdout.trim() || `exit code ${completed.code}`;
     throw new Error(`sessionStart hook ${JSON.stringify(id)} failed: ${detail}`);
   }
   const output = isRecord(hook.output) ? hook.output : {};
-  const result: Record<string, unknown> = { exitCode: completed.code };
+  const result: Record<string, unknown> = {
+    status: "succeeded",
+    exitCode: completed.code,
+    timeout,
+    timedOut: false,
+  };
   if (output.metadata === true) {
     result.stdout = completed.stdout;
     result.stderr = completed.stderr;

@@ -36,6 +36,7 @@ import { CursorSDKRunner } from "./runner.ts";
 import {
   prependSessionStartContext,
   runSessionStartHooks,
+  validateSessionStartUserMetadata,
 } from "./session_start.ts";
 import {
   InMemoryRunStore,
@@ -82,6 +83,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
   private readonly runnerFactory:
     | ((config: CursorAgentConfig) => CursorSDKRunner)
     | undefined;
+  private sessionStartLock: Promise<void> = Promise.resolve();
 
   constructor(dependencies: CursorAgentProviderDependencies = {}) {
     super({
@@ -135,8 +137,28 @@ export class CursorAgentProvider extends SDKAgentProvider {
     try {
       const sessionStart = (request as { sessionStart?: unknown }).sessionStart;
       let metadata = objectOrEmpty(request.metadata);
-      if (hasSessionStartHooks(sessionStart) && !this.store.getSession(request.sessionId)) {
-        metadata = await runSessionStartHooks(sessionStart, metadata);
+      validateSessionStartUserMetadata(metadata);
+      if (hasSessionStartHooks(sessionStart)) {
+        return await this.withSessionStartLock(async () => {
+          const existing = this.existingSessionForCreate(
+            request.sessionId,
+            request.idempotencyKey,
+          );
+          if (existing) {
+            return sessionToProto(existing);
+          }
+          metadata = await runSessionStartHooks(sessionStart, metadata);
+          const { session } = this.store.createSession({
+            sessionId: request.sessionId,
+            idempotencyKey: request.idempotencyKey,
+            providerName: this.name,
+            model,
+            clientRef: request.clientRef,
+            metadata,
+            createdBy: request.createdBy,
+          });
+          return sessionToProto(session);
+        });
       }
       const { session } = this.store.createSession({
         sessionId: request.sessionId,
@@ -190,14 +212,14 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: UpdateAgentProviderSessionRequest,
   ): Promise<AgentSessionInit> {
     this.requireRuntime();
+    const metadata =
+      request.metadata === undefined ? undefined : objectOrEmpty(request.metadata);
+    validateSessionStartUserMetadata(metadata);
     const session = this.store.updateSession({
       sessionId: request.sessionId,
       clientRef: request.clientRef,
       state: request.state || undefined,
-      metadata:
-        request.metadata === undefined
-          ? undefined
-          : objectOrEmpty(request.metadata),
+      metadata,
     });
     if (!session) {
       throw notFound(
@@ -407,6 +429,32 @@ export class CursorAgentProvider extends SDKAgentProvider {
         return;
       }
       this.store.failTurn(input.turnId, errorMessage(error));
+    }
+  }
+
+  private existingSessionForCreate(
+    sessionId: string,
+    idempotencyKey: string,
+  ): ReturnType<InMemoryRunStore["getSession"]> {
+    return (
+      this.store.getSession(sessionId) ??
+      (idempotencyKey
+        ? this.store.getSessionByIdempotencyKey(idempotencyKey)
+        : undefined)
+    );
+  }
+
+  private async withSessionStartLock<T>(callback: () => Promise<T>): Promise<T> {
+    let release: () => void = () => {};
+    const previous = this.sessionStartLock;
+    this.sessionStartLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
     }
   }
 }

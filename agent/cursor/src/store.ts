@@ -136,6 +136,15 @@ export class InMemoryRunStore {
     return session ? cloneSession(session) : undefined;
   }
 
+  getSessionByIdempotencyKey(idempotencyKey: string): StoredSession | undefined {
+    const sessionId = this.sessionIdempotency.get(idempotencyKey.trim());
+    if (!sessionId) {
+      return undefined;
+    }
+    const session = this.sessions.get(sessionId);
+    return session ? cloneSession(session) : undefined;
+  }
+
   listSessions(input: {
     sessionIds?: string[];
     subjectId: string | undefined;
