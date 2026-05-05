@@ -632,6 +632,55 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(raised.exception.status, HTTPStatus.FORBIDDEN)
         self.assertIn("Resource not accessible", raised.exception.message)
 
+    def test_rest_json_preserves_github_validation_error_details(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            raise http_error(
+                request.full_url,
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                json.dumps(
+                    {
+                        "message": "Validation Failed",
+                        "errors": [
+                            {
+                                "resource": "PullRequest",
+                                "field": "head",
+                                "code": "invalid",
+                                "message": "head is not a branch",
+                            }
+                        ],
+                    }
+                ),
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            with self.assertRaises(GitHubAPIError) as raised:
+                client_module.github_json(
+                    "POST",
+                    "/repos/acme/widgets/pulls",
+                    "installation-token",
+                    {"title": "Smoke test", "head": "missing", "base": "main"},
+                )
+
+        error = raised.exception
+        self.assertEqual(error.status, HTTPStatus.UNPROCESSABLE_ENTITY)
+        self.assertEqual(
+            error.details,
+            "PullRequest.head (invalid, head is not a branch)",
+        )
+        self.assertEqual(
+            error.message,
+            "Validation Failed: PullRequest.head (invalid, head is not a branch)",
+        )
+
+        response = provider_module._github_error(error)
+        self.assertEqual(response.status, HTTPStatus.UNPROCESSABLE_ENTITY)
+        self.assertEqual(response.body["error"], error.message)
+        self.assertEqual(response.body["details"], error.details)
+
     def test_commit_message_skips_bot_identity_when_bot_coauthor_disabled(self) -> None:
         with mock.patch(
             "internals.client.bot_identity",

@@ -102,7 +102,7 @@ from internals.webhook import (
 plugin = gestalt.Plugin("github")
 logger = logging.getLogger(__name__)
 
-OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, str]]
+OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, Any]]
 PostConnectMetadata: TypeAlias = dict[str, str]
 
 
@@ -1541,25 +1541,28 @@ def _pull_request_review_comments_from_input(
     )
 
 
-def _bad_request(message: str) -> gestalt.Response[dict[str, str]]:
+def _bad_request(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": message})
 
 
-def _forbidden(message: str) -> gestalt.Response[dict[str, str]]:
+def _forbidden(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": message})
 
 
-def _server_error(message: str) -> gestalt.Response[dict[str, str]]:
+def _server_error(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(
         status=HTTPStatus.INTERNAL_SERVER_ERROR, body={"error": message}
     )
 
 
-def _service_unavailable(message: str) -> gestalt.Response[dict[str, str]]:
+def _service_unavailable(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(
         status=HTTPStatus.SERVICE_UNAVAILABLE, body={"error": message}
     )
 
 
-def _github_error(err: GitHubAPIError) -> gestalt.Response[dict[str, str]]:
-    return gestalt.Response(status=err.status, body={"error": err.message})
+def _github_error(err: GitHubAPIError) -> gestalt.Response[dict[str, Any]]:
+    body: dict[str, Any] = {"error": err.message}
+    if err.details:
+        body["details"] = err.details
+    return gestalt.Response(status=err.status, body=body)

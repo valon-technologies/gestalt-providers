@@ -298,7 +298,8 @@ def github_json_value(
     except urllib.error.HTTPError as err:
         body = err.read().decode("utf-8", errors="replace")
         err.close()
-        raise GitHubAPIError(err.code, github_error_message(body, err.code)) from err
+        message, details = github_error_message_and_details(body, err.code)
+        raise GitHubAPIError(err.code, message, details=details) from err
     except urllib.error.URLError as err:
         raise GitHubAPIError(502, f"GitHub API request failed: {err.reason}") from err
 
@@ -340,7 +341,8 @@ def graphql_json(
     except urllib.error.HTTPError as err:
         body = err.read().decode("utf-8", errors="replace")
         err.close()
-        raise GitHubAPIError(err.code, github_error_message(body, err.code)) from err
+        message, details = github_error_message_and_details(body, err.code)
+        raise GitHubAPIError(err.code, message, details=details) from err
     except urllib.error.URLError as err:
         raise GitHubAPIError(
             502, f"GitHub GraphQL request failed: {err.reason}"
@@ -490,16 +492,46 @@ def base64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def github_error_message(body: str, status: int) -> str:
+def github_error_message_and_details(body: str, status: int) -> tuple[str, str]:
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
-        return body or f"GitHub API error (status {status})"
+        return body or f"GitHub API error (status {status})", ""
     if isinstance(payload, dict):
         message = payload.get("message")
         if isinstance(message, str) and message:
-            return message
-    return f"GitHub API error (status {status})"
+            details = github_rest_error_details(payload)
+            if details:
+                return f"{message}: {details}", details
+            return message, ""
+    return f"GitHub API error (status {status})", ""
+
+
+def github_rest_error_details(payload: Mapping[str, Any]) -> str:
+    errors = payload.get("errors")
+    if not isinstance(errors, list):
+        return ""
+
+    summaries: list[str] = []
+    for item in errors:
+        if not isinstance(item, dict):
+            continue
+        parts = [
+            str(value).strip()
+            for value in (
+                item.get("resource"),
+                item.get("field"),
+                item.get("code"),
+                item.get("message"),
+            )
+            if isinstance(value, str) and value.strip()
+        ]
+        if parts:
+            summary = ".".join(parts[:2])
+            if len(parts) > 2:
+                summary = f"{summary} ({', '.join(parts[2:])})"
+            summaries.append(summary)
+    return "; ".join(summaries[:5])
 
 
 def graphql_error_message(errors: Sequence[Any]) -> str:
