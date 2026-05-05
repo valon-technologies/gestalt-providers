@@ -369,7 +369,7 @@ test.describe("Agents", () => {
     await expect(page.getByLabel("Tools", { exact: true })).toBeHidden();
 
     await page.getByLabel("User message").fill("Check the latest rollout.");
-    await page.getByRole("button", { name: "Send turn" }).click();
+    await page.getByLabel("User message").press("Control+Enter");
 
     await expect(page.getByText("Agent turn started.")).toBeVisible();
     expect(createTurnBody?.messages).toEqual([

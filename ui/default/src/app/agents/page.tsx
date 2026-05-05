@@ -1234,6 +1234,18 @@ function AgentComposer({
     });
   }
 
+  function handleUserPromptKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) {
+      return;
+    }
+    event.preventDefault();
+    if (!submitting) {
+      event.currentTarget.form?.requestSubmit();
+    }
+  }
+
   const selectedToolCount =
     composer.toolMode === "selected"
       ? composer.tools.filter((tool) => tool.plugin.trim() && tool.operation.trim())
@@ -1510,7 +1522,9 @@ function AgentComposer({
             <span className="sr-only">User message</span>
             <textarea
               aria-label="User message"
+              aria-keyshortcuts="Meta+Enter Control+Enter"
               value={composer.userPrompt}
+              onKeyDown={handleUserPromptKeyDown}
               onChange={(event) =>
                 setComposer((current) => ({
                   ...current,
@@ -1617,7 +1631,9 @@ function AgentComposer({
           <span className="text-muted">User message</span>
           <textarea
             aria-label="User message"
+            aria-keyshortcuts="Meta+Enter Control+Enter"
             value={composer.userPrompt}
+            onKeyDown={handleUserPromptKeyDown}
             onChange={(event) =>
               setComposer((current) => ({
                 ...current,
