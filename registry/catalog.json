@@ -6496,7 +6496,7 @@
       "kind": "workflow",
       "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/temporal/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.2",
+      "manifestVersion": "0.0.1-alpha.3",
       "name": "temporal",
       "package": "github.com/valon-technologies/gestalt-providers/workflow/temporal",
       "packagePath": "workflow/temporal",

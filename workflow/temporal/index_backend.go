@@ -3,6 +3,8 @@ package temporal
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -33,6 +35,25 @@ func (b *temporalBackend) ensureScope(ctx context.Context) error {
 
 func (b *temporalBackend) updateIndex(ctx context.Context, key, updateName string, args []any, out any) error {
 	shard := shardFor(key, b.cfg.IndexShardCount)
+	return b.updateIndexShard(ctx, shard, updateName, args, out)
+}
+
+func (b *temporalBackend) updateIndexShard(ctx context.Context, shard int, updateName string, args []any, out any) error {
+	if err := b.runIndexUpdate(ctx, shard, updateName, args, out); err == nil {
+		return nil
+	} else if !isTemporalUpdateLimitError(err) {
+		return status.Errorf(codes.Internal, "update temporal index: %v", err)
+	}
+	if err := b.compactIndexShard(ctx, shard); err != nil {
+		return err
+	}
+	if err := b.runIndexUpdate(ctx, shard, updateName, args, out); err != nil {
+		return status.Errorf(codes.Internal, "update temporal index after compaction: %v", err)
+	}
+	return nil
+}
+
+func (b *temporalBackend) runIndexUpdate(ctx context.Context, shard int, updateName string, args []any, out any) error {
 	startOp := b.client.NewWithStartWorkflowOperation(
 		b.startOptions(indexWorkflowID(b.cfg.ScopeID, shard)),
 		indexWorkflow,
@@ -48,7 +69,7 @@ func (b *temporalBackend) updateIndex(ctx context.Context, key, updateName strin
 		},
 	})
 	if err != nil {
-		return status.Errorf(codes.Internal, "update temporal index: %v", err)
+		return err
 	}
 	if err := update.Get(ctx, out); err != nil {
 		return mapWorkflowUpdateError(err)
@@ -56,27 +77,99 @@ func (b *temporalBackend) updateIndex(ctx context.Context, key, updateName strin
 	return nil
 }
 
+func (b *temporalBackend) queryIndex(ctx context.Context, key, queryName string, args []any, out any) error {
+	shard := shardFor(key, b.cfg.IndexShardCount)
+	if err := b.queryIndexShard(ctx, shard, queryName, args, out); err == nil {
+		return nil
+	} else if !isNotFoundLike(err) && !isQueryHandlerUnavailable(err) {
+		return status.Errorf(codes.Internal, "query temporal index: %v", err)
+	}
+	return b.updateIndexShard(ctx, shard, queryName, args, out)
+}
+
+func (b *temporalBackend) queryIndexShard(ctx context.Context, shard int, queryName string, args []any, out any) error {
+	var lastErr error
+	delay := 50 * time.Millisecond
+	for attempt := 0; attempt < 5; attempt++ {
+		value, err := b.client.QueryWorkflow(ctx, indexWorkflowID(b.cfg.ScopeID, shard), "", queryName, args...)
+		if err == nil {
+			return value.Get(out)
+		}
+		if !isQueryHandlerUnavailable(err) {
+			return err
+		}
+		lastErr = err
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < 500*time.Millisecond {
+			delay *= 2
+		}
+	}
+	return lastErr
+}
+
+func (b *temporalBackend) compactIndexShard(ctx context.Context, shard int) error {
+	workflowID := indexWorkflowID(b.cfg.ScopeID, shard)
+	beforeRunID := ""
+	if desc, err := b.client.DescribeWorkflowExecution(ctx, workflowID, ""); err == nil && desc.GetWorkflowExecutionInfo() != nil && desc.GetWorkflowExecutionInfo().GetExecution() != nil {
+		beforeRunID = desc.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+	} else if err != nil && !isNotFoundLike(err) {
+		return status.Errorf(codes.Internal, "describe temporal index shard %d: %v", shard, err)
+	}
+	if err := b.client.SignalWorkflow(ctx, workflowID, "", signalIndexCompact, "workflow update limit reached"); err != nil {
+		if isNotFoundLike(err) {
+			return nil
+		}
+		return status.Errorf(codes.Internal, "compact temporal index shard %d: %v", shard, err)
+	}
+	if beforeRunID == "" {
+		return nil
+	}
+	delay := 100 * time.Millisecond
+	for attempt := 0; attempt < 20; attempt++ {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		desc, err := b.client.DescribeWorkflowExecution(ctx, workflowID, "")
+		if err != nil {
+			if isNotFoundLike(err) {
+				continue
+			}
+			return status.Errorf(codes.Internal, "describe compacted temporal index shard %d: %v", shard, err)
+		}
+		info := desc.GetWorkflowExecutionInfo()
+		if info != nil && info.GetExecution() != nil {
+			runID := info.GetExecution().GetRunId()
+			if runID != "" && runID != beforeRunID {
+				return nil
+			}
+		}
+		if delay < time.Second {
+			delay *= 2
+		}
+	}
+	return status.Errorf(codes.DeadlineExceeded, "timed out compacting temporal index shard %d", shard)
+}
+
 func (b *temporalBackend) updateAllIndexes(ctx context.Context, updateName string, outFactory func() any, consume func(any) error) error {
 	for shard := 0; shard < b.cfg.IndexShardCount; shard++ {
-		startOp := b.client.NewWithStartWorkflowOperation(
-			b.startOptions(indexWorkflowID(b.cfg.ScopeID, shard)),
-			indexWorkflow,
-			indexInput{ScopeID: b.cfg.ScopeID, Shard: shard},
-		)
 		out := outFactory()
-		update, err := b.client.UpdateWithStartWorkflow(ctx, client.UpdateWithStartWorkflowOptions{
-			StartWorkflowOperation: startOp,
-			UpdateOptions: client.UpdateWorkflowOptions{
-				UpdateID:     updateName + ":" + uuid.NewString(),
-				UpdateName:   updateName,
-				WaitForStage: client.WorkflowUpdateStageCompleted,
-			},
-		})
-		if err != nil {
-			return status.Errorf(codes.Internal, "query temporal index shard %d: %v", shard, err)
-		}
-		if err := update.Get(ctx, out); err != nil {
-			return mapWorkflowUpdateError(err)
+		if err := b.queryIndexShard(ctx, shard, updateName, nil, out); err != nil {
+			if !isNotFoundLike(err) && !isQueryHandlerUnavailable(err) {
+				return status.Errorf(codes.Internal, "query temporal index shard %d: %v", shard, err)
+			}
+			if err := b.updateIndexShard(ctx, shard, updateName, nil, out); err != nil {
+				return err
+			}
 		}
 		if err := consume(out); err != nil {
 			return err
@@ -92,7 +185,7 @@ func (b *temporalBackend) putRun(ctx context.Context, run *proto.BoundWorkflowRu
 
 func (b *temporalBackend) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
 	var out proto.BoundWorkflowRun
-	if err := b.updateIndex(ctx, id, updateGetRun, []any{id}, &out); err != nil {
+	if err := b.queryIndex(ctx, id, updateGetRun, []any{id}, &out); err != nil {
 		return nil, false, err
 	}
 	return cloneRun(&out), out.GetId() != "", nil
@@ -122,7 +215,7 @@ func (b *temporalBackend) putWorkflowKey(ctx context.Context, workflowKey string
 
 func (b *temporalBackend) getWorkflowKey(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
 	var out proto.BoundWorkflowRun
-	if err := b.updateIndex(ctx, "workflow-key:"+workflowKey, updateGetWorkflowKey, []any{workflowKey}, &out); err != nil {
+	if err := b.queryIndex(ctx, "workflow-key:"+workflowKey, updateGetWorkflowKey, []any{workflowKey}, &out); err != nil {
 		return nil, false, err
 	}
 	return cloneRun(&out), out.GetId() != "", nil
@@ -135,7 +228,7 @@ func (b *temporalBackend) putIdempotency(ctx context.Context, ownerKey, key stri
 
 func (b *temporalBackend) getIdempotency(ctx context.Context, ownerKey, key string) (*proto.SignalWorkflowRunResponse, bool, error) {
 	var out proto.SignalWorkflowRunResponse
-	if err := b.updateIndex(ctx, "idempotency:"+ownerKey+":"+key, updateGetIdempotency, []any{ownerKey, key}, &out); err != nil {
+	if err := b.queryIndex(ctx, "idempotency:"+ownerKey+":"+key, updateGetIdempotency, []any{ownerKey, key}, &out); err != nil {
 		return nil, false, err
 	}
 	return cloneSignalResponse(&out), out.GetRun() != nil || out.GetSignal() != nil, nil
@@ -148,7 +241,7 @@ func (b *temporalBackend) putScheduleIndex(ctx context.Context, schedule *proto.
 
 func (b *temporalBackend) getScheduleIndex(ctx context.Context, id string) (*proto.BoundWorkflowSchedule, bool, error) {
 	var out proto.BoundWorkflowSchedule
-	if err := b.updateIndex(ctx, "schedule:"+id, updateGetSchedule, []any{id}, &out); err != nil {
+	if err := b.queryIndex(ctx, "schedule:"+id, updateGetSchedule, []any{id}, &out); err != nil {
 		return nil, false, err
 	}
 	return cloneSchedule(&out), out.GetId() != "", nil
@@ -201,7 +294,7 @@ func (b *temporalBackend) putTriggerIndex(ctx context.Context, trigger *proto.Bo
 
 func (b *temporalBackend) getTriggerIndex(ctx context.Context, id string) (*proto.BoundWorkflowEventTrigger, bool, error) {
 	var out proto.BoundWorkflowEventTrigger
-	if err := b.updateIndex(ctx, triggerPrimaryIndexKey(id), updateGetTrigger, []any{id}, &out); err != nil {
+	if err := b.queryIndex(ctx, triggerPrimaryIndexKey(id), updateGetTrigger, []any{id}, &out); err != nil {
 		return nil, false, err
 	}
 	return cloneTrigger(&out), out.GetId() != "", nil
@@ -229,7 +322,7 @@ func (b *temporalBackend) matchTriggersIndex(ctx context.Context, ownerKey strin
 	var triggers []*proto.BoundWorkflowEventTrigger
 	for _, key := range eventLookupKeys(ownerKey, event) {
 		var out proto.ListWorkflowProviderEventTriggersResponse
-		if err := b.updateIndex(ctx, triggerMatchIndexKey(key), updateMatchTriggers, []any{key}, &out); err != nil {
+		if err := b.queryIndex(ctx, triggerMatchIndexKey(key), updateMatchTriggers, []any{key}, &out); err != nil {
 			return nil, err
 		}
 		for _, trigger := range out.GetTriggers() {
@@ -292,7 +385,7 @@ func (b *temporalBackend) putExecutionRefIndex(ctx context.Context, ref *proto.W
 
 func (b *temporalBackend) getExecutionRefIndex(ctx context.Context, id string) (*proto.WorkflowExecutionReference, bool, error) {
 	var out proto.WorkflowExecutionReference
-	if err := b.updateIndex(ctx, executionRefPrimaryIndexKey(id), updateGetRef, []any{id}, &out); err != nil {
+	if err := b.queryIndex(ctx, executionRefPrimaryIndexKey(id), updateGetRef, []any{id}, &out); err != nil {
 		return nil, false, err
 	}
 	return cloneExecutionReference(&out), out.GetId() != "", nil
@@ -301,7 +394,7 @@ func (b *temporalBackend) getExecutionRefIndex(ctx context.Context, id string) (
 func (b *temporalBackend) listExecutionRefsIndex(ctx context.Context, subjectID string) ([]*proto.WorkflowExecutionReference, error) {
 	if subjectID != "" {
 		var out proto.ListWorkflowExecutionReferencesResponse
-		if err := b.updateIndex(ctx, executionRefSubjectIndexKey(subjectID), updateListRefsBySubject, []any{subjectID}, &out); err != nil {
+		if err := b.queryIndex(ctx, executionRefSubjectIndexKey(subjectID), updateListRefsBySubject, []any{subjectID}, &out); err != nil {
 			return nil, err
 		}
 		refs := make([]*proto.WorkflowExecutionReference, 0, len(out.GetReferences()))
@@ -345,4 +438,26 @@ func executionRefPrimaryIndexKey(id string) string {
 
 func executionRefSubjectIndexKey(subjectID string) string {
 	return "subject:" + subjectID
+}
+
+func isTemporalUpdateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "limit on the total number of distinct updates")
+}
+
+func isNotFoundLike(err error) bool {
+	if err == nil {
+		return false
+	}
+	return isNotFound(err) || strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+func isQueryHandlerUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unknown query") || strings.Contains(msg, "query handler")
 }
