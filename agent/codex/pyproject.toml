@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-agent-codex"
-version = "0.0.1a3"
+version = "0.0.1a4"
 requires-python = "==3.14.*"
 dependencies = [
   "openai-agents==0.14.8",
