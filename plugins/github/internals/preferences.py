@@ -326,12 +326,6 @@ def _repository_from_identity(identity: GitHubPreferenceIdentity) -> str:
     raise ValueError("repository is required for preference lookup")
 
 
-def identity_with_repository(
-    identity: GitHubPreferenceIdentity, repository: str
-) -> GitHubPreferenceIdentity:
-    return replace(identity, repository=repository.strip())
-
-
 def _base_metadata(
     policy: GitHubWebhookPolicy, identity: GitHubPreferenceIdentity
 ) -> dict[str, Any]:

@@ -1036,14 +1036,6 @@ def _single_pull_request_number(value: Any) -> int:
     return int(number) if int(number) > 0 else 0
 
 
-def _pull_request_head_sha(pull: dict[str, Any]) -> str:
-    head = pull.get("head")
-    if not isinstance(head, dict):
-        return ""
-    value = head.get("sha")
-    return value.strip() if isinstance(value, str) else ""
-
-
 @plugin.operation(
     id=REVIEW_PULL_REQUEST_OPERATION,
     method="POST",
