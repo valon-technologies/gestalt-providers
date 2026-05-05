@@ -217,7 +217,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-agent-codex"
-version = "0.0.1a4"
+version = "0.0.1a5"
 source = { virtual = "." }
 dependencies = [
     { name = "gestalt-sdk" },
