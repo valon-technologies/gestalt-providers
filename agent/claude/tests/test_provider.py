@@ -52,6 +52,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests: list[dict[str, Any]] = []
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.metadata_supported = False
         self.list_error = ""
         self.execute_error = ""
 
@@ -60,6 +61,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests.clear()
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.metadata_supported = False
         self.list_error = ""
         self.execute_error = ""
 
@@ -86,6 +88,11 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 tool.mcp_name = f"{plugin}__operation_{index}"
                 tool.title = f"{plugin.title()} operation {index}"
                 tool.description = f"{plugin.title()} catalog operation {index}"
+                if hasattr(tool, "tags"):
+                    self.metadata_supported = True
+                    if plugin == "github":
+                        tool.tags.extend(["pr", "prs"])
+                        tool.search_text = "github pull request repository owner number"
                 tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
                 setattr(tool.ref, "plugin", plugin)
                 setattr(tool.ref, "operation", f"operation{index}")
@@ -126,6 +133,10 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             tool.mcp_name = "github__pulls_list"
             tool.title = "List GitHub pull requests"
             tool.description = "List pull requests from GitHub"
+            if hasattr(tool, "tags"):
+                self.metadata_supported = True
+                tool.tags.extend(["pr", "prs"])
+                tool.search_text = "github pull request repository owner number"
             tool.input_schema = '{"type":"object"}'
             setattr(tool.ref, "plugin", "github")
             setattr(tool.ref, "operation", "pulls/list")
@@ -534,6 +545,10 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(visible_tools[0], "github__operation_0")
         self.assertEqual(visible_tools[-1], "linear__operation_59")
         self.assertEqual([request["page_token"] for request in host.list_requests], [""])
+        if host.metadata_supported:
+            self.assertIn("Search metadata:", sdk_tools[0].description)
+            self.assertIn("pr", sdk_tools[0].description)
+            self.assertIn("pull request", sdk_tools[0].description)
 
         execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
