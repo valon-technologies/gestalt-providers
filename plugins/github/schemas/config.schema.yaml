@@ -97,6 +97,66 @@ properties:
               type: array
               items:
                 type: string
+        trigger:
+          type: object
+          additionalProperties: false
+          description: >-
+            Controls whether a matched webhook delivery is eligible to start an
+            agent turn and how often equivalent turns may run.
+          properties:
+            frequency:
+              type: string
+              enum:
+                - every_delivery
+                - once_per_pr
+                - once_per_head_sha
+                - once_per_ci_incident
+                - manual_only
+              description: Defaults to every_delivery.
+            includeDrafts:
+              type: boolean
+              description: >-
+                Whether direct pull_request webhook payloads for draft PRs are
+                eligible for this policy. Defaults to true.
+            manualCommands:
+              type: array
+              description: >-
+                Case-sensitive substrings that must appear in issue_comment or
+                pull_request_review_comment bodies when frequency is manual_only.
+              items:
+                type: string
+        dedupe:
+          type: object
+          additionalProperties: false
+          description: Controls the workflow key used for matched deliveries.
+          properties:
+            scope:
+              type: string
+              enum:
+                - delivery
+                - pull_request
+                - pr_head
+                - ci_incident
+              description: Defaults to delivery.
+        comments:
+          type: object
+          additionalProperties: false
+          description: Controls which comment surfaces the policy may use.
+          properties:
+            timelinePolicy:
+              type: string
+              enum:
+                - allow
+                - never
+                - actionable_only
+              description: Defaults to allow.
+            inlinePolicy:
+              type: string
+              enum:
+                - allow
+                - never
+                - findings_only
+              description: Defaults to allow.
         workflow:
           type: object
           additionalProperties: false
