@@ -214,7 +214,7 @@ export function applyTurnEvent(
     case "tool.started":
     case "tool.completed":
     case "tool.failed":
-      pushItem(next, event.id, "tool", toolTitle(event), toolSummary(event));
+      pushItem(next, event.id, "tool", toolTitle(event), toolSummary(event), event);
       return next;
     case "interaction.requested": {
       const id =

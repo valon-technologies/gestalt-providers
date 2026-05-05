@@ -909,6 +909,10 @@ function TranscriptView({
 }
 
 function TranscriptBubble({ item }: { item: TranscriptItem }) {
+  if (item.kind === "tool") {
+    return <ToolTranscriptCard item={item} />;
+  }
+
   const alignClass =
     item.kind === "user"
       ? "justify-end"
@@ -922,7 +926,7 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
         ? "max-w-[min(42rem,86%)] border-alpha bg-base-100 text-primary dark:bg-surface"
         : item.kind === "error"
           ? "max-w-[min(42rem,86%)] border-ember-500/30 bg-ember-500/10 text-primary"
-          : item.kind === "tool" || item.kind === "interaction"
+          : item.kind === "interaction"
             ? "max-w-[min(36rem,92%)] border-alpha bg-alpha-5 text-primary"
             : "max-w-[min(34rem,92%)] border-alpha bg-background/65 text-muted dark:bg-background/20";
   const labelClass =
@@ -946,6 +950,73 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
         </pre>
       </article>
     </div>
+  );
+}
+
+function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
+  const event = item.event;
+  const phase = event ? eventPhase(event) : item.text;
+  const input = event ? eventInput(event) : null;
+  const detail = event ? eventDetail(event) : item.text;
+  const raw = event ? JSON.stringify(event, null, 2) : null;
+  const showSummary = Boolean(item.text && item.text !== detail);
+
+  return (
+    <div className="flex justify-start">
+      <article className="max-w-[min(42rem,92%)] rounded-lg border border-alpha bg-alpha-5 px-4 py-3 text-primary">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-primary">
+              {item.title}
+            </p>
+            <p className="mt-1 text-xs text-faint">
+              {event?.seq ? `#${event.seq} ` : ""}
+              {phase || "tool activity"}
+            </p>
+          </div>
+          <span className={toolPhaseClassName(phase)}>
+            {event?.display?.kind || event?.source || "tool"}
+          </span>
+        </div>
+
+        {showSummary ? (
+          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-muted">
+            {item.text}
+          </p>
+        ) : null}
+
+        <div className="mt-3 space-y-2">
+          {input ? <TranscriptDetail label="Input" value={input} /> : null}
+          {detail ? <TranscriptDetail label="Output" value={detail} /> : null}
+          {raw ? <TranscriptDetail label="Event JSON" value={raw} muted /> : null}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function TranscriptDetail({
+  label,
+  value,
+  muted,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <details className="rounded-md border border-alpha bg-base-100 p-2 dark:bg-surface">
+      <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.14em] text-faint">
+        {label}
+      </summary>
+      <pre
+        className={`mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/65 p-2 text-xs dark:bg-background/20 ${
+          muted ? "text-muted" : "text-primary"
+        }`}
+      >
+        {value}
+      </pre>
+    </details>
   );
 }
 
@@ -2025,6 +2096,22 @@ function statusClassName(status?: string): string {
     default:
       return `${base} bg-alpha-5 text-faint`;
   }
+}
+
+function toolPhaseClassName(phase?: string | null): string {
+  const base =
+    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.12em]";
+  const normalized = phase?.toLowerCase() ?? "";
+  if (normalized.includes("failed") || normalized.includes("error")) {
+    return `${base} bg-ember-500/10 text-ember-500`;
+  }
+  if (normalized.includes("completed") || normalized.includes("succeeded")) {
+    return `${base} bg-grove-500/10 text-grove-700 dark:text-grove-200`;
+  }
+  if (normalized.includes("started") || normalized.includes("running")) {
+    return `${base} bg-sky-500/10 text-sky-600 dark:text-sky-200`;
+  }
+  return `${base} bg-alpha-5 text-faint`;
 }
 
 function sortOperations(
