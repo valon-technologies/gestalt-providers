@@ -31,7 +31,6 @@ from internals.agent import (
     delete_slack_event_status,
     handle_slack_event,
     handle_slack_interaction,
-    post_connect_metadata,
     request_slack_interaction,
     reply_to_slack_event,
     resolve_slack_http_subject,
@@ -65,12 +64,9 @@ from internals.operations import (
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
-PostConnectMetadata: TypeAlias = dict[str, str]
 
 plugin = gestalt.Plugin("slack")
 
-SLACK_AUTH_TEST_URL = _agent.SLACK_AUTH_TEST_URL
-SLACK_DEFAULT_CONNECTION = _agent.SLACK_DEFAULT_CONNECTION
 _agent_session_ref = _agent._agent_session_ref
 _select_agent_route = _agent._select_agent_route
 _sign_reply_ref = _agent._sign_reply_ref
@@ -389,11 +385,6 @@ class SlackInteractionRequestInput(gestalt.Model):
         default=86_400,
         required=False,
     )
-
-
-@gestalt.post_connect
-def post_connect(token: gestalt.ConnectedToken) -> PostConnectMetadata:
-    return post_connect_metadata(token)
 
 
 @plugin.http_subject

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/slack
-version: 0.0.1-alpha.45
+version: 0.0.1-alpha.46
 displayName: Slack
 description: Read public and private conversations, DMs, and group DMs; send messages; and manage channels.
 iconFile: assets/icon.svg
@@ -585,6 +585,19 @@ spec:
         - channels:write
         - groups:write
         - canvases:write
+      postConnect:
+        request:
+          method: POST
+          url: https://slack.com/api/auth.test
+        success:
+          path: ok
+          equals: true
+        externalIdentity:
+          type: slack_identity
+          id: team:{team_id}:user:{user_id}
+        metadata:
+          slack.team_id: team_id
+          slack.user_id: user_id
     bot:
       displayName: Bot
       mode: platform
