@@ -3409,7 +3409,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/intercom/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.2",
+      "manifestVersion": "0.0.1-alpha.3",
       "name": "intercom",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/intercom",
       "packagePath": "plugins/intercom",
