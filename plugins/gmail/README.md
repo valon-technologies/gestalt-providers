@@ -23,6 +23,10 @@ provider-owned ingestion jobs, the Gmail provider also supports an internal
 platform mailbox pattern. The mailbox's Gmail visibility determines what can be
 read, including Google Groups mail delivered to that mailbox.
 
+`mode: platform` and `exposure: internal` are intentionally different controls:
+`mode` means the credential is deployer-owned, while `exposure` keeps that
+binding out of public caller selection.
+
 ### `platformConnection`
 
 Use `platformConnection` when Gestalt owns a platform OAuth credential for a
@@ -67,7 +71,7 @@ plugins:
           name: google-oauth-client-secret
       platformConnection:
         enabled: true
-        email: google-groups-ingest@valon.com
+        email: groups-ingest@example.com
         operations:
           - messages.list
           - messages.get
@@ -100,7 +104,7 @@ plugins:
 await invoker.invoke(
   "gmail",
   "messages.list",
-  { q: "to:athena-implementation@valon.com newer_than:7d" },
+  { q: "to:group@example.com newer_than:7d" },
   { connection: "platform" },
 );
 ```
@@ -128,8 +132,8 @@ plugins:
           name: google-oauth-client-secret
       platformIdentity:
         enabled: true
-        subjectEmail: google-groups-ingest@valon.com
-        serviceAccountEmail: valon-tools-gmail-ingest@example-project.iam.gserviceaccount.com
+        subjectEmail: groups-ingest@example.com
+        serviceAccountEmail: gmail-ingest@example-project.iam.gserviceaccount.com
         scopes:
           - https://www.googleapis.com/auth/gmail.readonly
         operations:
