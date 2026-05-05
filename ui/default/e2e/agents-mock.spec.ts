@@ -309,6 +309,59 @@ test.describe("Agents", () => {
     expect(createTurnBody?.toolSource).toBeUndefined();
   });
 
+  test("uses a compact chat composer for selected sessions", async ({
+    authenticatedPage: page,
+  }) => {
+    let createTurnBody: Record<string, unknown> | null = null;
+    await mockAgentSessions(
+      page,
+      {
+        sessions: [
+          {
+            id: "agent_session_chat",
+            provider: "simple",
+            model: "fast",
+            state: "active",
+            createdAt: "2026-04-23T00:00:00Z",
+            updatedAt: "2026-04-23T00:00:00Z",
+          },
+        ],
+        turns: { agent_session_chat: [] },
+      },
+      {
+        onCreateTurn(session, body) {
+          createTurnBody = body;
+          return {
+            id: "agent_turn_chat",
+            sessionId: session.id,
+            provider: session.provider,
+            model: "fast",
+            status: "running",
+            messages: body.messages as never,
+            createdAt: "2026-04-23T00:00:00Z",
+            startedAt: "2026-04-23T00:00:00Z",
+          };
+        },
+      },
+    );
+
+    await page.goto("/agents?session=agent_session_chat");
+
+    await expect(page.getByLabel("User message")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send turn" })).toBeVisible();
+    await expect(page.getByText("Turn options")).toBeVisible();
+    await expect(page.getByLabel("Tools", { exact: true })).toBeHidden();
+
+    await page.getByLabel("User message").fill("Check the latest rollout.");
+    await page.getByRole("button", { name: "Send turn" }).click();
+
+    await expect(page.getByText("Agent turn started.")).toBeVisible();
+    expect(createTurnBody?.messages).toEqual([
+      { role: "user", text: "Check the latest rollout." },
+    ]);
+    expect(createTurnBody?.toolRefs).toEqual([]);
+  });
+
   test("starts a selected-tool turn using the mcp_catalog wire contract", async ({
     authenticatedPage: page,
   }) => {
@@ -347,6 +400,7 @@ test.describe("Agents", () => {
 
     await page.goto("/agents?session=agent_session_tools");
     await page.getByLabel("User message").fill("Summarize the latest open PRs.");
+    await page.getByText("Turn options").click();
     await page.getByLabel("Tools", { exact: true }).selectOption("selected");
     await page.getByLabel("Plugin").selectOption("github");
     await page.getByLabel("Operation").selectOption("pull_requests.list");

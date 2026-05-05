@@ -1163,6 +1163,338 @@ function AgentComposer({
     });
   }
 
+  const selectedToolCount =
+    composer.toolMode === "selected"
+      ? composer.tools.filter((tool) => tool.plugin.trim() && tool.operation.trim())
+          .length
+      : 0;
+  const toolSummary =
+    composer.toolMode === "selected"
+      ? `${selectedToolCount} tool${selectedToolCount === 1 ? "" : "s"} selected`
+      : "No tools";
+  const modelSummary =
+    composer.model.trim() || selectedSession?.model || "provider default";
+  const hasTurnOptions =
+    Boolean(composer.model.trim()) ||
+    Boolean(composer.systemPrompt.trim()) ||
+    composer.toolMode === "selected" ||
+    Boolean(composer.responseSchemaJSON.trim()) ||
+    Boolean(composer.metadataJSON.trim()) ||
+    Boolean(composer.modelOptionsJSON.trim()) ||
+    Boolean(composer.idempotencyKey.trim());
+
+  const errorBlock =
+    formError || providersError ? (
+      <div className="space-y-1">
+        {formError ? <p className="text-sm text-ember-500">{formError}</p> : null}
+        {providersError ? (
+          <p className="text-sm text-ember-500">{providersError}</p>
+        ) : null}
+      </div>
+    ) : null;
+
+  const modelField = (
+    <label className="space-y-2 text-sm">
+      <span className="text-muted">
+        {selectedSession ? "Model override" : "Model"}
+      </span>
+      <input
+        value={composer.model}
+        onChange={(event) =>
+          setComposer((current) => ({
+            ...current,
+            model: event.target.value,
+          }))
+        }
+        placeholder={selectedSession?.model || "provider default"}
+        className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
+      />
+    </label>
+  );
+
+  const systemField = (
+    <label className="block space-y-2 text-sm">
+      <span className="text-muted">System message</span>
+      <textarea
+        value={composer.systemPrompt}
+        onChange={(event) =>
+          setComposer((current) => ({
+            ...current,
+            systemPrompt: event.target.value,
+          }))
+        }
+        rows={2}
+        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+      />
+    </label>
+  );
+
+  const toolSection = (
+    <section className="rounded-md border border-alpha bg-background/65 p-4 dark:bg-background/20">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-medium text-primary">Tools</h4>
+          <p className="mt-1 text-xs text-faint">
+            No tools sends an empty toolRefs list.
+          </p>
+        </div>
+        <select
+          aria-label="Tools"
+          value={composer.toolMode}
+          onChange={(event) =>
+            setComposer((current) => ({
+              ...current,
+              toolMode: event.target.value as AgentToolMode,
+            }))
+          }
+          className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+        >
+          <option value="none">No tools</option>
+          <option value="selected">Selected tools</option>
+        </select>
+      </div>
+
+      {composer.toolMode === "selected" && !providerSupportsSelectedTools ? (
+        <p className="mt-3 text-sm text-ember-500">
+          The selected provider does not advertise mcp_catalog tools.
+        </p>
+      ) : null}
+      {integrationsError ? (
+        <p className="mt-3 text-sm text-ember-500">{integrationsError}</p>
+      ) : null}
+
+      {composer.toolMode === "selected" ? (
+        <div className="mt-4 space-y-4">
+          {composer.tools.map((tool, index) => {
+            const operations = tool.plugin
+              ? (operationsByPlugin[tool.plugin] ?? EMPTY_OPERATIONS)
+              : EMPTY_OPERATIONS;
+            const operationsLoading = tool.plugin
+              ? Boolean(operationsLoadingByPlugin[tool.plugin])
+              : false;
+            const operationsError = tool.plugin
+              ? (operationErrorsByPlugin[tool.plugin] ?? null)
+              : null;
+            return (
+              <div
+                key={index}
+                className="rounded-md border border-alpha bg-base-100 p-4 dark:bg-surface"
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-2 text-sm">
+                    <span className="text-muted">Plugin</span>
+                    <select
+                      value={tool.plugin}
+                      onChange={(event) => {
+                        const plugin = event.target.value;
+                        updateTool(index, { plugin, operation: "" });
+                        void ensureOperationsLoaded(plugin);
+                      }}
+                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                    >
+                      <option value="">Select plugin</option>
+                      {integrations.map((integration) => (
+                        <option key={integration.name} value={integration.name}>
+                          {integrationLabel(integration)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2 text-sm">
+                    <span className="text-muted">Operation</span>
+                    <select
+                      value={tool.operation}
+                      disabled={!tool.plugin || operationsLoading}
+                      onChange={(event) =>
+                        updateTool(index, { operation: event.target.value })
+                      }
+                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
+                    >
+                      <option value="">
+                        {operationsLoading
+                          ? "Loading operations..."
+                          : "Select operation"}
+                      </option>
+                      {operations.map((operation) => (
+                        <option key={operation.id} value={operation.id}>
+                          {operation.title || operation.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {operationsError ? (
+                  <p className="mt-3 text-sm text-ember-500">
+                    {operationsError}
+                  </p>
+                ) : null}
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-2 text-sm">
+                    <span className="text-muted">Connection</span>
+                    <input
+                      value={tool.connection}
+                      onChange={(event) =>
+                        updateTool(index, { connection: event.target.value })
+                      }
+                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span className="text-muted">Instance</span>
+                    <input
+                      value={tool.instance}
+                      onChange={(event) =>
+                        updateTool(index, { instance: event.target.value })
+                      }
+                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => removeTool(index)}
+                    className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
+                  >
+                    Remove tool
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={addTool}
+            className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
+          >
+            Add tool
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const advancedFields = (
+    <details className="rounded-md border border-alpha bg-base-100 p-4 dark:bg-surface">
+      <summary className="cursor-pointer text-sm font-medium text-primary">
+        Advanced request fields
+      </summary>
+      <div className="mt-4 grid gap-4">
+        <JsonTextarea
+          label="Response schema JSON"
+          value={composer.responseSchemaJSON}
+          onChange={(value) =>
+            setComposer((current) => ({
+              ...current,
+              responseSchemaJSON: value,
+            }))
+          }
+        />
+        <JsonTextarea
+          label="Metadata JSON"
+          value={composer.metadataJSON}
+          onChange={(value) =>
+            setComposer((current) => ({ ...current, metadataJSON: value }))
+          }
+        />
+        <JsonTextarea
+          label="Model options JSON"
+          value={composer.modelOptionsJSON}
+          onChange={(value) =>
+            setComposer((current) => ({
+              ...current,
+              modelOptionsJSON: value,
+            }))
+          }
+        />
+        <label className="space-y-2 text-sm">
+          <span className="text-muted">Idempotency key</span>
+          <input
+            value={composer.idempotencyKey}
+            onChange={(event) =>
+              setComposer((current) => ({
+                ...current,
+                idempotencyKey: event.target.value,
+              }))
+            }
+            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+          />
+        </label>
+      </div>
+    </details>
+  );
+
+  if (selectedSession) {
+    return (
+      <form className="space-y-3" onSubmit={onSubmit}>
+        {errorBlock}
+
+        <div className="rounded-lg border border-alpha bg-base-100 p-3 dark:bg-surface">
+          <label className="block">
+            <span className="sr-only">User message</span>
+            <textarea
+              aria-label="User message"
+              value={composer.userPrompt}
+              onChange={(event) =>
+                setComposer((current) => ({
+                  ...current,
+                  userPrompt: event.target.value,
+                }))
+              }
+              rows={3}
+              required
+              placeholder="Message agent..."
+              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 text-sm leading-6 text-primary outline-none placeholder:text-faint"
+            />
+          </label>
+
+          <div className="mt-3 flex flex-col gap-3 border-t border-alpha pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap gap-2 text-xs text-faint">
+              <span className="rounded-full bg-alpha-5 px-2 py-1">
+                Model: {modelSummary}
+              </span>
+              <span className="rounded-full bg-alpha-5 px-2 py-1">
+                {toolSummary}
+              </span>
+              {composer.systemPrompt.trim() ? (
+                <span className="rounded-full bg-alpha-5 px-2 py-1">
+                  System message set
+                </span>
+              ) : null}
+            </div>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Starting..." : "Send turn"}
+            </button>
+          </div>
+        </div>
+
+        <details className="rounded-md border border-alpha bg-background/65 p-4 dark:bg-background/20">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-medium text-primary">
+            <span>Turn options</span>
+            <span className="text-xs font-normal uppercase tracking-[0.14em] text-faint">
+              {hasTurnOptions ? "Configured" : "Optional"}
+            </span>
+          </summary>
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">{modelField}</div>
+            {systemField}
+            {toolSection}
+            {advancedFields}
+          </div>
+        </details>
+      </form>
+    );
+  }
+
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -1185,29 +1517,11 @@ function AgentComposer({
               setComposer((current) => ({ ...current, provider: value }))
             }
           />
-          <label className="space-y-2 text-sm">
-            <span className="text-muted">
-              {selectedSession ? "Model override" : "Model"}
-            </span>
-            <input
-              value={composer.model}
-              onChange={(event) =>
-                setComposer((current) => ({
-                  ...current,
-                  model: event.target.value,
-                }))
-              }
-              placeholder={selectedSession?.model || "provider default"}
-              className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-            />
-          </label>
+          {modelField}
         </div>
       </div>
 
-      {formError ? <p className="mt-4 text-sm text-ember-500">{formError}</p> : null}
-      {providersError ? (
-        <p className="mt-4 text-sm text-ember-500">{providersError}</p>
-      ) : null}
+      {errorBlock}
 
       <div className="space-y-4">
         {!selectedSession ? (
@@ -1226,24 +1540,12 @@ function AgentComposer({
           </label>
         ) : null}
 
-        <label className="block space-y-2 text-sm">
-          <span className="text-muted">System message</span>
-          <textarea
-            value={composer.systemPrompt}
-            onChange={(event) =>
-              setComposer((current) => ({
-                ...current,
-                systemPrompt: event.target.value,
-              }))
-            }
-            rows={2}
-            className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-          />
-        </label>
+        {systemField}
 
         <label className="block space-y-2 text-sm">
           <span className="text-muted">User message</span>
           <textarea
+            aria-label="User message"
             value={composer.userPrompt}
             onChange={(event) =>
               setComposer((current) => ({
@@ -1257,204 +1559,8 @@ function AgentComposer({
           />
         </label>
 
-        <section className="rounded-md border border-alpha bg-background/65 p-4 dark:bg-background/20">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h4 className="text-sm font-medium text-primary">Tools</h4>
-              <p className="mt-1 text-xs text-faint">
-                No tools sends an empty toolRefs list.
-              </p>
-            </div>
-            <select
-              aria-label="Tools"
-              value={composer.toolMode}
-              onChange={(event) =>
-                setComposer((current) => ({
-                  ...current,
-                  toolMode: event.target.value as AgentToolMode,
-                }))
-              }
-              className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-            >
-              <option value="none">No tools</option>
-              <option value="selected">Selected tools</option>
-            </select>
-          </div>
-
-          {composer.toolMode === "selected" && !providerSupportsSelectedTools ? (
-            <p className="mt-3 text-sm text-ember-500">
-              The selected provider does not advertise mcp_catalog tools.
-            </p>
-          ) : null}
-          {integrationsError ? (
-            <p className="mt-3 text-sm text-ember-500">{integrationsError}</p>
-          ) : null}
-
-          {composer.toolMode === "selected" ? (
-            <div className="mt-4 space-y-4">
-              {composer.tools.map((tool, index) => {
-                const operations = tool.plugin
-                  ? (operationsByPlugin[tool.plugin] ?? EMPTY_OPERATIONS)
-                  : EMPTY_OPERATIONS;
-                const operationsLoading = tool.plugin
-                  ? Boolean(operationsLoadingByPlugin[tool.plugin])
-                  : false;
-                const operationsError = tool.plugin
-                  ? (operationErrorsByPlugin[tool.plugin] ?? null)
-                  : null;
-                return (
-                  <div
-                    key={index}
-                    className="rounded-md border border-alpha bg-base-100 p-4 dark:bg-surface"
-                  >
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-2 text-sm">
-                        <span className="text-muted">Plugin</span>
-                        <select
-                          value={tool.plugin}
-                          onChange={(event) => {
-                            const plugin = event.target.value;
-                            updateTool(index, { plugin, operation: "" });
-                            void ensureOperationsLoaded(plugin);
-                          }}
-                          className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                        >
-                          <option value="">Select plugin</option>
-                          {integrations.map((integration) => (
-                            <option
-                              key={integration.name}
-                              value={integration.name}
-                            >
-                              {integrationLabel(integration)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="space-y-2 text-sm">
-                        <span className="text-muted">Operation</span>
-                        <select
-                          value={tool.operation}
-                          disabled={!tool.plugin || operationsLoading}
-                          onChange={(event) =>
-                            updateTool(index, { operation: event.target.value })
-                          }
-                          className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-                        >
-                          <option value="">
-                            {operationsLoading
-                              ? "Loading operations..."
-                              : "Select operation"}
-                          </option>
-                          {operations.map((operation) => (
-                            <option key={operation.id} value={operation.id}>
-                              {operation.title || operation.id}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-
-                    {operationsError ? (
-                      <p className="mt-3 text-sm text-ember-500">
-                        {operationsError}
-                      </p>
-                    ) : null}
-
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-2 text-sm">
-                        <span className="text-muted">Connection</span>
-                        <input
-                          value={tool.connection}
-                          onChange={(event) =>
-                            updateTool(index, { connection: event.target.value })
-                          }
-                          className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                        />
-                      </label>
-                      <label className="space-y-2 text-sm">
-                        <span className="text-muted">Instance</span>
-                        <input
-                          value={tool.instance}
-                          onChange={(event) =>
-                            updateTool(index, { instance: event.target.value })
-                          }
-                          className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => removeTool(index)}
-                        className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-                      >
-                        Remove tool
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={addTool}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-              >
-                Add tool
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        <details className="rounded-md border border-alpha bg-base-100 p-4 dark:bg-surface">
-          <summary className="cursor-pointer text-sm font-medium text-primary">
-            Advanced request fields
-          </summary>
-          <div className="mt-4 grid gap-4">
-            <JsonTextarea
-              label="Response schema JSON"
-              value={composer.responseSchemaJSON}
-              onChange={(value) =>
-                setComposer((current) => ({
-                  ...current,
-                  responseSchemaJSON: value,
-                }))
-              }
-            />
-            <JsonTextarea
-              label="Metadata JSON"
-              value={composer.metadataJSON}
-              onChange={(value) =>
-                setComposer((current) => ({ ...current, metadataJSON: value }))
-              }
-            />
-            <JsonTextarea
-              label="Model options JSON"
-              value={composer.modelOptionsJSON}
-              onChange={(value) =>
-                setComposer((current) => ({
-                  ...current,
-                  modelOptionsJSON: value,
-                }))
-              }
-            />
-            <label className="space-y-2 text-sm">
-              <span className="text-muted">Idempotency key</span>
-              <input
-                value={composer.idempotencyKey}
-                onChange={(event) =>
-                  setComposer((current) => ({
-                    ...current,
-                    idempotencyKey: event.target.value,
-                  }))
-                }
-                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-              />
-            </label>
-          </div>
-        </details>
+        {toolSection}
+        {advancedFields}
 
       </div>
 
