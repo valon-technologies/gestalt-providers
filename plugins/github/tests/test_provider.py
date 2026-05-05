@@ -10,6 +10,7 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from email.message import Message
 from http import HTTPStatus
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest import mock
 
@@ -22,7 +23,7 @@ import yaml
 import internals.client as client_module
 import internals.operations as operations_module
 import internals.review as review_module
-from internals.config import GitHubBotIdentity
+from internals.config import GitHubBotIdentity, GitHubUserIdentity
 from internals.errors import GitHubAPIError
 import provider as provider_module
 
@@ -144,6 +145,28 @@ def github_request(
     )
 
 
+def github_agent_request(
+    installation_id: int = 99,
+    repo: str = "acme/widgets",
+    external_identity_type: str = "github_identity",
+    external_identity_id: str = "user:222",
+) -> Any:
+    req = github_request(installation_id=installation_id, repo=repo)
+    return SimpleNamespace(
+        subject=req.subject,
+        agent_subject=SimpleNamespace(
+            id="user:user-456",
+            kind="user",
+            display_name="Grace Hopper",
+            auth_source="slack",
+        ),
+        agent_external_identity=SimpleNamespace(
+            type=external_identity_type,
+            id=external_identity_id,
+        ),
+    )
+
+
 class RecordingGitHubClient(client_module.GitHubAPIClient):
     def __init__(self) -> None:
         self.tokens: list[tuple[int, tuple[str, ...], dict[str, str]]] = []
@@ -248,6 +271,16 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
             login="example-app[bot]",
             user_id="12345678",
             email="12345678+example-app[bot]@users.noreply.github.com",
+        )
+
+    def user_identity_by_id(self, user_id: str) -> GitHubUserIdentity | None:
+        if user_id != "222":
+            return None
+        return GitHubUserIdentity(
+            name="Grace Hopper",
+            login="ghopper",
+            user_id="222",
+            email="222+ghopper@users.noreply.github.com",
         )
 
     def commit_url(self, owner: str, repo: str, sha: str) -> str:
@@ -725,6 +758,28 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertIn("coauthor name and email are required", response.body["error"])
         urlopen.assert_not_called()
+
+    def test_delegated_agent_subject_supplies_commit_author(self) -> None:
+        recording_client = RecordingGitHubClient()
+        with mock.patch.object(
+            provider_module, "DEFAULT_GITHUB_CLIENT", recording_client
+        ):
+            request = provider_module._commit_request_from_input(
+                provider_module.CommitFilesInput(
+                    owner="acme",
+                    repo="widgets",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(path="README.md", content="hi")
+                    ],
+                    author_name="Spoofed User",
+                    author_email="spoof@example.com",
+                ),
+                github_agent_request(),
+            )
+
+        self.assertEqual(request.author_name, "Grace Hopper")
+        self.assertEqual(request.author_email, "222+ghopper@users.noreply.github.com")
 
     def test_commit_files_uses_typed_github_client_interface(self) -> None:
         recording_client = RecordingGitHubClient()
@@ -3251,6 +3306,12 @@ class GitHubProviderTests(unittest.TestCase):
             body = request_json(request)
             calls.append((method, path, body, auth_header(request)))
 
+            if path == "/user/222":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "")
+                return FakeHTTPResponse(
+                    {"id": 222, "login": "ghopper", "name": "Grace Hopper"}
+                )
             if path == "/app":
                 self.assertEqual(method, "GET")
                 return FakeHTTPResponse(
@@ -3287,6 +3348,13 @@ class GitHubProviderTests(unittest.TestCase):
             if path == "/repos/acme/widgets/git/commits":
                 self.assertEqual(body["tree"], "new-tree")
                 self.assertEqual(body["parents"], ["base-commit"])
+                self.assertEqual(
+                    body["author"],
+                    {
+                        "name": "Grace Hopper",
+                        "email": "222+ghopper@users.noreply.github.com",
+                    },
+                )
                 self.assertIn("Co-authored-by: Ada <ada@example.com>", body["message"])
                 self.assertIn(
                     "Co-authored-by: Example App Bot <12345678+example-app[bot]@users.noreply.github.com>",
@@ -3325,7 +3393,7 @@ class GitHubProviderTests(unittest.TestCase):
                         )
                     ],
                 ),
-                github_request(),
+                github_agent_request(),
             )
 
         self.assertIsInstance(result, dict)
@@ -3345,6 +3413,10 @@ class GitHubProviderTests(unittest.TestCase):
             path = request_path(request)
             body = request_json(request)
 
+            if path == "/user/222":
+                return FakeHTTPResponse(
+                    {"id": 222, "login": "ghopper", "name": "Grace Hopper"}
+                )
             if path == "/app":
                 return FakeHTTPResponse(
                     {"name": "Example App Bot", "slug": "example-app"}
@@ -3367,6 +3439,13 @@ class GitHubProviderTests(unittest.TestCase):
             if path == "/repos/acme/widgets/git/trees":
                 return FakeHTTPResponse({"sha": "new-tree"})
             if path == "/repos/acme/widgets/git/commits":
+                self.assertEqual(
+                    body["author"],
+                    {
+                        "name": "Grace Hopper",
+                        "email": "222+ghopper@users.noreply.github.com",
+                    },
+                )
                 return FakeHTTPResponse({"sha": "new-commit"})
             if path == "/repos/acme/widgets/git/refs":
                 return FakeHTTPResponse({})
@@ -3409,7 +3488,7 @@ class GitHubProviderTests(unittest.TestCase):
                     branch="feature",
                     base="main",
                 ),
-                github_request(),
+                github_agent_request(),
             )
 
         data = cast(dict[str, Any], result)["data"]

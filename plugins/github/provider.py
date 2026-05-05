@@ -7,7 +7,7 @@ from typing import Any, TypeAlias
 import gestalt
 
 from internals.agent import build_workflow_signal_or_start_request
-from internals.client import user_external_identity_metadata
+from internals.client import DEFAULT_GITHUB_CLIENT, user_external_identity_metadata
 from internals.config import configure_from_mapping, get_github_config
 from internals.constants import (
     BOT_ADD_LABELS_OPERATION,
@@ -31,6 +31,7 @@ from internals.constants import (
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     BOT_RESOLVE_INSTALLATION_OPERATION,
     GITHUB_EVENT_OPERATION,
+    GITHUB_EXTERNAL_IDENTITY_TYPE,
     REVIEW_PULL_REQUEST_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
@@ -174,10 +175,14 @@ class CommitFilesInput(gestalt.Model):
         required=False,
     )
     author_name: str = gestalt.field(
-        description="Optional Git commit author name", default="", required=False
+        description="Optional Git commit author name. Delegated agent calls use the invoking user's linked GitHub identity instead when available.",
+        default="",
+        required=False,
     )
     author_email: str = gestalt.field(
-        description="Optional Git commit author email", default="", required=False
+        description="Optional Git commit author email. Delegated agent calls use the invoking user's linked GitHub identity instead when available.",
+        default="",
+        required=False,
     )
     committer_name: str = gestalt.field(
         description="Optional Git commit committer name", default="", required=False
@@ -275,10 +280,14 @@ class CreatePullRequestInput(gestalt.Model):
         required=False,
     )
     author_name: str = gestalt.field(
-        description="Optional Git commit author name", default="", required=False
+        description="Optional Git commit author name. Delegated agent calls use the invoking user's linked GitHub identity instead when available.",
+        default="",
+        required=False,
     )
     author_email: str = gestalt.field(
-        description="Optional Git commit author email", default="", required=False
+        description="Optional Git commit author email. Delegated agent calls use the invoking user's linked GitHub identity instead when available.",
+        default="",
+        required=False,
     )
     committer_name: str = gestalt.field(
         description="Optional Git commit committer name", default="", required=False
@@ -858,7 +867,7 @@ def bot_resolve_installation(input: ResolveInstallationInput) -> OperationResult
 def bot_commit_files(input: CommitFilesInput, req: gestalt.Request) -> OperationResult:
     try:
         commit = commit_files(
-            _commit_request_from_input(input),
+            _commit_request_from_input(input, req),
             subject=req.subject,
             pull_request_permissions=False,
         )
@@ -949,6 +958,9 @@ def bot_create_pull_request(
     input: CreatePullRequestInput, req: gestalt.Request
 ) -> OperationResult:
     try:
+        author_name, author_email = _commit_author_from_request(
+            input.author_name, input.author_email, req
+        )
         result = create_pull_request_with_files(
             GitHubCreatePullRequestRequest(
                 owner=input.owner,
@@ -962,8 +974,8 @@ def bot_create_pull_request(
                 installation_id=input.installation_id,
                 coauthors=_coauthors_from_input(input.coauthors),
                 include_bot_coauthor=input.include_bot_coauthor,
-                author_name=input.author_name,
-                author_email=input.author_email,
+                author_name=author_name,
+                author_email=author_email,
                 committer_name=input.committer_name,
                 committer_email=input.committer_email,
                 force=input.force,
@@ -1480,7 +1492,12 @@ def bot_list_workflow_run_jobs(
     }
 
 
-def _commit_request_from_input(input: CommitFilesInput) -> GitHubCommitRequest:
+def _commit_request_from_input(
+    input: CommitFilesInput, req: gestalt.Request
+) -> GitHubCommitRequest:
+    author_name, author_email = _commit_author_from_request(
+        input.author_name, input.author_email, req
+    )
     return GitHubCommitRequest(
         owner=input.owner,
         repo=input.repo,
@@ -1491,13 +1508,35 @@ def _commit_request_from_input(input: CommitFilesInput) -> GitHubCommitRequest:
         installation_id=input.installation_id,
         coauthors=_coauthors_from_input(input.coauthors),
         include_bot_coauthor=input.include_bot_coauthor,
-        author_name=input.author_name,
-        author_email=input.author_email,
+        author_name=author_name,
+        author_email=author_email,
         committer_name=input.committer_name,
         committer_email=input.committer_email,
         force=input.force,
         allow_base_update=input.allow_base_update,
     )
+
+
+def _commit_author_from_request(
+    input_name: str, input_email: str, req: Any
+) -> tuple[str, str]:
+    external_identity = getattr(req, "agent_external_identity", None)
+    if external_identity is not None:
+        identity_type = str(getattr(external_identity, "type", "") or "").strip()
+        identity_id = str(getattr(external_identity, "id", "") or "").strip()
+        if identity_type == GITHUB_EXTERNAL_IDENTITY_TYPE:
+            user_id = _github_user_id_from_external_identity(identity_id)
+            user_identity = DEFAULT_GITHUB_CLIENT.user_identity_by_id(user_id)
+            if user_identity is not None and user_identity.email:
+                return user_identity.name, user_identity.email
+    return input_name, input_email
+
+
+def _github_user_id_from_external_identity(identity_id: str) -> str:
+    prefix, _, user_id = str(identity_id or "").strip().partition(":")
+    if prefix != "user":
+        return ""
+    return user_id.strip()
 
 
 def _file_changes_from_input(

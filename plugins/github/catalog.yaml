@@ -114,11 +114,11 @@ operations:
     default: true
   - name: author_name
     type: string
-    description: Optional Git commit author name
+    description: Optional Git commit author name. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
     default: ''
   - name: author_email
     type: string
-    description: Optional Git commit author email
+    description: Optional Git commit author email. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
     default: ''
   - name: committer_name
     type: string
@@ -259,11 +259,11 @@ operations:
     default: true
   - name: author_name
     type: string
-    description: Optional Git commit author name
+    description: Optional Git commit author name. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
     default: ''
   - name: author_email
     type: string
-    description: Optional Git commit author email
+    description: Optional Git commit author email. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
     default: ''
   - name: committer_name
     type: string
