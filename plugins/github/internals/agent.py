@@ -20,7 +20,9 @@ from .constants import (
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
+    BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     GITHUB_WORKFLOW_SIGNAL_NAME,
     MAX_AGENT_USER_PROMPT_CHARS,
@@ -242,6 +244,16 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
         lines.append(
             "Use bot.createPullRequestConversationComment for pull request "
             "timeline comments."
+        )
+    if BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION in operations:
+        lines.append(
+            "Use bot.listPullRequestReviewThreads to inspect existing inline "
+            "review threads."
+        )
+    if BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION in operations:
+        lines.append(
+            "Use bot.resolvePullRequestReviewThread only when a review thread is "
+            "known to be stale and safe to resolve."
         )
     if BOT_CREATE_ISSUE_COMMENT_OPERATION in operations:
         lines.append("Use bot.createIssueComment only for issue comments.")

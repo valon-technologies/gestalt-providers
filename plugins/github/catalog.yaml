@@ -43,6 +43,11 @@ operations:
     type: boolean
     description: Return validated findings without posting a GitHub review
     default: false
+  - name: autoResolveStaleFindings
+    type: boolean
+    description: Resolve prior provider-owned inline comments when the latest review
+      no longer reports the same finding
+    default: true
   - name: turnTimeoutMs
     type: integer
     description: Maximum time to wait for the review agent turn
@@ -330,6 +335,68 @@ operations:
     type: string
     description: Optional commit SHA to review. Defaults to GitHub's latest PR commit.
     default: ''
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.listPullRequestReviewThreads
+  method: GET
+  description: List pull request review threads and their first comments using a GitHub
+    App installation token
+  tags: [pr, prs, review]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: first
+    type: integer
+    description: Number of review threads to fetch, from 1 through 100
+    default: 100
+  - name: after
+    type: string
+    description: Optional GitHub GraphQL reviewThreads page cursor
+    default: ''
+  - name: comments_first
+    type: integer
+    description: Number of comments to fetch per thread, from 1 through 50
+    default: 20
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.resolvePullRequestReviewThread
+  method: POST
+  description: Resolve a pull request review thread after verifying it belongs to
+    the requested pull request
+  tags: [pr, prs, review]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: thread_id
+    type: string
+    description: GitHub GraphQL pull request review thread node ID
+    required: true
   - name: installation_id
     type: integer
     description: GitHub App installation ID. If omitted, it is taken from the webhook

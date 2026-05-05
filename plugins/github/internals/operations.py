@@ -144,6 +144,26 @@ class GitHubCreatePullRequestReviewRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListPullRequestReviewThreadsRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    first: int = 100
+    after: str = ""
+    comments_first: int = 20
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubResolvePullRequestReviewThreadRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    thread_id: str
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubPullRequestRequest:
     owner: str
     repo: str
@@ -216,6 +236,87 @@ class CommitResult:
 class CreatePullRequestResult:
     commit: CommitResult
     pull_request: JsonObject
+
+
+PULL_REQUEST_REVIEW_THREADS_QUERY = """
+query GestaltPullRequestReviewThreads(
+  $owner: String!
+  $repo: String!
+  $number: Int!
+  $first: Int!
+  $after: String
+  $commentsFirst: Int!
+) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: $first, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          viewerCanResolve
+          path
+          line
+          startLine
+          originalLine
+          originalStartLine
+          diffSide
+          startDiffSide
+          comments(first: $commentsFirst) {
+            totalCount
+            nodes {
+              id
+              databaseId
+              author {
+                login
+              }
+              body
+              createdAt
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+PULL_REQUEST_REVIEW_THREAD_NODE_QUERY = """
+query GestaltPullRequestReviewThreadNode($threadId: ID!) {
+  node(id: $threadId) {
+    __typename
+    ... on PullRequestReviewThread {
+      id
+      isResolved
+      pullRequest {
+        number
+        repository {
+          name
+          owner {
+            login
+          }
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+RESOLVE_PULL_REQUEST_REVIEW_THREAD_MUTATION = """
+mutation GestaltResolvePullRequestReviewThread($threadId: ID!) {
+  resolveReviewThread(input: {threadId: $threadId}) {
+    thread {
+      id
+      isResolved
+    }
+  }
+}
+""".strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -554,6 +655,121 @@ def create_pull_request_review(
         installation_id, repositories=[repo], permissions={"pull_requests": "write"}
     )
     return github.github_json("POST", path, token, payload)
+
+
+def list_pull_request_review_threads(
+    request: GitHubListPullRequestReviewThreadsRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    first = bounded_connection_size(request.first, "first", 100, 100)
+    comments_first = bounded_connection_size(
+        request.comments_first, "comments_first", 20, 50
+    )
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    variables: JsonObject = {
+        "owner": owner,
+        "repo": repo,
+        "number": pull_number,
+        "first": first,
+        "commentsFirst": comments_first,
+    }
+    after = request.after.strip()
+    if after:
+        variables["after"] = after
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    response = github.graphql_json(
+        PULL_REQUEST_REVIEW_THREADS_QUERY, token, variables
+    )
+    repository = map_field(map_field(response, "data"), "repository")
+    if not repository:
+        raise GitHubAPIError(
+            502, "GitHub review threads response did not include repository"
+        )
+    pull_request = map_field(repository, "pullRequest")
+    if not pull_request:
+        raise GitHubAPIError(
+            502, "GitHub review threads response did not include pullRequest"
+        )
+    connection = map_field(pull_request, "reviewThreads")
+    page_info = map_field(connection, "pageInfo")
+    raw_nodes = connection.get("nodes")
+    if not isinstance(raw_nodes, list) or not page_info:
+        raise GitHubAPIError(
+            502, "GitHub review threads response did not include reviewThreads nodes"
+        )
+    threads = [
+        pull_request_review_thread_summary(node)
+        for node in raw_nodes
+        if isinstance(node, dict)
+    ]
+    return {
+        "threads": threads,
+        "pageInfo": {
+            "hasNextPage": bool(page_info.get("hasNextPage")),
+            "endCursor": str_field(page_info, "endCursor"),
+        },
+    }
+
+
+def resolve_pull_request_review_thread(
+    request: GitHubResolvePullRequestReviewThreadRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    thread_id = require_text(request.thread_id, "thread_id")
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "write"}
+    )
+    node_response = github.graphql_json(
+        PULL_REQUEST_REVIEW_THREAD_NODE_QUERY, token, {"threadId": thread_id}
+    )
+    node = map_field(map_field(node_response, "data"), "node")
+    if str_field(node, "__typename") != "PullRequestReviewThread":
+        raise ValueError("thread_id must identify a pull request review thread")
+    node_pull = map_field(node, "pullRequest")
+    node_repo = map_field(node_pull, "repository")
+    node_owner = nested_str(node_repo, "owner", "login")
+    if (
+        node_owner.lower() != owner.lower()
+        or str_field(node_repo, "name").lower() != repo.lower()
+        or int_field(node_pull, "number") != pull_number
+    ):
+        raise ValueError("thread_id does not belong to the requested pull request")
+    if bool(node.get("isResolved")):
+        return {"id": str_field(node, "id") or thread_id, "isResolved": True}
+
+    mutation_response = github.graphql_json(
+        RESOLVE_PULL_REQUEST_REVIEW_THREAD_MUTATION,
+        token,
+        {"threadId": thread_id},
+    )
+    thread = map_field(
+        map_field(map_field(mutation_response, "data"), "resolveReviewThread"),
+        "thread",
+    )
+    if not str_field(thread, "id"):
+        raise GitHubAPIError(
+            502, "GitHub resolveReviewThread response did not include thread.id"
+        )
+    return {"id": str_field(thread, "id"), "isResolved": bool(thread.get("isResolved"))}
 
 
 def get_pull_request(
@@ -1075,6 +1291,47 @@ def pull_request_review_summary(review: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
+def pull_request_review_thread_summary(thread: Mapping[str, Any]) -> dict[str, Any]:
+    comments_connection = map_field(thread, "comments")
+    raw_comments = comments_connection.get("nodes")
+    comment_nodes = raw_comments if isinstance(raw_comments, list) else []
+    comments = [
+        pull_request_review_thread_comment_summary(comment)
+        for comment in comment_nodes
+        if isinstance(comment, dict)
+    ]
+    total_count = int_field(comments_connection, "totalCount")
+    return {
+        "id": str_field(thread, "id"),
+        "isResolved": bool(thread.get("isResolved")),
+        "isOutdated": bool(thread.get("isOutdated")),
+        "viewerCanResolve": bool(thread.get("viewerCanResolve")),
+        "path": str_field(thread, "path"),
+        "line": int_field(thread, "line"),
+        "startLine": int_field(thread, "startLine"),
+        "originalLine": int_field(thread, "originalLine"),
+        "originalStartLine": int_field(thread, "originalStartLine"),
+        "diffSide": str_field(thread, "diffSide"),
+        "startDiffSide": str_field(thread, "startDiffSide"),
+        "commentsCount": total_count,
+        "commentsTruncated": total_count > len(comments),
+        "comments": comments,
+    }
+
+
+def pull_request_review_thread_comment_summary(
+    comment: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "id": str_field(comment, "id"),
+        "databaseId": int_field(comment, "databaseId"),
+        "authorLogin": nested_str(comment, "author", "login"),
+        "body": str_field(comment, "body"),
+        "createdAt": str_field(comment, "createdAt"),
+        "url": str_field(comment, "url"),
+    }
+
+
 def check_run_summary(check_run: Mapping[str, Any]) -> dict[str, Any]:
     return _compact_dict(
         {
@@ -1162,6 +1419,23 @@ def require_positive_int(value: int, name: str) -> int:
     if isinstance(value, bool) or int(value) <= 0:
         raise ValueError(f"{name} is required")
     return int(value)
+
+
+def bounded_connection_size(
+    value: int,
+    name: str,
+    default: int,
+    maximum: int,
+) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"{name} must be an integer") from err
+    if parsed <= 0:
+        return default
+    return max(1, min(maximum, parsed))
 
 
 def github_client(client: GitHubAPIClient | None) -> GitHubAPIClient:

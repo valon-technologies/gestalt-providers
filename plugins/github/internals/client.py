@@ -63,6 +63,13 @@ class GitHubAPIClient(Protocol):
         payload: JsonPayload | None = None,
     ) -> Any: ...
 
+    def graphql_json(
+        self,
+        query: str,
+        token: str | None,
+        variables: JsonPayload | None = None,
+    ) -> JsonObject: ...
+
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str: ...
 
     def get_branch_ref(
@@ -114,6 +121,14 @@ class GitHubAppClient:
         payload: JsonPayload | None = None,
     ) -> Any:
         return github_json_value(method, path, token, payload)
+
+    def graphql_json(
+        self,
+        query: str,
+        token: str | None,
+        variables: JsonPayload | None = None,
+    ) -> JsonObject:
+        return graphql_json(query, token, variables)
 
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str:
         return repository_default_branch(token, owner, repo)
@@ -291,10 +306,64 @@ def github_json_value(
     return decoded
 
 
+def graphql_json(
+    query: str,
+    token: str | None,
+    variables: JsonPayload | None = None,
+) -> JsonObject:
+    payload: JsonObject = {"query": query}
+    if variables is not None:
+        payload["variables"] = dict(variables)
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        "User-Agent": "gestalt-github-plugin",
+        "Content-Type": "application/json",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(
+        graphql_url(),
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read()
+    except urllib.error.HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace")
+        err.close()
+        raise GitHubAPIError(err.code, github_error_message(body, err.code)) from err
+    except urllib.error.URLError as err:
+        raise GitHubAPIError(502, f"GitHub GraphQL request failed: {err.reason}") from err
+
+    if not body:
+        raise GitHubAPIError(502, "GitHub GraphQL returned an empty response")
+    try:
+        decoded = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as err:
+        raise GitHubAPIError(502, f"GitHub GraphQL returned invalid JSON: {err}") from err
+    if not isinstance(decoded, dict):
+        raise GitHubAPIError(502, "GitHub GraphQL returned a non-object JSON response")
+    errors = decoded.get("errors")
+    if isinstance(errors, list) and errors:
+        raise GitHubAPIError(
+            graphql_error_status(errors),
+            graphql_error_message(errors),
+        )
+    return decoded
+
+
 def api_url(path: str) -> str:
     if not path.startswith("/"):
         path = "/" + path
     return get_github_config().api_base_url.rstrip("/") + path
+
+
+def graphql_url() -> str:
+    return get_github_config().graphql_base_url.rstrip("/")
 
 
 def repo_path(owner: str, repo: str, *parts: str, safe_last: str = "") -> str:
@@ -414,3 +483,33 @@ def github_error_message(body: str, status: int) -> str:
         if isinstance(message, str) and message:
             return message
     return f"GitHub API error (status {status})"
+
+
+def graphql_error_message(errors: Sequence[Any]) -> str:
+    messages: list[str] = []
+    for item in errors:
+        if not isinstance(item, dict):
+            continue
+        message = item.get("message")
+        if isinstance(message, str) and message:
+            messages.append(message)
+    if messages:
+        return "; ".join(messages[:3])
+    return "GitHub GraphQL returned errors"
+
+
+def graphql_error_status(errors: Sequence[Any]) -> int:
+    for item in errors:
+        if not isinstance(item, dict):
+            continue
+        error_type = str(item.get("type", "")).upper()
+        message = str(item.get("message", "")).lower()
+        if (
+            "FORBIDDEN" in error_type
+            or "UNAUTHORIZED" in error_type
+            or "INSUFFICIENT" in error_type
+            or "accessible by integration" in message
+            or "permission" in message
+        ):
+            return HTTPStatus.FORBIDDEN
+    return HTTPStatus.BAD_GATEWAY

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -9,18 +11,23 @@ from typing import Any
 import gestalt
 from google.protobuf import json_format
 
+from .client import bot_identity_or_none
 from .config import get_github_config
 from .operations import (
     GitHubCreatePullRequestReviewRequest,
+    GitHubListPullRequestReviewThreadsRequest,
     GitHubListPullRequestFilesRequest,
     GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
+    GitHubResolvePullRequestReviewThreadRequest,
     create_pull_request_review,
     get_pull_request,
+    list_pull_request_review_threads,
     list_pull_request_files,
     pull_request_file_summary,
     pull_request_review_summary,
     pull_request_summary,
+    resolve_pull_request_review_thread,
 )
 
 DEFAULT_AGENT_PROVIDER = "claude"
@@ -31,6 +38,13 @@ DEFAULT_MAX_PATCH_CHARS = 80_000
 DEFAULT_TURN_TIMEOUT_MS = 180_000
 DEFAULT_POLL_INTERVAL_MS = 1_000
 MAX_COMMENT_BODY_CHARS = 1_200
+REVIEW_FINDING_SOURCE = "github.reviewPullRequest"
+REVIEW_FINDING_MARKER_RE = re.compile(
+    r"<!--\s*gestalt:github-review-finding\s+v1\s+"
+    r"fingerprint=(?P<fingerprint>\S+)\s+source=(?P<source>\S+)\s*-->"
+)
+REVIEW_FINDING_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
+AUTO_RESOLVE_MAX_THREAD_PAGES = 10
 
 DEFAULT_SYSTEM_PROMPT = " ".join(
     [
@@ -55,6 +69,7 @@ class ReviewSettings:
     max_patch_chars: int
     changed_lines_only: bool
     dry_run: bool
+    auto_resolve_stale_findings: bool
     turn_timeout_ms: int
     poll_interval_ms: int
 
@@ -93,6 +108,12 @@ class ValidatedFinding:
     path: str
     line: int
     body: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFindingMarker:
+    fingerprint: str
+    source: str
 
 
 def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
@@ -149,13 +170,25 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
         files=files,
     )
     findings, dropped = validate_findings(agent_findings, line_index, settings)
+    current_fingerprints = [
+        review_finding_fingerprint(subject, finding) for finding in findings
+    ]
+    current_fingerprint_set = set(current_fingerprints)
     if not findings:
+        resolution = auto_resolve_stale_findings(
+            subject,
+            req,
+            current_fingerprints=current_fingerprint_set,
+            enabled=settings.auto_resolve_stale_findings and not settings.dry_run,
+        )
         return review_result(
             subject,
             posted=False,
             comments=0,
             reason="no_valid_findings",
             dropped_findings=dropped,
+            resolved_threads=resolution["resolvedThreads"],
+            skipped_resolution_reasons=resolution["skippedResolutionReasons"],
         )
 
     review: Mapping[str, Any] | None = None
@@ -176,19 +209,30 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
                         path=finding.path,
                         line=finding.line,
                         side="RIGHT",
-                        body=finding.body,
+                        body=review_comment_body_with_marker(
+                            finding.body,
+                            current_fingerprints[index],
+                        ),
                     )
-                    for finding in findings
+                    for index, finding in enumerate(findings)
                 ),
             ),
             subject=req.subject,
         )
+    resolution = auto_resolve_stale_findings(
+        subject,
+        req,
+        current_fingerprints=current_fingerprint_set,
+        enabled=settings.auto_resolve_stale_findings and not settings.dry_run,
+    )
 
     result = review_result(
         subject,
         posted=not settings.dry_run,
         comments=len(findings),
         dropped_findings=dropped,
+        resolved_threads=resolution["resolvedThreads"],
+        skipped_resolution_reasons=resolution["skippedResolutionReasons"],
     )
     if settings.dry_run:
         result["dry_run"] = True
@@ -212,6 +256,9 @@ def normalize_review_settings(input: Any) -> ReviewSettings:
         ),
         changed_lines_only=bool_setting(input, "changedLinesOnly", True),
         dry_run=bool_setting(input, "dryRun", False),
+        auto_resolve_stale_findings=bool_setting(
+            input, "autoResolveStaleFindings", True
+        ),
         turn_timeout_ms=bounded_int_setting(
             input, "turnTimeoutMs", DEFAULT_TURN_TIMEOUT_MS, 10_000, 600_000
         ),
@@ -552,6 +599,185 @@ def format_comment_body(raw: ReviewFinding, body: str) -> str:
     return body
 
 
+def review_finding_fingerprint(
+    subject: PullRequestSubject, finding: ValidatedFinding
+) -> str:
+    payload = {
+        "source": REVIEW_FINDING_SOURCE,
+        "repository": subject.repository,
+        "pull_number": subject.pull_number,
+        "path": finding.path.strip().lstrip("/"),
+        "side": "RIGHT",
+        "line": finding.line,
+        "body": finding.body,
+    }
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def review_comment_body_with_marker(body: str, fingerprint: str) -> str:
+    return f"{body}\n\n{review_comment_marker(fingerprint)}"
+
+
+def review_comment_marker(fingerprint: str) -> str:
+    return (
+        "<!-- gestalt:github-review-finding v1 "
+        f"fingerprint={fingerprint} source={REVIEW_FINDING_SOURCE} -->"
+    )
+
+
+def auto_resolve_stale_findings(
+    subject: PullRequestSubject,
+    req: gestalt.Request,
+    *,
+    current_fingerprints: set[str],
+    enabled: bool,
+) -> dict[str, Any]:
+    resolved_threads: list[str] = []
+    skipped_reasons: list[dict[str, str]] = []
+    if not enabled:
+        return {
+            "resolvedThreads": resolved_threads,
+            "skippedResolutionReasons": skipped_reasons,
+        }
+
+    identity = bot_identity_or_none()
+    bot_login = identity.login.strip().lower() if identity is not None else ""
+    if not bot_login:
+        skipped_reasons.append({"threadId": "", "reason": "missing_bot_identity"})
+        return {
+            "resolvedThreads": resolved_threads,
+            "skippedResolutionReasons": skipped_reasons,
+        }
+
+    after = ""
+    for _page in range(AUTO_RESOLVE_MAX_THREAD_PAGES):
+        try:
+            response = list_pull_request_review_threads(
+                GitHubListPullRequestReviewThreadsRequest(
+                    owner=subject.owner,
+                    repo=subject.repo,
+                    pull_number=subject.pull_number,
+                    first=100,
+                    after=after,
+                    comments_first=20,
+                    installation_id=subject.installation_id,
+                ),
+                subject=req.subject,
+            )
+        except Exception as err:
+            skipped_reasons.append(
+                {"threadId": "", "reason": f"list_failed: {err}"}
+            )
+            break
+
+        raw_threads = response.get("threads")
+        threads = raw_threads if isinstance(raw_threads, list) else []
+        for thread in threads:
+            if not isinstance(thread, dict):
+                continue
+            thread_id = string_value(thread.get("id"))
+            if not thread_id:
+                skipped_reasons.append(
+                    {"threadId": "", "reason": "missing_thread_id"}
+                )
+                continue
+            decision = review_thread_resolution_decision(
+                thread,
+                bot_login=bot_login,
+                current_fingerprints=current_fingerprints,
+            )
+            if decision:
+                skipped_reasons.append(
+                    {"threadId": thread_id, "reason": decision}
+                )
+                continue
+            try:
+                resolved = resolve_pull_request_review_thread(
+                    GitHubResolvePullRequestReviewThreadRequest(
+                        owner=subject.owner,
+                        repo=subject.repo,
+                        pull_number=subject.pull_number,
+                        thread_id=thread_id,
+                        installation_id=subject.installation_id,
+                    ),
+                    subject=req.subject,
+                )
+            except Exception as err:
+                skipped_reasons.append(
+                    {"threadId": thread_id, "reason": f"resolve_failed: {err}"}
+                )
+                continue
+            resolved_threads.append(string_value(resolved.get("id")) or thread_id)
+
+        page_info = object_value(response.get("pageInfo")) or {}
+        if not bool(page_info.get("hasNextPage")):
+            break
+        after = string_value(page_info.get("endCursor"))
+        if not after:
+            skipped_reasons.append(
+                {"threadId": "", "reason": "missing_next_page_cursor"}
+            )
+            break
+    else:
+        skipped_reasons.append({"threadId": "", "reason": "thread_page_limit_reached"})
+
+    return {
+        "resolvedThreads": resolved_threads,
+        "skippedResolutionReasons": skipped_reasons,
+    }
+
+
+def review_thread_resolution_decision(
+    thread: Mapping[str, Any],
+    *,
+    bot_login: str,
+    current_fingerprints: set[str],
+) -> str:
+    if bool(thread.get("isResolved")):
+        return "already_resolved"
+    if not bool(thread.get("viewerCanResolve")):
+        return "viewer_cannot_resolve"
+    if bool(thread.get("commentsTruncated")):
+        return "comments_truncated"
+
+    raw_comments = thread.get("comments")
+    comments = raw_comments if isinstance(raw_comments, list) else []
+    if not comments:
+        return "missing_marker"
+    for comment in comments:
+        if not isinstance(comment, dict):
+            return "malformed_comment"
+        author_login = string_value(comment.get("authorLogin")).lower()
+        if author_login != bot_login:
+            return "human_reply"
+
+    marker, reason = provider_marker_from_first_comment(comments[0])
+    if marker is None:
+        return reason
+    if marker.fingerprint in current_fingerprints:
+        return "current_finding"
+    return ""
+
+
+def provider_marker_from_first_comment(
+    comment: Mapping[str, Any],
+) -> tuple[ReviewFindingMarker | None, str]:
+    body = string_value(comment.get("body"))
+    match = REVIEW_FINDING_MARKER_RE.search(body)
+    if match is None:
+        return None, "missing_marker"
+    fingerprint = match.group("fingerprint")
+    source = match.group("source")
+    if not REVIEW_FINDING_FINGERPRINT_RE.fullmatch(fingerprint):
+        return None, "malformed_marker"
+    if source != REVIEW_FINDING_SOURCE:
+        return None, "wrong_marker_source"
+    return ReviewFindingMarker(fingerprint=fingerprint, source=source), ""
+
+
 def review_result(
     subject: PullRequestSubject,
     *,
@@ -559,6 +785,8 @@ def review_result(
     comments: int,
     reason: str = "",
     dropped_findings: int = 0,
+    resolved_threads: Sequence[str] = (),
+    skipped_resolution_reasons: Sequence[Mapping[str, str]] = (),
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "ok": True,
@@ -566,6 +794,10 @@ def review_result(
         "comments": comments,
         "repository": subject.repository,
         "pullNumber": subject.pull_number,
+        "resolvedThreads": list(resolved_threads),
+        "skippedResolutionReasons": [
+            dict(reason) for reason in skipped_resolution_reasons
+        ],
     }
     if reason:
         result["reason"] = reason

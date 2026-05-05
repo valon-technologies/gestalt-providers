@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -12,6 +13,7 @@ from .constants import (
     DEFAULT_WEBHOOK_EVENTS,
     DEFAULT_POLICY_OPERATIONS_BY_MODE,
     GITHUB_DEFAULT_API_BASE_URL,
+    GITHUB_DEFAULT_GRAPHQL_BASE_URL,
     GITHUB_DEFAULT_WEB_BASE_URL,
     WEBHOOK_POLICY_ACTION_MODES,
     WEBHOOK_POLICY_OBSERVE_MODE,
@@ -64,6 +66,7 @@ class GitHubAppConfig:
     private_key: str = ""
     private_key_path: str = ""
     api_base_url: str = GITHUB_DEFAULT_API_BASE_URL
+    graphql_base_url: str = GITHUB_DEFAULT_GRAPHQL_BASE_URL
     web_base_url: str = GITHUB_DEFAULT_WEB_BASE_URL
     webhook_events: tuple[str, ...] = DEFAULT_WEBHOOK_EVENTS
     webhook_events_configured: bool = False
@@ -138,18 +141,26 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
     webhook_events = config_string_list(config, "webhookEvents", "webhook_events")
     workflow_provider = workflow_config_string(config, "provider")
     webhook_policies = parse_webhook_policies(config)
+    api_base_url = (
+        config_string(config, "apiBaseUrl", "api_base_url")
+        or GITHUB_DEFAULT_API_BASE_URL
+    ).rstrip("/")
+    graphql_base_url = derive_graphql_base_url(
+        config_string(config, "graphqlBaseUrl", "graphql_base_url"),
+        api_base_url,
+    )
+    web_base_url = (
+        config_string(config, "webBaseUrl", "web_base_url")
+        or GITHUB_DEFAULT_WEB_BASE_URL
+    ).rstrip("/")
+
     return GitHubAppConfig(
         app_id=app_id,
         private_key=normalize_private_key(private_key),
         private_key_path=private_key_path,
-        api_base_url=(
-            config_string(config, "apiBaseUrl", "api_base_url")
-            or GITHUB_DEFAULT_API_BASE_URL
-        ).rstrip("/"),
-        web_base_url=(
-            config_string(config, "webBaseUrl", "web_base_url")
-            or GITHUB_DEFAULT_WEB_BASE_URL
-        ).rstrip("/"),
+        api_base_url=api_base_url,
+        graphql_base_url=graphql_base_url,
+        web_base_url=web_base_url,
         webhook_events=tuple(
             event.lower()
             for event in (
@@ -171,6 +182,21 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
         ),
         agent_model_options=agent_config_dict(config, "modelOptions", "model_options"),
     )
+
+
+def derive_graphql_base_url(explicit: str, api_base_url: str) -> str:
+    value = explicit.strip().rstrip("/")
+    if value:
+        return value
+    if api_base_url == GITHUB_DEFAULT_API_BASE_URL:
+        return GITHUB_DEFAULT_GRAPHQL_BASE_URL
+    if api_base_url.rstrip("/").endswith("/api/v3"):
+        parsed = urllib.parse.urlparse(api_base_url)
+        graphql_path = parsed.path.rstrip("/")[: -len("/api/v3")] + "/api/graphql"
+        return urllib.parse.urlunparse(
+            parsed._replace(path=graphql_path, params="", query="", fragment="")
+        ).rstrip("/")
+    return api_base_url.rstrip("/") + "/graphql"
 
 
 def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy, ...]:
