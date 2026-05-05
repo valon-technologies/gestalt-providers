@@ -11,6 +11,7 @@ import gestalt
 import yaml
 
 import internals.client as client_module
+import internals.platform_connection as platform_connection
 import internals.platform_identity as platform_identity
 import provider as provider_module
 
@@ -44,12 +45,14 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
             "gmail", {"clientId": "client-id", "clientSecret": "client-secret"}
         )
         platform_identity.clear_token_cache()
+        platform_connection.clear_profile_cache()
 
     def tearDown(self) -> None:
         provider_module.configure(
             "gmail", {"clientId": "client-id", "clientSecret": "client-secret"}
         )
         platform_identity.clear_token_cache()
+        platform_connection.clear_profile_cache()
 
     def test_manifest_and_schema_expose_provider_backed_read_contract(self) -> None:
         manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())
@@ -62,20 +65,29 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertNotIn("gmail.users.messages.list", allowed)
         self.assertNotIn("gmail.users.messages.get", allowed)
         self.assertNotIn("gmail.users.threads.get", allowed)
-        platform_connection = manifest["spec"]["connections"]["platform"]
-        self.assertEqual(platform_connection["mode"], "none")
-        self.assertEqual(platform_connection["exposure"], "internal")
-        self.assertNotIn("auth", platform_connection)
+        platform_connection_manifest = manifest["spec"]["connections"]["platform"]
+        self.assertEqual(platform_connection_manifest["mode"], "platform")
+        self.assertEqual(platform_connection_manifest["exposure"], "internal")
+        self.assertEqual(platform_connection_manifest["auth"], {"type": "manual"})
 
         schema = yaml.safe_load(
             (PLUGIN_DIR / "schemas" / "config.schema.yaml").read_text()
         )
-        platform_schema = schema["properties"]["platformIdentity"]
-        self.assertNotIn("const", platform_schema["properties"]["subjectEmail"])
-        self.assertIn("scopes", platform_schema["properties"])
-        self.assertNotIn("enum", platform_schema["properties"]["operations"]["items"])
+        platform_identity_schema = schema["properties"]["platformIdentity"]
+        self.assertNotIn("const", platform_identity_schema["properties"]["subjectEmail"])
+        self.assertIn("scopes", platform_identity_schema["properties"])
+        self.assertNotIn(
+            "enum", platform_identity_schema["properties"]["operations"]["items"]
+        )
+        platform_connection_schema = schema["properties"]["platformConnection"]
+        self.assertIn("email", platform_connection_schema["properties"])
+        self.assertIn("operations", platform_connection_schema["properties"])
+        self.assertNotIn("refreshToken", platform_connection_schema["properties"])
+        self.assertNotIn(
+            "enum", platform_connection_schema["properties"]["operations"]["items"]
+        )
 
-    def test_platform_config_uses_deployment_policy(self) -> None:
+    def test_platform_identity_config_uses_deployment_policy(self) -> None:
         provider_module.configure(
             "gmail",
             {
@@ -110,7 +122,75 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
             frozenset({"messages.list", "messages.modify"}),
         )
 
-    def test_platform_config_requires_scopes(self) -> None:
+    def test_platform_connection_config_uses_deployment_policy(self) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "Aaron.Via@Gmail.com",
+                    "operations": ["messages.list", "threads.get"],
+                },
+            },
+        )
+
+        self.assertFalse(provider_module._platform_identity_config.enabled)
+        self.assertTrue(provider_module._platform_connection_config.enabled)
+        self.assertEqual(
+            provider_module._platform_connection_config.email, "aaron.via@gmail.com"
+        )
+        self.assertEqual(
+            provider_module._platform_connection_config.operations,
+            frozenset({"messages.list", "threads.get"}),
+        )
+
+    def test_platform_config_rejects_multiple_internal_identity_modes(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "platformIdentity and platformConnection"
+        ):
+            provider_module.configure(
+                "gmail",
+                {
+                    "clientId": "client-id",
+                    "clientSecret": "client-secret",
+                    "platformIdentity": {
+                        "enabled": True,
+                        "subjectEmail": "brain-ingest@example.com",
+                        "serviceAccountEmail": "gmail-ingest@example.iam.gserviceaccount.com",
+                        "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+                        "operations": ["messages.list"],
+                    },
+                    "platformConnection": {
+                        "enabled": True,
+                        "email": "aaron.via@gmail.com",
+                        "operations": ["messages.list"],
+                    },
+                },
+            )
+
+    def test_platform_connection_rejects_write_operations_at_configure_time(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "unsupported read-only operation\\(s\\): messages.send",
+        ):
+            provider_module.configure(
+                "gmail",
+                {
+                    "clientId": "client-id",
+                    "clientSecret": "client-secret",
+                    "platformConnection": {
+                        "enabled": True,
+                        "email": "aaron.via@gmail.com",
+                        "operations": ["messages.list", "messages.send"],
+                    },
+                },
+            )
+
+    def test_platform_config_requires_scopes_for_legacy_identity(self) -> None:
         with self.assertRaisesRegex(ValueError, "scopes"):
             provider_module.configure(
                 "gmail",
@@ -139,6 +219,7 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
                     "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
                     "operations": ["messages.list"],
                 },
+                "platformConnection": {"enabled": False},
             },
         )
         with (
@@ -146,6 +227,11 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
                 provider_module,
                 "platform_token_for_operation",
                 side_effect=AssertionError("unexpected mint"),
+            ),
+            mock.patch.object(
+                provider_module,
+                "platform_connection_token_for_operation",
+                side_effect=AssertionError("unexpected platform connection"),
             ),
             mock.patch.object(
                 client_module, "get_json", return_value={"messages": [{"id": "m-1"}]}
@@ -194,7 +280,9 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(response.body, {"error": "token is required"})
 
-    def test_credential_mode_none_read_mints_platform_token(self) -> None:
+    def test_credential_mode_none_read_mints_legacy_platform_identity_token(
+        self,
+    ) -> None:
         provider_module.configure(
             "gmail",
             {
@@ -234,6 +322,216 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         )
         self.assertEqual(mint.call_args.args[1], "messages.list")
         self.assertEqual(get_json.call_args.args[1], "platform-token")
+
+    def test_platform_connection_read_uses_host_token_after_profile_verification(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "aaron.via@gmail.com",
+                    "operations": ["messages.list"],
+                },
+            },
+        )
+        requests: list[urllib.request.Request] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: int = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            requests.append(request)
+            self.assertEqual(request.full_url, platform_connection.GMAIL_PROFILE_URL)
+            self.assertEqual(
+                request.get_header("Authorization"), "Bearer platform-access-token"
+            )
+            return FakeHTTPResponse({"emailAddress": "Aaron.Via@Gmail.com"})
+
+        with (
+            mock.patch.object(
+                platform_connection.urllib.request, "urlopen", fake_urlopen
+            ),
+            mock.patch.object(
+                client_module, "get_json", return_value={"messages": [{"id": "m-1"}]}
+            ) as get_json,
+        ):
+            result = provider_module.messages_list(
+                provider_module.MessagesListInput(
+                    q="to:athena-implementation@valon.com"
+                ),
+                gestalt.Request(
+                    token="platform-access-token",
+                    credential=gestalt.Credential(
+                        mode="platform", connection="platform"
+                    ),
+                ),
+            )
+
+        self.assertEqual(result, {"messages": [{"id": "m-1"}]})
+        self.assertEqual(get_json.call_args.args[1], "platform-access-token")
+        self.assertEqual(len(requests), 1)
+
+    def test_platform_connection_disallowed_operation_is_forbidden(self) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "aaron.via@gmail.com",
+                    "operations": ["messages.list"],
+                },
+            },
+        )
+        with (
+            mock.patch.object(
+                platform_connection.urllib.request,
+                "urlopen",
+                side_effect=AssertionError("unexpected profile check"),
+            ),
+            mock.patch.object(
+                client_module,
+                "get_json",
+                side_effect=AssertionError("unexpected Gmail API call"),
+            ),
+        ):
+            result = provider_module.labels_list(
+                provider_module.CommonFieldsInput(),
+                gestalt.Request(
+                    token="platform-access-token",
+                    credential=gestalt.Credential(
+                        mode="platform", connection="platform"
+                    ),
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            response.body,
+            {"error": "platform Gmail connection is not enabled for labels.list"},
+        )
+
+    def test_platform_connection_profile_mismatch_is_forbidden(self) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "aaron.via@gmail.com",
+                    "operations": ["messages.list"],
+                },
+            },
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: int = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, platform_connection.GMAIL_PROFILE_URL)
+            return FakeHTTPResponse({"emailAddress": "wrong@example.com"})
+
+        with (
+            mock.patch.object(
+                platform_connection.urllib.request, "urlopen", fake_urlopen
+            ),
+            mock.patch.object(
+                client_module,
+                "get_json",
+                side_effect=AssertionError("unexpected Gmail API call"),
+            ),
+        ):
+            result = provider_module.messages_list(
+                provider_module.MessagesListInput(),
+                gestalt.Request(
+                    token="wrong-user-token",
+                    credential=gestalt.Credential(
+                        mode="platform", connection="platform"
+                    ),
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            response.body,
+            {
+                "error": (
+                    "platform connection token belongs to wrong@example.com, "
+                    "expected aaron.via@gmail.com"
+                )
+            },
+        )
+
+    def test_platform_connection_missing_token_is_unauthorized(self) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "aaron.via@gmail.com",
+                    "operations": ["messages.list"],
+                },
+            },
+        )
+        result = provider_module.messages_list(
+            provider_module.MessagesListInput(),
+            gestalt.Request(
+                token="",
+                credential=gestalt.Credential(mode="platform", connection="platform"),
+            ),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(response.body, {"error": "token is required"})
+
+    def test_platform_connection_does_not_authorize_write_operations(self) -> None:
+        provider_module.configure(
+            "gmail",
+            {
+                "clientId": "client-id",
+                "clientSecret": "client-secret",
+                "platformConnection": {
+                    "enabled": True,
+                    "email": "aaron.via@gmail.com",
+                    "operations": ["messages.list"],
+                },
+            },
+        )
+        with mock.patch.object(
+            client_module,
+            "post_json",
+            side_effect=AssertionError("unexpected Gmail API call"),
+        ):
+            result = provider_module.messages_send(
+                provider_module.SendMessageInput(
+                    to="ops@example.com", subject="hello", body="body"
+                ),
+                gestalt.Request(
+                    token="platform-access-token",
+                    credential=gestalt.Credential(
+                        mode="platform", connection="platform"
+                    ),
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.body, {"error": "platform Gmail connection is read-only"})
 
     def test_message_list_preserves_repeated_query_parameter_encoding(self) -> None:
         with mock.patch.object(
@@ -375,6 +673,63 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
 
         self.assertEqual(token, "gmail-access-token")
         self.assertEqual(len(requests), 3)
+
+    def test_platform_connection_verifies_profile_email(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: int = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, platform_connection.GMAIL_PROFILE_URL)
+            return FakeHTTPResponse({"emailAddress": "wrong@example.com"})
+
+        config = platform_connection.PlatformConnectionConfig(
+            enabled=True,
+            email="aaron.via@gmail.com",
+            operations=frozenset({"messages.list"}),
+        )
+        with (
+            mock.patch.object(
+                platform_connection.urllib.request, "urlopen", fake_urlopen
+            ),
+            self.assertRaisesRegex(
+                platform_connection.PlatformConnectionError,
+                "belongs to wrong@example.com, expected aaron.via@gmail.com",
+            ),
+        ):
+            platform_connection.platform_connection_token_for_operation(
+                config, "messages.list", "wrong-user-token"
+            )
+
+    def test_platform_connection_profile_verification_is_cached_by_token_and_email(
+        self,
+    ) -> None:
+        requests: list[urllib.request.Request] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: int = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            requests.append(request)
+            return FakeHTTPResponse({"emailAddress": "aaron.via@gmail.com"})
+
+        config = platform_connection.PlatformConnectionConfig(
+            enabled=True,
+            email="aaron.via@gmail.com",
+            operations=frozenset({"messages.list"}),
+        )
+        with mock.patch.object(
+            platform_connection.urllib.request, "urlopen", fake_urlopen
+        ):
+            first = platform_connection.platform_connection_token_for_operation(
+                config, "messages.list", "platform-access-token"
+            )
+            second = platform_connection.platform_connection_token_for_operation(
+                config, "messages.list", "platform-access-token"
+            )
+
+        self.assertEqual(first, "platform-access-token")
+        self.assertEqual(second, "platform-access-token")
+        self.assertEqual(len(requests), 1)
 
 
 if __name__ == "__main__":

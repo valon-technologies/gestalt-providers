@@ -24,18 +24,36 @@ from internals.platform_identity import (
     parse_platform_identity_config,
     platform_token_for_operation,
 )
+from internals.platform_connection import (
+    PlatformConnectionAuthError,
+    PlatformConnectionConfig,
+    PlatformConnectionError,
+    PlatformConnectionPolicyError,
+    clear_profile_cache,
+    parse_platform_connection_config,
+    platform_connection_token_for_operation,
+)
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 plugin = gestalt.Plugin("gmail")
 _platform_identity_config = PlatformIdentityConfig()
+_platform_connection_config = PlatformConnectionConfig()
 
 
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
-    global _platform_identity_config
-    _platform_identity_config = parse_platform_identity_config(config)
+    global _platform_identity_config, _platform_connection_config
+    identity_config = parse_platform_identity_config(config)
+    platform_connection_config = parse_platform_connection_config(config)
+    if identity_config.enabled and platform_connection_config.enabled:
+        raise ValueError(
+            "platformIdentity and platformConnection cannot both be enabled"
+        )
+    _platform_identity_config = identity_config
+    _platform_connection_config = platform_connection_config
+    clear_profile_cache()
 
 
 class MessagesListInput(gestalt.Model):
@@ -461,6 +479,9 @@ def messages_forward(
 
 
 def _validate_token(req: gestalt.Request) -> ErrorResponse | None:
+    mode = str(req.credential.mode or "").strip()
+    if mode == "platform":
+        return _forbidden("platform Gmail connection is read-only")
     if not req.token.strip():
         return gestalt.Response(
             status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"}
@@ -470,16 +491,27 @@ def _validate_token(req: gestalt.Request) -> ErrorResponse | None:
 
 def _read_token(operation: str, req: gestalt.Request) -> str | ErrorResponse:
     mode = str(req.credential.mode or "").strip()
+    if mode == "platform":
+        try:
+            return platform_connection_token_for_operation(
+                _platform_connection_config, operation, req.token
+            )
+        except PlatformConnectionPolicyError as err:
+            return _forbidden(str(err))
+        except PlatformConnectionAuthError as err:
+            return _forbidden(str(err))
+        except PlatformConnectionError as err:
+            if str(err) == "token is required":
+                return gestalt.Response(
+                    status=HTTPStatus.UNAUTHORIZED, body={"error": str(err)}
+                )
+            return _server_error(str(err))
+
     if mode == "none":
         try:
             return platform_token_for_operation(_platform_identity_config, operation)
         except PlatformIdentityError as err:
             return _server_error(str(err))
-    if mode == "platform":
-        return gestalt.Response(
-            status=HTTPStatus.FORBIDDEN,
-            body={"error": "platform Gmail reads require credentialMode none"},
-        )
 
     token = req.token.strip()
     if not token:
@@ -504,6 +536,10 @@ def _mime_params_from_input(
 
 def _bad_request(message: str) -> ErrorResponse:
     return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": message})
+
+
+def _forbidden(message: str) -> ErrorResponse:
+    return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": message})
 
 
 def _server_error(message: str) -> ErrorResponse:

@@ -92,7 +92,11 @@ func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialA
 	if len(auth.GetTokenExchangeDrivers()) > 0 {
 		return nil
 	}
-	if mode == "platform" && auth.GetType() == "oauth2" && auth.GetGrantType() == "client_credentials" {
+	if mode == "platform" && auth.GetType() == "oauth2" {
+		grantType := strings.TrimSpace(auth.GetGrantType())
+		if grantType != "client_credentials" && grantType != "refresh_token" {
+			return status.Error(codes.InvalidArgument, "oauth2 platform auth requires grantType client_credentials or refresh_token")
+		}
 		if strings.TrimSpace(auth.GetTokenUrl()) == "" {
 			return status.Error(codes.InvalidArgument, "auth.tokenUrl is required")
 		}
@@ -101,6 +105,12 @@ func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialA
 		}
 		if strings.TrimSpace(auth.GetClientSecret()) == "" {
 			return status.Error(codes.InvalidArgument, "auth.clientSecret is required")
+		}
+		if grantType == "refresh_token" && strings.TrimSpace(auth.GetRefreshToken()) == "" {
+			return status.Error(codes.InvalidArgument, "auth.refreshToken is required")
+		}
+		if grantType != "refresh_token" && strings.TrimSpace(auth.GetRefreshToken()) != "" {
+			return status.Error(codes.InvalidArgument, "auth.refreshToken is only supported for refresh_token")
 		}
 	}
 	return nil
@@ -322,10 +332,14 @@ func (p *Provider) resolvePlatformCredential(ctx context.Context, req *gestalt.R
 		}
 		return &tokenResponse{AccessToken: strings.TrimSpace(auth.GetToken())}, nil
 	case "oauth2":
-		if strings.TrimSpace(auth.GetGrantType()) != "client_credentials" {
-			return nil, status.Error(codes.InvalidArgument, "oauth2 platform auth requires grantType client_credentials")
+		switch strings.TrimSpace(auth.GetGrantType()) {
+		case "client_credentials":
+			return clientCredentialsToken(ctx, auth, req.GetConnectionParams())
+		case "refresh_token":
+			return refreshOAuthToken(ctx, auth, auth.GetRefreshToken(), req.GetConnectionParams())
+		default:
+			return nil, status.Error(codes.InvalidArgument, "oauth2 platform auth requires grantType client_credentials or refresh_token")
 		}
-		return clientCredentialsToken(ctx, auth, req.GetConnectionParams())
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "unsupported platform auth type %q", auth.GetType())
 	}
