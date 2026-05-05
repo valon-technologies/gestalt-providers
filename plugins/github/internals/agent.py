@@ -13,6 +13,8 @@ from .config import (
     get_github_config,
 )
 from .constants import (
+    BOT_ADD_LABELS_OPERATION,
+    BOT_ADD_REACTION_OPERATION,
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
@@ -22,6 +24,8 @@ from .constants import (
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
+    BOT_REMOVE_LABELS_OPERATION,
+    BOT_REQUEST_REVIEWERS_OPERATION,
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     GITHUB_WORKFLOW_SIGNAL_NAME,
@@ -254,6 +258,22 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
         lines.append(
             "Use bot.resolvePullRequestReviewThread only when a review thread is "
             "known to be stale and safe to resolve."
+        )
+    if BOT_ADD_REACTION_OPERATION in operations:
+        lines.append(
+            "Use bot.addReaction to react to issues, pull requests, issue comments, "
+            "or pull request review comments."
+        )
+    if BOT_ADD_LABELS_OPERATION in operations:
+        lines.append("Use bot.addLabels for configured issue or pull request labels.")
+    if BOT_REMOVE_LABELS_OPERATION in operations:
+        lines.append(
+            "Use bot.removeLabels for configured issue or pull request label removals."
+        )
+    if BOT_REQUEST_REVIEWERS_OPERATION in operations:
+        lines.append(
+            "Use bot.requestReviewers to request GitHub users or team slugs as pull "
+            "request reviewers."
         )
     if BOT_CREATE_ISSUE_COMMENT_OPERATION in operations:
         lines.append("Use bot.createIssueComment only for issue comments.")

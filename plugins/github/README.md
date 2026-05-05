@@ -46,6 +46,10 @@ connection:
 - `bot.createPullRequestConversationComment` creates a pull request conversation
   comment.
 - `bot.createIssueComment` creates an issue comment.
+- `bot.addReaction` adds a reaction to an issue, pull request, issue comment,
+  or pull request review comment.
+- `bot.addLabels` and `bot.removeLabels` update issue or pull request labels.
+- `bot.requestReviewers` requests GitHub users or team slugs as PR reviewers.
 - `bot.getPullRequest` and `bot.listPullRequestFiles` inspect pull request
   metadata and changed-file patches for inline review work.
 - `bot.getCheckRun`, `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
@@ -193,7 +197,8 @@ a field are ORed, and fields are ANDed. Event matching prefers the
 `bot.createPullRequestReview` for inline file/line PR review comments, the pull
 request conversation operation for PR timeline comments, and the issue comment
 operation for Issues. `allowedOperations` can narrow or replace those defaults;
-an explicit empty list grants no tools.
+an explicit empty list grants no tools. Reaction, label, reviewer-request, and
+review-thread resolution tools are explicit opt-ins through `allowedOperations`.
 
 Compatibility note: existing policies that use `action.mode` without explicit
 `allowedOperations` now expose `bot.getPullRequest`,
@@ -300,6 +305,18 @@ plugins:
         credentialMode: none
       - plugin: github
         operation: bot.createIssueComment
+        credentialMode: none
+      - plugin: github
+        operation: bot.addReaction
+        credentialMode: none
+      - plugin: github
+        operation: bot.addLabels
+        credentialMode: none
+      - plugin: github
+        operation: bot.removeLabels
+        credentialMode: none
+      - plugin: github
+        operation: bot.requestReviewers
         credentialMode: none
       - plugin: github
         operation: bot.getPullRequest
@@ -470,6 +487,60 @@ Create an issue comment with `bot.createIssueComment`:
   "repo": "widgets",
   "issue_number": 13,
   "body": "I can reproduce this issue."
+}
+```
+
+React to an issue, PR, issue comment, or PR review comment with
+`bot.addReaction`. PR reactions use `subject_type: "pull_request"` with
+`pull_number`:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "subject_type": "pull_request_review_comment",
+  "comment_id": 123456,
+  "content": "eyes"
+}
+```
+
+Add and remove labels with `bot.addLabels` and `bot.removeLabels`. Use
+`subject_type: "issue"` with `issue_number`, or `subject_type: "pull_request"`
+with `pull_number`:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "subject_type": "pull_request",
+  "pull_number": 42,
+  "labels": ["needs-review", "bug"]
+}
+```
+
+Request reviewers with `bot.requestReviewers`. `team_reviewers` values are team
+slugs:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "pull_number": 42,
+  "reviewers": ["octocat"],
+  "team_reviewers": ["backend"]
+}
+```
+
+Resolve an inline review thread with `bot.resolvePullRequestReviewThread` when a
+stale thread should be resolved. `thread_id` is the GitHub GraphQL
+`PullRequestReviewThread.id`, not a REST review comment `node_id`:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "pull_number": 42,
+  "thread_id": "PRRT_kwDOQ5WrUs5_h4lx"
 }
 ```
 

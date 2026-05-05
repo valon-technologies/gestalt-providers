@@ -150,8 +150,7 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
         self.requests: list[tuple[str, str, str | None, dict[str, Any]]] = []
         self.graphql_requests: list[tuple[str, str | None, dict[str, Any]]] = []
         self.graphql_responder: (
-            Callable[[str, str | None, Mapping[str, Any] | None], dict[str, Any]]
-            | None
+            Callable[[str, str | None, Mapping[str, Any] | None], dict[str, Any]] | None
         ) = None
         self.commit_message = ""
         self.tree_entries: list[dict[str, Any]] = []
@@ -311,6 +310,10 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
         ]
         issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
+        reaction = operations[provider_module.BOT_ADD_REACTION_OPERATION]
+        add_labels = operations[provider_module.BOT_ADD_LABELS_OPERATION]
+        remove_labels = operations[provider_module.BOT_REMOVE_LABELS_OPERATION]
+        request_reviewers = operations[provider_module.BOT_REQUEST_REVIEWERS_OPERATION]
         self.assertIn("workflow targets", event["description"])
         self.assertIn("pull_request workflow signal", review["description"])
         self.assertIn("pull request metadata", pr["description"])
@@ -321,6 +324,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("Resolve", resolve_thread["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
         self.assertIn("issue comment", issue_comment["description"])
+        self.assertIn("reaction", reaction["description"])
+        self.assertIn("labels", add_labels["description"])
+        self.assertIn("labels", remove_labels["description"])
+        self.assertIn("reviewers", request_reviewers["description"])
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
         )
@@ -360,6 +367,22 @@ class GitHubProviderTests(unittest.TestCase):
             "issue_number",
             [parameter["name"] for parameter in issue_comment["parameters"]],
         )
+        self.assertIn(
+            "subject_type",
+            [parameter["name"] for parameter in reaction["parameters"]],
+        )
+        self.assertIn(
+            "labels",
+            [parameter["name"] for parameter in add_labels["parameters"]],
+        )
+        self.assertIn(
+            "pull_number",
+            [parameter["name"] for parameter in remove_labels["parameters"]],
+        )
+        self.assertIn(
+            "team_reviewers",
+            [parameter["name"] for parameter in request_reviewers["parameters"]],
+        )
 
         schema = yaml.safe_load(
             (plugin_root / "schemas" / "config.schema.yaml").read_text()
@@ -381,6 +404,10 @@ class GitHubProviderTests(unittest.TestCase):
             enum,
         )
         self.assertIn(provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION, enum)
+        self.assertIn(provider_module.BOT_ADD_REACTION_OPERATION, enum)
+        self.assertIn(provider_module.BOT_ADD_LABELS_OPERATION, enum)
+        self.assertIn(provider_module.BOT_REMOVE_LABELS_OPERATION, enum)
+        self.assertIn(provider_module.BOT_REQUEST_REVIEWERS_OPERATION, enum)
         self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
@@ -1624,7 +1651,9 @@ class GitHubProviderTests(unittest.TestCase):
             ],
         )
 
-    def test_review_pull_request_drops_unanchored_findings_without_posting(self) -> None:
+    def test_review_pull_request_drops_unanchored_findings_without_posting(
+        self,
+    ) -> None:
         agent_manager = FakeAgentManager(
             findings=[
                 {
@@ -1713,10 +1742,10 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch(
                 "internals.review.resolve_pull_request_review_thread",
-                side_effect=lambda request, *, subject: resolved_requests.append(
-                    request
-                )
-                or {"id": request.thread_id, "isResolved": True},
+                side_effect=lambda request, *, subject: (
+                    resolved_requests.append(request)
+                    or {"id": request.thread_id, "isResolved": True}
+                ),
             ),
         ):
             result = provider_module.github_review_pull_request(
@@ -2005,9 +2034,7 @@ class GitHubProviderTests(unittest.TestCase):
                     "webhookPolicies": [
                         {
                             "id": "missing-plugin-operation",
-                            "workflow": {
-                                "target": {"plugin": {"plugin": "github"}}
-                            },
+                            "workflow": {"target": {"plugin": {"plugin": "github"}}},
                         }
                     ]
                 },
@@ -2083,6 +2110,8 @@ class GitHubProviderTests(unittest.TestCase):
                             "allowedOperations": [
                                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
                                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                                provider_module.BOT_REQUEST_REVIEWERS_OPERATION,
+                                provider_module.BOT_ADD_REACTION_OPERATION,
                                 provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
                                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                             ]
@@ -2118,9 +2147,112 @@ class GitHubProviderTests(unittest.TestCase):
             [
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
+                provider_module.BOT_ADD_REACTION_OPERATION,
+                provider_module.BOT_REQUEST_REVIEWERS_OPERATION,
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
+
+    def test_new_mutation_operations_are_explicit_policy_opt_ins(self) -> None:
+        new_operations = {
+            provider_module.BOT_ADD_REACTION_OPERATION,
+            provider_module.BOT_ADD_LABELS_OPERATION,
+            provider_module.BOT_REMOVE_LABELS_OPERATION,
+            provider_module.BOT_REQUEST_REVIEWERS_OPERATION,
+        }
+        pull_request_payload = {
+            "action": "opened",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {"number": 7},
+            "headers": {"X-GitHub-Event": "pull_request"},
+            "sender": {"login": "octocat"},
+        }
+
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "pull-defaults",
+                        "action": {"mode": "pull_request"},
+                    }
+                ],
+            },
+        )
+        defaults = self._workflow_signal_request(pull_request_payload)
+        default_operations = [
+            tool.operation for tool in defaults.target.agent.tool_refs
+        ]
+        self.assertFalse(new_operations.intersection(default_operations))
+
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "explicit-new-mutations",
+                        "action": {
+                            "allowedOperations": [
+                                provider_module.BOT_REQUEST_REVIEWERS_OPERATION,
+                                provider_module.BOT_REMOVE_LABELS_OPERATION,
+                                provider_module.BOT_ADD_LABELS_OPERATION,
+                                provider_module.BOT_ADD_REACTION_OPERATION,
+                            ]
+                        },
+                    }
+                ],
+            },
+        )
+        explicit = self._workflow_signal_request(pull_request_payload)
+        agent = explicit.target.agent
+        self.assertEqual(
+            [tool.operation for tool in agent.tool_refs],
+            [
+                provider_module.BOT_ADD_REACTION_OPERATION,
+                provider_module.BOT_ADD_LABELS_OPERATION,
+                provider_module.BOT_REMOVE_LABELS_OPERATION,
+                provider_module.BOT_REQUEST_REVIEWERS_OPERATION,
+            ],
+        )
+        self.assertIn("bot.addReaction", agent.messages[0].text)
+        self.assertIn("bot.addLabels", agent.messages[0].text)
+        self.assertIn("bot.removeLabels", agent.messages[0].text)
+        self.assertIn("bot.requestReviewers", agent.messages[0].text)
+
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "add-label-only",
+                        "action": {
+                            "allowedOperations": [
+                                provider_module.BOT_ADD_REACTION_OPERATION,
+                                provider_module.BOT_ADD_LABELS_OPERATION,
+                            ]
+                        },
+                    }
+                ],
+            },
+        )
+        add_only = self._workflow_signal_request(pull_request_payload)
+        add_only_text = add_only.target.agent.messages[0].text
+        self.assertIn("pull requests", add_only_text)
+        self.assertIn("bot.addLabels", add_only_text)
+        self.assertNotIn("bot.removeLabels", add_only_text)
 
     def test_explicit_pr_review_policy_exposes_diff_and_review_tools(self) -> None:
         provider_module.configure(
@@ -2930,6 +3062,495 @@ class GitHubProviderTests(unittest.TestCase):
             [{"pull_requests": "write"}],
         )
 
+    def test_add_reaction_uses_target_specific_permissions(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                permissions = body["permissions"]
+                if permissions == {"issues": "write"}:
+                    return FakeHTTPResponse({"token": "issue-token"})
+                if permissions == {"pull_requests": "write"}:
+                    return FakeHTTPResponse({"token": "pr-token"})
+                self.fail(f"unexpected permissions {permissions}")
+            if path == "/repos/acme/widgets/issues/7/reactions":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(body, {"content": "eyes"})
+                return FakeHTTPResponse(
+                    {
+                        "id": 1,
+                        "node_id": "REA_1",
+                        "content": "eyes",
+                        "user": {"login": "example-app[bot]"},
+                        "created_at": "2026-05-01T00:00:00Z",
+                    }
+                )
+            if path == "/repos/acme/widgets/issues/8/reactions":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(body, {"content": "heart"})
+                return FakeHTTPResponse(
+                    {
+                        "id": 4,
+                        "node_id": "REA_4",
+                        "content": "heart",
+                        "user": {"login": "example-app[bot]"},
+                    }
+                )
+            if path == "/repos/acme/widgets/issues/comments/124/reactions":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(body, {"content": "rocket"})
+                return FakeHTTPResponse(
+                    {
+                        "id": 2,
+                        "node_id": "REA_2",
+                        "content": "rocket",
+                        "user": {"login": "example-app[bot]"},
+                    }
+                )
+            if path == "/repos/acme/widgets/pulls/comments/333/reactions":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body, {"content": "+1"})
+                return FakeHTTPResponse(
+                    {
+                        "id": 3,
+                        "node_id": "REA_3",
+                        "content": "+1",
+                        "user": {"login": "example-app[bot]"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            issue = provider_module.bot_add_reaction(
+                provider_module.AddReactionInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="issue",
+                    issue_number=7,
+                    content="eyes",
+                ),
+                github_request(),
+            )
+            pull_request = provider_module.bot_add_reaction(
+                provider_module.AddReactionInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="pull_request",
+                    pull_number=8,
+                    content="heart",
+                ),
+                github_request(),
+            )
+            issue_comment = provider_module.bot_add_reaction(
+                provider_module.AddReactionInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="issue_comment",
+                    comment_id=124,
+                    content="rocket",
+                ),
+                github_request(),
+            )
+            review_comment = provider_module.bot_add_reaction(
+                provider_module.AddReactionInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="pull_request_review_comment",
+                    comment_id=333,
+                    content="+1",
+                ),
+                github_request(),
+            )
+
+        self.assertEqual(cast(dict[str, Any], issue)["data"]["reaction"]["id"], 1)
+        self.assertEqual(
+            cast(dict[str, Any], pull_request)["data"]["reaction"]["content"],
+            "heart",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], issue_comment)["data"]["reaction"]["content"],
+            "rocket",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], review_comment)["data"]["reaction"]["user"]["login"],
+            "example-app[bot]",
+        )
+        self.assertEqual(
+            [
+                call[2]
+                for call in calls
+                if call[1] == "/app/installations/99/access_tokens"
+            ],
+            [
+                {"repositories": ["widgets"], "permissions": {"issues": "write"}},
+                {"repositories": ["widgets"], "permissions": {"issues": "write"}},
+                {"repositories": ["widgets"], "permissions": {"issues": "write"}},
+                {
+                    "repositories": ["widgets"],
+                    "permissions": {"pull_requests": "write"},
+                },
+            ],
+        )
+
+    def test_label_operations_use_target_permissions_and_list_responses(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                permissions = body["permissions"]
+                if permissions == {"pull_requests": "write"}:
+                    return FakeHTTPResponse({"token": "pr-token"})
+                if permissions == {"issues": "write"}:
+                    return FakeHTTPResponse({"token": "issue-token"})
+                self.fail(f"unexpected permissions {permissions}")
+            if path == "/repos/acme/widgets/issues/7/labels":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body, {"labels": ["bug", "needs review"]})
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "id": 10,
+                            "node_id": "LA_kw",
+                            "name": "bug",
+                            "color": "d73a4a",
+                        },
+                        {
+                            "id": 11,
+                            "node_id": "LA_kw2",
+                            "name": "needs review",
+                            "color": "ededed",
+                        },
+                    ]
+                )
+            if path == "/repos/acme/widgets/issues/13/labels/needs%20review%2Ftriage":
+                self.assertEqual(method, "DELETE")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(body, {})
+                return FakeHTTPResponse(
+                    [{"id": 10, "node_id": "LA_kw", "name": "bug", "color": "d73a4a"}]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            added = provider_module.bot_add_labels(
+                provider_module.AddLabelsInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="pull_request",
+                    pull_number=7,
+                    labels=[" bug ", "needs review"],
+                ),
+                github_request(),
+            )
+            removed = provider_module.bot_remove_labels(
+                provider_module.RemoveLabelsInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="issue",
+                    issue_number=13,
+                    labels=["needs review/triage"],
+                ),
+                github_request(),
+            )
+
+        self.assertEqual(
+            cast(dict[str, Any], added)["data"]["labels"],
+            [
+                {"id": 10, "node_id": "LA_kw", "name": "bug", "color": "d73a4a"},
+                {
+                    "id": 11,
+                    "node_id": "LA_kw2",
+                    "name": "needs review",
+                    "color": "ededed",
+                },
+            ],
+        )
+        self.assertEqual(
+            cast(dict[str, Any], removed)["data"]["removed"], ["needs review/triage"]
+        )
+        self.assertEqual(
+            cast(dict[str, Any], removed)["data"]["labels"],
+            [{"id": 10, "node_id": "LA_kw", "name": "bug", "color": "d73a4a"}],
+        )
+        self.assertEqual(
+            [
+                call[2]
+                for call in calls
+                if call[1] == "/app/installations/99/access_tokens"
+            ],
+            [
+                {
+                    "repositories": ["widgets"],
+                    "permissions": {"pull_requests": "write"},
+                },
+                {"repositories": ["widgets"], "permissions": {"issues": "write"}},
+            ],
+        )
+
+    def test_label_operations_reject_malformed_github_label_response(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            if path == "/app/installations/99/access_tokens":
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues/7/labels":
+                return FakeHTTPResponse({"labels": []})
+            self.fail(f"unexpected request {request.get_method()} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_add_labels(
+                provider_module.AddLabelsInput(
+                    owner="acme",
+                    repo="widgets",
+                    subject_type="issue",
+                    issue_number=7,
+                    labels=["bug"],
+                ),
+                github_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+        self.assertIn("GitHub labels response was not a list", response.body["error"])
+
+    def test_request_reviewers_uses_pr_write_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(
+                    body,
+                    {
+                        "repositories": ["widgets"],
+                        "permissions": {"pull_requests": "write"},
+                    },
+                )
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/pulls/7/requested_reviewers":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(
+                    body,
+                    {"reviewers": ["octocat"], "team_reviewers": ["backend"]},
+                )
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "title": "Fix widgets",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/pull/7",
+                        "head": {"ref": "feature", "sha": "abc123"},
+                        "base": {"ref": "main", "sha": "def456"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_request_reviewers(
+                provider_module.RequestReviewersInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    reviewers=[" octocat "],
+                    team_reviewers=["backend"],
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        self.assertEqual(data["number"], 7)
+        self.assertEqual(data["head"], "feature")
+        self.assertEqual(
+            [
+                call[2]
+                for call in calls
+                if call[1] == "/app/installations/99/access_tokens"
+            ],
+            [
+                {
+                    "repositories": ["widgets"],
+                    "permissions": {"pull_requests": "write"},
+                }
+            ],
+        )
+
+    def test_new_mutation_operations_reject_invalid_inputs_before_github_calls(
+        self,
+    ) -> None:
+        cases: list[tuple[str, Callable[[], Any], str]] = [
+            (
+                "reaction content",
+                lambda: provider_module.bot_add_reaction(
+                    provider_module.AddReactionInput(
+                        owner="acme",
+                        repo="widgets",
+                        subject_type="issue",
+                        issue_number=7,
+                        content="party",
+                    ),
+                    github_request(),
+                ),
+                "content must be one of",
+            ),
+            (
+                "reaction subject",
+                lambda: provider_module.bot_add_reaction(
+                    provider_module.AddReactionInput(
+                        owner="acme",
+                        repo="widgets",
+                        subject_type="discussion",
+                        issue_number=7,
+                        content="eyes",
+                    ),
+                    github_request(),
+                ),
+                "subject_type must be one of",
+            ),
+            (
+                "missing reaction comment id",
+                lambda: provider_module.bot_add_reaction(
+                    provider_module.AddReactionInput(
+                        owner="acme",
+                        repo="widgets",
+                        subject_type="issue_comment",
+                        content="eyes",
+                    ),
+                    github_request(),
+                ),
+                "comment_id is required",
+            ),
+            (
+                "empty labels",
+                lambda: provider_module.bot_add_labels(
+                    provider_module.AddLabelsInput(
+                        owner="acme",
+                        repo="widgets",
+                        subject_type="issue",
+                        issue_number=7,
+                        labels=[],
+                    ),
+                    github_request(),
+                ),
+                "labels must contain at least one value",
+            ),
+            (
+                "duplicate labels",
+                lambda: provider_module.bot_add_labels(
+                    provider_module.AddLabelsInput(
+                        owner="acme",
+                        repo="widgets",
+                        subject_type="issue",
+                        issue_number=7,
+                        labels=["bug", " bug "],
+                    ),
+                    github_request(),
+                ),
+                "duplicates",
+            ),
+            (
+                "missing pull label target",
+                lambda: provider_module.bot_remove_labels(
+                    provider_module.RemoveLabelsInput(
+                        owner="acme",
+                        repo="widgets",
+                        subject_type="pull_request",
+                        labels=["bug"],
+                    ),
+                    github_request(),
+                ),
+                "pull_number is required",
+            ),
+            (
+                "blank reviewer",
+                lambda: provider_module.bot_request_reviewers(
+                    provider_module.RequestReviewersInput(
+                        owner="acme",
+                        repo="widgets",
+                        pull_number=7,
+                        reviewers=[" "],
+                    ),
+                    github_request(),
+                ),
+                "reviewers[0] is required",
+            ),
+            (
+                "no reviewers",
+                lambda: provider_module.bot_request_reviewers(
+                    provider_module.RequestReviewersInput(
+                        owner="acme",
+                        repo="widgets",
+                        pull_number=7,
+                    ),
+                    github_request(),
+                ),
+                "reviewers or team_reviewers",
+            ),
+        ]
+
+        for name, call, expected in cases:
+            with self.subTest(name=name):
+                with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+                    result = call()
+                self.assertIsInstance(result, gestalt.Response)
+                response = cast(gestalt.Response[dict[str, str]], result)
+                self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+                self.assertIn(expected, response.body["error"])
+                urlopen.assert_not_called()
+
     def test_list_pull_request_review_threads_uses_graphql_pr_read_permission(
         self,
     ) -> None:
@@ -3417,7 +4038,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
-        self.assertIn("pull request files response was not a list", response.body["error"])
+        self.assertIn(
+            "pull request files response was not a list", response.body["error"]
+        )
 
     def test_ci_read_operations_use_github_shapes_and_pagination(self) -> None:
         calls: list[tuple[str, str, dict[str, Any]]] = []
@@ -3758,6 +4381,57 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
         self.assertIn("repository", response.body["error"])
         urlopen.assert_not_called()
+
+        new_operation_calls: list[Callable[[], Any]] = [
+            lambda: provider_module.bot_add_reaction(
+                provider_module.AddReactionInput(
+                    owner="acme",
+                    repo="other",
+                    subject_type="issue",
+                    issue_number=7,
+                    content="eyes",
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            ),
+            lambda: provider_module.bot_add_labels(
+                provider_module.AddLabelsInput(
+                    owner="acme",
+                    repo="other",
+                    subject_type="issue",
+                    issue_number=7,
+                    labels=["bug"],
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            ),
+            lambda: provider_module.bot_remove_labels(
+                provider_module.RemoveLabelsInput(
+                    owner="acme",
+                    repo="other",
+                    subject_type="pull_request",
+                    pull_number=7,
+                    labels=["bug"],
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            ),
+            lambda: provider_module.bot_request_reviewers(
+                provider_module.RequestReviewersInput(
+                    owner="acme",
+                    repo="other",
+                    pull_number=7,
+                    reviewers=["octocat"],
+                ),
+                github_request(installation_id=99, repo="acme/widgets"),
+            ),
+        ]
+        for call in new_operation_calls:
+            with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+                result = call()
+
+            self.assertIsInstance(result, gestalt.Response)
+            response = cast(gestalt.Response[dict[str, str]], result)
+            self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+            self.assertIn("repository", response.body["error"])
+            urlopen.assert_not_called()
 
     def test_webhook_handler_filters_unsupported_and_configured_bot_events(
         self,
