@@ -97,7 +97,7 @@ test.describe("Navigation", () => {
   test("agents page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/agents");
     await expect(
-      page.getByRole("heading", { name: "Agents" }),
+      page.getByRole("heading", { name: "Agent Sessions" }),
     ).toBeVisible();
   });
 
@@ -138,7 +138,7 @@ test.describe("Navigation", () => {
     await page.getByRole("link", { name: "Agents" }).click();
     await expect(page).toHaveURL(/agents/);
     await expect(
-      page.getByRole("heading", { name: "Agents" }),
+      page.getByRole("heading", { name: "Agent Sessions" }),
     ).toBeVisible();
   });
 
@@ -169,6 +169,6 @@ test.describe("Agent availability", () => {
     await page.goto("/");
 
     await expect(page.getByRole("link", { name: "Agents" })).toHaveCount(0);
-    await expect(page.getByText("Start and inspect agent runs")).toHaveCount(0);
+    await expect(page.getByText("View agent sessions")).toHaveCount(0);
   });
 });
