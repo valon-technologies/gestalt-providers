@@ -16,6 +16,7 @@ import type {
   AgentToolRef,
   AgentTurn,
   AgentTurnCreate,
+  AgentTurnEvent,
   AgentTurnEventStream,
   Integration,
   IntegrationOperation,
@@ -877,35 +878,51 @@ function TranscriptView({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {items.map((item) => (
-        <article
-          key={item.id}
-          className={`rounded-md border p-4 ${
-            item.kind === "assistant"
-              ? "border-alpha bg-background/65 dark:bg-background/20"
-              : item.kind === "user"
-                ? "border-alpha bg-alpha-5"
-                : item.kind === "error"
-                  ? "border-ember-500/30 bg-ember-500/10"
-                  : "border-alpha bg-base-100 dark:bg-surface"
-          }`}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-              {item.title}
-            </p>
-            {item.streaming ? (
-              <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.14em] text-sky-600 dark:text-sky-200">
-                Streaming
-              </span>
-            ) : null}
-          </div>
-          <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-primary">
-            {item.text}
-          </pre>
-        </article>
+        <TranscriptBubble key={item.id} item={item} />
       ))}
+    </div>
+  );
+}
+
+function TranscriptBubble({ item }: { item: TranscriptItem }) {
+  const alignClass =
+    item.kind === "user"
+      ? "justify-end"
+      : item.kind === "system" || item.kind === "event"
+        ? "justify-center"
+        : "justify-start";
+  const bubbleClass =
+    item.kind === "user"
+      ? "max-w-[min(42rem,86%)] border-primary bg-primary text-background"
+      : item.kind === "assistant"
+        ? "max-w-[min(42rem,86%)] border-alpha bg-base-100 text-primary dark:bg-surface"
+        : item.kind === "error"
+          ? "max-w-[min(42rem,86%)] border-ember-500/30 bg-ember-500/10 text-primary"
+          : item.kind === "tool" || item.kind === "interaction"
+            ? "max-w-[min(36rem,92%)] border-alpha bg-alpha-5 text-primary"
+            : "max-w-[min(34rem,92%)] border-alpha bg-background/65 text-muted dark:bg-background/20";
+  const labelClass =
+    item.kind === "user" ? "text-background/70" : "text-faint";
+
+  return (
+    <div className={`flex ${alignClass}`}>
+      <article className={`rounded-lg border px-4 py-3 ${bubbleClass}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className={`text-xs font-medium uppercase tracking-[0.14em] ${labelClass}`}>
+            {item.title}
+          </p>
+          {item.streaming ? (
+            <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.14em] text-sky-600 dark:text-sky-200">
+              Streaming
+            </span>
+          ) : null}
+        </div>
+        <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm leading-6">
+          {item.text}
+        </pre>
+      </article>
     </div>
   );
 }
@@ -1487,10 +1504,19 @@ function EventInspector({
   turn: AgentTurn | null;
   events: TranscriptState["rawPublicEvents"];
 }) {
+  const activityEvents = events.filter(isActivityEvent);
+
   return (
     <aside className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
       <div className="border-b border-alpha p-4">
-        <h2 className="text-sm font-medium text-primary">Inspector</h2>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium text-primary">Activity</h2>
+            <p className="mt-1 text-xs text-faint">
+              {activityEvents.length} public activity
+            </p>
+          </div>
+        </div>
         <dl className="mt-4 space-y-3 text-xs">
           <InspectorRow label="Session" value={session?.id} />
           <InspectorRow label="Turn" value={turn?.id} />
@@ -1503,30 +1529,108 @@ function EventInspector({
       </div>
       <div className="p-4">
         <h3 className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-          Public Events
+          Public Activity
         </h3>
-        {events.length === 0 ? (
-          <p className="mt-3 text-sm text-faint">No public events.</p>
+        {activityEvents.length === 0 ? (
+          <p className="mt-3 text-sm text-faint">No public activity.</p>
         ) : (
           <div className="mt-3 max-h-[40rem] space-y-3 overflow-y-auto pr-1">
-            {events.map((event) => (
-              <details
+            {activityEvents.map((event) => (
+              <ActivityEvent
                 key={`${event.turnId}-${event.seq}-${event.id}`}
-                className="rounded-md border border-alpha bg-background/65 p-3 dark:bg-background/20"
-              >
-                <summary className="cursor-pointer truncate text-xs font-medium text-primary">
-                  #{event.seq} {event.type}
-                </summary>
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-muted">
-                  {JSON.stringify(event, null, 2)}
-                </pre>
-              </details>
+                event={event}
+              />
             ))}
           </div>
         )}
       </div>
     </aside>
   );
+}
+
+function ActivityEvent({ event }: { event: AgentTurnEvent }) {
+  const title = eventTitle(event);
+  const phase = eventPhase(event);
+  const detail = eventDetail(event);
+  const input = eventInput(event);
+
+  return (
+    <details className="rounded-md border border-alpha bg-background/65 p-3 dark:bg-background/20">
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-primary">{title}</p>
+            <p className="mt-1 text-xs text-faint">
+              #{event.seq} {phase}
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-alpha-5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-faint">
+            {event.display?.kind || event.source || "event"}
+          </span>
+        </div>
+      </summary>
+      {input ? (
+        <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border border-alpha bg-base-100 p-2 text-xs text-primary dark:bg-surface">
+          {input}
+        </pre>
+      ) : null}
+      {detail ? (
+        <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border border-alpha bg-base-100 p-2 text-xs text-primary dark:bg-surface">
+          {detail}
+        </pre>
+      ) : null}
+      <pre className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-alpha bg-base-100 p-2 text-xs text-muted dark:bg-surface">
+        {JSON.stringify(event, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
+function eventTitle(event: AgentTurnEvent): string {
+  return (
+    event.display?.label ||
+    event.display?.text ||
+    stringDataField(event.data, [
+      "toolName",
+      "tool_name",
+      "tool_id",
+      "toolId",
+      "name",
+      "operation",
+    ]) ||
+    event.type
+  );
+}
+
+function eventPhase(event: AgentTurnEvent): string {
+  return (
+    event.display?.action ||
+    event.display?.phase ||
+    stringDataField(event.data, ["status", "state", "phase"]) ||
+    event.type
+  );
+}
+
+function eventInput(event: AgentTurnEvent): string | null {
+  return (
+    eventValue(event.display?.input) ??
+    eventValue(dataField(event.data, ["arguments", "input", "params"]))
+  );
+}
+
+function isActivityEvent(event: AgentTurnEvent): boolean {
+  if (event.display?.kind === "text" || event.display?.kind === "reasoning") {
+    return false;
+  }
+  switch (event.type) {
+    case "agent.message.delta":
+    case "assistant.delta":
+    case "assistant.message":
+    case "assistant.completed":
+      return false;
+    default:
+      return true;
+  }
 }
 
 function InspectorRow({
@@ -1835,6 +1939,51 @@ function providerSourceLabel(
     providers.find((item) => item.name === providerName) ??
     providers.find((item) => item.default);
   return provider?.capabilities?.supportedToolSources?.join(", ") || "-";
+}
+
+function eventDetail(event: AgentTurnEvent): string | null {
+  return (
+    eventValue(event.display?.error) ??
+    eventValue(event.display?.output) ??
+    eventValue(event.data?.error) ??
+    eventValue(event.data?.output) ??
+    eventValue(event.data?.result) ??
+    eventValue(event.data?.content) ??
+    eventValue(event.data?.note) ??
+    eventValue(event.data?.text)
+  );
+}
+
+function stringDataField(
+  data: Record<string, unknown> | undefined,
+  fields: string[],
+): string | null {
+  const value = dataField(data, fields);
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function dataField(
+  data: Record<string, unknown> | undefined,
+  fields: string[],
+): unknown {
+  if (!data) return undefined;
+  for (const field of fields) {
+    const value = data[field];
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function eventValue(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function interactionDefaultValue(interaction: AgentInteraction): string {
