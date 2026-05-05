@@ -52,9 +52,11 @@ connection:
 - `bot.requestReviewers` requests GitHub users or team slugs as PR reviewers.
 - `bot.getPullRequest` and `bot.listPullRequestFiles` inspect pull request
   metadata and changed-file patches for inline review work.
-- `bot.getCheckRun`, `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
+- `bot.getCheckRun`, `bot.listCheckSuiteCheckRuns`,
+  `bot.listCheckRunAnnotations`, `bot.getWorkflowRun`, and
   `bot.listWorkflowRunJobs` inspect CI failures using GitHub's Checks and
-  Actions REST interfaces.
+  Actions REST interfaces. Use `bot.listCheckSuiteCheckRuns` to expand a
+  `check_suite` webhook into specific failed check runs.
 
 The bot operations do not require a GitHub user OAuth connection. The GitHub App
 must be installed on the target repository and must have the permissions needed
@@ -160,7 +162,7 @@ plugins:
                   changedLinesOnly: true
         - id: failed-ci-comment
           match:
-            events: [check_run, workflow_run]
+            events: [check_run, check_suite, workflow_run]
             actions: [completed]
             conclusions: [failure, timed_out, action_required]
             repositories: [acme/widgets]
@@ -170,6 +172,8 @@ plugins:
           agent:
             model: gpt-5.4
             systemPrompt: Investigate failed CI and leave a concise PR comment.
+          comments:
+            suppressStaleHead: true
           action:
             mode: comment
         - id: failed-ci-pr
@@ -180,6 +184,7 @@ plugins:
             mode: pull_request
             allowedOperations:
               - bot.getCheckRun
+              - bot.listCheckSuiteCheckRuns
               - bot.listCheckRunAnnotations
               - bot.createPullRequestReview
               - bot.createPullRequestConversationComment
@@ -218,6 +223,7 @@ webhookPolicies:
     comments:
       timelinePolicy: actionable_only
       inlinePolicy: findings_only
+      suppressStaleHead: true
     action:
       mode: comment
   - id: manual-pr-review
@@ -256,12 +262,16 @@ APIs do not expose matching configuration enums for bot review noisiness. For
 built-in GitHub workflow targets, the provider rejects contradictory
 configuration such as `comments.inlinePolicy: never` with
 `workflow.target.plugin.operation: reviewPullRequest`.
+For CI webhook events, `comments.suppressStaleHead: true` fetches the current PR
+head before dispatch and ignores the event when the failed CI SHA is no longer
+the PR head SHA.
 
 Compatibility note: existing policies that use `action.mode` without explicit
 `allowedOperations` now expose `bot.getPullRequest`,
-`bot.listPullRequestFiles`, and, for comment-capable modes,
-`bot.createPullRequestReview`. Add an explicit `allowedOperations` list to keep
-previous CI-read-only or timeline-only comment behavior.
+`bot.listPullRequestFiles`, `bot.listCheckSuiteCheckRuns`, and, for
+comment-capable modes, `bot.createPullRequestReview`. Add an explicit
+`allowedOperations` list to keep previous CI-read-only or timeline-only comment
+behavior.
 
 `reviewPullRequest` adds hidden provider markers only to inline comments it
 creates itself. By default, after a successful current review, or after an agent

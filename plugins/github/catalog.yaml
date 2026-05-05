@@ -646,6 +646,48 @@ operations:
     description: GitHub App installation ID. If omitted, it is taken from the webhook
       service account subject.
     default: 0
+- id: bot.listCheckSuiteCheckRuns
+  method: GET
+  description: List check runs in a GitHub check suite using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: check_suite_id
+    type: integer
+    description: GitHub check suite ID
+    required: true
+  - name: check_name
+    type: string
+    description: Optional check run name filter
+    default: ''
+  - name: status
+    type: string
+    description: Optional check run status filter
+    default: ''
+  - name: filter
+    type: string
+    description: GitHub check runs filter, either latest or all
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
 - id: bot.listCheckRunAnnotations
   method: GET
   description: List annotations for a GitHub check run using a GitHub App installation

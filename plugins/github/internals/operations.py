@@ -234,6 +234,19 @@ class GitHubCheckRunRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListCheckSuiteCheckRunsRequest:
+    owner: str
+    repo: str
+    check_suite_id: int
+    check_name: str = ""
+    status: str = ""
+    filter: str = ""
+    per_page: int = 0
+    page: int = 0
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubListCheckRunAnnotationsRequest:
     owner: str
     repo: str
@@ -1118,6 +1131,56 @@ def get_check_run(
     return github.github_json(
         "GET",
         repo_path(owner, repo, "check-runs", str(check_run_id)),
+        token,
+    )
+
+
+def list_check_suite_check_runs(
+    request: GitHubListCheckSuiteCheckRunsRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    check_suite_id = require_positive_int(request.check_suite_id, "check_suite_id")
+    check_name = request.check_name.strip()
+    status = request.status.strip()
+    if status and status not in {
+        "queued",
+        "in_progress",
+        "completed",
+        "waiting",
+        "requested",
+        "pending",
+    }:
+        raise ValueError(
+            "status must be queued, in_progress, completed, waiting, requested, or pending"
+        )
+    filter_value = request.filter.strip()
+    if filter_value and filter_value not in {"latest", "all"}:
+        raise ValueError("filter must be either 'latest' or 'all'")
+    params: dict[str, Any] = {}
+    if check_name:
+        params["check_name"] = check_name
+    if status:
+        params["status"] = status
+    if filter_value:
+        params["filter"] = filter_value
+    params.update(pagination_params(per_page=request.per_page, page=request.page))
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "read"}
+    )
+    return github.github_json(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "check-suites", str(check_suite_id), "check-runs"),
+            params,
+        ),
         token,
     )
 

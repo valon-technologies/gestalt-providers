@@ -157,6 +157,11 @@ properties:
                 - never
                 - findings_only
               description: Defaults to allow.
+            suppressStaleHead:
+              type: boolean
+              description: >-
+                For CI events, ignore a matched webhook when its head SHA no
+                longer matches the current pull request head SHA.
         workflow:
           type: object
           additionalProperties: false
@@ -242,6 +247,7 @@ properties:
                   - bot.listPullRequestFiles
                   - bot.listPullRequestReviewThreads
                   - bot.getCheckRun
+                  - bot.listCheckSuiteCheckRuns
                   - bot.listCheckRunAnnotations
                   - bot.getWorkflowRun
                   - bot.listWorkflowRunJobs

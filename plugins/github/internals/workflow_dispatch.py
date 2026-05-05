@@ -91,6 +91,7 @@ def _policy_data(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
         "comments": {
             "timeline_policy": policy.comments.timeline_policy,
             "inline_policy": policy.comments.inline_policy,
+            "suppress_stale_head": policy.comments.suppress_stale_head,
         },
     }
 
