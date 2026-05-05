@@ -17,6 +17,7 @@ from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionErro
 from internals.session_start import (
     prepend_session_start_context,
     run_session_start_hooks,
+    session_start_metadata_paths,
     validate_session_start_user_metadata,
 )
 from internals.store import StoreConflictError, StoreUnavailableError, StoredSession, StoredTurn, StoredTurnEvent
@@ -52,7 +53,7 @@ class ClaudeCodeAgentProvider(
             name=self._name,
             display_name="Claude Agent SDK",
             description="Runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.",
-            version="0.0.1-alpha.15",
+            version="0.0.1-alpha.17",
         )
 
     def warnings(self) -> list[str]:
@@ -188,6 +189,9 @@ class ClaudeCodeAgentProvider(
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
+        plugin_paths = session_start_metadata_paths(
+            session.metadata, "claudePluginPaths", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
+        )
         try:
             turn, created = self._store_call(
                 context,
@@ -219,6 +223,7 @@ class ClaudeCodeAgentProvider(
                     "model": model,
                     "messages": list(turn.messages),
                     "run_grant": str(request.run_grant or "").strip(),
+                    "plugin_paths": plugin_paths,
                 },
                 daemon=True,
             ).start()
@@ -337,10 +342,16 @@ class ClaudeCodeAgentProvider(
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        plugin_paths: list[str],
     ) -> None:
         try:
             output = runner.run_turn(
-                session_id=session_id, turn_id=turn_id, model=model, messages=messages, run_grant=run_grant
+                session_id=session_id,
+                turn_id=turn_id,
+                model=model,
+                messages=messages,
+                run_grant=run_grant,
+                plugin_paths=plugin_paths,
             )
         except ClaudeExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))

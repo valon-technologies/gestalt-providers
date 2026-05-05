@@ -219,7 +219,7 @@ def _agent_host_call(*, host: gestalt.AgentHost, rpc_name: str, request: Any, ti
 def _coerce_timeout_seconds(value: float) -> float:
     try:
         timeout = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         timeout = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
     return timeout if timeout > 0 else DEFAULT_HOST_RPC_TIMEOUT_SECONDS
 

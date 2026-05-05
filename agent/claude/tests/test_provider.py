@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
 import sys
@@ -345,6 +346,62 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         _wait_for_turn(provider_client, "turn-session-start-context", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertIn("session context from provider", _FakeClaudeSDKClient.instances[-1].prompt)
+
+    def test_provider_passes_session_start_plugins_to_claude_sdk(self) -> None:
+        _, provider_client = _configure_provider()
+        with tempfile.TemporaryDirectory() as marketplace:
+            bundle_paths = {}
+            for bundle in ("mortgage", "vds", "tools", "rnb", "gestalt"):
+                path = os.path.join(marketplace, bundle)
+                os.makedirs(path)
+                bundle_paths[bundle] = path
+            payload = {
+                "metadata": {
+                    "claudePluginPaths": [
+                        bundle_paths["mortgage"],
+                        bundle_paths["vds"],
+                        bundle_paths["tools"],
+                        bundle_paths["rnb"],
+                        bundle_paths["gestalt"],
+                    ]
+                },
+                "additionalContext": "Loaded Toolshed marketplace bundles: mortgage, vds, tools, rnb.",
+            }
+            session_start = agent_pb2.AgentSessionStartConfig()
+            hook = session_start.hooks.add()
+            hook.id = "load-marketplace"
+            hook.type = "command"
+            hook.command.extend([sys.executable, "-c", "import sys; print(sys.argv[1])", json.dumps(payload)])
+            hook.timeout = "5s"
+            hook.output.additional_context = True
+            hook.output.metadata = True
+
+            provider_client.CreateSession(
+                agent_pb2.CreateAgentProviderSessionRequest(
+                    session_id="session-start-plugins", session_start=session_start
+                )
+            )
+            provider_client.CreateTurn(
+                _turn_request(
+                    turn_id="turn-session-start-plugins",
+                    session_id="session-start-plugins",
+                    messages=[agent_pb2.AgentMessage(role="user", text="hello")],
+                )
+            )
+            _wait_for_turn(provider_client, "turn-session-start-plugins", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+            options = _FakeClaudeSDKClient.instances[-1].options
+            self.assertEqual(getattr(options, "skills"), "all")
+            self.assertEqual(
+                getattr(options, "plugins"),
+                [
+                    {"type": "local", "path": bundle_paths["mortgage"]},
+                    {"type": "local", "path": bundle_paths["vds"]},
+                    {"type": "local", "path": bundle_paths["tools"]},
+                    {"type": "local", "path": bundle_paths["rnb"]},
+                ],
+            )
+            self.assertIn("Loaded Toolshed marketplace bundles", _FakeClaudeSDKClient.instances[-1].prompt)
 
     def test_provider_rejects_reserved_session_start_metadata(self) -> None:
         _, provider_client = _configure_provider()

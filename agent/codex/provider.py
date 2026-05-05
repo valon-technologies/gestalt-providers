@@ -18,6 +18,7 @@ from internals.config import CodexAgentConfig
 from internals.session_start import (
     prepend_session_start_context,
     run_session_start_hooks,
+    session_start_metadata_paths,
     validate_session_start_user_metadata,
 )
 from internals.store import StoreConflictError, StoredSession, StoredTurn, StoredTurnEvent
@@ -52,7 +53,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             name=self._name,
             display_name="Codex MCP Agent",
             description="Runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant.",
-            version="0.0.1-alpha.2",
+            version="0.0.1-alpha.3",
         )
 
     def warnings(self) -> list[str]:
@@ -174,6 +175,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
+        skill_roots = session_start_metadata_paths(
+            session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
+        )
         try:
             turn, created = store.begin_turn(
                 turn_id=str(request.turn_id or "").strip(),
@@ -202,6 +206,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "model": model,
                     "messages": list(turn.messages),
                     "run_grant": str(request.run_grant or "").strip(),
+                    "skill_roots": skill_roots,
                 },
                 daemon=True,
             ).start()
@@ -302,10 +307,16 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        skill_roots: list[str],
     ) -> None:
         try:
             output = runner.run_turn(
-                session_id=session_id, turn_id=turn_id, model=model, messages=messages, run_grant=run_grant
+                session_id=session_id,
+                turn_id=turn_id,
+                model=model,
+                messages=messages,
+                run_grant=run_grant,
+                skill_roots=skill_roots,
             )
         except CodexExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))

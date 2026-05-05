@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from typing import Any
@@ -46,6 +47,48 @@ def prepend_session_start_context(messages: list[dict[str, Any]], metadata: dict
     ]
 
 
+def session_start_metadata_paths(
+    metadata: dict[str, Any], key: str, *, allowed_basenames: set[str] | None = None
+) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for hook_metadata in session_start_result_metadata(metadata):
+        raw_paths = hook_metadata.get(key)
+        if not isinstance(raw_paths, list):
+            continue
+        for raw_path in raw_paths:
+            path = str(raw_path or "").strip()
+            if not path:
+                continue
+            if allowed_basenames is not None and os.path.basename(path) not in allowed_basenames:
+                continue
+            if not os.path.isdir(path):
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def session_start_result_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    for key, value in metadata.items():
+        if not str(key).startswith(f"{RESULTS_PREFIX}.") or not isinstance(value, dict):
+            continue
+        parsed = value.get("metadata")
+        if isinstance(parsed, dict):
+            values.append(parsed)
+            continue
+        stdout = value.get("stdout")
+        if isinstance(stdout, str):
+            stdout_payload = _json_stdout_payload(stdout)
+            payload_metadata = stdout_payload.get("metadata")
+            if isinstance(payload_metadata, dict):
+                values.append(payload_metadata)
+    return values
+
+
 def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
     hook_id = str(getattr(hook, "id", "") or "").strip()
     hook_type = str(getattr(hook, "type", "") or "command").strip() or "command"
@@ -74,6 +117,7 @@ def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
         detail = stderr.strip() or stdout.strip() or f"exit code {completed.returncode}"
         raise RuntimeError(f"sessionStart hook {hook_id!r} failed: {detail}")
     output = getattr(hook, "output", None)
+    stdout_payload = _json_stdout_payload(stdout)
     include_metadata = bool(getattr(output, "metadata", False))
     result: dict[str, Any] = {
         "status": "succeeded",
@@ -82,10 +126,27 @@ def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
         "timedOut": False,
     }
     if include_metadata:
+        payload_metadata = stdout_payload.get("metadata")
+        if isinstance(payload_metadata, dict):
+            result["metadata"] = payload_metadata
         result["stdout"] = stdout
         result["stderr"] = stderr
-    additional_context = stdout.strip() if bool(getattr(output, "additional_context", False)) else ""
+    additional_context = ""
+    if bool(getattr(output, "additional_context", False)):
+        payload_context = stdout_payload.get("additionalContext")
+        additional_context = str(payload_context).strip() if payload_context is not None else stdout.strip()
     return result, additional_context
+
+
+def _json_stdout_payload(stdout: str) -> dict[str, Any]:
+    stdout = stdout.strip()
+    if not stdout:
+        return {}
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _hook_env(explicit: Any) -> dict[str, str]:
