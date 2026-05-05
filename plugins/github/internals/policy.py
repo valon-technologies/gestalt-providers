@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import GitHubAppConfig, GitHubWebhookPolicy
+from .config import (
+    GitHubAppConfig,
+    GitHubWebhookPolicy,
+    WEBHOOK_TRIGGER_MANUAL_ONLY,
+)
 from .helpers import map_field, nested_str, str_field
 from .webhook import github_event_header, github_event_type
 
@@ -42,7 +46,31 @@ def webhook_policy_matches(
         return False
     if not _matches(match.workflow_names, workflow_name_candidates(payload)):
         return False
+    if not _policy_allows_draft(policy, payload, event_type):
+        return False
+    if not _manual_command_matches(policy, payload, event_type):
+        return False
     return True
+
+
+def _policy_allows_draft(
+    policy: GitHubWebhookPolicy, payload: dict[str, Any], event_type: str
+) -> bool:
+    if policy.trigger.include_drafts or event_type != "pull_request":
+        return True
+    pull_request = map_field(payload, "pull_request")
+    return pull_request.get("draft") is not True
+
+
+def _manual_command_matches(
+    policy: GitHubWebhookPolicy, payload: dict[str, Any], event_type: str
+) -> bool:
+    if policy.trigger.frequency != WEBHOOK_TRIGGER_MANUAL_ONLY:
+        return True
+    if event_type not in ("issue_comment", "pull_request_review_comment"):
+        return False
+    body = str_field(map_field(payload, "comment"), "body")
+    return any(command in body for command in policy.trigger.manual_commands)
 
 
 def branch_candidates(

@@ -200,6 +200,63 @@ operation for Issues. `allowedOperations` can narrow or replace those defaults;
 an explicit empty list grants no tools. Reaction, label, reviewer-request, and
 review-thread resolution tools are explicit opt-ins through `allowedOperations`.
 
+Use `trigger`, `dedupe`, and `comments` to make webhook-triggered agents less
+noisy:
+
+```yaml
+webhookPolicies:
+  - id: failed-ci-review
+    match:
+      events: [check_run, check_suite, workflow_run]
+      actions: [completed]
+      conclusions: [failure, timed_out, action_required]
+    trigger:
+      frequency: once_per_ci_incident
+      includeDrafts: false
+    dedupe:
+      scope: ci_incident
+    comments:
+      timelinePolicy: actionable_only
+      inlinePolicy: findings_only
+    action:
+      mode: comment
+  - id: manual-pr-review
+    match:
+      events: [issue_comment, pull_request_review_comment]
+      actions: [created]
+    trigger:
+      frequency: manual_only
+      manualCommands: ["@gestalt review"]
+    dedupe:
+      scope: pr_head
+    comments:
+      timelinePolicy: never
+      inlinePolicy: findings_only
+    action:
+      mode: comment
+```
+
+`trigger.frequency` controls the signal idempotency key:
+`every_delivery` preserves the legacy per-delivery behavior, `once_per_pr`
+coalesces equivalent turns for the same PR, `once_per_head_sha` coalesces for a
+PR and head SHA, `once_per_ci_incident` coalesces failed CI events for the same
+PR and head SHA, and `manual_only` only matches configured comment commands.
+`dedupe.scope` controls the workflow key independently, with the same PR/head/CI
+shapes plus the legacy `delivery` scope. If a requested PR or head SHA is absent
+from a payload, the provider falls back to the legacy event-shaped key so it
+does not accidentally merge unrelated PRs or treat a plain issue as a PR.
+
+`comments.timelinePolicy: never` removes PR conversation and issue comment tools
+from the effective tool list. `comments.inlinePolicy: never` removes
+`bot.createPullRequestReview`. `actionable_only` and `findings_only` keep the
+tools available but add stricter agent guidance to avoid acknowledgement-only
+timeline comments and unanchored inline comments. These policy values are local
+provider semantics rather than GitHub SDK enum names; GitHub's REST and GraphQL
+APIs do not expose matching configuration enums for bot review noisiness. For
+built-in GitHub workflow targets, the provider rejects contradictory
+configuration such as `comments.inlinePolicy: never` with
+`workflow.target.plugin.operation: reviewPullRequest`.
+
 Compatibility note: existing policies that use `action.mode` without explicit
 `allowedOperations` now expose `bot.getPullRequest`,
 `bot.listPullRequestFiles`, and, for comment-capable modes,

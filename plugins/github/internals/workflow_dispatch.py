@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Any
 
-from .config import GitHubWebhookPolicy
+from .config import GitHubWebhookPolicy, effective_policy_operations
 from .constants import (
     MAX_GITHUB_BODY_CHARS,
     MAX_GITHUB_TITLE_CHARS,
@@ -81,7 +81,17 @@ def _policy_data(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
     return {
         "id": policy.id,
         "mode": policy.action_mode,
-        "tool_refs": list(policy.allowed_operations),
+        "tool_refs": list(effective_policy_operations(policy)),
+        "trigger": {
+            "frequency": policy.trigger.frequency,
+            "include_drafts": policy.trigger.include_drafts,
+            "manual_commands": list(policy.trigger.manual_commands),
+        },
+        "dedupe": {"scope": policy.dedupe.scope},
+        "comments": {
+            "timeline_policy": policy.comments.timeline_policy,
+            "inline_policy": policy.comments.inline_policy,
+        },
     }
 
 

@@ -459,6 +459,29 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("instance", plugin_target_schema["properties"])
         self.assertEqual(plugin_target_schema["properties"]["input"]["type"], "object")
         self.assertNotIn("pluginName", plugin_target_schema["properties"])
+        policy_schema = schema["properties"]["webhookPolicies"]["items"]["properties"]
+        self.assertEqual(
+            policy_schema["trigger"]["properties"]["frequency"]["enum"],
+            [
+                "every_delivery",
+                "once_per_pr",
+                "once_per_head_sha",
+                "once_per_ci_incident",
+                "manual_only",
+            ],
+        )
+        self.assertEqual(
+            policy_schema["dedupe"]["properties"]["scope"]["enum"],
+            ["delivery", "pull_request", "pr_head", "ci_incident"],
+        )
+        self.assertEqual(
+            policy_schema["comments"]["properties"]["timelinePolicy"]["enum"],
+            ["allow", "never", "actionable_only"],
+        )
+        self.assertEqual(
+            policy_schema["comments"]["properties"]["inlinePolicy"]["enum"],
+            ["allow", "never", "findings_only"],
+        )
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
         def fake_urlopen(
@@ -988,6 +1011,473 @@ class GitHubProviderTests(unittest.TestCase):
             )
         )
         self.assertNotEqual(digest_fallback.workflow_key, "github:99:acme/widgets")
+
+    def test_policy_trigger_and_dedupe_controls_workflow_keys(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "once-pr",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["opened"],
+                        },
+                        "trigger": {"frequency": "once_per_pr"},
+                        "dedupe": {"scope": "pull_request"},
+                    },
+                    {
+                        "id": "once-head",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["synchronize"],
+                        },
+                        "trigger": {"frequency": "once_per_head_sha"},
+                        "dedupe": {"scope": "pr_head"},
+                    },
+                    {
+                        "id": "failed-ci",
+                        "match": {
+                            "events": ["check_run", "check_suite", "workflow_run"],
+                            "actions": ["completed"],
+                            "conclusions": ["failure"],
+                        },
+                        "trigger": {"frequency": "once_per_ci_incident"},
+                        "dedupe": {"scope": "ci_incident"},
+                        "action": {"mode": "comment"},
+                    },
+                ],
+            },
+        )
+
+        pull_request_payload = {
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "pull_request": {
+                "number": 7,
+                "title": "Fix widgets",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            },
+            "sender": {"login": "octocat"},
+        }
+
+        once_pr = self._workflow_signal_request(
+            {
+                **pull_request_payload,
+                "action": "opened",
+                "headers": {"X-GitHub-Event": "pull_request"},
+            }
+        )
+        self.assertEqual(
+            once_pr.workflow_key,
+            "github:99:acme/widgets:pr:7:policy:once-pr",
+        )
+        self.assertEqual(
+            once_pr.idempotency_key,
+            "github:trigger:once_per_pr:99:acme/widgets:pr:7:policy:once-pr",
+        )
+
+        once_head = self._workflow_signal_request(
+            {
+                **pull_request_payload,
+                "action": "synchronize",
+                "headers": {"X-GitHub-Event": "pull_request"},
+            }
+        )
+        self.assertEqual(
+            once_head.workflow_key,
+            "github:99:acme/widgets:pr:7:head:abc123:policy:once-head",
+        )
+        self.assertEqual(
+            once_head.idempotency_key,
+            "github:trigger:once_per_head_sha:99:acme/widgets:pr:7:"
+            "head:abc123:policy:once-head",
+        )
+
+        ci_base = {
+            "action": "completed",
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "sender": {"login": "octocat"},
+        }
+        for event_type, event_object in (
+            (
+                "check_run",
+                {
+                    "id": 123,
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "head_sha": "abc123",
+                    "pull_requests": [{"number": 7}],
+                },
+            ),
+            (
+                "check_suite",
+                {
+                    "id": 456,
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "head_sha": "abc123",
+                    "pull_requests": [{"number": 7}],
+                },
+            ),
+            (
+                "workflow_run",
+                {
+                    "id": 789,
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "head_sha": "abc123",
+                    "pull_requests": [{"number": 7}],
+                },
+            ),
+        ):
+            with self.subTest(event_type=event_type):
+                request = self._workflow_signal_request(
+                    {
+                        **ci_base,
+                        event_type: event_object,
+                        "headers": {"X-GitHub-Event": event_type},
+                    }
+                )
+                self.assertEqual(
+                    request.workflow_key,
+                    "github:99:acme/widgets:ci:pr:7:head:abc123:policy:failed-ci",
+                )
+                self.assertEqual(
+                    request.idempotency_key,
+                    "github:trigger:once_per_ci_incident:99:acme/widgets:"
+                    "ci:pr:7:head:abc123:policy:failed-ci",
+                )
+                data = cast(
+                    dict[str, Any],
+                    json_format.MessageToDict(request.signal.payload),
+                )
+                self.assertEqual(
+                    data["webhook_policy"]["canonical"]["workflow_key"],
+                    request.workflow_key,
+                )
+                self.assertEqual(
+                    data["webhook_policy"]["canonical"]["idempotency_key"],
+                    request.idempotency_key,
+                )
+
+    def test_policy_comment_controls_filter_effective_tools_and_guidance(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "findings-inline-only",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["opened"],
+                        },
+                        "comments": {
+                            "timelinePolicy": "never",
+                            "inlinePolicy": "findings_only",
+                        },
+                        "action": {
+                            "allowedOperations": [
+                                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+                                provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION,
+                            ]
+                        },
+                    },
+                    {
+                        "id": "timeline-only",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["synchronize"],
+                        },
+                        "comments": {"inlinePolicy": "never"},
+                        "action": {"mode": "comment"},
+                    },
+                ],
+            },
+        )
+
+        base = {
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {
+                "number": 7,
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            },
+            "headers": {"X-GitHub-Event": "pull_request"},
+            "sender": {"login": "octocat"},
+        }
+        inline_only = self._workflow_signal_request({**base, "action": "opened"})
+        inline_operations = [
+            tool.operation for tool in inline_only.target.agent.tool_refs
+        ]
+        self.assertEqual(
+            inline_operations,
+            [
+                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+            ],
+        )
+        system_prompt = inline_only.target.agent.messages[0].text
+        self.assertIn("line-anchored findings", system_prompt)
+        self.assertNotIn("pull request timeline comments", system_prompt)
+        data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(inline_only.signal.payload),
+        )
+        self.assertEqual(
+            data["webhook_policy"]["tool_refs"],
+            inline_operations,
+        )
+        self.assertEqual(
+            data["webhook_policy"]["comments"]["timeline_policy"],
+            "never",
+        )
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            data["agent_request"]["user_prompt"],
+        )
+
+        timeline_only = self._workflow_signal_request({**base, "action": "synchronize"})
+        timeline_operations = [
+            tool.operation for tool in timeline_only.target.agent.tool_refs
+        ]
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+            timeline_operations,
+        )
+        self.assertIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            timeline_operations,
+        )
+
+    def test_policy_manual_commands_and_drafts_fall_through(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "manual-review",
+                        "match": {
+                            "events": ["issue_comment"],
+                            "actions": ["created"],
+                        },
+                        "trigger": {
+                            "frequency": "manual_only",
+                            "manualCommands": ["@gestalt review"],
+                        },
+                    },
+                    {
+                        "id": "issue-comment-fallback",
+                        "match": {
+                            "events": ["issue_comment"],
+                            "actions": ["created"],
+                        },
+                    },
+                    {
+                        "id": "non-draft-pr",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["opened"],
+                        },
+                        "trigger": {"includeDrafts": False},
+                    },
+                    {
+                        "id": "draft-fallback",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["opened"],
+                        },
+                    },
+                ],
+            },
+        )
+
+        issue_comment_base = {
+            "action": "created",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "issue": {
+                "number": 7,
+                "title": "Fix widgets",
+                "pull_request": {"html_url": "https://github.com/acme/widgets/pull/7"},
+            },
+            "headers": {"X-GitHub-Event": "issue_comment"},
+            "sender": {"login": "octocat"},
+        }
+        fallback = self._workflow_signal_request(
+            {
+                **issue_comment_base,
+                "comment": {"id": 10, "body": "looks good"},
+            }
+        )
+        fallback_data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(fallback.signal.payload),
+        )
+        self.assertEqual(
+            fallback_data["webhook_policy"]["id"],
+            "issue-comment-fallback",
+        )
+
+        manual = self._workflow_signal_request(
+            {
+                **issue_comment_base,
+                "comment": {"id": 11, "body": "please @gestalt review"},
+            }
+        )
+        manual_data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(manual.signal.payload),
+        )
+        self.assertEqual(manual_data["webhook_policy"]["id"], "manual-review")
+
+        pull_request_base = {
+            "action": "opened",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {
+                "number": 7,
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            },
+            "headers": {"X-GitHub-Event": "pull_request"},
+            "sender": {"login": "octocat"},
+        }
+        draft = self._workflow_signal_request(
+            {
+                **pull_request_base,
+                "pull_request": {
+                    **pull_request_base["pull_request"],
+                    "draft": True,
+                },
+            }
+        )
+        draft_data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(draft.signal.payload),
+        )
+        self.assertEqual(draft_data["webhook_policy"]["id"], "draft-fallback")
+
+        ready = self._workflow_signal_request(
+            {
+                **pull_request_base,
+                "pull_request": {
+                    **pull_request_base["pull_request"],
+                    "draft": False,
+                },
+            }
+        )
+        ready_data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(ready.signal.payload),
+        )
+        self.assertEqual(ready_data["webhook_policy"]["id"], "non-draft-pr")
+
+    def test_pr_scoped_policy_does_not_treat_plain_issue_as_pr(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "issue-comment-pr-scope",
+                        "match": {
+                            "events": ["issue_comment"],
+                            "actions": ["created"],
+                        },
+                        "trigger": {"frequency": "once_per_pr"},
+                        "dedupe": {"scope": "pull_request"},
+                    }
+                ],
+            },
+        )
+
+        plain_issue = self._workflow_signal_request(
+            {
+                "action": "created",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "issue": {
+                    "number": 12,
+                    "title": "Plain issue",
+                    "html_url": "https://github.com/acme/widgets/issues/12",
+                },
+                "comment": {"id": 10, "body": "please review"},
+                "headers": {"X-GitHub-Event": "issue_comment"},
+                "sender": {"login": "octocat"},
+            }
+        )
+        self.assertEqual(
+            plain_issue.workflow_key,
+            "github:99:acme/widgets:12:policy:issue-comment-pr-scope",
+        )
+        self.assertNotIn(":pr:12:", plain_issue.workflow_key)
+        self.assertTrue(
+            plain_issue.idempotency_key.startswith(
+                "github:event:acme/widgets:policy:issue-comment-pr-scope:"
+                "issue_comment:created:"
+            )
+        )
+
+        pr_issue_comment = self._workflow_signal_request(
+            {
+                "action": "created",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "issue": {
+                    "number": 7,
+                    "title": "PR issue",
+                    "html_url": "https://github.com/acme/widgets/pull/7",
+                    "pull_request": {
+                        "html_url": "https://github.com/acme/widgets/pull/7"
+                    },
+                },
+                "comment": {"id": 11, "body": "please review"},
+                "headers": {"X-GitHub-Event": "issue_comment"},
+                "sender": {"login": "octocat"},
+            }
+        )
+        self.assertEqual(
+            pr_issue_comment.workflow_key,
+            "github:99:acme/widgets:pr:7:policy:issue-comment-pr-scope",
+        )
+        self.assertEqual(
+            pr_issue_comment.idempotency_key,
+            "github:trigger:once_per_pr:99:acme/widgets:pr:7:"
+            "policy:issue-comment-pr-scope",
+        )
 
     def test_explicit_policy_dispatches_failed_check_run_to_comment_tools(
         self,
@@ -2007,6 +2497,65 @@ class GitHubProviderTests(unittest.TestCase):
                 "unknown operation",
             ),
             (
+                {"webhookPolicies": [{"id": "bad-trigger", "trigger": "nope"}]},
+                "trigger must be an object",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-frequency",
+                            "trigger": {"frequency": "hourly"},
+                        }
+                    ]
+                },
+                "trigger.frequency must be one of",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "manual-no-command",
+                            "trigger": {"frequency": "manual_only"},
+                        }
+                    ]
+                },
+                "trigger.manualCommands is required",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-drafts",
+                            "trigger": {"includeDrafts": "false"},
+                        }
+                    ]
+                },
+                "trigger.includeDrafts must be a boolean",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-dedupe",
+                            "dedupe": {"scope": "branch"},
+                        }
+                    ]
+                },
+                "dedupe.scope must be one of",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-comments",
+                            "comments": {"inlinePolicy": "summary_only"},
+                        }
+                    ]
+                },
+                "comments.inlinePolicy must be one of",
+            ),
+            (
                 {"workflow": "local"},
                 "workflow must be an object",
             ),
@@ -2116,6 +2665,25 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 },
                 "workflow.target.plugin.input must be JSON-compatible",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "contradictory-review-target",
+                            "comments": {"inlinePolicy": "never"},
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github",
+                                        "operation": "reviewPullRequest",
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                "comments.inlinePolicy cannot be never",
             ),
         ):
             with self.subTest(expected=expected):

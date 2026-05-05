@@ -9,18 +9,64 @@ from typing import Any, cast
 from google.protobuf import struct_pb2 as _struct_pb2
 
 from .constants import (
+    BOT_CREATE_ISSUE_COMMENT_OPERATION,
+    BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+    BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_OPERATION_ORDER,
     DEFAULT_WEBHOOK_EVENTS,
     DEFAULT_POLICY_OPERATIONS_BY_MODE,
     GITHUB_DEFAULT_API_BASE_URL,
     GITHUB_DEFAULT_GRAPHQL_BASE_URL,
     GITHUB_DEFAULT_WEB_BASE_URL,
+    REVIEW_PULL_REQUEST_OPERATION,
     WEBHOOK_POLICY_ACTION_MODES,
     WEBHOOK_POLICY_OBSERVE_MODE,
 )
 
 
 _POLICY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+WEBHOOK_TRIGGER_EVERY_DELIVERY = "every_delivery"
+WEBHOOK_TRIGGER_ONCE_PER_PR = "once_per_pr"
+WEBHOOK_TRIGGER_ONCE_PER_HEAD_SHA = "once_per_head_sha"
+WEBHOOK_TRIGGER_ONCE_PER_CI_INCIDENT = "once_per_ci_incident"
+WEBHOOK_TRIGGER_MANUAL_ONLY = "manual_only"
+WEBHOOK_TRIGGER_FREQUENCIES = (
+    WEBHOOK_TRIGGER_EVERY_DELIVERY,
+    WEBHOOK_TRIGGER_ONCE_PER_PR,
+    WEBHOOK_TRIGGER_ONCE_PER_HEAD_SHA,
+    WEBHOOK_TRIGGER_ONCE_PER_CI_INCIDENT,
+    WEBHOOK_TRIGGER_MANUAL_ONLY,
+)
+
+WEBHOOK_DEDUPE_DELIVERY = "delivery"
+WEBHOOK_DEDUPE_PULL_REQUEST = "pull_request"
+WEBHOOK_DEDUPE_PR_HEAD = "pr_head"
+WEBHOOK_DEDUPE_CI_INCIDENT = "ci_incident"
+WEBHOOK_DEDUPE_SCOPES = (
+    WEBHOOK_DEDUPE_DELIVERY,
+    WEBHOOK_DEDUPE_PULL_REQUEST,
+    WEBHOOK_DEDUPE_PR_HEAD,
+    WEBHOOK_DEDUPE_CI_INCIDENT,
+)
+
+WEBHOOK_TIMELINE_ALLOW = "allow"
+WEBHOOK_TIMELINE_NEVER = "never"
+WEBHOOK_TIMELINE_ACTIONABLE_ONLY = "actionable_only"
+WEBHOOK_TIMELINE_POLICIES = (
+    WEBHOOK_TIMELINE_ALLOW,
+    WEBHOOK_TIMELINE_NEVER,
+    WEBHOOK_TIMELINE_ACTIONABLE_ONLY,
+)
+
+WEBHOOK_INLINE_ALLOW = "allow"
+WEBHOOK_INLINE_NEVER = "never"
+WEBHOOK_INLINE_FINDINGS_ONLY = "findings_only"
+WEBHOOK_INLINE_POLICIES = (
+    WEBHOOK_INLINE_ALLOW,
+    WEBHOOK_INLINE_NEVER,
+    WEBHOOK_INLINE_FINDINGS_ONLY,
+)
 
 struct_pb2: Any = _struct_pb2
 
@@ -47,9 +93,30 @@ class GitHubWorkflowPluginTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubWebhookTrigger:
+    frequency: str = WEBHOOK_TRIGGER_EVERY_DELIVERY
+    include_drafts: bool = True
+    manual_commands: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubWebhookDedupe:
+    scope: str = WEBHOOK_DEDUPE_DELIVERY
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubWebhookComments:
+    timeline_policy: str = WEBHOOK_TIMELINE_ALLOW
+    inline_policy: str = WEBHOOK_INLINE_ALLOW
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubWebhookPolicy:
     id: str
     match: GitHubWebhookPolicyMatch = field(default_factory=GitHubWebhookPolicyMatch)
+    trigger: GitHubWebhookTrigger = field(default_factory=GitHubWebhookTrigger)
+    dedupe: GitHubWebhookDedupe = field(default_factory=GitHubWebhookDedupe)
+    comments: GitHubWebhookComments = field(default_factory=GitHubWebhookComments)
     workflow_provider: str = ""
     agent_provider: str = ""
     agent_model: str = ""
@@ -224,7 +291,12 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
         seen_ids.add(policy_id)
 
         match_config = config_dict(policy_config, "match")
+        trigger = parse_policy_trigger(policy_config, index)
+        dedupe = parse_policy_dedupe(policy_config, index)
+        comments = parse_policy_comments(policy_config, index)
         workflow_config = policy_config_object(policy_config, "workflow", index)
+        workflow_target = parse_policy_workflow_target(workflow_config, index)
+        validate_policy_comments_for_workflow_target(workflow_target, comments, index)
         agent_config = config_dict(policy_config, "agent")
         action_config = config_dict(policy_config, "action")
         action_mode = (
@@ -259,6 +331,9 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                         match_config, "workflowNames", "workflow_names"
                     ),
                 ),
+                trigger=trigger,
+                dedupe=dedupe,
+                comments=comments,
                 workflow_provider=config_string(workflow_config, "provider"),
                 agent_provider=config_string(agent_config, "provider"),
                 agent_model=config_string(agent_config, "model"),
@@ -266,12 +341,103 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                     agent_config, "systemPrompt", "system_prompt", "prompt"
                 ),
                 agent_model_options=model_options,
-                workflow_target=parse_policy_workflow_target(workflow_config, index),
+                workflow_target=workflow_target,
                 action_mode=action_mode,
                 allowed_operations=allowed_operations,
             )
         )
     return tuple(policies)
+
+
+def parse_policy_trigger(
+    policy_config: dict[str, Any], policy_index: int
+) -> GitHubWebhookTrigger:
+    trigger_config = policy_config_object(policy_config, "trigger", policy_index)
+    frequency = enum_string(
+        trigger_config,
+        "frequency",
+        f"webhookPolicies[{policy_index}].trigger.frequency",
+        WEBHOOK_TRIGGER_FREQUENCIES,
+        WEBHOOK_TRIGGER_EVERY_DELIVERY,
+    )
+    include_drafts = optional_bool(
+        trigger_config,
+        "includeDrafts",
+        "include_drafts",
+        path=f"webhookPolicies[{policy_index}].trigger.includeDrafts",
+        default=True,
+    )
+    manual_commands = string_tuple(trigger_config, "manualCommands", "manual_commands")
+    if frequency == WEBHOOK_TRIGGER_MANUAL_ONLY and not manual_commands:
+        raise ValueError(
+            f"webhookPolicies[{policy_index}].trigger.manualCommands is required "
+            "when trigger.frequency is manual_only"
+        )
+    return GitHubWebhookTrigger(
+        frequency=frequency,
+        include_drafts=include_drafts,
+        manual_commands=manual_commands,
+    )
+
+
+def parse_policy_dedupe(
+    policy_config: dict[str, Any], policy_index: int
+) -> GitHubWebhookDedupe:
+    dedupe_config = policy_config_object(policy_config, "dedupe", policy_index)
+    return GitHubWebhookDedupe(
+        scope=enum_string(
+            dedupe_config,
+            "scope",
+            f"webhookPolicies[{policy_index}].dedupe.scope",
+            WEBHOOK_DEDUPE_SCOPES,
+            WEBHOOK_DEDUPE_DELIVERY,
+        )
+    )
+
+
+def parse_policy_comments(
+    policy_config: dict[str, Any], policy_index: int
+) -> GitHubWebhookComments:
+    comments_config = policy_config_object(policy_config, "comments", policy_index)
+    return GitHubWebhookComments(
+        timeline_policy=enum_string(
+            comments_config,
+            "timelinePolicy",
+            f"webhookPolicies[{policy_index}].comments.timelinePolicy",
+            WEBHOOK_TIMELINE_POLICIES,
+            WEBHOOK_TIMELINE_ALLOW,
+            "timeline_policy",
+        ),
+        inline_policy=enum_string(
+            comments_config,
+            "inlinePolicy",
+            f"webhookPolicies[{policy_index}].comments.inlinePolicy",
+            WEBHOOK_INLINE_POLICIES,
+            WEBHOOK_INLINE_ALLOW,
+            "inline_policy",
+        ),
+    )
+
+
+def effective_policy_operations(policy: GitHubWebhookPolicy) -> tuple[str, ...]:
+    operations = list(policy.allowed_operations)
+    if policy.comments.timeline_policy == WEBHOOK_TIMELINE_NEVER:
+        operations = [
+            operation
+            for operation in operations
+            if operation
+            not in {
+                BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+                BOT_CREATE_ISSUE_COMMENT_OPERATION,
+            }
+        ]
+    if policy.comments.inline_policy == WEBHOOK_INLINE_NEVER:
+        operations = [
+            operation
+            for operation in operations
+            if operation != BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION
+        ]
+    return tuple(operations)
 
 
 def parse_policy_workflow_target(
@@ -304,6 +470,24 @@ def parse_policy_workflow_target(
         instance=optional_string(plugin_config, "instance", f"{plugin_path}.instance"),
         input=input_value,
     )
+
+
+def validate_policy_comments_for_workflow_target(
+    target: GitHubWorkflowPluginTarget | None,
+    comments: GitHubWebhookComments,
+    policy_index: int,
+) -> None:
+    if target is None:
+        return
+    if (
+        target.plugin_name == "github"
+        and target.operation == REVIEW_PULL_REQUEST_OPERATION
+        and comments.inline_policy == WEBHOOK_INLINE_NEVER
+    ):
+        raise ValueError(
+            f"webhookPolicies[{policy_index}].comments.inlinePolicy cannot be "
+            "never when workflow.target.plugin uses github.reviewPullRequest"
+        )
 
 
 def policy_config_object(
@@ -342,6 +526,33 @@ def optional_string(config: dict[str, Any], key: str, path: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{path} must be a string")
     return value.strip()
+
+
+def optional_bool(config: dict[str, Any], *keys: str, path: str, default: bool) -> bool:
+    for key in keys:
+        if key not in config:
+            continue
+        value = config.get(key)
+        if isinstance(value, bool):
+            return value
+        raise ValueError(f"{path} must be a boolean")
+    return default
+
+
+def enum_string(
+    config: dict[str, Any],
+    key: str,
+    path: str,
+    values: tuple[str, ...],
+    default: str,
+    *aliases: str,
+) -> str:
+    value = config_string(config, key, *aliases)
+    if not value:
+        return default
+    if value not in values:
+        raise ValueError(f"{path} must be one of {', '.join(values)}")
+    return value
 
 
 def validate_struct_compatible(input_value: dict[str, Any], path: str) -> None:

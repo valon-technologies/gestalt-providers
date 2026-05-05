@@ -75,10 +75,14 @@ def event_summary(
     if number > 0 and map_field(issue, "pull_request"):
         summary["pull_request_numbers"] = [number]
     _add_ci_event_summary(payload, summary)
-    if str_field(pull_request, "head", "ref"):
+    if nested_str(pull_request, "head", "ref"):
         summary["head_ref"] = nested_str(pull_request, "head", "ref")
-    if str_field(pull_request, "base", "ref"):
+    if nested_str(pull_request, "head", "sha"):
+        summary["head_sha"] = nested_str(pull_request, "head", "sha")
+    if nested_str(pull_request, "base", "ref"):
         summary["base_ref"] = nested_str(pull_request, "base", "ref")
+    if nested_str(pull_request, "base", "sha"):
+        summary["base_sha"] = nested_str(pull_request, "base", "sha")
     subject = pull_request or issue
     if str_field(subject, "title"):
         summary["title"] = bounded_text(
@@ -223,7 +227,7 @@ def webhook_ignored_reason(
         try:
             if is_configured_bot_sender(payload):
                 return "configured_bot_sender"
-        except (GitHubAPIError, GitHubConfigError):
+        except GitHubAPIError, GitHubConfigError:
             if is_bot_sender(payload):
                 return "unresolved_bot_sender"
     return ""
