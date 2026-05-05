@@ -215,6 +215,10 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str:
         return "main"
 
+    def repository_installation(self, owner: str, repo: str) -> dict[str, Any]:
+        self.requests.append(("GET", f"/repos/{owner}/{repo}/installation", None, {}))
+        return {"id": 99}
+
     def get_branch_ref(
         self, token: str, owner: str, repo: str, branch: str
     ) -> dict[str, Any] | None:
@@ -267,6 +271,38 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.addCleanup(provider_module.configure, "github", {})
 
+    def test_resolve_installation_subject_discovers_and_validates_repo(self) -> None:
+        client = RecordingGitHubClient()
+
+        subject = operations_module.resolve_installation_subject(
+            operations_module.GitHubResolveInstallationRequest(
+                owner="acme", repo="widgets"
+            ),
+            client=client,
+        )
+
+        self.assertEqual(subject.installation_id, 99)
+        self.assertEqual(
+            subject.subject_id,
+            "service_account:github_app_installation:99:repo:acme/widgets",
+        )
+        self.assertEqual(client.tokens, [(99, ("widgets",), {})])
+
+    def test_bot_resolve_installation_returns_service_account_subject(self) -> None:
+        client = RecordingGitHubClient()
+        with mock.patch.object(operations_module, "DEFAULT_GITHUB_CLIENT", client):
+            result = provider_module.bot_resolve_installation(
+                provider_module.ResolveInstallationInput(owner="acme", repo="widgets")
+            )
+
+        installation = result["data"]["installation"]
+        self.assertEqual(installation["installation_id"], 99)
+        self.assertEqual(installation["repository"], "acme/widgets")
+        self.assertEqual(
+            installation["subject"]["id"],
+            "service_account:github_app_installation:99:repo:acme/widgets",
+        )
+
     def test_manifest_declares_github_app_webhook_contract(self) -> None:
         manifest_path = pathlib.Path(__file__).resolve().parents[1] / "manifest.yaml"
         manifest = yaml.safe_load(manifest_path.read_text())
@@ -296,6 +332,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         event = operations[provider_module.GITHUB_EVENT_OPERATION]
         review = operations[provider_module.REVIEW_PULL_REQUEST_OPERATION]
+        installation = operations[provider_module.BOT_RESOLVE_INSTALLATION_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
@@ -316,6 +353,7 @@ class GitHubProviderTests(unittest.TestCase):
         request_reviewers = operations[provider_module.BOT_REQUEST_REVIEWERS_OPERATION]
         self.assertIn("workflow targets", event["description"])
         self.assertIn("pull_request workflow signal", review["description"])
+        self.assertIn("installation", installation["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
@@ -408,6 +446,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_ADD_LABELS_OPERATION, enum)
         self.assertIn(provider_module.BOT_REMOVE_LABELS_OPERATION, enum)
         self.assertIn(provider_module.BOT_REQUEST_REVIEWERS_OPERATION, enum)
+        self.assertIn(provider_module.BOT_RESOLVE_INSTALLATION_OPERATION, enum)
         self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"

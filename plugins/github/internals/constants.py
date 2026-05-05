@@ -30,8 +30,10 @@ BOT_GET_CHECK_RUN_OPERATION = "bot.getCheckRun"
 BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION = "bot.listCheckRunAnnotations"
 BOT_GET_WORKFLOW_RUN_OPERATION = "bot.getWorkflowRun"
 BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION = "bot.listWorkflowRunJobs"
+BOT_RESOLVE_INSTALLATION_OPERATION = "bot.resolveInstallation"
 
 BOT_OPERATION_ORDER = (
+    BOT_RESOLVE_INSTALLATION_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
@@ -100,6 +102,12 @@ DEFAULT_POLICY_OPERATIONS_BY_MODE = {
 
 GITHUB_WORKFLOW_SIGNAL_NAME = "github.app.webhook"
 
+# TODO(hughhan1): This currently encodes GitHub installation scope in an opaque
+# subject string shaped like
+# `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
+# That is brittle because runtime/config and bot authorization have to agree on
+# a string convention. Replace this with a structured service-account or
+# provider-owned installation reference before supporting more delegation cases.
 GITHUB_INSTALLATION_SUBJECT_PREFIX = "service_account:github_app_installation:"
 GITHUB_REPOSITORY_SUBJECT_SEPARATOR = ":repo:"
 

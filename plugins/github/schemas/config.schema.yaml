@@ -185,6 +185,7 @@ properties:
                   - bot.listCheckRunAnnotations
                   - bot.getWorkflowRun
                   - bot.listWorkflowRunJobs
+                  - bot.resolveInstallation
                   - bot.createPullRequestReview
                   - bot.resolvePullRequestReviewThread
                   - bot.createPullRequestConversationComment

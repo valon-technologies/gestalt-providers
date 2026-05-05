@@ -32,6 +32,11 @@ def webhook_subject_from_payload(
         return None
 
     repo = repository_full_name(payload)
+    # TODO(hughhan1): Webhook subjects use the same brittle string grammar that
+    # bot operations parse later:
+    # `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
+    # This should become structured provider-owned installation metadata rather
+    # than relying on every caller to preserve this exact subject id format.
     subject_id = f"{GITHUB_INSTALLATION_SUBJECT_PREFIX}{installation_id}"
     display_name = f"GitHub App installation {installation_id}"
     if repo:

@@ -29,6 +29,7 @@ from internals.constants import (
     BOT_REMOVE_LABELS_OPERATION,
     BOT_REQUEST_REVIEWERS_OPERATION,
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
+    BOT_RESOLVE_INSTALLATION_OPERATION,
     GITHUB_EVENT_OPERATION,
     REVIEW_PULL_REQUEST_OPERATION,
 )
@@ -54,6 +55,7 @@ from internals.operations import (
     GitHubRemoveLabelsRequest,
     GitHubRequestReviewersRequest,
     GitHubResolvePullRequestReviewThreadRequest,
+    GitHubResolveInstallationRequest,
     GitHubWorkflowRunRequest,
     add_labels,
     add_reaction,
@@ -69,6 +71,7 @@ from internals.operations import (
     get_check_run,
     get_pull_request,
     get_workflow_run,
+    installation_subject_summary,
     issue_comment_summary,
     label_summary,
     list_check_run_annotations,
@@ -83,6 +86,7 @@ from internals.operations import (
     remove_labels,
     request_reviewers,
     resolve_pull_request_review_thread,
+    resolve_installation_subject,
     workflow_run_job_summary,
     workflow_run_summary,
 )
@@ -127,6 +131,11 @@ class FileChangeInput(gestalt.Model):
 class CoAuthorInput(gestalt.Model):
     name: str = gestalt.field(description="Co-author display name")
     email: str = gestalt.field(description="Co-author email address")
+
+
+class ResolveInstallationInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
 
 
 class CommitFilesInput(gestalt.Model):
@@ -820,6 +829,25 @@ def github_review_pull_request(
         return _github_error(err)
     except RuntimeError as err:
         return _service_unavailable(str(err))
+
+
+@plugin.operation(
+    id=BOT_RESOLVE_INSTALLATION_OPERATION,
+    method="GET",
+    description="Resolve the GitHub App installation service-account subject for a repository",
+)
+def bot_resolve_installation(input: ResolveInstallationInput) -> OperationResult:
+    try:
+        subject = resolve_installation_subject(
+            GitHubResolveInstallationRequest(owner=input.owner, repo=input.repo)
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"installation": installation_subject_summary(subject)}}
 
 
 @plugin.operation(

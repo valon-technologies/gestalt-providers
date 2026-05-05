@@ -56,6 +56,18 @@ operations:
     type: integer
     description: Polling interval while waiting for the review agent turn
     default: 1000
+- id: bot.resolveInstallation
+  method: GET
+  description: Resolve the GitHub App installation service-account subject for a repository
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
