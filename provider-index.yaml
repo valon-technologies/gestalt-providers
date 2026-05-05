@@ -1838,6 +1838,12 @@ packages:
     displayName: "Intercom"
     description: "Read and update contacts, companies, conversations, and notes."
     versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "plugin"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.2":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.2/provider-release.yaml"
         kind: "plugin"
