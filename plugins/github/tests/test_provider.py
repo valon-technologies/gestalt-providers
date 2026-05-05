@@ -290,14 +290,10 @@ class GitHubProviderTests(unittest.TestCase):
 
     def test_bot_resolve_installation_returns_service_account_subject(self) -> None:
         client = RecordingGitHubClient()
-        original_client = operations_module.DEFAULT_GITHUB_CLIENT
-        operations_module.DEFAULT_GITHUB_CLIENT = client
-        try:
+        with mock.patch.object(operations_module, "DEFAULT_GITHUB_CLIENT", client):
             result = provider_module.bot_resolve_installation(
                 provider_module.ResolveInstallationInput(owner="acme", repo="widgets")
             )
-        finally:
-            operations_module.DEFAULT_GITHUB_CLIENT = original_client
 
         installation = result["data"]["installation"]
         self.assertEqual(installation["installation_id"], 99)
