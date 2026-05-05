@@ -8,6 +8,7 @@ from typing import Any
 RESERVED_PREFIX = "__gestalt.lifecycle.sessionStart"
 RESULTS_PREFIX = f"{RESERVED_PREFIX}.results"
 ADDITIONAL_CONTEXT_KEY = f"{RESERVED_PREFIX}.additionalContext"
+RESERVED_METADATA_KEYS = {"cwd", "workspacePath", "worktreePath"}
 
 _DEFAULT_ENV_KEYS = ("HOME", "PATH", "SHELL", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL")
 
@@ -33,8 +34,9 @@ def validate_session_start_user_metadata(metadata: dict[str, Any] | None) -> Non
     if metadata is None:
         return
     for key in metadata:
-        if str(key).startswith(RESERVED_PREFIX):
-            raise ValueError(f"agent session metadata key {key!r} is reserved for Gestalt lifecycle data")
+        key = str(key)
+        if key.startswith(RESERVED_PREFIX) or key in RESERVED_METADATA_KEYS:
+            raise ValueError(f"agent session metadata key {key!r} is reserved for Gestalt lifecycle or workspace data")
 
 
 def prepend_session_start_context(messages: list[dict[str, Any]], metadata: dict[str, Any]) -> list[dict[str, Any]]:

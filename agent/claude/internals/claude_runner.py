@@ -75,6 +75,7 @@ class ClaudeSDKRunner:
         messages: list[dict[str, Any]],
         run_grant: str,
         plugin_paths: list[str] | None = None,
+        cwd: str = "",
     ) -> str:
         try:
             return asyncio.run(
@@ -86,6 +87,7 @@ class ClaudeSDKRunner:
                         messages=messages,
                         run_grant=run_grant,
                         plugin_paths=plugin_paths or [],
+                        cwd=cwd,
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -122,6 +124,7 @@ class ClaudeSDKRunner:
         messages: list[dict[str, Any]],
         run_grant: str,
         plugin_paths: list[str],
+        cwd: str,
     ) -> str:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
@@ -133,7 +136,12 @@ class ClaudeSDKRunner:
 
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
                 options = self._options(
-                    model=model, session_id=session_id, turn_id=turn_id, run_grant=run_grant, plugin_paths=plugin_paths
+                    model=model,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    run_grant=run_grant,
+                    plugin_paths=plugin_paths,
+                    cwd=cwd,
                 )
                 _set_config_dir(options, config_dir)
                 client = self._client_factory(options=options)
@@ -207,7 +215,14 @@ class ClaudeSDKRunner:
         return ""
 
     def _options(
-        self, *, model: str, session_id: str, turn_id: str, run_grant: str, plugin_paths: list[str] | None = None
+        self,
+        *,
+        model: str,
+        session_id: str,
+        turn_id: str,
+        run_grant: str,
+        plugin_paths: list[str] | None = None,
+        cwd: str = "",
     ) -> Any:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
@@ -223,7 +238,7 @@ class ClaudeSDKRunner:
                 )
             },
             model=model,
-            cwd=self._config.working_directory or None,
+            cwd=cwd or self._config.working_directory or None,
             system_prompt=_system_prompt(self._config.system_prompt),
             permission_mode=cast(PermissionMode, self._config.permission_mode),
             cli_path=self._config.cli_path or None,

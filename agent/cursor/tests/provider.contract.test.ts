@@ -358,6 +358,69 @@ describe("Cursor agent provider contract", () => {
     expect(existsSync(cursor.stateRoots[0] ?? "")).toBe(false);
   });
 
+  test("prepared workspace cwd overrides configured working directory", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "workspace" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    const preparedCwd = join(tmpdir(), "gestalt-prepared-cursor-workspace");
+    const cursor = new FakeCursorAgentFactory(async (options) => {
+      expect(options.local?.cwd).toBe(preparedCwd);
+      expect(options.platform?.workspaceRef).toBe(preparedCwd);
+      return [
+        {
+          type: "assistant",
+          agent_id: "fake-agent",
+          run_id: "fake-run",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "workspace ok" }],
+          },
+        },
+      ];
+    });
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+    await provider.createSession({
+      sessionId: "session-workspace",
+      idempotencyKey: "",
+      model: "",
+      clientRef: "",
+      preparedWorkspace: { root: tmpdir(), cwd: preparedCwd },
+    } as never);
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "turn-workspace",
+        sessionId: "session-workspace",
+        messages: [{ role: "user", text: "inspect repo" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ plugin: "p", operation: "o" }],
+      }),
+    );
+    await waitForTurn(
+      provider,
+      "turn-workspace",
+      AgentExecutionStatus.SUCCEEDED,
+    );
+  });
+
+  test("prepared workspace requires both root and cwd", async () => {
+    const provider = await configuredProvider();
+    await expect(
+      provider.createSession({
+        sessionId: "session-bad-workspace",
+        idempotencyKey: "",
+        model: "",
+        clientRef: "",
+        preparedWorkspace: { root: tmpdir(), cwd: "" },
+      } as never),
+    ).rejects.toThrow("preparedWorkspace root and cwd are required");
+  });
+
   test("configured sandbox flag is forwarded and absent when unset", async () => {
     const cursor = new FakeCursorAgentFactory(async (options) => {
       expect(options.local?.sandboxOptions).toEqual({ enabled: true });

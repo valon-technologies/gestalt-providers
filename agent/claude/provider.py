@@ -83,6 +83,11 @@ class ClaudeCodeAgentProvider(
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise RuntimeError("unreachable after context.abort") from exc
+        try:
+            prepared_workspace = _prepared_workspace_to_dict(_optional_field(request, "prepared_workspace"))
+        except ValueError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("unreachable after context.abort") from exc
         idempotency_key = str(request.idempotency_key or "").strip()
         session_start = _optional_field(request, "session_start")
         if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
@@ -106,6 +111,7 @@ class ClaudeCodeAgentProvider(
                         model=model,
                         client_ref=str(request.client_ref or "").strip(),
                         metadata=metadata,
+                        prepared_workspace=prepared_workspace,
                         created_by=_actor_to_dict(request.created_by),
                     ),
                 )
@@ -119,6 +125,7 @@ class ClaudeCodeAgentProvider(
                 model=model,
                 client_ref=str(request.client_ref or "").strip(),
                 metadata=metadata,
+                prepared_workspace=prepared_workspace,
                 created_by=_actor_to_dict(request.created_by),
             ),
         )
@@ -192,6 +199,7 @@ class ClaudeCodeAgentProvider(
         plugin_paths = session_start_metadata_paths(
             session.metadata, "claudePluginPaths", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
         )
+        cwd = _prepared_workspace_cwd(session.prepared_workspace)
         try:
             turn, created = self._store_call(
                 context,
@@ -224,6 +232,7 @@ class ClaudeCodeAgentProvider(
                     "messages": list(turn.messages),
                     "run_grant": str(request.run_grant or "").strip(),
                     "plugin_paths": plugin_paths,
+                    "cwd": cwd,
                 },
                 daemon=True,
             ).start()
@@ -316,6 +325,8 @@ class ClaudeCodeAgentProvider(
         )
         if hasattr(caps, "supports_session_start"):
             caps.supports_session_start = True
+        if hasattr(caps, "supports_prepared_workspace"):
+            caps.supports_prepared_workspace = True
         return caps
 
     def _require_runtime(
@@ -343,6 +354,7 @@ class ClaudeCodeAgentProvider(
         messages: list[dict[str, Any]],
         run_grant: str,
         plugin_paths: list[str],
+        cwd: str,
     ) -> None:
         try:
             output = runner.run_turn(
@@ -352,6 +364,7 @@ class ClaudeCodeAgentProvider(
                 messages=messages,
                 run_grant=run_grant,
                 plugin_paths=plugin_paths,
+                cwd=cwd,
             )
         except ClaudeExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))
@@ -594,6 +607,24 @@ def _struct_to_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     return json_format.MessageToDict(value)
+
+
+def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
+    if value is None:
+        return None
+    root = str(getattr(value, "root", "") or "").strip()
+    cwd = str(getattr(value, "cwd", "") or "").strip()
+    if not root and not cwd:
+        return None
+    if not root or not cwd:
+        raise ValueError("prepared_workspace root and cwd are required")
+    return {"root": root, "cwd": cwd}
+
+
+def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
+    if not value:
+        return ""
+    return str(value.get("cwd") or "").strip()
 
 
 def _optional_field(message: Any, field_name: str) -> Any | None:

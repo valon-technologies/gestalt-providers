@@ -53,6 +53,7 @@ export class CursorSDKRunner {
     model: string;
     messages: AgentMessage[];
     runGrant: string;
+    cwd: string;
     onEvent: TurnEventSink;
   }): Promise<string> {
     const active: ActiveTurn = {
@@ -109,6 +110,7 @@ export class CursorSDKRunner {
       model: string;
       messages: AgentMessage[];
       runGrant: string;
+      cwd: string;
       onEvent: TurnEventSink;
     },
     active: ActiveTurn,
@@ -144,9 +146,10 @@ export class CursorSDKRunner {
 
       active.agent = await this.createAgent(
         input,
-        active.bridge,
-        active.stateRoot,
-      );
+      active.bridge,
+      active.stateRoot,
+      input.cwd,
+    );
       await this.raiseIfCanceled(active);
 
       const prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
@@ -180,9 +183,11 @@ export class CursorSDKRunner {
     input: { turnId: string; model: string },
     bridge: StartedMcpBridge,
     stateRoot: string,
+    cwd: string,
   ): Promise<SDKAgent> {
+    const workingDirectory = cwd || this.config.workingDirectory;
     const local: NonNullable<AgentOptions["local"]> = {
-      cwd: this.config.workingDirectory,
+      cwd: workingDirectory,
       settingSources: [],
       ...(this.config.sandboxEnabled !== undefined
         ? { sandboxOptions: { enabled: this.config.sandboxEnabled } }
@@ -201,7 +206,7 @@ export class CursorSDKRunner {
       agents: {},
       local,
       platform: {
-        ...createCursorPlatformOptions(this.config.workingDirectory),
+        ...createCursorPlatformOptions(workingDirectory),
         stateRoot,
       } as AgentOptions["platform"],
       ...(this.config.cursorApiKey ? { apiKey: this.config.cursorApiKey } : {}),

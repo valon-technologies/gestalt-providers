@@ -14,6 +14,11 @@ type AgentSessionInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["cre
 type AgentTurnInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>>;
 type AgentTurnEventInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>>[number];
 
+export type PreparedWorkspace = {
+  root: string;
+  cwd: string;
+};
+
 export const TERMINAL_STATUSES = new Set<AgentExecutionStatus>([
   AgentExecutionStatus.SUCCEEDED,
   AgentExecutionStatus.FAILED,
@@ -35,6 +40,7 @@ export type StoredSession = {
   clientRef: string;
   state: AgentSessionState;
   metadata: Record<string, unknown>;
+  preparedWorkspace: PreparedWorkspace | undefined;
   createdBy: AgentActor | undefined;
   createdAt: Date;
   updatedAt: Date;
@@ -91,6 +97,7 @@ export class InMemoryRunStore {
     model: string;
     clientRef: string;
     metadata: Record<string, unknown>;
+    preparedWorkspace: PreparedWorkspace | undefined;
     createdBy: AgentActor | undefined;
   }): { session: StoredSession; created: boolean } {
     const sessionId = input.sessionId.trim();
@@ -119,6 +126,7 @@ export class InMemoryRunStore {
       clientRef: input.clientRef,
       state: AgentSessionState.ACTIVE,
       metadata: cloneRecord(input.metadata),
+      preparedWorkspace: cloneMaybe(input.preparedWorkspace),
       createdBy: cloneMaybe(input.createdBy),
       createdAt: now,
       updatedAt: now,
@@ -461,6 +469,7 @@ function cloneSession(session: StoredSession): StoredSession {
   const copy: StoredSession = {
     ...session,
     metadata: cloneRecord(session.metadata),
+    preparedWorkspace: cloneMaybe(session.preparedWorkspace),
     createdBy: cloneMaybe(session.createdBy),
     createdAt: new Date(session.createdAt),
     updatedAt: new Date(session.updatedAt),
