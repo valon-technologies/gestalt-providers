@@ -204,6 +204,11 @@ request conversation operation for PR timeline comments, and the issue comment
 operation for Issues. `allowedOperations` can narrow or replace those defaults;
 an explicit empty list grants no tools. Reaction, label, reviewer-request, and
 review-thread resolution tools are explicit opt-ins through `allowedOperations`.
+Set `action.allowCodeReviewComments: false` to remove PR review comment tools
+even when `mode` or `allowedOperations` would otherwise expose them. Set
+`action.allowSelfFix: false` to remove code-changing self-fix tools
+(`bot.commitFiles`, `bot.openPullRequest`, and `bot.createPullRequest`) from the
+effective tool list.
 
 Use `trigger`, `dedupe`, and `comments` to make webhook-triggered agents less
 noisy:
@@ -226,6 +231,8 @@ webhookPolicies:
       suppressStaleHead: true
     action:
       mode: comment
+      allowCodeReviewComments: false
+      allowSelfFix: false
   - id: manual-pr-review
     match:
       events: [issue_comment, pull_request_review_comment]
@@ -261,7 +268,9 @@ provider semantics rather than GitHub SDK enum names; GitHub's REST and GraphQL
 APIs do not expose matching configuration enums for bot review noisiness. For
 built-in GitHub workflow targets, the provider rejects contradictory
 configuration such as `comments.inlinePolicy: never` with
-`workflow.target.plugin.operation: reviewPullRequest`.
+`workflow.target.plugin.operation: reviewPullRequest`. It also rejects
+`action.allowCodeReviewComments: false` for that built-in review target because
+the target's purpose is to post validated inline review comments.
 For CI webhook events, `comments.suppressStaleHead: true` fetches the current PR
 head before dispatch and ignores the event when the failed CI SHA is no longer
 the PR head SHA.

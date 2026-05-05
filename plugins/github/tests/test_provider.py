@@ -528,6 +528,14 @@ class GitHubProviderTests(unittest.TestCase):
             policy_schema["comments"]["properties"]["suppressStaleHead"]["type"],
             "boolean",
         )
+        self.assertEqual(
+            policy_schema["action"]["properties"]["allowCodeReviewComments"]["type"],
+            "boolean",
+        )
+        self.assertEqual(
+            policy_schema["action"]["properties"]["allowSelfFix"]["type"],
+            "boolean",
+        )
 
     def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
         def fake_urlopen(
@@ -1391,6 +1399,76 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             timeline_operations,
         )
+
+    def test_policy_action_gates_filter_code_review_and_self_fix_tools(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "no-review-no-fix",
+                        "action": {
+                            "mode": "pull_request",
+                            "allowCodeReviewComments": False,
+                            "allowSelfFix": False,
+                            "allowedOperations": [
+                                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+                                provider_module.BOT_COMMIT_FILES_OPERATION,
+                                provider_module.BOT_OPEN_PULL_REQUEST_OPERATION,
+                                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+        request = self._workflow_signal_request(
+            {
+                "action": "opened",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "pull_request": {"number": 7},
+                "headers": {"X-GitHub-Event": "pull_request"},
+                "sender": {"login": "octocat"},
+            }
+        )
+
+        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        self.assertEqual(
+            operations,
+            [
+                provider_module.BOT_GET_PULL_REQUEST_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            ],
+        )
+        system_prompt = request.target.agent.messages[0].text
+        self.assertIn("disables code review comments", system_prompt)
+        self.assertIn("disables self-fix tools", system_prompt)
+        self.assertNotIn("bot.createPullRequestReview", system_prompt)
+        self.assertNotIn("bot.commitFiles", system_prompt)
+        data = cast(
+            dict[str, Any],
+            json_format.MessageToDict(request.signal.payload),
+        )
+        self.assertEqual(data["webhook_policy"]["tool_refs"], operations)
+        self.assertEqual(
+            data["webhook_policy"]["action"]["allow_code_review_comments"], False
+        )
+        self.assertEqual(data["webhook_policy"]["action"]["allow_self_fix"], False)
+        self.assertIn(
+            "allow_code_review_comments: False",
+            data["agent_request"]["user_prompt"],
+        )
+        self.assertIn("allow_self_fix: False", data["agent_request"]["user_prompt"])
 
     def test_policy_manual_commands_and_drafts_fall_through(self) -> None:
         provider_module.configure(
@@ -2886,6 +2964,25 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 },
                 "comments.inlinePolicy cannot be never",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "gated-review-target",
+                            "action": {"allowCodeReviewComments": False},
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github",
+                                        "operation": "reviewPullRequest",
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                "action.allowCodeReviewComments cannot be false",
             ),
         ):
             with self.subTest(expected=expected):

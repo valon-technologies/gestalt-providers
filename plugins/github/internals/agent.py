@@ -245,6 +245,16 @@ def agent_system_prompt(policy: GitHubWebhookPolicy | None = None) -> str:
 def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
     operations = set(agent_operations(policy))
     lines: list[str] = []
+    if policy is not None and not policy.allow_code_review_comments:
+        lines.append(
+            "Do not post pull request code review comments; this policy disables "
+            "code review comments."
+        )
+    if policy is not None and not policy.allow_self_fix:
+        lines.append(
+            "Do not commit code changes, open pull requests, or otherwise self-fix "
+            "the pull request; this policy disables self-fix tools."
+        )
     if (
         BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations
         and BOT_LIST_PULL_REQUEST_FILES_OPERATION in operations
@@ -343,6 +353,10 @@ def agent_user_prompt(
         lines.append(f"timeline_policy: {policy.comments.timeline_policy}")
         lines.append(f"inline_policy: {policy.comments.inline_policy}")
         lines.append(f"suppress_stale_head: {policy.comments.suppress_stale_head}")
+        lines.append(
+            f"allow_code_review_comments: {policy.allow_code_review_comments}"
+        )
+        lines.append(f"allow_self_fix: {policy.allow_self_fix}")
         operations = agent_operations(policy)
         if operations:
             lines.append(f"available_operations: {', '.join(operations)}")
@@ -589,6 +603,10 @@ def policy_metadata(
             "manual_commands": list(policy.trigger.manual_commands),
         },
         "dedupe": {"scope": policy.dedupe.scope},
+        "action": {
+            "allow_code_review_comments": policy.allow_code_review_comments,
+            "allow_self_fix": policy.allow_self_fix,
+        },
         "comments": {
             "timeline_policy": policy.comments.timeline_policy,
             "inline_policy": policy.comments.inline_policy,
