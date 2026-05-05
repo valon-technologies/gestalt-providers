@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+import sys
 import tempfile
 import time
 import types as py_types
@@ -24,6 +25,7 @@ from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge
+from internals.session_start import prepend_session_start_context, run_session_start_hooks
 from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 
 agent_pb2: Any = cast(Any, _agent_pb2)
@@ -243,6 +245,29 @@ class ClaudeProviderTests(unittest.TestCase):
         _indexeddb_servicer.reset()
         _FakeClaudeSDKClient.mode = "success"
         _FakeClaudeSDKClient.instances.clear()
+
+    def test_session_start_hooks_capture_context_and_metadata(self) -> None:
+        hook = py_types.SimpleNamespace(
+            id="load-memory",
+            type="command",
+            command=[sys.executable, "-c", "print('session context')"],
+            cwd="",
+            timeout="5s",
+            env={},
+            output=py_types.SimpleNamespace(additional_context=True, metadata=True),
+        )
+
+        metadata = run_session_start_hooks(py_types.SimpleNamespace(hooks=[hook]), {"caller": "kept"})
+
+        self.assertEqual(metadata["caller"], "kept")
+        self.assertEqual(
+            metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["stdout"],
+            "session context\n",
+        )
+        self.assertEqual(metadata["__gestalt.lifecycle.sessionStart.additionalContext"], "session context")
+        messages = prepend_session_start_context([{"role": "user", "text": "hello"}], metadata)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("session context", messages[0]["text"])
 
     def test_provider_completes_turn_through_agent_sdk_with_catalog_tools(self) -> None:
         host = _host_servicer
