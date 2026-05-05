@@ -177,6 +177,13 @@ packages:
     displayName: "Cursor Agent SDK"
     description: "Agent provider that runs the Cursor Agent SDK with Gestalt MCP catalog tools exposed through a per-turn MCP server."
     versions:
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/cursor/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "agent"
+        runtime: "executable"
+        platforms:
+          - "linux/amd64"
+          - "linux/arm64"
       "0.0.1-alpha.2":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/cursor/v0.0.1-alpha.2/provider-release.yaml"
         kind: "agent"
