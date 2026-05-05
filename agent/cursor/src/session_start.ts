@@ -107,6 +107,7 @@ async function runHook(hook: Record<string, unknown>): Promise<{
     throw new Error(`sessionStart hook ${JSON.stringify(id)} failed: ${detail}`);
   }
   const output = isRecord(hook.output) ? hook.output : {};
+  const stdoutPayload = jsonStdoutPayload(completed.stdout);
   const result: Record<string, unknown> = {
     status: "succeeded",
     exitCode: completed.code,
@@ -114,12 +115,21 @@ async function runHook(hook: Record<string, unknown>): Promise<{
     timedOut: false,
   };
   if (output.metadata === true) {
+    if (isRecord(stdoutPayload.metadata)) {
+      result.metadata = stdoutPayload.metadata;
+    }
     result.stdout = completed.stdout;
     result.stderr = completed.stderr;
   }
+  const payloadContext = stdoutPayload.additionalContext;
   return {
     result,
-    additionalContext: output.additionalContext === true ? completed.stdout.trim() : "",
+    additionalContext:
+      output.additionalContext === true
+        ? payloadContext === undefined
+          ? completed.stdout.trim()
+          : String(payloadContext).trim()
+        : "",
   };
 }
 
@@ -195,6 +205,19 @@ function parseTimeoutMs(value: string): number | undefined {
 
 function hookId(hook: Record<string, unknown>): string {
   return String(hook.id ?? "").trim();
+}
+
+function jsonStdoutPayload(stdout: string): Record<string, unknown> {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    return {};
+  }
+  try {
+    const payload: unknown = JSON.parse(trimmed);
+    return isRecord(payload) ? payload : {};
+  } catch {
+    return {};
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

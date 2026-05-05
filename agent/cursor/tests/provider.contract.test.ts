@@ -143,6 +143,117 @@ describe("Cursor agent provider contract", () => {
     }
   });
 
+  test("sessionStart hooks run once and prepend context to turns", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "linear__issues" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    let prompt = "";
+    const cursor = new FakeCursorAgentFactory(async (_options, runPrompt) => {
+      prompt = runPrompt;
+      return [
+        {
+          type: "assistant",
+          agent_id: "fake-agent",
+          run_id: "fake-run",
+          message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+        },
+      ];
+    });
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+
+    const created = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "session-start",
+        idempotencyKey: "session-start-idem",
+        sessionStart: {
+          hooks: [
+            {
+              id: "load-context",
+              type: "command",
+              command: ["/bin/sh", "-c", "printf '%s\\n' 'cursor context'"],
+              timeout: "5s",
+              output: { additionalContext: true, metadata: true },
+            },
+          ],
+        },
+      }),
+    );
+    expect(
+      (created.metadata?.["__gestalt.lifecycle.sessionStart.results.load-context"] as any)
+        ?.stdout,
+    ).toBe("cursor context\n");
+
+    const replay = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "session-start-replay",
+        idempotencyKey: "session-start-idem",
+        sessionStart: {
+          hooks: [
+            {
+              id: "should-not-run",
+              type: "command",
+              command: ["/bin/sh", "-c", "exit 7"],
+              output: { metadata: true },
+            },
+          ],
+        },
+      }),
+    );
+    expect(replay.id).toBe("session-start");
+
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "session-start-turn",
+        sessionId: "session-start",
+        messages: [{ role: "user", text: "hi" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ plugin: "linear", operation: "issues" }],
+      }),
+    );
+    await waitForTurn(
+      provider,
+      "session-start-turn",
+      AgentExecutionStatus.SUCCEEDED,
+    );
+
+    expect(prompt).toContain("Session start context");
+    expect(prompt).toContain("cursor context");
+  });
+
+  test("sessionStart reserved metadata is rejected on create and update", async () => {
+    const provider = await configuredProvider();
+    await expect(
+      provider.createSession(
+        create(CreateAgentProviderSessionRequestSchema, {
+          sessionId: "reserved-create",
+          metadata: {
+            "__gestalt.lifecycle.sessionStart.additionalContext": "spoofed",
+          },
+        }),
+      ),
+    ).rejects.toThrow(ConnectError);
+
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "reserved-update",
+      }),
+    );
+    await expect(
+      provider.updateSession({
+        sessionId: "reserved-update",
+        metadata: {
+          "__gestalt.lifecycle.sessionStart.additionalContext": "spoofed",
+        },
+      } as never),
+    ).rejects.toThrow(ConnectError);
+  });
+
   test("runs a turn through Cursor SDK options, MCP tools, and AgentHost ExecuteTool", async () => {
     const host = await FakeAgentHost.start({
       pages: [

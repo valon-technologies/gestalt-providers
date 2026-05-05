@@ -89,7 +89,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     super({
       displayName: "Cursor Agent SDK",
       description: "Runs the Cursor Agent SDK with Gestalt MCP catalog tools.",
-      version: "0.0.1-alpha.1",
+      version: "0.0.1-alpha.3",
     });
     this.store = dependencies.store ?? new InMemoryRunStore();
     this.runnerFactory = dependencies.runnerFactory;
@@ -214,7 +214,11 @@ export class CursorAgentProvider extends SDKAgentProvider {
     this.requireRuntime();
     const metadata =
       request.metadata === undefined ? undefined : objectOrEmpty(request.metadata);
-    validateSessionStartUserMetadata(metadata);
+    try {
+      validateSessionStartUserMetadata(metadata);
+    } catch (error) {
+      throw invalidArgument(errorMessage(error));
+    }
     const session = this.store.updateSession({
       sessionId: request.sessionId,
       clientRef: request.clientRef,

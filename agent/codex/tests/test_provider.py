@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
+import sys
 import tempfile
 import time
 import unittest
@@ -142,11 +144,15 @@ class _FakeCodexMCPServer:
         self.cleanup_count = 0
         self.called_tool = ""
         self.called_arguments: dict[str, Any] = {}
+        self.skill_names_at_connect: list[str] = []
         self._cleanup_event: asyncio.Event | None = None
         self.instances.append(self)
 
     async def connect(self) -> None:
         self.connected = True
+        skills_dir = os.path.join(str(self.params["env"].get("CODEX_HOME", "")), "skills")
+        if os.path.isdir(skills_dir):
+            self.skill_names_at_connect = sorted(os.listdir(skills_dir))
         self._cleanup_event = asyncio.Event()
 
     async def list_tools(self) -> list[Any]:
@@ -274,6 +280,51 @@ class CodexProviderTests(unittest.TestCase):
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["run_grant"], "grant-codex")
+
+    def test_provider_materializes_session_start_skills_for_codex_home(self) -> None:
+        _, provider_client = _configure_provider()
+        with tempfile.TemporaryDirectory() as marketplace:
+            skill_roots: dict[str, str] = {}
+            for bundle in ("mortgage", "vds", "tools", "rnb", "gestalt"):
+                root = os.path.join(marketplace, bundle, "skills")
+                os.makedirs(os.path.join(root, f"{bundle}-skill"))
+                with open(os.path.join(root, f"{bundle}-skill", "SKILL.md"), "w", encoding="utf-8") as handle:
+                    handle.write(f"# {bundle}\n")
+                skill_roots[bundle] = root
+            payload = {
+                "metadata": {
+                    "codexSkillRoots": [
+                        skill_roots["mortgage"],
+                        skill_roots["vds"],
+                        skill_roots["tools"],
+                        skill_roots["rnb"],
+                        skill_roots["gestalt"],
+                    ]
+                },
+                "additionalContext": "Loaded Toolshed marketplace bundles: mortgage, vds, tools, rnb.",
+            }
+            session_start = agent_pb2.AgentSessionStartConfig()
+            hook = session_start.hooks.add()
+            hook.id = "load-marketplace"
+            hook.type = "command"
+            hook.command.extend([sys.executable, "-c", "import sys; print(sys.argv[1])", json.dumps(payload)])
+            hook.timeout = "5s"
+            hook.output.additional_context = True
+            hook.output.metadata = True
+
+            provider_client.CreateSession(
+                agent_pb2.CreateAgentProviderSessionRequest(
+                    session_id="session-codex-skills", session_start=session_start
+                )
+            )
+            provider_client.CreateTurn(_turn_request(turn_id="turn-codex-skills", session_id="session-codex-skills"))
+            _wait_for_turn(provider_client, "turn-codex-skills", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+            fake_server = _FakeCodexMCPServer.instances[-1]
+            self.assertEqual(
+                fake_server.skill_names_at_connect, ["mortgage-skill", "rnb-skill", "tools-skill", "vds-skill"]
+            )
+            self.assertIn("Loaded Toolshed marketplace bundles", fake_server.called_arguments["prompt"])
 
     def test_enabled_tools_come_from_list_tools_not_tool_refs(self) -> None:
         _, provider_client = _configure_provider()

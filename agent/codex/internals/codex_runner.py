@@ -5,6 +5,8 @@ import concurrent.futures
 import json
 import logging
 import os
+import pathlib
+import shutil
 import tempfile
 import threading
 from contextlib import AsyncExitStack
@@ -103,13 +105,25 @@ class CodexMCPRunner:
         self._canceled_turns: set[str] = set()
 
     def run_turn(
-        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], run_grant: str
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        run_grant: str,
+        skill_roots: list[str] | None = None,
     ) -> str:
         try:
             return asyncio.run(
                 asyncio.wait_for(
                     self._run_turn(
-                        session_id=session_id, turn_id=turn_id, model=model, messages=messages, run_grant=run_grant
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        model=model,
+                        messages=messages,
+                        run_grant=run_grant,
+                        skill_roots=skill_roots or [],
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -137,7 +151,14 @@ class CodexMCPRunner:
                 _schedule_cleanup(active.loop, active.server)
 
     async def _run_turn(
-        self, *, session_id: str, turn_id: str, model: str, messages: list[dict[str, Any]], run_grant: str
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        run_grant: str,
+        skill_roots: list[str],
     ) -> str:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
@@ -173,6 +194,7 @@ class CodexMCPRunner:
             self._raise_if_canceled(turn_id)
 
             with tempfile.TemporaryDirectory(prefix="gestalt-codex-home-") as codex_home:
+                _materialize_codex_skills(codex_home=codex_home, skill_roots=skill_roots)
                 server = self._server_factory(
                     params=cast(Any, self._server_params(codex_home=codex_home)),
                     name="Codex CLI",
@@ -313,6 +335,31 @@ def normalize_codex_result(result: Any) -> str:
         if text is not None:
             text_parts.append(str(text))
     return "\n".join(part for part in text_parts if part).strip()
+
+
+def _materialize_codex_skills(*, codex_home: str, skill_roots: list[str]) -> None:
+    if not skill_roots:
+        return
+    target_root = pathlib.Path(codex_home) / "skills"
+    target_root.mkdir(parents=True, exist_ok=True)
+    used_names: set[str] = set()
+    for raw_root in skill_roots:
+        source_root = pathlib.Path(raw_root)
+        if not source_root.is_dir():
+            continue
+        bundle_name = source_root.parent.name
+        for skill_dir in sorted(source_root.iterdir(), key=lambda path: path.name):
+            if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").is_file():
+                continue
+            target_name = skill_dir.name
+            if target_name in used_names:
+                target_name = f"{bundle_name}-{skill_dir.name}"
+            used_names.add(target_name)
+            target = target_root / target_name
+            try:
+                target.symlink_to(skill_dir, target_is_directory=True)
+            except OSError:
+                shutil.copytree(skill_dir, target, symlinks=True, dirs_exist_ok=True)
 
 
 def messages_to_prompt(messages: list[dict[str, Any]]) -> str:
