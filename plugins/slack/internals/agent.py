@@ -7,9 +7,7 @@ import hmac
 import json
 import logging
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 from http import HTTPStatus
 from typing import Any, Iterable, TypeAlias, cast
@@ -64,14 +62,11 @@ from .operations import (
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
-PostConnectMetadata: TypeAlias = dict[str, str]
 
 struct_pb2: Any = _struct_pb2
 
 logger = logging.getLogger(__name__)
 
-SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test"
-SLACK_DEFAULT_CONNECTION = "default"
 SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
 SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
 SLACK_EVENT_OPERATION = "events.handle"
@@ -98,8 +93,6 @@ SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
-EXTERNAL_IDENTITY_TYPE_METADATA_KEY = "gestalt.external_identity.type"
-EXTERNAL_IDENTITY_ID_METADATA_KEY = "gestalt.external_identity.id"
 DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
@@ -275,23 +268,6 @@ def configure_agent(name: str, config: dict[str, Any]) -> None:
     global _agent_config
 
     _agent_config = agent_config_from_provider_config(name, config)
-
-
-def post_connect_metadata(token: gestalt.ConnectedToken) -> PostConnectMetadata:
-    if token.connection != SLACK_DEFAULT_CONNECTION:
-        return {}
-    if not token.access_token:
-        raise RuntimeError("Slack post-connect requires an access token")
-
-    identity = _auth_test(token.access_token)
-    return {
-        EXTERNAL_IDENTITY_TYPE_METADATA_KEY: SLACK_EXTERNAL_IDENTITY_TYPE,
-        EXTERNAL_IDENTITY_ID_METADATA_KEY: slack_external_identity_id(
-            identity["team_id"], identity["user_id"]
-        ),
-        "slack.team_id": identity["team_id"],
-        "slack.user_id": identity["user_id"],
-    }
 
 
 def resolve_slack_http_subject(
@@ -2900,41 +2876,6 @@ def _dict_to_struct(data: dict[str, Any]) -> Any:
     struct = struct_pb2.Struct()
     struct.update(data)
     return struct
-
-
-def _auth_test(access_token: str) -> PostConnectMetadata:
-    request = urllib.request.Request(
-        SLACK_AUTH_TEST_URL,
-        data=b"",
-        headers={"Authorization": f"Bearer {access_token}"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as err:
-        body = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"slack auth.test HTTP error (status {err.code}): {body}"
-        ) from err
-    except urllib.error.URLError as err:
-        raise RuntimeError(f"slack auth.test request failed: {err.reason}") from err
-    except json.JSONDecodeError as err:
-        raise RuntimeError("slack auth.test returned invalid JSON") from err
-
-    if not isinstance(payload, dict):
-        raise RuntimeError("slack auth.test returned invalid response")
-    if not payload.get("ok"):
-        error = payload.get("error")
-        if not isinstance(error, str) or not error:
-            error = "unknown_error"
-        raise RuntimeError(f"slack auth.test failed: {error}")
-
-    team_id = payload.get("team_id")
-    user_id = payload.get("user_id")
-    if not isinstance(team_id, str) or not isinstance(user_id, str):
-        raise RuntimeError("Slack auth.test did not return team_id and user_id")
-    return {"team_id": team_id, "user_id": user_id}
 
 
 def _bad_request(message: str) -> ErrorResponse:

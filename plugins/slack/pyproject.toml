@@ -23,7 +23,6 @@ provider = "provider"
 [tool.gestalt.ci]
 vulture-ignore-names = [
   "configure",
-  "post_connect",
   "resolve_http_subject",
   "slack_events_handle",
   "slack_interactions_handle",

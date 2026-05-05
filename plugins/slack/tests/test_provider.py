@@ -630,10 +630,29 @@ class SlackProviderTests(unittest.TestCase):
             connections["default"]["auth"]["accessTokenPath"],
             "authed_user.access_token",
         )
+        self.assertEqual(
+            connections["default"]["postConnect"],
+            {
+                "request": {
+                    "method": "POST",
+                    "url": "https://slack.com/api/auth.test",
+                },
+                "success": {"path": "ok", "equals": True},
+                "externalIdentity": {
+                    "type": "slack_identity",
+                    "id": "team:{team_id}:user:{user_id}",
+                },
+                "metadata": {
+                    "slack.team_id": "team_id",
+                    "slack.user_id": "user_id",
+                },
+            },
+        )
         bot_connection = connections["bot"]
         self.assertEqual(bot_connection["mode"], "platform")
         self.assertEqual(bot_connection["exposure"], "internal")
         self.assertEqual(bot_connection["auth"], {"type": "bearer"})
+        self.assertNotIn("postConnect", bot_connection)
         self.assertNotIn("instance" + "Selector", json.dumps(manifest))
 
         user_default_selector_operations = (
@@ -686,77 +705,6 @@ class SlackProviderTests(unittest.TestCase):
             self.assertEqual(operation["connection"], "bot")
             self.assertNotIn("connectionSelector", operation)
             self.assertNotIn("actor", _manifest_parameter_names(operation))
-
-    def test_post_connect_maps_default_connection_to_external_identity(self) -> None:
-        def fake_urlopen(
-            request: urllib.request.Request, timeout: float = 30
-        ) -> FakeHTTPResponse:
-            self.assertEqual(timeout, 30)
-            self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(request.full_url, provider_module.SLACK_AUTH_TEST_URL)
-            self.assertEqual(authorization_header(request), "Bearer user-token")
-            return FakeHTTPResponse(
-                """
-                {
-                  "ok": true,
-                  "team_id": "T123ABC456",
-                  "user_id": "U123ABC456"
-                }
-                """
-            )
-
-        with mock.patch(
-            "internals.agent.urllib.request.urlopen", side_effect=fake_urlopen
-        ):
-            metadata = provider_module.post_connect(
-                gestalt.ConnectedToken(
-                    access_token="user-token",
-                    connection=provider_module.SLACK_DEFAULT_CONNECTION,
-                    subject_id="subject-1",
-                )
-            )
-
-        self.assertEqual(
-            metadata,
-            {
-                "gestalt.external_identity.type": "slack_identity",
-                "gestalt.external_identity.id": "team:T123ABC456:user:U123ABC456",
-                "slack.team_id": "T123ABC456",
-                "slack.user_id": "U123ABC456",
-            },
-        )
-
-    def test_post_connect_skips_bot_connection(self) -> None:
-        with mock.patch("internals.agent.urllib.request.urlopen") as urlopen:
-            metadata = provider_module.post_connect(
-                gestalt.ConnectedToken(
-                    access_token="bot-token", connection="bot", subject_id="subject-1"
-                )
-            )
-
-        self.assertEqual(metadata, {})
-        urlopen.assert_not_called()
-
-    def test_post_connect_rejects_slack_identity_failure(self) -> None:
-        def fake_urlopen(
-            _request: urllib.request.Request, timeout: float = 30
-        ) -> FakeHTTPResponse:
-            self.assertEqual(timeout, 30)
-            return FakeHTTPResponse('{"ok": false, "error": "invalid_auth"}')
-
-        with mock.patch(
-            "internals.agent.urllib.request.urlopen", side_effect=fake_urlopen
-        ):
-            with self.assertRaisesRegex(
-                RuntimeError, "slack auth.test failed: invalid_auth"
-            ):
-                provider_module.post_connect(
-                    gestalt.ConnectedToken(
-                        access_token="bad-token",
-                        connection=provider_module.SLACK_DEFAULT_CONNECTION,
-                        subject_id="subject-1",
-                    )
-                )
 
     def test_http_subject_resolves_slack_user_through_managed_external_identity(
         self,
