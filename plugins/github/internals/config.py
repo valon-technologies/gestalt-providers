@@ -9,9 +9,12 @@ from typing import Any, cast
 from google.protobuf import struct_pb2 as _struct_pb2
 
 from .constants import (
+    BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
+    BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+    BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_OPERATION_ORDER,
     DEFAULT_WEBHOOK_EVENTS,
     DEFAULT_POLICY_OPERATIONS_BY_MODE,
@@ -125,6 +128,8 @@ class GitHubWebhookPolicy:
     agent_model_options: dict[str, Any] | None = None
     workflow_target: GitHubWorkflowPluginTarget | None = None
     action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
+    allow_code_review_comments: bool = True
+    allow_self_fix: bool = True
     allowed_operations: tuple[str, ...] = ()
 
 
@@ -316,9 +321,26 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 f"webhookPolicies[{index}].action.mode must be one of "
                 + ", ".join(WEBHOOK_POLICY_ACTION_MODES)
             )
+        allow_code_review_comments = optional_bool(
+            action_config,
+            "allowCodeReviewComments",
+            "allow_code_review_comments",
+            path=f"webhookPolicies[{index}].action.allowCodeReviewComments",
+            default=True,
+        )
+        allow_self_fix = optional_bool(
+            action_config,
+            "allowSelfFix",
+            "allow_self_fix",
+            path=f"webhookPolicies[{index}].action.allowSelfFix",
+            default=True,
+        )
 
         allowed_operations = policy_allowed_operations(
             action_config, action_mode, index
+        )
+        validate_policy_action_gates_for_workflow_target(
+            workflow_target, allow_code_review_comments, index
         )
         model_options = (
             config_dict(agent_config, "modelOptions", "model_options")
@@ -352,6 +374,8 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 agent_model_options=model_options,
                 workflow_target=workflow_target,
                 action_mode=action_mode,
+                allow_code_review_comments=allow_code_review_comments,
+                allow_self_fix=allow_self_fix,
                 allowed_operations=allowed_operations,
             )
         )
@@ -453,6 +477,23 @@ def effective_policy_operations(policy: GitHubWebhookPolicy) -> tuple[str, ...]:
             for operation in operations
             if operation != BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION
         ]
+    if not policy.allow_code_review_comments:
+        operations = [
+            operation
+            for operation in operations
+            if operation != BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION
+        ]
+    if not policy.allow_self_fix:
+        operations = [
+            operation
+            for operation in operations
+            if operation
+            not in {
+                BOT_COMMIT_FILES_OPERATION,
+                BOT_OPEN_PULL_REQUEST_OPERATION,
+                BOT_CREATE_PULL_REQUEST_OPERATION,
+            }
+        ]
     return tuple(operations)
 
 
@@ -503,6 +544,24 @@ def validate_policy_comments_for_workflow_target(
         raise ValueError(
             f"webhookPolicies[{policy_index}].comments.inlinePolicy cannot be "
             "never when workflow.target.plugin uses github.reviewPullRequest"
+        )
+
+
+def validate_policy_action_gates_for_workflow_target(
+    target: GitHubWorkflowPluginTarget | None,
+    allow_code_review_comments: bool,
+    policy_index: int,
+) -> None:
+    if target is None:
+        return
+    if (
+        target.plugin_name == "github"
+        and target.operation == REVIEW_PULL_REQUEST_OPERATION
+        and not allow_code_review_comments
+    ):
+        raise ValueError(
+            f"webhookPolicies[{policy_index}].action.allowCodeReviewComments cannot "
+            "be false when workflow.target.plugin uses github.reviewPullRequest"
         )
 
 

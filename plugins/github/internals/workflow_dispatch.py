@@ -88,6 +88,10 @@ def _policy_data(policy: GitHubWebhookPolicy | None) -> dict[str, Any]:
             "manual_commands": list(policy.trigger.manual_commands),
         },
         "dedupe": {"scope": policy.dedupe.scope},
+        "action": {
+            "allow_code_review_comments": policy.allow_code_review_comments,
+            "allow_self_fix": policy.allow_self_fix,
+        },
         "comments": {
             "timeline_policy": policy.comments.timeline_policy,
             "inline_policy": policy.comments.inline_policy,

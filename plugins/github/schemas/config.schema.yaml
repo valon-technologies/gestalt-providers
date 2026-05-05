@@ -235,6 +235,17 @@ properties:
                 - branch_commit
                 - pull_request
               description: Semantic remediation mode for this policy.
+            allowCodeReviewComments:
+              type: boolean
+              description: >-
+                Whether this policy may expose pull request code review comment
+                tools such as bot.createPullRequestReview. Defaults to true.
+            allowSelfFix:
+              type: boolean
+              description: >-
+                Whether this policy may expose code-changing self-fix tools such
+                as bot.commitFiles, bot.openPullRequest, and
+                bot.createPullRequest. Defaults to true.
             allowedOperations:
               type: array
               description: >-
