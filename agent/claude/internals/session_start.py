@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass
 from typing import Any
 
 RESERVED_PREFIX = "__gestalt.lifecycle.sessionStart"
@@ -10,11 +9,6 @@ RESULTS_PREFIX = f"{RESERVED_PREFIX}.results"
 ADDITIONAL_CONTEXT_KEY = f"{RESERVED_PREFIX}.additionalContext"
 
 _DEFAULT_ENV_KEYS = ("HOME", "PATH", "SHELL", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL")
-
-
-@dataclass(slots=True)
-class SessionStartHookResult:
-    metadata: dict[str, Any]
 
 
 def run_session_start_hooks(session_start: Any, metadata: dict[str, Any]) -> dict[str, Any]:
