@@ -95,6 +95,19 @@ test.describe("Agents", () => {
             id: "evt_2",
             turnId: "agent_turn_123",
             seq: 2,
+            type: "tool.started",
+            visibility: "public",
+            data: {
+              tool_id: "linear-list",
+              status: "started",
+              arguments: { query: "Ada" },
+            },
+            createdAt: "2026-04-23T00:01:20Z",
+          },
+          {
+            id: "evt_3",
+            turnId: "agent_turn_123",
+            seq: 3,
             type: "tool.completed",
             visibility: "public",
             data: { toolName: "github", status: 200, output: { count: 2 } },
@@ -107,9 +120,9 @@ test.describe("Agents", () => {
             createdAt: "2026-04-23T00:01:30Z",
           },
           {
-            id: "evt_3",
+            id: "evt_4",
             turnId: "agent_turn_123",
-            seq: 3,
+            seq: 4,
             type: "private.secret",
             visibility: "private",
             data: { text: "do not show" },
@@ -117,9 +130,9 @@ test.describe("Agents", () => {
             createdAt: "2026-04-23T00:01:40Z",
           },
           {
-            id: "evt_4",
+            id: "evt_5",
             turnId: "agent_turn_123",
-            seq: 4,
+            seq: 5,
             type: "custom.public",
             visibility: "public",
             data: { note: "visible fallback" },
@@ -130,13 +143,35 @@ test.describe("Agents", () => {
     });
 
     await page.goto("/agents?session=agent_session_123&turn=agent_turn_123");
+    const activityPanel = page.locator("aside").filter({
+      has: page.getByRole("heading", { name: "Activity", exact: true }),
+    });
+    const startedTool = activityPanel.locator("details").filter({
+      hasText: "linear-list",
+    });
+    const customEvent = activityPanel.locator("details").filter({
+      hasText: "custom.public",
+    });
 
     await expect(page.getByRole("heading", { name: "triage-session" })).toBeVisible();
+    await expect(
+      activityPanel.getByRole("heading", { name: "Activity", exact: true }),
+    ).toBeVisible();
+    await expect(
+      activityPanel.getByRole("heading", { name: "Public Activity" }),
+    ).toBeVisible();
     await expect(page.getByText("Summarize open incidents.").first()).toBeVisible();
     await expect(page.getByText("Two incidents").first()).toBeVisible();
-    await expect(page.getByText("GitHub", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("visible fallback").first()).toBeVisible();
-    await expect(page.getByText("custom.public", { exact: true }).first()).toBeVisible();
+    await expect(startedTool.getByText("linear-list").first()).toBeVisible();
+    await expect(startedTool.getByText("started").first()).toBeVisible();
+    await expect(activityPanel.getByText("GitHub", { exact: true })).toBeVisible();
+    await expect(
+      customEvent.getByText("custom.public", { exact: true }).first(),
+    ).toBeVisible();
+    await startedTool.locator("summary").click();
+    await expect(startedTool.getByText('"query": "Ada"').first()).toBeVisible();
+    await customEvent.locator("summary").click();
+    await expect(customEvent.getByText("visible fallback").first()).toBeVisible();
     await expect(page.getByText("do not show")).toHaveCount(0);
   });
 
@@ -211,7 +246,7 @@ test.describe("Agents", () => {
     await page.getByLabel("Provider").selectOption("simple");
     await page.getByLabel("Model", { exact: true }).fill("fast");
     await page.getByLabel("User message").fill("Draft the launch notes.");
-    await page.getByLabel("Tools").selectOption("none");
+    await page.getByLabel("Tools", { exact: true }).selectOption("none");
     await page.getByRole("button", { name: "Create session" }).click();
 
     await expect(page.getByText("Agent turn started.")).toBeVisible();
@@ -257,7 +292,7 @@ test.describe("Agents", () => {
 
     await page.goto("/agents?session=agent_session_tools");
     await page.getByLabel("User message").fill("Summarize the latest open PRs.");
-    await page.getByLabel("Tools").selectOption("selected");
+    await page.getByLabel("Tools", { exact: true }).selectOption("selected");
     await page.getByLabel("Plugin").selectOption("github");
     await page.getByLabel("Operation").selectOption("pull_requests.list");
     await page.getByRole("button", { name: "Send turn" }).click();
