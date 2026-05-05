@@ -1,7 +1,7 @@
 import {
   test,
   expect,
-  mockAgentRuns,
+  mockAgentSessions,
   mockAuthInfo,
   mockIntegrationOperations,
   mockIntegrations,
@@ -18,7 +18,6 @@ test.describe("Agents", () => {
         name: "github",
         displayName: "GitHub",
         description: "Repository operations",
-        connected: true,
       },
     ]);
     await mockIntegrationOperations(authenticatedPage, {
@@ -31,97 +30,241 @@ test.describe("Agents", () => {
     });
   });
 
-  test("shows an empty state when no runs exist", async ({ authenticatedPage: page }) => {
-    await mockAgentRuns(page, []);
+  test("shows an empty state when no sessions exist", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAgentSessions(page, { sessions: [], turns: {} });
+
     await page.goto("/agents");
-    await expect(page.getByText("No agent runs yet.")).toBeVisible();
+
+    await expect(page.getByText("No agent sessions yet.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Agent Sessions" })).toBeVisible();
   });
 
-  test("shows run details for the selected run", async ({ authenticatedPage: page }) => {
-    await mockAgentRuns(page, [
-      {
-        id: "agent_run_123",
-        provider: "simple",
-        model: "fast",
-        status: "succeeded",
-        messages: [
-          { role: "user", text: "Summarize open incidents." },
-          { role: "assistant", text: "Two incidents are open." },
-        ],
-        outputText: "Two incidents are open.",
-        structuredOutput: { count: 2 },
-        statusMessage: "completed",
-        sessionRef: "session_123",
-        createdBy: {
-          subjectId: "user:123",
-          displayName: "Ada",
+  test("opens a deep-linked session console with transcript and public events", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAgentSessions(page, {
+      providers: [
+        {
+          name: "simple",
+          default: true,
+          capabilities: { supportedToolSources: ["mcp_catalog"] },
         },
-        createdAt: "2026-04-23T00:00:00Z",
-        startedAt: "2026-04-23T00:01:00Z",
-        completedAt: "2026-04-23T00:02:00Z",
-        executionRef: "agent_run_123",
+      ],
+      sessions: [
+        {
+          id: "agent_session_123",
+          provider: "simple",
+          model: "fast",
+          clientRef: "triage-session",
+          state: "active",
+          createdAt: "2026-04-23T00:00:00Z",
+          updatedAt: "2026-04-23T00:00:00Z",
+          lastTurnAt: "2026-04-23T00:02:00Z",
+        },
+      ],
+      turns: {
+        agent_session_123: [
+          {
+            id: "agent_turn_123",
+            sessionId: "agent_session_123",
+            provider: "simple",
+            model: "fast",
+            status: "succeeded",
+            messages: [{ role: "user", text: "Summarize open incidents." }],
+            outputText: "Two incidents are open.",
+            structuredOutput: { count: 2 },
+            createdAt: "2026-04-23T00:00:00Z",
+            completedAt: "2026-04-23T00:02:00Z",
+          },
+        ],
       },
-      {
-        id: "agent_run_456",
-        provider: "simple",
-        model: "deep",
-        status: "failed",
-        messages: [{ role: "user", text: "Review support escalations." }],
-        statusMessage: "model request failed",
-        createdAt: "2026-04-22T00:00:00Z",
+      events: {
+        agent_turn_123: [
+          {
+            id: "evt_1",
+            turnId: "agent_turn_123",
+            seq: 1,
+            type: "assistant.message",
+            visibility: "public",
+            data: { text: "Two incidents are open." },
+            createdAt: "2026-04-23T00:01:00Z",
+          },
+          {
+            id: "evt_2",
+            turnId: "agent_turn_123",
+            seq: 2,
+            type: "tool.completed",
+            visibility: "public",
+            data: { toolName: "github", status: 200, output: { count: 2 } },
+            display: {
+              kind: "tool",
+              phase: "completed",
+              label: "GitHub",
+              output: { count: 2 },
+            },
+            createdAt: "2026-04-23T00:01:30Z",
+          },
+          {
+            id: "evt_3",
+            turnId: "agent_turn_123",
+            seq: 3,
+            type: "private.secret",
+            visibility: "private",
+            data: { text: "do not show" },
+            display: { kind: "text", text: "do not show" },
+            createdAt: "2026-04-23T00:01:40Z",
+          },
+          {
+            id: "evt_4",
+            turnId: "agent_turn_123",
+            seq: 4,
+            type: "custom.public",
+            visibility: "public",
+            data: { note: "visible fallback" },
+            createdAt: "2026-04-23T00:01:50Z",
+          },
+        ],
       },
-    ]);
-
-    await page.goto("/agents");
-    const detailPanel = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Run Details" }),
     });
 
-    await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /Summarize open incidents/i }),
-    ).toBeVisible();
-    await expect(detailPanel.getByText("Two incidents are open.").first()).toBeVisible();
-    await expect(detailPanel.getByText("session_123")).toBeVisible();
-    await expect(detailPanel.getByText("\"count\": 2")).toBeVisible();
+    await page.goto("/agents?session=agent_session_123&turn=agent_turn_123");
 
-    await page.getByRole("button", { name: /Review support escalations/i }).click();
-    await expect(detailPanel.getByText("agent_run_456")).toBeVisible();
-    await expect(detailPanel.getByText("model request failed")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "triage-session" })).toBeVisible();
+    await expect(page.getByText("Summarize open incidents.").first()).toBeVisible();
+    await expect(page.getByText("Two incidents").first()).toBeVisible();
+    await expect(page.getByText("GitHub", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("visible fallback").first()).toBeVisible();
+    await expect(page.getByText("custom.public", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("do not show")).toHaveCount(0);
   });
 
-  test("starts a run with explicit plugin tools", async ({ authenticatedPage: page }) => {
-    let createBody: Record<string, unknown> | null = null;
-    await mockAgentRuns(page, [], {
-      onCreate(body) {
-        createBody = body;
-        return {
-          id: "agent_run_new",
-          provider: typeof body.provider === "string" ? body.provider : "simple",
-          model: typeof body.model === "string" ? body.model : "fast",
-          status: "running",
-          messages: body.messages as never,
+  test("opens a deep-linked turn outside the session summary page", async ({
+    authenticatedPage: page,
+  }) => {
+    const turns = Array.from({ length: 25 }, (_, index) => ({
+      id: `agent_turn_${index + 1}`,
+      sessionId: "agent_session_deep",
+      provider: "simple",
+      model: "fast",
+      status: "succeeded",
+      messages: [
+        {
+          role: "user",
+          text:
+            index === 24
+              ? "Older turn message outside the first page."
+              : `Recent turn ${index + 1}.`,
+        },
+      ],
+      createdAt: `2026-04-23T00:${String(59 - index).padStart(2, "0")}:00Z`,
+      completedAt: `2026-04-23T00:${String(59 - index).padStart(2, "0")}:30Z`,
+    }));
+    await mockAgentSessions(page, {
+      sessions: [
+        {
+          id: "agent_session_deep",
+          provider: "simple",
+          model: "fast",
+          state: "active",
           createdAt: "2026-04-23T00:00:00Z",
-          startedAt: "2026-04-23T00:00:00Z",
-        };
-      },
+          updatedAt: "2026-04-23T01:00:00Z",
+          lastTurnAt: "2026-04-23T01:00:00Z",
+        },
+      ],
+      turns: { agent_session_deep: turns },
     });
 
+    await page.goto("/agents?session=agent_session_deep&turn=agent_turn_25");
+
+    await expect(
+      page.getByText("Older turn message outside the first page.").first(),
+    ).toBeVisible();
+  });
+
+  test("creates a new session and turn with no tools as an empty toolRefs list", async ({
+    authenticatedPage: page,
+  }) => {
+    let createTurnBody: Record<string, unknown> | null = null;
+    await mockAgentSessions(
+      page,
+      { sessions: [], turns: {} },
+      {
+        onCreateTurn(session, body) {
+          createTurnBody = body;
+          return {
+            id: "agent_turn_new",
+            sessionId: session.id,
+            provider: session.provider,
+            model: session.model,
+            status: "running",
+            messages: body.messages as never,
+            createdAt: "2026-04-23T00:00:00Z",
+            startedAt: "2026-04-23T00:00:00Z",
+          };
+        },
+      },
+    );
+
     await page.goto("/agents");
-    await page.getByRole("button", { name: "New run" }).first().click();
-    await page.getByRole("textbox", { name: "Provider", exact: true }).fill("simple");
-    await page.getByRole("textbox", { name: "Model", exact: true }).fill("fast");
+    await page.getByLabel("Provider").selectOption("simple");
+    await page.getByLabel("Model", { exact: true }).fill("fast");
+    await page.getByLabel("User message").fill("Draft the launch notes.");
+    await page.getByLabel("Tools").selectOption("none");
+    await page.getByRole("button", { name: "Create session" }).click();
+
+    await expect(page.getByText("Agent turn started.")).toBeVisible();
+    expect(createTurnBody?.toolRefs).toEqual([]);
+    expect(createTurnBody?.toolSource).toBeUndefined();
+  });
+
+  test("starts a selected-tool turn using the mcp_catalog wire contract", async ({
+    authenticatedPage: page,
+  }) => {
+    let createTurnBody: Record<string, unknown> | null = null;
+    await mockAgentSessions(
+      page,
+      {
+        sessions: [
+          {
+            id: "agent_session_tools",
+            provider: "simple",
+            model: "fast",
+            state: "active",
+            createdAt: "2026-04-23T00:00:00Z",
+            updatedAt: "2026-04-23T00:00:00Z",
+          },
+        ],
+        turns: { agent_session_tools: [] },
+      },
+      {
+        onCreateTurn(session, body) {
+          createTurnBody = body;
+          return {
+            id: "agent_turn_tools",
+            sessionId: session.id,
+            provider: session.provider,
+            model: "fast",
+            status: "running",
+            messages: body.messages as never,
+            createdAt: "2026-04-23T00:00:00Z",
+            startedAt: "2026-04-23T00:00:00Z",
+          };
+        },
+      },
+    );
+
+    await page.goto("/agents?session=agent_session_tools");
     await page.getByLabel("User message").fill("Summarize the latest open PRs.");
-    await page.getByLabel("Tools", { exact: true }).selectOption("explicit");
+    await page.getByLabel("Tools").selectOption("selected");
     await page.getByLabel("Plugin").selectOption("github");
     await page.getByLabel("Operation").selectOption("pull_requests.list");
-    await page.getByRole("button", { name: "Start run" }).click();
+    await page.getByRole("button", { name: "Send turn" }).click();
 
-    await expect(page.getByRole("button", { name: /Summarize the latest open PRs/i })).toBeVisible();
-    expect(createBody?.provider).toBe("simple");
-    expect(createBody?.model).toBe("fast");
-    expect(createBody?.toolSource).toBe("explicit");
-    expect(createBody?.toolRefs).toEqual([
+    await expect(page.getByText("Agent turn started.")).toBeVisible();
+    expect(createTurnBody?.toolSource).toBe("mcp_catalog");
+    expect(createTurnBody?.toolRefs).toEqual([
       {
         plugin: "github",
         operation: "pull_requests.list",
@@ -129,27 +272,90 @@ test.describe("Agents", () => {
     ]);
   });
 
-  test("cancels an active run from the detail panel", async ({ authenticatedPage: page }) => {
-    await mockAgentRuns(page, [
+  test("handles waiting_for_input turns with cancel and approval resolution", async ({
+    authenticatedPage: page,
+  }) => {
+    let resolution: Record<string, unknown> | null = null;
+    await mockAgentSessions(
+      page,
       {
-        id: "agent_run_active",
-        provider: "simple",
-        model: "fast",
-        status: "running",
-        messages: [{ role: "user", text: "Draft the launch notes." }],
-        createdAt: "2026-04-23T00:00:00Z",
-        startedAt: "2026-04-23T00:01:00Z",
+        sessions: [
+          {
+            id: "agent_session_waiting",
+            provider: "simple",
+            model: "fast",
+            state: "active",
+            createdAt: "2026-04-23T00:00:00Z",
+            updatedAt: "2026-04-23T00:00:00Z",
+            lastTurnAt: "2026-04-23T00:01:00Z",
+          },
+        ],
+        turns: {
+          agent_session_waiting: [
+            ...Array.from({ length: 20 }, (_, index) => ({
+              id: `agent_turn_recent_${index + 1}`,
+              sessionId: "agent_session_waiting",
+              provider: "simple",
+              model: "fast",
+              status: "succeeded",
+              messages: [{ role: "user", text: `Recent turn ${index + 1}.` }],
+              createdAt: `2026-04-23T00:${String(59 - index).padStart(2, "0")}:00Z`,
+              completedAt: `2026-04-23T00:${String(59 - index).padStart(2, "0")}:30Z`,
+            })),
+            {
+              id: "agent_turn_waiting",
+              sessionId: "agent_session_waiting",
+              provider: "simple",
+              model: "fast",
+              status: "waiting_for_input",
+              messages: [{ role: "user", text: "Deploy the change." }],
+              createdAt: "2026-04-23T00:00:00Z",
+            },
+          ],
+        },
+        events: {
+          agent_turn_waiting: [
+            {
+              id: "evt_waiting",
+              turnId: "agent_turn_waiting",
+              seq: 1,
+              type: "interaction.requested",
+              visibility: "public",
+              data: { interactionId: "interaction_1" },
+            },
+          ],
+        },
+        interactions: {
+          agent_turn_waiting: [
+            {
+              id: "interaction_1",
+              turnId: "agent_turn_waiting",
+              type: "approval",
+              state: "pending",
+              title: "Approve deployment",
+              prompt: "Deploy to production?",
+              request: {},
+            },
+          ],
+        },
       },
-    ]);
+      {
+        onResolveInteraction(_interaction, body) {
+          resolution = body;
+          return undefined;
+        },
+      },
+    );
 
-    await page.goto("/agents");
-    const detailPanel = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Run Details" }),
-    });
+    await page.goto("/agents?session=agent_session_waiting&turn=agent_turn_waiting");
+    await expect(page.getByText("Waiting For Input")).toBeVisible();
+    await page.getByRole("button", { name: "Approve" }).click();
 
-    await page.getByRole("button", { name: "Cancel run" }).click();
-    await expect(detailPanel.getByText(/^canceled$/i)).toBeVisible();
-    await expect(detailPanel.getByText("Run canceled.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
+    await expect(page.getByText("Interaction resolved.")).toBeVisible();
+    expect(resolution).toEqual({ approved: true });
+
+    await page.getByRole("button", { name: "Cancel turn" }).click();
+    await expect(page.getByText("Agent turn canceled.")).toBeVisible();
+    await expect(page.getByText(/^canceled$/i)).toBeVisible();
   });
 });

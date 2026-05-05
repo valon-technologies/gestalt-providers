@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   getAuthInfo,
-  getAgentRuns,
+  getAgentSessions,
   getIntegrations,
   getTokens,
   getWorkflowEventTriggers,
@@ -21,14 +21,14 @@ export default function DashboardPage() {
     tokens: number | null;
     workflowResources: number | null;
     agentAvailable: boolean;
-    agentRuns: number | null;
+    agentSessions: number | null;
     error: string | null;
   }>({
     integrations: null,
     tokens: null,
     workflowResources: null,
     agentAvailable: false,
-    agentRuns: null,
+    agentSessions: null,
     error: null,
   });
 
@@ -51,14 +51,16 @@ export default function DashboardPage() {
           getWorkflowSchedules(),
           getWorkflowEventTriggers(),
           getWorkflowRuns(),
-          agentFeature === false ? Promise.resolve(null) : getAgentRuns(),
+          agentFeature === false
+            ? Promise.resolve(null)
+            : getAgentSessions({ view: "summary", limit: 50 }),
         ]).then(([
           integrationsResult,
           tokensResult,
           workflowSchedulesResult,
           workflowTriggersResult,
           workflowRunsResult,
-          agentRunsResult,
+          agentSessionsResult,
         ]) => {
           if (!active) return;
 
@@ -81,8 +83,8 @@ export default function DashboardPage() {
             typeof agentFeature === "boolean"
               ? agentFeature
               : !(
-                  agentRunsResult.status === "rejected" &&
-                  isAPIErrorStatus(agentRunsResult.reason, 412)
+                  agentSessionsResult.status === "rejected" &&
+                  isAPIErrorStatus(agentSessionsResult.reason, 412)
                 );
 
           setData({
@@ -96,11 +98,11 @@ export default function DashboardPage() {
                 : null,
             workflowResources,
             agentAvailable,
-            agentRuns:
+            agentSessions:
               agentAvailable &&
-              agentRunsResult.status === "fulfilled" &&
-              agentRunsResult.value
-                ? agentRunsResult.value.length
+              agentSessionsResult.status === "fulfilled" &&
+              agentSessionsResult.value
+                ? agentSessionsResult.value.length
                 : null,
             error,
           });
@@ -184,10 +186,10 @@ export default function DashboardPage() {
               >
                 <span className="label-text">Agents</span>
                 <p className="mt-3 text-3xl font-heading font-bold text-primary">
-                  {data.agentRuns ?? "--"}
+                  {data.agentSessions ?? "--"}
                 </p>
                 <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                  Start and inspect agent runs
+                  View agent sessions
                   <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                     &rarr;
                   </span>

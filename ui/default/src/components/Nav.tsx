@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clearSession, getUserEmail } from "@/lib/auth";
-import { getAgentRuns, getAuthInfo, isAPIErrorStatus, logout } from "@/lib/api";
+import {
+  getAgentSessions,
+  getAuthInfo,
+  isAPIErrorStatus,
+  logout,
+} from "@/lib/api";
 import { DOCS_PATH, LOGIN_PATH } from "@/lib/constants";
 import { useTheme } from "@/hooks/use-theme";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
@@ -50,7 +55,7 @@ export default function Nav() {
           return;
         }
         try {
-          await getAgentRuns();
+          await getAgentSessions({ view: "summary", limit: 1 });
           if (active) {
             setAgentAvailable(true);
           }
