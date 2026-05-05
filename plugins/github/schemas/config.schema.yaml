@@ -23,6 +23,12 @@ properties:
   apiBaseUrl:
     type: string
     description: GitHub REST API base URL. Defaults to https://api.github.com.
+  graphqlBaseUrl:
+    type: string
+    description: >-
+      GitHub GraphQL API URL for GitHub App bot operations. Defaults to
+      https://api.github.com/graphql. For GitHub Enterprise Server, it is
+      derived from apiBaseUrl when omitted.
   webBaseUrl:
     type: string
     description: GitHub web base URL used to build commit links. Defaults to https://github.com.
@@ -174,11 +180,13 @@ properties:
                 enum:
                   - bot.getPullRequest
                   - bot.listPullRequestFiles
+                  - bot.listPullRequestReviewThreads
                   - bot.getCheckRun
                   - bot.listCheckRunAnnotations
                   - bot.getWorkflowRun
                   - bot.listWorkflowRunJobs
                   - bot.createPullRequestReview
+                  - bot.resolvePullRequestReviewThread
                   - bot.createPullRequestConversationComment
                   - bot.createIssueComment
                   - bot.commitFiles

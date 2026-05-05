@@ -7,7 +7,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from email.message import Message
 from http import HTTPStatus
 from typing import Any, cast
@@ -21,6 +21,7 @@ import yaml
 
 import internals.client as client_module
 import internals.operations as operations_module
+import internals.review as review_module
 from internals.config import GitHubBotIdentity
 from internals.errors import GitHubAPIError
 import provider as provider_module
@@ -147,6 +148,11 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
     def __init__(self) -> None:
         self.tokens: list[tuple[int, tuple[str, ...], dict[str, str]]] = []
         self.requests: list[tuple[str, str, str | None, dict[str, Any]]] = []
+        self.graphql_requests: list[tuple[str, str | None, dict[str, Any]]] = []
+        self.graphql_responder: (
+            Callable[[str, str | None, Mapping[str, Any] | None], dict[str, Any]]
+            | None
+        ) = None
         self.commit_message = ""
         self.tree_entries: list[dict[str, Any]] = []
 
@@ -195,6 +201,17 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
         payload: Mapping[str, Any] | None = None,
     ) -> Any:
         return self.github_json(method, path, token, payload)
+
+    def graphql_json(
+        self,
+        query: str,
+        token: str | None,
+        variables: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.graphql_requests.append((query, token, dict(variables or {})))
+        if self.graphql_responder is not None:
+            return self.graphql_responder(query, token, variables)
+        return {"data": {}}
 
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str:
         return "main"
@@ -283,6 +300,12 @@ class GitHubProviderTests(unittest.TestCase):
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
+        pr_threads = operations[
+            provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION
+        ]
+        resolve_thread = operations[
+            provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION
+        ]
         pr_comment = operations[
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
         ]
@@ -292,6 +315,8 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
+        self.assertIn("review threads", pr_threads["description"])
+        self.assertIn("Resolve", resolve_thread["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
         self.assertIn("issue comment", issue_comment["description"])
         self.assertIn(
@@ -308,6 +333,18 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(
             "comments",
             [parameter["name"] for parameter in pr_review["parameters"]],
+        )
+        self.assertIn(
+            "autoResolveStaleFindings",
+            [parameter["name"] for parameter in review["parameters"]],
+        )
+        self.assertIn(
+            "comments_first",
+            [parameter["name"] for parameter in pr_threads["parameters"]],
+        )
+        self.assertIn(
+            "thread_id",
+            [parameter["name"] for parameter in resolve_thread["parameters"]],
         )
         self.assertIn(
             "pull_number",
@@ -330,7 +367,13 @@ class GitHubProviderTests(unittest.TestCase):
         ]["allowedOperations"]["items"]["enum"]
         self.assertIn(provider_module.BOT_GET_PULL_REQUEST_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION, enum)
+        self.assertIn(
+            provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION, enum
+        )
         self.assertIn(provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, enum)
+        self.assertIn(
+            provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION, enum
+        )
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             enum,
@@ -430,6 +473,72 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             calls, [("/app", "Bearer app-jwt"), ("/users/example-app%5Bbot%5D", "")]
         )
+
+    def test_graphql_json_derives_enterprise_url_and_posts_payload(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "apiBaseUrl": "https://ghe.example/api/v3",
+            },
+        )
+        calls: list[urllib.request.Request] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            calls.append(request)
+            return FakeHTTPResponse({"data": {"viewer": {"login": "octocat"}}})
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = client_module.graphql_json(
+                "query Example($name: String!) { viewer { login } }",
+                "installation-token",
+                {"name": "widgets"},
+            )
+
+        self.assertEqual(response["data"]["viewer"]["login"], "octocat")
+        self.assertEqual(len(calls), 1)
+        request = calls[0]
+        self.assertEqual(request.full_url, "https://ghe.example/api/graphql")
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(auth_header(request), "Bearer installation-token")
+        self.assertEqual(
+            request_json(request),
+            {
+                "query": "query Example($name: String!) { viewer { login } }",
+                "variables": {"name": "widgets"},
+            },
+        )
+
+    def test_graphql_json_maps_graphql_errors_to_github_api_error(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            return FakeHTTPResponse(
+                {
+                    "data": None,
+                    "errors": [
+                        {
+                            "type": "FORBIDDEN",
+                            "message": "Resource not accessible by integration",
+                        }
+                    ],
+                }
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            with self.assertRaises(GitHubAPIError) as raised:
+                client_module.graphql_json("query { viewer { login } }", "token")
+
+        self.assertEqual(raised.exception.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("Resource not accessible", raised.exception.message)
 
     def test_commit_message_skips_bot_identity_when_bot_coauthor_disabled(self) -> None:
         with mock.patch(
@@ -884,6 +993,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(agent.model, "deep")
         self.assertIn("bot.getPullRequest", agent.messages[0].text)
         self.assertIn("bot.listPullRequestFiles", agent.messages[0].text)
+        self.assertIn("bot.listPullRequestReviewThreads", agent.messages[0].text)
         self.assertIn("bot.createPullRequestReview", agent.messages[0].text)
         self.assertIn(
             "bot.createPullRequestConversationComment", agent.messages[0].text
@@ -893,6 +1003,7 @@ class GitHubProviderTests(unittest.TestCase):
             [
                 provider_module.BOT_GET_PULL_REQUEST_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
@@ -1152,9 +1263,362 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(review_request.comments[0].path, "src/widget.py")
         self.assertEqual(review_request.comments[0].line, 2)
         self.assertEqual(review_request.comments[0].side, "RIGHT")
-        self.assertEqual(
+        self.assertTrue(
+            review_request.comments[0].body.startswith(
+                "[high] This can throw when config is missing.\n\n"
+            )
+        )
+        self.assertRegex(
             review_request.comments[0].body,
-            "[high] This can throw when config is missing.",
+            r"<!-- gestalt:github-review-finding v1 "
+            r"fingerprint=[0-9a-f]{64} source=github\.reviewPullRequest -->$",
+        )
+
+    def test_review_pull_request_resolves_stale_marked_bot_thread(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "Current bug still exists.",
+                }
+            ]
+        )
+        resolved_requests: list[Any] = []
+        list_thread_cursors: list[str] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        def fake_resolve(request: Any, *, subject: Any) -> dict[str, Any]:
+            resolved_requests.append((request, subject))
+            return {"id": request.thread_id, "isResolved": True}
+
+        def fake_list_threads(request: Any, *, subject: Any) -> dict[str, Any]:
+            list_thread_cursors.append(request.after)
+            if not request.after:
+                return {
+                    "threads": [],
+                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-2"},
+                }
+            return {
+                "threads": [
+                    {
+                        "id": "thread-stale",
+                        "isResolved": False,
+                        "viewerCanResolve": True,
+                        "commentsTruncated": False,
+                        "comments": [
+                            {
+                                "authorLogin": "example-app[bot]",
+                                "body": review_module.review_comment_body_with_marker(
+                                    "Old bug no longer exists.",
+                                    "a" * 64,
+                                ),
+                            }
+                        ],
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False, "endCursor": ""},
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                return_value={"id": 80, "state": "COMMENTED"},
+            ),
+            mock.patch(
+                "internals.review.bot_identity_or_none",
+                return_value=GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                side_effect=fake_list_threads,
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=fake_resolve,
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["resolvedThreads"], ["thread-stale"])
+        self.assertEqual(data["skippedResolutionReasons"], [])
+        self.assertEqual(list_thread_cursors, ["", "cursor-2"])
+        self.assertEqual(len(resolved_requests), 1)
+        resolve_request, resolve_subject = resolved_requests[0]
+        self.assertEqual(resolve_request.thread_id, "thread-stale")
+        self.assertEqual(resolve_request.installation_id, 99)
+        self.assertEqual(resolve_subject.id, request.subject.id)
+
+    def test_review_pull_request_records_resolution_list_failure_after_post(
+        self,
+    ) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "Current bug still exists.",
+                }
+            ]
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                return_value={"id": 80, "state": "COMMENTED"},
+            ),
+            mock.patch(
+                "internals.review.bot_identity_or_none",
+                return_value=GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                side_effect=GitHubAPIError(502, "GitHub unavailable"),
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=AssertionError("threads should not be resolved"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], True)
+        self.assertEqual(data["resolvedThreads"], [])
+        self.assertEqual(
+            data["skippedResolutionReasons"],
+            [{"threadId": "", "reason": "list_failed: GitHub unavailable"}],
+        )
+
+    def test_review_pull_request_skips_current_and_human_replied_threads(
+        self,
+    ) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "Current bug still exists.",
+                }
+            ]
+        )
+        subject = review_module.PullRequestSubject(
+            owner="acme",
+            repo="widgets",
+            repository="acme/widgets",
+            pull_number=7,
+            installation_id=99,
+        )
+        current_fingerprint = review_module.review_finding_fingerprint(
+            subject,
+            review_module.ValidatedFinding(
+                path="src/widget.py",
+                line=2,
+                body="Current bug still exists.",
+            ),
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                return_value={"id": 80, "state": "COMMENTED"},
+            ),
+            mock.patch(
+                "internals.review.bot_identity_or_none",
+                return_value=GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                return_value={
+                    "threads": [
+                        {
+                            "id": "thread-current",
+                            "isResolved": False,
+                            "viewerCanResolve": True,
+                            "commentsTruncated": False,
+                            "comments": [
+                                {
+                                    "authorLogin": "example-app[bot]",
+                                    "body": review_module.review_comment_body_with_marker(
+                                        "Current bug still exists.",
+                                        current_fingerprint,
+                                    ),
+                                }
+                            ],
+                        },
+                        {
+                            "id": "thread-human",
+                            "isResolved": False,
+                            "viewerCanResolve": True,
+                            "commentsTruncated": False,
+                            "comments": [
+                                {
+                                    "authorLogin": "example-app[bot]",
+                                    "body": review_module.review_comment_body_with_marker(
+                                        "Old bug",
+                                        "b" * 64,
+                                    ),
+                                },
+                                {
+                                    "authorLogin": "octocat",
+                                    "body": "I still see this.",
+                                },
+                            ],
+                        },
+                    ],
+                    "pageInfo": {"hasNextPage": False, "endCursor": ""},
+                },
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=AssertionError("no thread should be resolved"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["resolvedThreads"], [])
+        self.assertEqual(
+            data["skippedResolutionReasons"],
+            [
+                {"threadId": "thread-current", "reason": "current_finding"},
+                {"threadId": "thread-human", "reason": "human_reply"},
+            ],
         )
 
     def test_review_pull_request_drops_unanchored_findings_without_posting(self) -> None:
@@ -1167,6 +1631,7 @@ class GitHubProviderTests(unittest.TestCase):
                 }
             ]
         )
+        resolved_requests: list[Any] = []
         request = github_request()
         request.workflow = {
             "signals": [
@@ -1211,6 +1676,45 @@ class GitHubProviderTests(unittest.TestCase):
                 "internals.review.create_pull_request_review",
                 side_effect=AssertionError("review should not be posted"),
             ),
+            mock.patch(
+                "internals.review.bot_identity_or_none",
+                return_value=GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                return_value={
+                    "threads": [
+                        {
+                            "id": "thread-stale",
+                            "isResolved": False,
+                            "viewerCanResolve": True,
+                            "commentsTruncated": False,
+                            "comments": [
+                                {
+                                    "authorLogin": "example-app[bot]",
+                                    "body": review_module.review_comment_body_with_marker(
+                                        "Old bug",
+                                        "c" * 64,
+                                    ),
+                                }
+                            ],
+                        }
+                    ],
+                    "pageInfo": {"hasNextPage": False, "endCursor": ""},
+                },
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=lambda request, *, subject: resolved_requests.append(
+                    request
+                )
+                or {"id": request.thread_id, "isResolved": True},
+            ),
         ):
             result = provider_module.github_review_pull_request(
                 provider_module.ReviewPullRequestInput(), request
@@ -1221,6 +1725,81 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["comments"], 0)
         self.assertEqual(data["reason"], "no_valid_findings")
         self.assertEqual(data["droppedFindings"], 1)
+        self.assertEqual(data["resolvedThreads"], ["thread-stale"])
+        self.assertEqual(len(resolved_requests), 1)
+
+    def test_review_pull_request_dry_run_does_not_post_or_resolve(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "Dry run finding.",
+                }
+            ]
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "opened",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("review should not be posted"),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                side_effect=AssertionError("threads should not be listed"),
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=AssertionError("threads should not be resolved"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(dryRun=True), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], False)
+        self.assertEqual(data["dry_run"], True)
+        self.assertEqual(data["comments"], 1)
+        self.assertEqual(data["resolvedThreads"], [])
 
     def test_explicit_policy_webhook_events_allowlist_semantics(self) -> None:
         push_payload = {
@@ -1254,6 +1833,7 @@ class GitHubProviderTests(unittest.TestCase):
             [
                 provider_module.BOT_GET_PULL_REQUEST_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+                provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
                 provider_module.BOT_GET_WORKFLOW_RUN_OPERATION,
@@ -1500,6 +2080,7 @@ class GitHubProviderTests(unittest.TestCase):
                             "allowedOperations": [
                                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
                                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                                provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
                                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                             ]
                         },
@@ -1533,6 +2114,7 @@ class GitHubProviderTests(unittest.TestCase):
             [tool.operation for tool in ordered.target.agent.tool_refs],
             [
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
+                provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
@@ -2285,6 +2867,213 @@ class GitHubProviderTests(unittest.TestCase):
             ],
             [{"pull_requests": "write"}],
         )
+
+    def test_list_pull_request_review_threads_uses_graphql_pr_read_permission(
+        self,
+    ) -> None:
+        client = RecordingGitHubClient()
+        graphql_calls: list[tuple[str, str | None, dict[str, Any]]] = []
+
+        def fake_graphql_json(
+            query: str,
+            token: str | None,
+            variables: Mapping[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            graphql_calls.append((query, token, dict(variables or {})))
+            return {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {
+                                    "hasNextPage": True,
+                                    "endCursor": "cursor-2",
+                                },
+                                "nodes": [
+                                    {
+                                        "id": "thread-1",
+                                        "isResolved": False,
+                                        "isOutdated": False,
+                                        "viewerCanResolve": True,
+                                        "path": "src/widget.py",
+                                        "line": 27,
+                                        "startLine": None,
+                                        "originalLine": 27,
+                                        "originalStartLine": None,
+                                        "diffSide": "RIGHT",
+                                        "startDiffSide": None,
+                                        "comments": {
+                                            "totalCount": 2,
+                                            "nodes": [
+                                                {
+                                                    "id": "comment-1",
+                                                    "databaseId": 123,
+                                                    "author": {
+                                                        "login": "example-app[bot]"
+                                                    },
+                                                    "body": "Marked finding",
+                                                    "createdAt": "2026-05-01T00:00:00Z",
+                                                    "url": "https://github.com/acme/widgets/pull/7#discussion_r123",
+                                                }
+                                            ],
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    }
+                }
+            }
+
+        client.graphql_responder = fake_graphql_json
+        threads = operations_module.list_pull_request_review_threads(
+            operations_module.GitHubListPullRequestReviewThreadsRequest(
+                owner="acme",
+                repo="widgets",
+                pull_number=7,
+                first=500,
+                after="cursor-1",
+                comments_first=100,
+                installation_id=99,
+            ),
+            subject=github_request().subject,
+            client=client,
+        )
+
+        self.assertEqual(
+            client.tokens,
+            [(99, ("widgets",), {"pull_requests": "read"})],
+        )
+        self.assertEqual(len(graphql_calls), 1)
+        query, token, variables = graphql_calls[0]
+        self.assertIn("reviewThreads", query)
+        self.assertEqual(token, "token:pull_requests:read")
+        self.assertEqual(
+            variables,
+            {
+                "owner": "acme",
+                "repo": "widgets",
+                "number": 7,
+                "first": 100,
+                "after": "cursor-1",
+                "commentsFirst": 50,
+            },
+        )
+        self.assertEqual(threads["pageInfo"]["hasNextPage"], True)
+        self.assertEqual(threads["pageInfo"]["endCursor"], "cursor-2")
+        thread = threads["threads"][0]
+        self.assertEqual(thread["id"], "thread-1")
+        self.assertEqual(thread["line"], 27)
+        self.assertEqual(thread["commentsCount"], 2)
+        self.assertEqual(thread["commentsTruncated"], True)
+        self.assertEqual(thread["comments"][0]["authorLogin"], "example-app[bot]")
+
+    def test_resolve_pull_request_review_thread_verifies_pr_before_mutation(
+        self,
+    ) -> None:
+        client = RecordingGitHubClient()
+        graphql_calls: list[tuple[str, dict[str, Any]]] = []
+        responses = [
+            {
+                "data": {
+                    "node": {
+                        "__typename": "PullRequestReviewThread",
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "pullRequest": {
+                            "number": 7,
+                            "repository": {
+                                "name": "widgets",
+                                "owner": {"login": "acme"},
+                            },
+                        },
+                    }
+                }
+            },
+            {
+                "data": {
+                    "resolveReviewThread": {
+                        "thread": {"id": "thread-1", "isResolved": True}
+                    }
+                }
+            },
+        ]
+
+        def fake_graphql_json(
+            query: str,
+            token: str | None,
+            variables: Mapping[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            graphql_calls.append((query, dict(variables or {})))
+            return responses.pop(0)
+
+        client.graphql_responder = fake_graphql_json
+        thread = operations_module.resolve_pull_request_review_thread(
+            operations_module.GitHubResolvePullRequestReviewThreadRequest(
+                owner="acme",
+                repo="widgets",
+                pull_number=7,
+                thread_id="thread-1",
+                installation_id=99,
+            ),
+            subject=github_request().subject,
+            client=client,
+        )
+
+        self.assertEqual(thread, {"id": "thread-1", "isResolved": True})
+        self.assertEqual(
+            client.tokens,
+            [(99, ("widgets",), {"pull_requests": "write"})],
+        )
+        self.assertIn("node(id: $threadId)", graphql_calls[0][0])
+        self.assertIn("resolveReviewThread", graphql_calls[1][0])
+        self.assertEqual(graphql_calls[0][1], {"threadId": "thread-1"})
+        self.assertEqual(graphql_calls[1][1], {"threadId": "thread-1"})
+
+    def test_resolve_pull_request_review_thread_rejects_mismatched_thread(
+        self,
+    ) -> None:
+        client = RecordingGitHubClient()
+        graphql_calls: list[dict[str, Any]] = []
+
+        def fake_graphql_json(
+            query: str,
+            token: str | None,
+            variables: Mapping[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            graphql_calls.append(dict(variables or {}))
+            return {
+                "data": {
+                    "node": {
+                        "__typename": "PullRequestReviewThread",
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "pullRequest": {
+                            "number": 8,
+                            "repository": {
+                                "name": "widgets",
+                                "owner": {"login": "acme"},
+                            },
+                        },
+                    }
+                }
+            }
+
+        client.graphql_responder = fake_graphql_json
+        with self.assertRaisesRegex(ValueError, "requested pull request"):
+            operations_module.resolve_pull_request_review_thread(
+                operations_module.GitHubResolvePullRequestReviewThreadRequest(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    thread_id="thread-1",
+                    installation_id=99,
+                ),
+                subject=github_request().subject,
+                client=client,
+            )
+
+        self.assertEqual(graphql_calls, [{"threadId": "thread-1"}])
 
     def test_create_pull_request_review_rejects_invalid_inputs_before_github_calls(
         self,

@@ -20,8 +20,10 @@ from internals.constants import (
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
+    BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     GITHUB_EVENT_OPERATION,
     REVIEW_PULL_REQUEST_OPERATION,
 )
@@ -37,10 +39,12 @@ from internals.operations import (
     GitHubFileChange,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
+    GitHubListPullRequestReviewThreadsRequest,
     GitHubListWorkflowRunJobsRequest,
     GitHubOpenPullRequestRequest,
     GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
+    GitHubResolvePullRequestReviewThreadRequest,
     GitHubWorkflowRunRequest,
     check_run_annotation_summary,
     check_run_summary,
@@ -56,11 +60,13 @@ from internals.operations import (
     issue_comment_summary,
     list_check_run_annotations,
     list_pull_request_files,
+    list_pull_request_review_threads,
     list_workflow_run_jobs,
     open_pull_request,
     pull_request_file_summary,
     pull_request_review_summary,
     pull_request_summary,
+    resolve_pull_request_review_thread,
     workflow_run_job_summary,
     workflow_run_summary,
 )
@@ -371,6 +377,11 @@ class ReviewPullRequestInput(gestalt.Model):
         default=False,
         required=False,
     )
+    autoResolveStaleFindings: bool = gestalt.field(
+        description="Resolve prior provider-owned inline comments when the latest review no longer reports the same finding",
+        default=True,
+        required=False,
+    )
     turnTimeoutMs: int = gestalt.field(
         description="Maximum time to wait for the review agent turn",
         default=180000,
@@ -379,6 +390,44 @@ class ReviewPullRequestInput(gestalt.Model):
     pollIntervalMs: int = gestalt.field(
         description="Polling interval while waiting for the review agent turn",
         default=1000,
+        required=False,
+    )
+
+
+class ListPullRequestReviewThreadsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    first: int = gestalt.field(
+        description="Number of review threads to fetch, from 1 through 100",
+        default=100,
+        required=False,
+    )
+    after: str = gestalt.field(
+        description="Optional GitHub GraphQL reviewThreads page cursor",
+        default="",
+        required=False,
+    )
+    comments_first: int = gestalt.field(
+        description="Number of comments to fetch per thread, from 1 through 50",
+        default=20,
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class ResolvePullRequestReviewThreadInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    thread_id: str = gestalt.field(description="GitHub GraphQL pull request review thread node ID")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
         required=False,
     )
 
@@ -811,6 +860,70 @@ def bot_create_pull_request_review(
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"review": pull_request_review_summary(review)}}
+
+
+@plugin.operation(
+    id=BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
+    method="GET",
+    description="List pull request review threads and their first comments using a GitHub App installation token",
+    tags=["pr", "prs", "review"],
+)
+def bot_list_pull_request_review_threads(
+    input: ListPullRequestReviewThreadsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        threads = list_pull_request_review_threads(
+            GitHubListPullRequestReviewThreadsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                first=input.first,
+                after=input.after,
+                comments_first=input.comments_first,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": threads}
+
+
+@plugin.operation(
+    id=BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
+    method="POST",
+    description="Resolve a pull request review thread after verifying it belongs to the requested pull request",
+    tags=["pr", "prs", "review"],
+)
+def bot_resolve_pull_request_review_thread(
+    input: ResolvePullRequestReviewThreadInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        thread = resolve_pull_request_review_thread(
+            GitHubResolvePullRequestReviewThreadRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                thread_id=input.thread_id,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"thread": thread}}
 
 
 @plugin.operation(

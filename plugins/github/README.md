@@ -37,6 +37,10 @@ connection:
   operation.
 - `bot.createPullRequestReview` creates a pull request review with inline
   file/line comments.
+- `bot.listPullRequestReviewThreads` lists PR review threads and their first
+  comments.
+- `bot.resolvePullRequestReviewThread` resolves a PR review thread after
+  verifying it belongs to the requested pull request.
 - `bot.createPullRequestConversationComment` creates a pull request conversation
   comment.
 - `bot.createIssueComment` creates an issue comment.
@@ -102,7 +106,11 @@ Configure the GitHub App webhook URL to the mounted provider endpoint:
 https://<gestalt-host>/api/v1/github/event
 ```
 
-For GitHub Enterprise Server, set `apiBaseUrl` and `webBaseUrl`.
+For GitHub Enterprise Server, set `apiBaseUrl` and `webBaseUrl`. The GitHub App
+GraphQL URL used by review-thread operations defaults to
+`https://api.github.com/graphql`; when `apiBaseUrl` ends in `/api/v3`, the
+provider derives `/api/graphql`. Set `graphqlBaseUrl` only when that derivation
+does not match the server.
 
 By default, webhook-triggered agents are started for `check_run`, `check_suite`,
 `issue_comment`, `issues`, `pull_request`, `pull_request_review`,
@@ -190,6 +198,17 @@ Compatibility note: existing policies that use `action.mode` without explicit
 `bot.listPullRequestFiles`, and, for comment-capable modes,
 `bot.createPullRequestReview`. Add an explicit `allowedOperations` list to keep
 previous CI-read-only or timeline-only comment behavior.
+
+`reviewPullRequest` adds hidden provider markers only to inline comments it
+creates itself. By default, after a successful current review, or after an agent
+run produces zero valid findings, it lists unresolved review threads and
+resolves older bot-owned marked threads whose fingerprint is no longer present
+in the current findings. Set `autoResolveStaleFindings: false` on the
+`reviewPullRequest` input to leave old marked threads open. The low-level
+`bot.createPullRequestReview` operation never adds hidden markers unless the
+caller supplies them explicitly, and `bot.resolvePullRequestReviewThread` is not
+included in any default policy mode; expose it with `allowedOperations` only for
+workflows that should be able to resolve threads directly.
 
 Set `workflow.target.plugin` on a policy to dispatch the matched webhook to a
 deterministic workflow/plugin target instead of the generated agent target. The
