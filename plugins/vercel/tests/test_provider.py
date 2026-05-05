@@ -38,6 +38,11 @@ class FakeHTTPResponse:
         return self._body
 
 
+class FakeRequest:
+    def __init__(self, token: str = "vercel-oauth-token") -> None:
+        self.token = token
+
+
 def authorization_header(request: urllib.request.Request) -> str | None:
     return request.get_header("Authorization") or dict(request.header_items()).get(
         "Authorization"
@@ -273,6 +278,52 @@ class VercelProviderTests(unittest.TestCase):
             ("roadmaps/a.json", "roadmaps/b.json"),
         )
         self.assertEqual(delete_blobs.call_args.args[0].token, "blob-rw-token")
+
+    def test_team_members_invite_posts_email_array_payload(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30.0
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(
+                request.full_url,
+                "https://api.vercel.com/v2/teams/team_123/members?slug=valon",
+            )
+            self.assertEqual(authorization_header(request), "Bearer vercel-oauth-token")
+            self.assertEqual(header(request, "content-type"), "application/json")
+            self.assertEqual(
+                request.data,
+                b'[{"email": "new.user@valon.com", "role": "MEMBER"}]',
+            )
+            return FakeHTTPResponse('{"email":"new.user@valon.com"}')
+
+        with mock.patch.object(
+            provider_module.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.team_members_invite(
+                provider_module.TeamMembersInviteInput(
+                    teamId="team_123",
+                    slug="valon",
+                    email="new.user@valon.com",
+                    role="MEMBER",
+                ),
+                FakeRequest(),  # type: ignore[arg-type]
+            )
+
+        self.assertEqual(result, {"data": {"email": "new.user@valon.com"}})
+
+    def test_team_members_invite_requires_connected_token(self) -> None:
+        result = provider_module.team_members_invite(
+            provider_module.TeamMembersInviteInput(
+                teamId="team_123", email="new.user@valon.com"
+            ),
+            FakeRequest(token=""),  # type: ignore[arg-type]
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(response.body, {"error": "token is required"})
 
     def test_put_blob_uses_vercel_blob_put_contract(self) -> None:
         def fake_urlopen(

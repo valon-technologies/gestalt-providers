@@ -128,3 +128,23 @@ operations:
     type: integer
     description: Optional cache-control max age in seconds
     default: null
+- id: teamMembers.invite
+  method: POST
+  description: Invite a user to a Vercel team using an email and role payload
+  parameters:
+  - name: teamId
+    type: string
+    description: Vercel team ID
+    required: true
+  - name: email
+    type: string
+    description: Email address to invite
+    required: true
+  - name: role
+    type: string
+    description: Team role to grant to the invited user
+    default: MEMBER
+  - name: slug
+    type: string
+    description: Optional Vercel team slug
+    default: ''

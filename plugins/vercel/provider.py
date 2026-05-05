@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import binascii
+import json
 from http import HTTPStatus
 from typing import Any, TypeAlias
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import gestalt
 
@@ -135,6 +139,21 @@ class BlobCopyInput(gestalt.Model):
     cache_control_max_age: int | None = gestalt.field(
         description="Optional cache-control max age in seconds",
         default=None,
+        required=False,
+    )
+
+
+class TeamMembersInviteInput(gestalt.Model):
+    teamId: str = gestalt.field(description="Vercel team ID")
+    email: str = gestalt.field(description="Email address to invite")
+    role: str = gestalt.field(
+        description="Team role to grant to the invited user",
+        default="MEMBER",
+        required=False,
+    )
+    slug: str = gestalt.field(
+        description="Optional Vercel team slug",
+        default="",
         required=False,
     )
 
@@ -316,6 +335,57 @@ def blob_copy(input: BlobCopyInput) -> OperationResult:
         return _blob_error(err)
 
 
+@plugin.operation(
+    id="teamMembers.invite",
+    method="POST",
+    description="Invite a user to a Vercel team using an email and role payload",
+)
+def team_members_invite(
+    input: TeamMembersInviteInput, req: gestalt.Request
+) -> OperationResult:
+    team_id = _require_trimmed_text(input.teamId, "teamId")
+    if isinstance(team_id, gestalt.Response):
+        return team_id
+    email = _require_trimmed_text(input.email, "email")
+    if isinstance(email, gestalt.Response):
+        return email
+    token = req.token.strip()
+    if not token:
+        return gestalt.Response(
+            status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"}
+        )
+
+    params = {"slug": input.slug.strip()} if input.slug.strip() else {}
+    query = f"?{urllib.parse.urlencode(params)}" if params else ""
+    url = f"https://api.vercel.com/v2/teams/{urllib.parse.quote(team_id)}/members{query}"
+    body = json.dumps([{"email": email, "role": input.role.strip() or "MEMBER"}]).encode(
+        "utf-8"
+    )
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+            return {"data": json.loads(raw) if raw else {}}
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace")
+        message = _error_message_from_json(raw) or err.reason
+        return gestalt.Response(status=err.code, body={"error": message})
+    except urllib.error.URLError as err:
+        return _server_error(str(err.reason))
+    except json.JSONDecodeError as err:
+        return _server_error(f"Vercel returned invalid JSON: {err}")
+
+
 def _normalize_access(value: str) -> VercelBlobAccess | ErrorResponse:
     access = value.strip().lower()
     try:
@@ -339,6 +409,23 @@ def _blob_error(err: Exception) -> ErrorResponse:
     if isinstance(err, VercelBlobClientError):
         return _server_error(str(err))
     return _server_error(str(err))
+
+
+def _error_message_from_json(raw: str) -> str:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw.strip()
+    if isinstance(parsed, dict):
+        error = parsed.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("code")
+            return str(message) if message else ""
+        if isinstance(error, str):
+            return error
+        message = parsed.get("message")
+        return str(message) if message else ""
+    return ""
 
 
 def _bad_request(message: str) -> ErrorResponse:
