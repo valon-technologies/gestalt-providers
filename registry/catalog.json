@@ -2429,7 +2429,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gmail/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.14",
+      "latestInstallableVersion": "0.0.1-alpha.15",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gmail/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.15",
       "name": "gmail",
@@ -2439,6 +2439,20 @@
       "registryPath": "/providers/plugin/gmail/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/gmail",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.15/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
+            "generic"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.15"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.14/provider-release.yaml",

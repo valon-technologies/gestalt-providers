@@ -1374,6 +1374,17 @@ packages:
     displayName: "Gmail"
     description: "Read, send, and manage Gmail messages, threads, drafts, and labels."
     versions:
+      "0.0.1-alpha.15":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.15/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
       "0.0.1-alpha.14":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.14/provider-release.yaml"
         kind: "plugin"
