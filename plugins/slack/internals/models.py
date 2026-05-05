@@ -225,6 +225,12 @@ class SlackWorkflowConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackThreadContextConfig:
+    enabled: bool = True
+    max_messages: int = 200
+
+
+@dataclass(frozen=True, slots=True)
 class SlackAgentConfig:
     plugin_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
@@ -234,6 +240,9 @@ class SlackAgentConfig:
         default_factory=SlackAcknowledgementConfig
     )
     workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
+    thread_context: SlackThreadContextConfig = field(
+        default_factory=SlackThreadContextConfig
+    )
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""

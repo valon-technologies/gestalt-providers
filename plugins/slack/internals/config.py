@@ -16,6 +16,7 @@ from .models import (
     SlackEventPublishRouteMatch,
     SlackEventsConfig,
     SlackSuggestedPrompt,
+    SlackThreadContextConfig,
     SlackWorkflowConfig,
 )
 
@@ -38,6 +39,7 @@ def agent_config_from_provider_config(
     assistant = _assistant_config_from_provider_config(config, agent)
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
+    thread_context = _thread_context_config_from_provider_config(config, agent)
 
     return SlackAgentConfig(
         plugin_name=plugin_name.strip() or "slack",
@@ -59,6 +61,7 @@ def agent_config_from_provider_config(
         assistant=assistant,
         acknowledgement=acknowledgement,
         workflow=workflow,
+        thread_context=thread_context,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
@@ -170,6 +173,29 @@ def _workflow_config_from_provider_config(
             workflow, "provider", "providerName", "provider_name"
         )
         or _config_string(config, "workflowProvider", "workflow_provider"),
+    )
+
+
+def _thread_context_config_from_provider_config(
+    config: dict[str, Any], agent: dict[str, Any]
+) -> SlackThreadContextConfig:
+    thread_context = _config_dict(agent, "threadContext", "thread_context")
+    if not thread_context:
+        thread_context = _config_dict(config, "threadContext", "thread_context")
+    return SlackThreadContextConfig(
+        enabled=_config_bool(thread_context, "enabled", default=True),
+        max_messages=_clamp_int(
+            _config_int(
+                thread_context,
+                "maxMessages",
+                "max_messages",
+                "messageLimit",
+                "message_limit",
+                default=200,
+            ),
+            minimum=1,
+            maximum=1000,
+        ),
     )
 
 
@@ -417,6 +443,25 @@ def _config_bool(config: dict[str, Any], *keys: str, default: bool) -> bool:
             if normalized in {"0", "false", "no", "off"}:
                 return False
     return default
+
+
+def _config_int(config: dict[str, Any], *keys: str, default: int) -> int:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                continue
+    return default
+
+
+def _clamp_int(value: int, *, minimum: int, maximum: int) -> int:
+    return max(minimum, min(value, maximum))
 
 
 def _config_string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:
