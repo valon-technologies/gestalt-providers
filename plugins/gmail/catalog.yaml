@@ -15,7 +15,6 @@ operations:
   - name: maxResults
     type: integer
     description: Maximum number of messages to return
-    default: 100
   - name: pageToken
     type: string
     description: Page token returned by a previous list call

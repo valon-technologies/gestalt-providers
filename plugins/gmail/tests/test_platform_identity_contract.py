@@ -262,6 +262,23 @@ class GmailPlatformIdentityContractTests(unittest.TestCase):
         self.assertEqual(query["pageToken"], ["next-page"])
         self.assertEqual(query["includeSpamTrash"], ["true"])
 
+    def test_message_list_omits_max_results_when_unset(self) -> None:
+        with mock.patch.object(
+            client_module, "get_json", return_value={"messages": []}
+        ) as get_json:
+            provider_module.messages_list(
+                provider_module.MessagesListInput(q="from:alice@example.com"),
+                gestalt.Request(
+                    token="user-token",
+                    credential=gestalt.Credential(mode="user"),
+                ),
+            )
+
+        url = get_json.call_args.args[0]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        self.assertEqual(query["q"], ["from:alice@example.com"])
+        self.assertNotIn("maxResults", query)
+
     def test_thread_get_preserves_metadata_headers_and_raw_error_body(self) -> None:
         raw_error = {
             "error": {

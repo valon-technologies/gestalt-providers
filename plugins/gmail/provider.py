@@ -45,9 +45,9 @@ class MessagesListInput(gestalt.Model):
         default_factory=list,
         required=False,
     )
-    maxResults: int = gestalt.field(
+    maxResults: int | None = gestalt.field(
         description="Maximum number of messages to return",
-        default=100,
+        default=None,
         required=False,
     )
     pageToken: str = gestalt.field(
