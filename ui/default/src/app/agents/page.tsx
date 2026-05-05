@@ -593,7 +593,7 @@ export default function AgentsPage() {
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-7xl px-6 py-10">
+        <main className="mx-auto flex min-h-[calc(100vh-7rem)] max-w-7xl flex-col px-6 py-4 lg:h-[calc(100vh-7rem)] lg:overflow-hidden">
           <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
             <div>
               <span className="label-text">Orchestration</span>
@@ -626,7 +626,7 @@ export default function AgentsPage() {
           {loading ? (
             <p className="mt-10 text-sm text-faint">Loading...</p>
           ) : (
-            <div className="mt-8 grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+            <div className="mt-8 grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
               <SessionSidebar
                 sessions={filteredSessions}
                 selectedSessionID={selectedSessionID}
@@ -638,7 +638,7 @@ export default function AgentsPage() {
                 onSelect={selectSession}
               />
 
-              <section className="min-w-0 rounded-lg border border-alpha bg-base-100 dark:bg-surface">
+              <section className="flex min-h-[32rem] min-w-0 flex-col overflow-hidden rounded-lg border border-alpha bg-base-100 dark:bg-surface lg:min-h-0">
                 <ConsoleHeader
                   session={selectedSession}
                   turn={selectedTurn}
@@ -648,19 +648,23 @@ export default function AgentsPage() {
                   cancelingTurnID={cancelingTurnID}
                 />
 
-                <div className="border-t border-alpha px-5 py-5">
-                  {notice ? (
-                    <p className="mb-4 text-sm text-grove-700 dark:text-grove-200">
-                      {notice}
-                    </p>
-                  ) : null}
-                  {actionError ? (
-                    <p className="mb-4 text-sm text-ember-500">{actionError}</p>
-                  ) : null}
-                  {detailError ? (
-                    <p className="mb-4 text-sm text-ember-500">{detailError}</p>
-                  ) : null}
+                {notice || actionError || detailError ? (
+                  <div className="border-t border-alpha px-5 py-3">
+                    {notice ? (
+                      <p className="text-sm text-grove-700 dark:text-grove-200">
+                        {notice}
+                      </p>
+                    ) : null}
+                    {actionError ? (
+                      <p className="text-sm text-ember-500">{actionError}</p>
+                    ) : null}
+                    {detailError ? (
+                      <p className="text-sm text-ember-500">{detailError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
 
+                <div className="min-h-0 flex-1 overflow-y-auto border-t border-alpha px-5 py-5">
                   <TranscriptView
                     loading={!transcriptReady}
                     items={transcript.items}
@@ -678,7 +682,9 @@ export default function AgentsPage() {
                     setDrafts={setInteractionDrafts}
                     onResolve={handleResolveInteraction}
                   />
+                </div>
 
+                <div className="max-h-[45vh] overflow-y-auto border-t border-alpha bg-background/45 px-5 py-4 dark:bg-background/20">
                   <AgentComposer
                     composer={composer}
                     selectedSession={selectedSession}
@@ -733,7 +739,7 @@ function SessionSidebar({
   onSelect: (sessionID: string) => void;
 }) {
   return (
-    <aside className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
+    <aside className="flex min-h-[16rem] flex-col overflow-hidden rounded-lg border border-alpha bg-base-100 dark:bg-surface lg:min-h-0">
       <div className="border-b border-alpha p-4">
         <h2 className="text-sm font-medium text-primary">Sessions</h2>
         <div className="mt-3 space-y-2">
@@ -760,7 +766,7 @@ function SessionSidebar({
       ) : sessions.length === 0 ? (
         <p className="p-4 text-sm text-faint">No agent sessions yet.</p>
       ) : (
-        <div className="divide-y divide-alpha">
+        <div className="min-h-0 flex-1 divide-y divide-alpha overflow-y-auto">
           {sessions.map((session) => {
             const active = session.id === selectedSessionID;
             return (
@@ -866,6 +872,21 @@ function TranscriptView({
   items: TranscriptItem[];
   emptyMessage: string;
 }) {
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const itemKey = useMemo(
+    () =>
+      items
+        .map((item) => `${item.id}:${item.text.length}:${item.streaming}`)
+        .join("|"),
+    [items],
+  );
+
+  useEffect(() => {
+    if (!loading) {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [itemKey, loading]);
+
   if (loading) {
     return <p className="text-sm text-faint">Loading transcript...</p>;
   }
@@ -882,6 +903,7 @@ function TranscriptView({
       {items.map((item) => (
         <TranscriptBubble key={item.id} item={item} />
       ))}
+      <div ref={bottomRef} />
     </div>
   );
 }
@@ -1142,7 +1164,7 @@ function AgentComposer({
   }
 
   return (
-    <form className="mt-6 border-t border-alpha pt-5" onSubmit={onSubmit}>
+    <form className="space-y-4" onSubmit={onSubmit}>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h3 className="text-sm font-medium text-primary">
@@ -1187,7 +1209,7 @@ function AgentComposer({
         <p className="mt-4 text-sm text-ember-500">{providersError}</p>
       ) : null}
 
-      <div className="mt-5 space-y-4">
+      <div className="space-y-4">
         {!selectedSession ? (
           <label className="block space-y-2 text-sm">
             <span className="text-muted">Client ref</span>
@@ -1434,14 +1456,15 @@ function AgentComposer({
           </div>
         </details>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {submitting ? "Starting..." : selectedSession ? "Send turn" : "Create session"}
-        </button>
       </div>
+
+      <button
+        type="submit"
+        disabled={submitting}
+        className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {submitting ? "Starting..." : selectedSession ? "Send turn" : "Create session"}
+      </button>
     </form>
   );
 }
@@ -1507,7 +1530,7 @@ function EventInspector({
   const activityEvents = events.filter(isActivityEvent);
 
   return (
-    <aside className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
+    <aside className="flex min-h-[16rem] flex-col overflow-hidden rounded-lg border border-alpha bg-base-100 dark:bg-surface lg:min-h-0">
       <div className="border-b border-alpha p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1527,14 +1550,14 @@ function EventInspector({
           />
         </dl>
       </div>
-      <div className="p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <h3 className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
           Public Activity
         </h3>
         {activityEvents.length === 0 ? (
           <p className="mt-3 text-sm text-faint">No public activity.</p>
         ) : (
-          <div className="mt-3 max-h-[40rem] space-y-3 overflow-y-auto pr-1">
+          <div className="mt-3 space-y-3">
             {activityEvents.map((event) => (
               <ActivityEvent
                 key={`${event.turnId}-${event.seq}-${event.id}`}
