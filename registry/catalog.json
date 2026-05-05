@@ -5680,7 +5680,7 @@
       ],
       "iconUrl": null,
       "kind": "ui",
-      "latestInstallableVersion": "0.0.1-alpha.27",
+      "latestInstallableVersion": "0.0.1-alpha.28",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/default/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.28",
       "name": "default",
@@ -5690,6 +5690,15 @@
       "registryPath": "/providers/ui/default/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/ui/default",
       "versions": [
+        {
+          "kind": "ui",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.28/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "ui",
+          "version": "0.0.1-alpha.28"
+        },
         {
           "kind": "ui",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.27/provider-release.yaml",
