@@ -263,6 +263,12 @@ class GitHubListWorkflowRunJobsRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubResolveInstallationRequest:
+    owner: str
+    repo: str
+
+
+@dataclass(frozen=True, slots=True)
 class CommitResult:
     owner: str
     repo: str
@@ -386,6 +392,43 @@ LABEL_SUBJECT_TYPES = frozenset((LABEL_ISSUE, LABEL_PULL_REQUEST))
 class GitHubSubjectScope:
     installation_id: int = 0
     repository: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubInstallationSubject:
+    installation_id: int
+    owner: str
+    repo: str
+    subject_id: str
+    subject_kind: str = "service_account"
+    auth_source: str = "github_app_webhook"
+
+
+def resolve_installation_subject(
+    request: GitHubResolveInstallationRequest,
+    *,
+    client: GitHubAPIClient | None = None,
+) -> GitHubInstallationSubject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    installation = github.repository_installation(owner, repo)
+    installation_id = int_field(installation, "id")
+    if installation_id <= 0:
+        raise GitHubAPIError(502, "GitHub installation response did not include id")
+
+    # Mint a repo-restricted token to validate that this app installation can act on the repo.
+    github.installation_token(installation_id, repositories=[repo])
+    repository = f"{owner}/{repo}"
+    return GitHubInstallationSubject(
+        installation_id=installation_id,
+        owner=owner,
+        repo=repo,
+        subject_id=(
+            f"{GITHUB_INSTALLATION_SUBJECT_PREFIX}{installation_id}"
+            f"{GITHUB_REPOSITORY_SUBJECT_SEPARATOR}{repository}"
+        ),
+    )
 
 
 def commit_files(
@@ -1708,6 +1751,20 @@ def workflow_run_job_summary(job: Mapping[str, Any]) -> dict[str, Any]:
             "completed_at": str_field(job, "completed_at"),
         }
     )
+
+
+def installation_subject_summary(subject: GitHubInstallationSubject) -> dict[str, Any]:
+    return {
+        "installation_id": subject.installation_id,
+        "owner": subject.owner,
+        "repo": subject.repo,
+        "repository": f"{subject.owner}/{subject.repo}",
+        "subject": {
+            "id": subject.subject_id,
+            "kind": subject.subject_kind,
+            "auth_source": subject.auth_source,
+        },
+    }
 
 
 def pagination_params(*, per_page: int, page: int) -> dict[str, Any]:

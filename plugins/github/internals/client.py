@@ -72,6 +72,8 @@ class GitHubAPIClient(Protocol):
 
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str: ...
 
+    def repository_installation(self, owner: str, repo: str) -> JsonObject: ...
+
     def get_branch_ref(
         self, token: str, owner: str, repo: str, branch: str
     ) -> JsonObject | None: ...
@@ -132,6 +134,9 @@ class GitHubAppClient:
 
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str:
         return repository_default_branch(token, owner, repo)
+
+    def repository_installation(self, owner: str, repo: str) -> JsonObject:
+        return repository_installation(owner, repo)
 
     def get_branch_ref(
         self, token: str, owner: str, repo: str, branch: str
@@ -337,14 +342,18 @@ def graphql_json(
         err.close()
         raise GitHubAPIError(err.code, github_error_message(body, err.code)) from err
     except urllib.error.URLError as err:
-        raise GitHubAPIError(502, f"GitHub GraphQL request failed: {err.reason}") from err
+        raise GitHubAPIError(
+            502, f"GitHub GraphQL request failed: {err.reason}"
+        ) from err
 
     if not body:
         raise GitHubAPIError(502, "GitHub GraphQL returned an empty response")
     try:
         decoded = json.loads(body.decode("utf-8"))
     except json.JSONDecodeError as err:
-        raise GitHubAPIError(502, f"GitHub GraphQL returned invalid JSON: {err}") from err
+        raise GitHubAPIError(
+            502, f"GitHub GraphQL returned invalid JSON: {err}"
+        ) from err
     if not isinstance(decoded, dict):
         raise GitHubAPIError(502, "GitHub GraphQL returned a non-object JSON response")
     errors = decoded.get("errors")
@@ -388,6 +397,14 @@ def repository_default_branch(token: str, owner: str, repo: str) -> str:
     return branch
 
 
+def repository_installation(owner: str, repo: str) -> JsonObject:
+    data = github_json("GET", repo_path(owner, repo, "installation"), create_app_jwt())
+    installation_id = int_field(data, "id")
+    if installation_id <= 0:
+        raise GitHubAPIError(502, "GitHub installation response did not include id")
+    return data
+
+
 def get_branch_ref(token: str, owner: str, repo: str, branch: str) -> JsonObject | None:
     try:
         return github_json(
@@ -420,7 +437,7 @@ def object_sha(ref: Mapping[str, Any], name: str) -> str:
 def bot_identity_or_none() -> GitHubBotIdentity | None:
     try:
         return bot_identity()
-    except (GitHubAPIError, GitHubConfigError):
+    except GitHubAPIError, GitHubConfigError:
         return None
 
 
