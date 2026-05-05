@@ -53,6 +53,26 @@ operations:
   tags:
   - email
   - mail
+- id: messages.attachments.get
+  method: GET
+  description: Get a Gmail message attachment
+  read_only: true
+  parameters:
+  - name: messageId
+    type: string
+    description: Message ID
+    required: true
+  - name: attachmentId
+    type: string
+    description: Attachment ID
+    required: true
+  - name: fields
+    type: string
+    description: Partial response fields selector
+    default: ''
+  tags:
+  - email
+  - mail
 - id: threads.get
   method: GET
   description: Get a Gmail thread

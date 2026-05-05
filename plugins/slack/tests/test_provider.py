@@ -971,8 +971,9 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
         self.assertEqual(signal_payload["slack"]["assistant_context_present"], False)
         self.assertEqual(
-            signal_payload["slack"]["text"], "<@UBOT> summarize deploy status"
-            " https://valon-technologies.slack.com/archives/C123/p1712161800000100"
+            signal_payload["slack"]["text"],
+            "<@UBOT> summarize deploy status"
+            " https://valon-technologies.slack.com/archives/C123/p1712161800000100",
         )
         self.assertIn(
             "operation: slack.conversations.getThreadContext",
@@ -1121,9 +1122,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(thread_context["messages"][2]["bot_id"], "B123")
         self.assertEqual(thread_context["files"][0]["id"], "F123")
         self.assertNotIn("thread_context_error", signal_payload["slack"])
-        self.assertIn(
-            "Prefetched thread context:", signal_payload["user_prompt"]
-        )
+        self.assertIn("Prefetched thread context:", signal_payload["user_prompt"])
         self.assertIn('"text": "Root request"', signal_payload["user_prompt"])
         self.assertIn('"bot_id": "B123"', signal_payload["user_prompt"])
         self.assertIn(
@@ -1260,9 +1259,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(error["status"], HTTPStatus.BAD_GATEWAY)
         self.assertEqual(error["error"], "channel_not_found")
         self.assertNotIn("thread_context", signal_payload["slack"])
-        self.assertIn(
-            "Prefetched thread context error:", signal_payload["user_prompt"]
-        )
+        self.assertIn("Prefetched thread context error:", signal_payload["user_prompt"])
 
     def test_thread_context_prefetch_clamps_oversized_max_messages(self) -> None:
         provider_module.configure(
@@ -4176,6 +4173,69 @@ class SlackProviderTests(unittest.TestCase):
             data["content"]["data_uri"],
             "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
         )
+
+    def test_files_get_allows_five_mib_download_request_contract(self) -> None:
+        five_mib = 5 * 1024 * 1024
+        download_read_sizes: list[int] = []
+
+        class RecordingDownloadResponse:
+            def __enter__(self) -> "RecordingDownloadResponse":
+                return self
+
+            def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                download_read_sizes.append(size)
+                return b"small attachment"
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse | RecordingDownloadResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertEqual(authorization_header(request), "Bearer test-token")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            query = urllib.parse.parse_qs(parsed.query)
+
+            if parsed.path == "/api/files.info":
+                self.assertEqual(query, {"file": ["FIMG"]})
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "file": {
+                        "id": "FIMG",
+                        "name": "diagram.png",
+                        "mimetype": "image/png",
+                        "url_private_download": "https://files.slack.com/files-pri/T-FIMG/diagram.png"
+                      }
+                    }
+                    """
+                )
+
+            self.assertEqual(parsed.netloc, "files.slack.com")
+            self.assertEqual(parsed.path, "/files-pri/T-FIMG/diagram.png")
+            return RecordingDownloadResponse()
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_urlopen),
+            ),
+        ):
+            result = provider_module.files_get(
+                provider_module.GetFileInput(file_id="FIMG", max_bytes=five_mib),
+                gestalt.Request(token="test-token"),
+            )
+
+        data = result["data"]
+        self.assertEqual(download_read_sizes, [five_mib + 1])
+        self.assertEqual(data["content"]["bytes_read"], len(b"small attachment"))
+        self.assertFalse(data["content"]["truncated"])
 
     def test_get_message_propagates_slack_api_http_error(self) -> None:
         error = make_http_error(

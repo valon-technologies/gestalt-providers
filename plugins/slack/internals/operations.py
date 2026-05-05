@@ -11,7 +11,7 @@ SLACK_MESSAGE_URL_PATTERN = re.compile(
 )
 USER_MENTION_PATTERN = re.compile(r"<@(U[A-Z0-9]+)>")
 DEFAULT_FILE_MAX_BYTES = 200_000
-HARD_FILE_MAX_BYTES = 1_000_000
+HARD_FILE_MAX_BYTES = 5 * 1024 * 1024
 
 
 def parse_message_url(url: str) -> tuple[str, str] | None:

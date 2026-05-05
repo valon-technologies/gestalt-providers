@@ -1,4 +1,5 @@
 import unittest
+import urllib.parse
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any, cast
@@ -60,6 +61,11 @@ class RecordingGmailClient(client_module.GmailAPIClient):
     def draft_url(self, draft_id: str) -> str:
         return f"{self.base_url()}/drafts/{draft_id}"
 
+    def message_attachment_url(
+        self, message_id: str, attachment_id: str, *, fields: str = ""
+    ) -> str:
+        return f"{self.base_url()}/messages/{message_id}/attachments/{attachment_id}"
+
 
 class GmailProviderTests(unittest.TestCase):
     def test_send_requires_token(self) -> None:
@@ -72,6 +78,133 @@ class GmailProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(response.body, {"error": "token is required"})
+
+    def test_messages_attachment_get_requires_message_and_attachment_ids(self) -> None:
+        cases = (
+            provider_module.MessageAttachmentGetInput(
+                messageId="", attachmentId="att-1"
+            ),
+            provider_module.MessageAttachmentGetInput(
+                messageId="msg-1", attachmentId=""
+            ),
+        )
+
+        with mock.patch.object(
+            client_module,
+            "get_json",
+            side_effect=AssertionError("unexpected Gmail API call"),
+        ):
+            for case in cases:
+                with self.subTest(input=case):
+                    result = provider_module.messages_attachments_get(
+                        case, gestalt.Request(token="test-token")
+                    )
+
+                    self.assertIsInstance(result, gestalt.Response)
+                    response = cast(gestalt.Response[dict[str, str]], result)
+                    self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+                    self.assertEqual(
+                        response.body,
+                        {"error": "messageId and attachmentId are required"},
+                    )
+
+    def test_messages_attachment_get_builds_url_and_returns_gmail_response(
+        self,
+    ) -> None:
+        attachment = {"attachmentId": "att/1", "data": "SGVsbG8", "size": 5}
+
+        with mock.patch.object(
+            client_module, "get_json", return_value=attachment
+        ) as get_json:
+            result = provider_module.messages_attachments_get(
+                provider_module.MessageAttachmentGetInput(
+                    messageId="msg/1",
+                    attachmentId="att/1",
+                    fields="data,size",
+                ),
+                gestalt.Request(
+                    token="user-token",
+                    credential=gestalt.Credential(mode="user"),
+                ),
+            )
+
+        self.assertEqual(result, attachment)
+        url = get_json.call_args.args[0]
+        parsed = urllib.parse.urlparse(url)
+        query = urllib.parse.parse_qs(parsed.query)
+        self.assertTrue(parsed.path.endswith("/messages/msg%2F1/attachments/att%2F1"))
+        self.assertEqual(query["fields"], ["data,size"])
+        self.assertEqual(get_json.call_args.args[1], "user-token")
+
+    def test_messages_attachment_get_preserves_raw_gmail_error_body(self) -> None:
+        raw_error = {
+            "error": {
+                "code": 404,
+                "message": "Attachment not found",
+                "status": "NOT_FOUND",
+            }
+        }
+
+        with mock.patch.object(
+            client_module,
+            "get_json",
+            side_effect=client_module.GmailAPIError(
+                404, "Attachment not found", raw_body=raw_error
+            ),
+        ):
+            result = provider_module.messages_attachments_get(
+                provider_module.MessageAttachmentGetInput(
+                    messageId="msg-1", attachmentId="att-1"
+                ),
+                gestalt.Request(
+                    token="user-token",
+                    credential=gestalt.Credential(mode="user"),
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, Any]], result)
+        self.assertEqual(response.status, 404)
+        self.assertEqual(response.body, raw_error)
+
+    def test_threads_get_full_preserves_attachment_metadata_payload(self) -> None:
+        thread = {
+            "id": "thread-1",
+            "messages": [
+                {
+                    "id": "msg-1",
+                    "payload": {
+                        "parts": [
+                            {
+                                "filename": "report.pdf",
+                                "mimeType": "application/pdf",
+                                "body": {"attachmentId": "att-1", "size": 12345},
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+
+        with mock.patch.object(
+            client_module, "get_json", return_value=thread
+        ) as get_json:
+            result = provider_module.threads_get(
+                provider_module.ThreadGetInput(id="thread-1", format="full"),
+                gestalt.Request(
+                    token="user-token",
+                    credential=gestalt.Credential(mode="user"),
+                ),
+            )
+
+        self.assertEqual(result, thread)
+        url = get_json.call_args.args[0]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        self.assertEqual(query["format"], ["full"])
+        self.assertEqual(
+            result["messages"][0]["payload"]["parts"][0]["body"]["attachmentId"],
+            "att-1",
+        )
 
     def test_send_message_wraps_gmail_response(self) -> None:
         with mock.patch.object(
