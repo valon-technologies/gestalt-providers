@@ -162,6 +162,7 @@ h3 {
 }
 
 .repository-select:focus,
+.mode-select:focus,
 .button:focus-visible,
 .segment-button:focus-visible {
   outline: 2px solid var(--accent);
@@ -254,6 +255,15 @@ h3 {
   margin-top: 22px;
 }
 
+.mode-select {
+  min-width: 190px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 9px 11px;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 18px 12px;
@@ -270,7 +280,8 @@ h3 {
     display: grid;
   }
 
-  .repository-select {
+  .repository-select,
+  .mode-select {
     min-width: 100%;
   }
 

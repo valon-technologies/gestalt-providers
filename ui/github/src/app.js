@@ -1,9 +1,9 @@
 "use strict";
 
-const PREFERENCE_FIELDS = ["allow_code_review_comments", "allow_self_fix"];
+const PREFERENCE_FIELDS = ["allow_code_review_comments", "self_fix_mode"];
 const FIELD_LABELS = {
   allow_code_review_comments: "Inline code review comments",
-  allow_self_fix: "Self-fix commits and pull requests",
+  self_fix_mode: "Self-fix mode",
 };
 
 const state = {
@@ -56,7 +56,15 @@ async function fetchJSON(path, options = {}) {
 function preferenceValueLabel(value) {
   if (value === true) return "On";
   if (value === false) return "Off";
+  if (typeof value === "string") return labelForEnumValue(value);
   return "Default";
+}
+
+function labelForEnumValue(value) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function controlKey(repository, control) {
@@ -69,10 +77,15 @@ function controlIdentityKind(control) {
 
 function controlValue(repository, control) {
   const key = controlKey(repository, control);
-  return state.drafts.has(key) ? state.drafts.get(key) : normalizePreferenceValue(control.stored);
+  return state.drafts.has(key)
+    ? state.drafts.get(key)
+    : normalizePreferenceValue(control, control.stored);
 }
 
-function normalizePreferenceValue(value) {
+function normalizePreferenceValue(control, value) {
+  if (control?.type === "enum") {
+    return typeof value === "string" && value ? value : null;
+  }
   return typeof value === "boolean" ? value : null;
 }
 
@@ -91,14 +104,14 @@ function isDirty(repository) {
     const key = controlKey(repository.repository, control);
     return (
       state.drafts.has(key) &&
-      state.drafts.get(key) !== normalizePreferenceValue(control.stored)
+      state.drafts.get(key) !== normalizePreferenceValue(control, control.stored)
     );
   });
 }
 
 function updateDraft(repository, control, value) {
-  const normalized = normalizePreferenceValue(value);
-  const stored = normalizePreferenceValue(control.stored);
+  const normalized = normalizePreferenceValue(control, value);
+  const stored = normalizePreferenceValue(control, control.stored);
   const key = controlKey(repository, control);
   state.saved = false;
   if (normalized === stored) {
@@ -184,7 +197,7 @@ async function savePreferences() {
       for (const control of controls) {
         const value = controlValue(repository.repository, control);
         values[control.field] = value;
-        policyDirty = policyDirty || value !== normalizePreferenceValue(control.stored);
+        policyDirty = policyDirty || value !== normalizePreferenceValue(control, control.stored);
       }
       if (!policyDirty) continue;
 
@@ -206,7 +219,7 @@ async function savePreferences() {
             policy_id: policyID,
             identity_kind: identityKind,
             allow_code_review_comments: values.allow_code_review_comments ?? null,
-            allow_self_fix: values.allow_self_fix ?? null,
+            self_fix_mode: values.self_fix_mode ?? null,
           }),
         });
       }
@@ -343,11 +356,40 @@ function controlRow(repository, control) {
       element("h3", {}, [label]),
       control.description ? element("p", { className: "muted" }, [control.description]) : null,
       element("p", { className: "faint effective" }, [
-        `Effective: ${preferenceValueLabel(normalizePreferenceValue(control.effective))}`,
+        `Effective: ${preferenceValueLabel(normalizePreferenceValue(control, control.effective))}`,
       ]),
     ]),
-    segmentedControl(repository, control, value, label),
+    preferenceControl(repository, control, value, label),
   ]);
+}
+
+function preferenceControl(repository, control, value, label) {
+  if (control.type === "enum") {
+    return enumControl(repository, control, value, label);
+  }
+  return segmentedControl(repository, control, value, label);
+}
+
+function enumControl(repository, control, value, label) {
+  const options = Array.isArray(control.options) ? control.options : [];
+  const select = element("select", {
+    className: "mode-select",
+    "aria-label": `${label} for ${repository}`,
+  });
+  select.appendChild(element("option", { value: "" }, ["Default"]));
+  for (const option of options) {
+    if (!option || typeof option.value !== "string") continue;
+    select.appendChild(
+      element("option", { value: option.value }, [
+        typeof option.label === "string" ? option.label : labelForEnumValue(option.value),
+      ]),
+    );
+  }
+  select.value = value ?? "";
+  select.addEventListener("change", (event) => {
+    updateDraft(repository, control, event.target.value || null);
+  });
+  return select;
 }
 
 function segmentedControl(repository, control, value, label) {

@@ -9,6 +9,7 @@ def policy_base_metadata(policy: GitHubWebhookPolicy) -> dict[str, Any]:
     action: dict[str, Any] = {
         "allow_code_review_comments": policy.allow_code_review_comments,
         "allow_self_fix": policy.allow_self_fix,
+        "self_fix_mode": policy.self_fix_mode,
     }
     if policy.action_preference_subject:
         action["preference_subject"] = policy.action_preference_subject
@@ -20,6 +21,7 @@ def policy_base_metadata(policy: GitHubWebhookPolicy) -> dict[str, Any]:
             "frequency": policy.trigger.frequency,
             "include_drafts": policy.trigger.include_drafts,
             "manual_commands": list(policy.trigger.manual_commands),
+            "manual_command_match": policy.trigger.manual_command_match,
         },
         "dedupe": {"scope": policy.dedupe.scope},
         "action": action,

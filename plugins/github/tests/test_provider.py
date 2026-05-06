@@ -575,6 +575,8 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_REQUEST_REVIEWERS_OPERATION, enum)
         self.assertIn(provider_module.BOT_RESOLVE_INSTALLATION_OPERATION, enum)
         self.assertIn(provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION, enum)
+        self.assertIn(provider_module.BOT_CREATE_CHECK_RUN_OPERATION, enum)
+        self.assertIn(provider_module.BOT_UPDATE_CHECK_RUN_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
@@ -606,6 +608,10 @@ class GitHubProviderTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
+            policy_schema["trigger"]["properties"]["manualCommandMatch"]["enum"],
+            ["contains", "exact"],
+        )
+        self.assertEqual(
             policy_schema["dedupe"]["properties"]["scope"]["enum"],
             ["delivery", "pull_request", "pr_head", "ci_incident"],
         )
@@ -628,6 +634,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             policy_schema["action"]["properties"]["allowSelfFix"]["type"],
             "boolean",
+        )
+        self.assertEqual(
+            policy_schema["action"]["properties"]["selfFixMode"]["enum"],
+            ["disabled", "suggest", "branch_commit", "pull_request"],
         )
         self.assertEqual(
             policy_schema["action"]["properties"]["preferenceSubject"]["enum"],
@@ -1579,6 +1589,60 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertIn("allow_self_fix: False", data["agent_request"]["user_prompt"])
 
+    def test_policy_self_fix_mode_must_explicitly_allow_write_tools(self) -> None:
+        base_config = {
+            "appId": "12345",
+            "appPrivateKey": "unused-in-tests",
+            "workflow": {"provider": "local"},
+            "agent": {"provider": "simple", "model": "deep"},
+        }
+        payload = {
+            "action": "opened",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {"number": 7},
+            "headers": {"X-GitHub-Event": "pull_request"},
+            "sender": {"login": "octocat"},
+        }
+
+        provider_module.configure(
+            "github",
+            {
+                **base_config,
+                "webhookPolicies": [
+                    {"id": "default-disabled", "action": {"mode": "pull_request"}}
+                ],
+            },
+        )
+        disabled = self._workflow_signal_request(payload)
+        disabled_operations = [tool.operation for tool in disabled.target.agent.tool_refs]
+        self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, disabled_operations)
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, disabled_operations
+        )
+
+        provider_module.configure(
+            "github",
+            {
+                **base_config,
+                "webhookPolicies": [
+                    {
+                        "id": "branch-only",
+                        "action": {
+                            "mode": "pull_request",
+                            "selfFixMode": "branch_commit",
+                        },
+                    }
+                ],
+            },
+        )
+        branch_only = self._workflow_signal_request(payload)
+        branch_operations = [tool.operation for tool in branch_only.target.agent.tool_refs]
+        self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, branch_operations)
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, branch_operations
+        )
+
     def test_action_preferences_absent_preserves_static_dispatch_without_lookup(
         self,
     ) -> None:
@@ -1699,7 +1763,9 @@ class GitHubProviderTests(unittest.TestCase):
     ) -> None:
         provider_module.configure(
             "github",
-            self._action_preferences_config(action={"mode": "pull_request"}),
+            self._action_preferences_config(
+                action={"mode": "pull_request", "selfFixMode": "pull_request"}
+            ),
         )
         identity = identity_module.GitHubPreferenceIdentity(
             preference_subject="pull_request_author",
@@ -1725,6 +1791,7 @@ class GitHubProviderTests(unittest.TestCase):
                     "subject_id": "user:ada",
                     "allow_code_review_comments": None,
                     "allow_self_fix": False,
+                    "self_fix_mode": "pull_request",
                 }
             }
         )
@@ -1749,6 +1816,12 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             data["webhook_policy"]["action_preferences"]["source"], "subject_id"
         )
+        self.assertEqual(
+            data["webhook_policy"]["action_preferences"]["effective"][
+                "self_fix_mode"
+            ],
+            "disabled",
+        )
 
     def test_action_preferences_true_cannot_exceed_static_policy_ceiling(
         self,
@@ -1760,6 +1833,7 @@ class GitHubProviderTests(unittest.TestCase):
                     "mode": "pull_request",
                     "allowCodeReviewComments": False,
                     "allowSelfFix": False,
+                    "selfFixMode": "pull_request",
                 }
             ),
         )
@@ -2026,7 +2100,9 @@ class GitHubProviderTests(unittest.TestCase):
     def test_action_preference_operations_manage_callers_own_identity(self) -> None:
         provider_module.configure(
             "github",
-            self._action_preferences_config(action={"mode": "comment"}),
+            self._action_preferences_config(
+                action={"mode": "pull_request", "selfFixMode": "pull_request"}
+            ),
         )
         fake_db = FakeIndexedDB()
         req = gestalt.Request(
@@ -2043,6 +2119,7 @@ class GitHubProviderTests(unittest.TestCase):
                     policy_id="review-policy",
                     allow_code_review_comments=False,
                     allow_self_fix=None,
+                    self_fix_mode="branch_commit",
                 ),
                 req,
             )
@@ -2064,15 +2141,26 @@ class GitHubProviderTests(unittest.TestCase):
                 ),
                 req,
             )
+            invalid_result = provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="review-policy",
+                    self_fix_mode="invalid",
+                ),
+                req,
+            )
 
         indexeddb.assert_called_once_with("github_prefs")
         preference = set_result["data"]["preference"]
         self.assertEqual(preference["identity_kind"], "external_subject_id")
         self.assertEqual(preference["external_subject_id"], "user:101")
         self.assertEqual(preference["allow_code_review_comments"], False)
+        self.assertEqual(preference["self_fix_mode"], "branch_commit")
         self.assertEqual(get_result["data"]["preference"]["id"], preference["id"])
         self.assertEqual(delete_result["data"]["deleted"], True)
         self.assertEqual(get_after_delete["data"]["found"], False)
+        self.assertEqual(invalid_result.status, HTTPStatus.BAD_REQUEST)
+        self.assertIn("self_fix_mode must be", invalid_result.body["error"])
 
     def test_action_preference_targets_list_oauth_accessible_effective_controls(
         self,
@@ -2162,12 +2250,23 @@ class GitHubProviderTests(unittest.TestCase):
                 "action": {
                     "mode": "pull_request",
                     "allowCodeReviewComments": False,
+                    "selfFixMode": "pull_request",
                 },
             },
             {
                 "id": "subject-policy",
                 "match": {"repositories": ["acme/widgets"]},
                 "action": {"mode": "comment"},
+            },
+            {
+                "id": "suggest-policy",
+                "match": {"repositories": ["acme/widgets"]},
+                "action": {"mode": "comment", "selfFixMode": "suggest"},
+            },
+            {
+                "id": "legacy-disabled-policy",
+                "match": {"repositories": ["acme/widgets"]},
+                "action": {"mode": "pull_request", "selfFixMode": "pull_request"},
             },
             {
                 "id": "observe-policy",
@@ -2218,6 +2317,14 @@ class GitHubProviderTests(unittest.TestCase):
                 ),
                 req,
             )
+            provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="legacy-disabled-policy",
+                    allow_self_fix=False,
+                ),
+                req,
+            )
             for record in fake_db.records.values():
                 if record.get("policy_id") == "self-fix-policy":
                     record["allow_self_fix"] = "invalid"
@@ -2261,10 +2368,28 @@ class GitHubProviderTests(unittest.TestCase):
             "external_subject_id",
         )
         self.assertEqual(
-            controls[("self-fix-policy", "allow_self_fix")]["stored"], None
+            controls[("self-fix-policy", "self_fix_mode")]["stored"], None
         )
         self.assertEqual(
-            controls[("self-fix-policy", "allow_self_fix")]["effective"], True
+            controls[("self-fix-policy", "self_fix_mode")]["effective"], "pull_request"
+        )
+        self.assertEqual(
+            controls[("suggest-policy", "self_fix_mode")]["effective"], "suggest"
+        )
+        self.assertEqual(
+            [
+                option["value"]
+                for option in controls[("suggest-policy", "self_fix_mode")]["options"]
+            ],
+            ["disabled", "suggest"],
+        )
+        self.assertEqual(
+            controls[("legacy-disabled-policy", "self_fix_mode")]["stored"],
+            "disabled",
+        )
+        self.assertEqual(
+            controls[("legacy-disabled-policy", "self_fix_mode")]["effective"],
+            "disabled",
         )
         self.assertEqual(
             controls[("subject-policy", "allow_code_review_comments")]["stored"],
@@ -2473,6 +2598,53 @@ class GitHubProviderTests(unittest.TestCase):
             json_format.MessageToDict(ready.signal.payload),
         )
         self.assertEqual(ready_data["webhook_policy"]["id"], "non-draft-pr")
+
+    def test_policy_exact_manual_command_rejects_verbose_suffix(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "exact-review",
+                        "match": {"events": ["issue_comment"], "actions": ["created"]},
+                        "trigger": {
+                            "frequency": "manual_only",
+                            "manualCommands": ["gestalt review"],
+                            "manualCommandMatch": "exact",
+                        },
+                    },
+                    {
+                        "id": "fallback",
+                        "match": {"events": ["issue_comment"], "actions": ["created"]},
+                    },
+                ],
+            },
+        )
+        base = {
+            "action": "created",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "issue": {
+                "number": 7,
+                "pull_request": {"html_url": "https://github.com/acme/widgets/pull/7"},
+            },
+            "headers": {"X-GitHub-Event": "issue_comment"},
+            "sender": {"login": "octocat"},
+        }
+
+        exact = self._workflow_signal_payload(
+            {**base, "comment": {"id": 11, "body": "  Gestalt   Review  "}}
+        )
+        verbose = self._workflow_signal_payload(
+            {**base, "comment": {"id": 12, "body": "gestalt review verbose=true"}}
+        )
+
+        self.assertEqual(exact["webhook_policy"]["id"], "exact-review")
+        self.assertEqual(verbose["webhook_policy"]["id"], "fallback")
 
     def test_pr_scoped_policy_does_not_treat_plain_issue_as_pr(self) -> None:
         provider_module.configure(
@@ -2985,9 +3157,102 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertRegex(
             review_request.comments[0].body,
-            r"<!-- gestalt:github-review-finding v1 "
-            r"fingerprint=[0-9a-f]{64} source=github\.reviewPullRequest -->$",
+            r"<!-- gestalt:github-review-finding v2 "
+            r"fingerprint=[0-9a-f]{64} stable_fingerprint=[0-9a-f]{64} "
+            r"source=github\.reviewPullRequest -->$",
         )
+
+    def test_review_pull_request_accepts_exact_issue_comment_and_updates_check(
+        self,
+    ) -> None:
+        agent_manager = FakeAgentManager(findings=[])
+        created_checks: list[Any] = []
+        updated_checks: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "issue_comment",
+                        "github_action": "created",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "webhook_policy": {
+                            "trigger": {
+                                "manual_commands": ["gestalt review"],
+                                "manual_command_match": "exact",
+                            }
+                        },
+                        "agent_request": {
+                            "issue": {"number": 7, "is_pull_request": True},
+                            "comment": {"id": 10, "body": "gestalt review"},
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_create_check(request: Any, *, subject: Any) -> dict[str, Any]:
+            created_checks.append((request, subject))
+            return {
+                "id": 501,
+                "name": request.name,
+                "status": "in_progress",
+                "head_sha": request.head_sha,
+            }
+
+        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+            updated_checks.append((request, subject))
+            return {
+                "id": request.check_run_id,
+                "name": "Gestalt Review",
+                "status": "completed",
+                "conclusion": request.conclusion,
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "draft": False,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+ok = True",
+                    }
+                ],
+            ),
+            mock.patch("internals.review.create_check_run", side_effect=fake_create_check),
+            mock.patch("internals.review.update_check_run", side_effect=fake_update_check),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(
+                    publishCheckRun=True,
+                    autoResolveStaleFindings=False,
+                ),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["reason"], "no_valid_findings")
+        self.assertEqual(data["checkRun"]["conclusion"], "success")
+        self.assertEqual(created_checks[0][0].head_sha, "abc123")
+        self.assertEqual(updated_checks[0][0].conclusion, "success")
 
     def test_review_pull_request_resolves_stale_marked_bot_thread(self) -> None:
         agent_manager = FakeAgentManager(
@@ -3039,7 +3304,10 @@ class GitHubProviderTests(unittest.TestCase):
                                 "authorLogin": "example-app[bot]",
                                 "body": review_module.review_comment_body_with_marker(
                                     "Old bug no longer exists.",
-                                    "a" * 64,
+                                    review_module.ReviewFindingFingerprints(
+                                        fingerprint="a" * 64,
+                                        stable_fingerprint="a" * 64,
+                                    ),
                                 ),
                             }
                         ],
@@ -3102,12 +3370,137 @@ class GitHubProviderTests(unittest.TestCase):
         data = cast(dict[str, Any], result)["data"]
         self.assertEqual(data["resolvedThreads"], ["thread-stale"])
         self.assertEqual(data["skippedResolutionReasons"], [])
-        self.assertEqual(list_thread_cursors, ["", "cursor-2"])
+        self.assertEqual(list_thread_cursors, ["", "cursor-2", "", "cursor-2"])
         self.assertEqual(len(resolved_requests), 1)
         resolve_request, resolve_subject = resolved_requests[0]
         self.assertEqual(resolve_request.thread_id, "thread-stale")
         self.assertEqual(resolve_request.installation_id, 99)
         self.assertEqual(resolve_subject.id, request.subject.id)
+
+    def test_review_pull_request_suppresses_materially_identical_existing_finding(
+        self,
+    ) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "Current bug still exists.",
+                }
+            ]
+        )
+        subject = review_module.PullRequestSubject(
+            owner="acme",
+            repo="widgets",
+            repository="acme/widgets",
+            pull_number=7,
+            installation_id=99,
+        )
+        existing_fingerprints = review_module.review_finding_fingerprints(
+            subject,
+            review_module.ValidatedFinding(
+                path="src/widget.py",
+                line=3,
+                body="Current bug still exists.",
+            ),
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        def fake_list_threads(request: Any, *, subject: Any) -> dict[str, Any]:
+            return {
+                "threads": [
+                    {
+                        "id": "thread-current",
+                        "isResolved": False,
+                        "viewerCanResolve": True,
+                        "commentsTruncated": False,
+                        "comments": [
+                            {
+                                "authorLogin": "example-app[bot]",
+                                "body": review_module.review_comment_body_with_marker(
+                                    "Current bug still exists.",
+                                    existing_fingerprints,
+                                ),
+                            }
+                        ],
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False, "endCursor": ""},
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,3 @@\n context\n+bad = True\n+more = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("duplicate finding should not be posted"),
+            ),
+            mock.patch(
+                "internals.review.bot_identity_or_none",
+                return_value=GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                side_effect=fake_list_threads,
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=AssertionError("current finding should not be resolved"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], False)
+        self.assertEqual(data["comments"], 0)
+        self.assertEqual(data["suppressedFindings"], 1)
+        self.assertEqual(data["reason"], "duplicate_findings")
+        self.assertEqual(
+            data["skippedResolutionReasons"],
+            [{"threadId": "thread-current", "reason": "current_finding"}],
+        )
 
     def test_review_pull_request_records_resolution_list_failure_after_post(
         self,
@@ -3289,7 +3682,10 @@ class GitHubProviderTests(unittest.TestCase):
                                     "authorLogin": "example-app[bot]",
                                     "body": review_module.review_comment_body_with_marker(
                                         "Current bug still exists.",
-                                        current_fingerprint,
+                                        review_module.ReviewFindingFingerprints(
+                                            fingerprint=current_fingerprint,
+                                            stable_fingerprint=current_fingerprint,
+                                        ),
                                     ),
                                 }
                             ],
@@ -3304,7 +3700,10 @@ class GitHubProviderTests(unittest.TestCase):
                                     "authorLogin": "example-app[bot]",
                                     "body": review_module.review_comment_body_with_marker(
                                         "Old bug",
-                                        "b" * 64,
+                                        review_module.ReviewFindingFingerprints(
+                                            fingerprint="b" * 64,
+                                            stable_fingerprint="b" * 64,
+                                        ),
                                     ),
                                 },
                                 {
@@ -3416,7 +3815,10 @@ class GitHubProviderTests(unittest.TestCase):
                                     "authorLogin": "example-app[bot]",
                                     "body": review_module.review_comment_body_with_marker(
                                         "Old bug",
-                                        "c" * 64,
+                                        review_module.ReviewFindingFingerprints(
+                                            fingerprint="c" * 64,
+                                            stable_fingerprint="c" * 64,
+                                        ),
                                     ),
                                 }
                             ],
@@ -3970,7 +4372,6 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
                 provider_module.BOT_ADD_REACTION_OPERATION,
                 provider_module.BOT_REQUEST_REVIEWERS_OPERATION,
-                provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
 
@@ -6007,8 +6408,41 @@ class GitHubProviderTests(unittest.TestCase):
             if path == "/app/installations/99/access_tokens":
                 if body["permissions"] == {"checks": "read"}:
                     return FakeHTTPResponse({"token": "checks-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
                 if body["permissions"] == {"actions": "read"}:
                     return FakeHTTPResponse({"token": "actions-token"})
+            if path == "/repos/acme/widgets/check-runs" and method == "POST":
+                self.assertEqual(auth_header(request), "Bearer checks-write-token")
+                if body["name"] == "Completed Review":
+                    self.assertEqual(body["head_sha"], "def456")
+                    self.assertEqual(body["conclusion"], "success")
+                    self.assertEqual(body["status"], "completed")
+                else:
+                    self.assertEqual(body["name"], "Gestalt Review")
+                    self.assertEqual(body["head_sha"], "abc123")
+                    self.assertEqual(body["status"], "in_progress")
+                return FakeHTTPResponse(
+                    {
+                        "id": 999,
+                        "name": body["name"],
+                        "status": body["status"],
+                        "head_sha": body["head_sha"],
+                    }
+                )
+            if path == "/repos/acme/widgets/check-runs/999" and method == "PATCH":
+                self.assertEqual(auth_header(request), "Bearer checks-write-token")
+                self.assertEqual(body["conclusion"], "success")
+                self.assertEqual(body["status"], "completed")
+                self.assertEqual(body["output"]["title"], "Review complete")
+                return FakeHTTPResponse(
+                    {
+                        "id": 999,
+                        "name": "Gestalt Review",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                )
             if path == "/repos/acme/widgets/check-runs/123":
                 self.assertEqual(auth_header(request), "Bearer checks-token")
                 return FakeHTTPResponse(
@@ -6101,6 +6535,39 @@ class GitHubProviderTests(unittest.TestCase):
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
             ),
         ):
+            created_check = provider_module.bot_create_check_run(
+                provider_module.CreateCheckRunInput(
+                    owner="acme",
+                    repo="widgets",
+                    name="Gestalt Review",
+                    head_sha="abc123",
+                    status="in_progress",
+                ),
+                github_request(),
+            )
+            completed_created_check = provider_module.bot_create_check_run(
+                provider_module.CreateCheckRunInput(
+                    owner="acme",
+                    repo="widgets",
+                    name="Completed Review",
+                    head_sha="def456",
+                    conclusion="success",
+                ),
+                github_request(),
+            )
+            updated_check = provider_module.bot_update_check_run(
+                provider_module.UpdateCheckRunInput(
+                    owner="acme",
+                    repo="widgets",
+                    check_run_id=999,
+                    conclusion="success",
+                    output=provider_module.CheckRunOutputInput(
+                        title="Review complete",
+                        summary="No findings.",
+                    ),
+                ),
+                github_request(),
+            )
             check_run = provider_module.bot_get_check_run(
                 provider_module.GetCheckRunInput(
                     owner="acme", repo="widgets", check_run_id=123
@@ -6148,6 +6615,19 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
+        self.assertEqual(
+            cast(dict[str, Any], created_check)["data"]["check_run"]["id"], 999
+        )
+        self.assertEqual(
+            cast(dict[str, Any], completed_created_check)["data"]["check_run"][
+                "status"
+            ],
+            "completed",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], updated_check)["data"]["check_run"]["conclusion"],
+            "success",
+        )
         self.assertEqual(
             cast(dict[str, Any], check_run)["data"]["check_run"]["id"], 123
         )

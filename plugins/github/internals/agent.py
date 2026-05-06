@@ -10,6 +10,10 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from .config import (
     GitHubWebhookPolicy,
     GitHubWorkflowPluginTarget,
+    SELF_FIX_BRANCH_COMMIT,
+    SELF_FIX_DISABLED,
+    SELF_FIX_PULL_REQUEST,
+    SELF_FIX_SUGGEST,
     WEBHOOK_DEDUPE_CI_INCIDENT,
     WEBHOOK_DEDUPE_DELIVERY,
     WEBHOOK_DEDUPE_PR_HEAD,
@@ -257,6 +261,26 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
             "Do not commit code changes, open pull requests, or otherwise self-fix "
             "the pull request; this policy disables self-fix tools."
         )
+    elif policy is not None and policy.self_fix_mode == SELF_FIX_DISABLED:
+        lines.append(
+            "Do not commit code changes, open pull requests, or otherwise self-fix "
+            "the pull request; this policy leaves self-fix disabled."
+        )
+    elif policy is not None and policy.self_fix_mode == SELF_FIX_SUGGEST:
+        lines.append(
+            "Do not commit code changes or open pull requests. If a fix is useful, "
+            "describe the suggested patch in a comment."
+        )
+    elif policy is not None and policy.self_fix_mode == SELF_FIX_BRANCH_COMMIT:
+        lines.append(
+            "Self-fix is limited to committing narrowly scoped changes to an "
+            "existing branch; do not open pull requests."
+        )
+    elif policy is not None and policy.self_fix_mode == SELF_FIX_PULL_REQUEST:
+        lines.append(
+            "Self-fix may commit narrowly scoped changes and open pull requests "
+            "when the policy exposes those tools."
+        )
     if (
         BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations
         and BOT_LIST_PULL_REQUEST_FILES_OPERATION in operations
@@ -351,6 +375,7 @@ def agent_user_prompt(
         lines.append(f"policy_id: {policy.id}")
         lines.append(f"policy_mode: {policy.action_mode}")
         lines.append(f"trigger_frequency: {policy.trigger.frequency}")
+        lines.append(f"manual_command_match: {policy.trigger.manual_command_match}")
         lines.append(f"dedupe_scope: {policy.dedupe.scope}")
         lines.append(f"timeline_policy: {policy.comments.timeline_policy}")
         lines.append(f"inline_policy: {policy.comments.inline_policy}")
@@ -359,6 +384,7 @@ def agent_user_prompt(
             f"allow_code_review_comments: {policy.allow_code_review_comments}"
         )
         lines.append(f"allow_self_fix: {policy.allow_self_fix}")
+        lines.append(f"self_fix_mode: {policy.self_fix_mode}")
         if policy.action_preferences is not None:
             preference_source = str(policy.action_preferences.get("source", ""))
             lines.append(f"action_preferences_source: {preference_source}")

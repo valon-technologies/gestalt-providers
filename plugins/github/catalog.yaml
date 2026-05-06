@@ -48,6 +48,14 @@ operations:
     description: Resolve prior provider-owned inline comments when the latest review
       no longer reports the same finding
     default: true
+  - name: publishCheckRun
+    type: boolean
+    description: Publish a GitHub check run for the review result
+    default: false
+  - name: checkRunName
+    type: string
+    description: GitHub check run name to create when publishCheckRun is enabled
+    default: Gestalt Review
   - name: turnTimeoutMs
     type: integer
     description: Maximum time to wait for the review agent turn
@@ -111,8 +119,14 @@ operations:
   - name: allow_self_fix
     type: boolean
     description: >-
-      Whether this caller allows self-fix commits or pull requests for this
-      policy. Null leaves the policy default in effect.
+      Deprecated boolean self-fix preference. False disables self-fix; true/null
+      leave self_fix_mode in effect.
+    default: null
+  - name: self_fix_mode
+    type: string
+    description: >-
+      Self-fix mode: disabled, suggest, branch_commit, pull_request, or null for
+      policy default.
     default: null
 - id: actionPreferences.delete
   method: POST
@@ -717,6 +731,96 @@ operations:
     type: integer
     description: GitHub check run ID
     required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.createCheckRun
+  method: POST
+  description: Create a GitHub check run using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: name
+    type: string
+    description: Check run name
+    required: true
+  - name: head_sha
+    type: string
+    description: Git commit SHA to attach the check run to
+    required: true
+  - name: status
+    type: string
+    description: Check run status, usually in_progress or completed
+    default: in_progress
+  - name: conclusion
+    type: string
+    description: Completed check conclusion
+    default: ''
+  - name: details_url
+    type: string
+    description: Optional details URL
+    default: ''
+  - name: external_id
+    type: string
+    description: Optional caller-owned external ID
+    default: ''
+  - name: output
+    type: object
+    description: Optional check run output
+    default: null
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is taken from the webhook
+      service account subject.
+    default: 0
+- id: bot.updateCheckRun
+  method: POST
+  description: Update a GitHub check run using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: check_run_id
+    type: integer
+    description: GitHub check run ID
+    required: true
+  - name: name
+    type: string
+    description: Optional replacement check run name
+    default: ''
+  - name: status
+    type: string
+    description: Optional check run status
+    default: ''
+  - name: conclusion
+    type: string
+    description: Optional completed check conclusion
+    default: ''
+  - name: details_url
+    type: string
+    description: Optional details URL
+    default: ''
+  - name: output
+    type: object
+    description: Optional check run output
+    default: null
+  - name: completed_at
+    type: string
+    description: Optional ISO timestamp for completed check runs
+    default: ''
   - name: installation_id
     type: integer
     description: GitHub App installation ID. If omitted, it is taken from the webhook

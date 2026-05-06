@@ -5,6 +5,7 @@ from typing import Any
 from .config import (
     GitHubAppConfig,
     GitHubWebhookPolicy,
+    WEBHOOK_MANUAL_COMMAND_EXACT,
     WEBHOOK_TRIGGER_MANUAL_ONLY,
 )
 from .helpers import map_field, nested_str, str_field
@@ -70,7 +71,17 @@ def _manual_command_matches(
     if event_type not in ("issue_comment", "pull_request_review_comment"):
         return False
     body = str_field(map_field(payload, "comment"), "body")
+    if policy.trigger.manual_command_match == WEBHOOK_MANUAL_COMMAND_EXACT:
+        normalized_body = normalize_manual_command(body)
+        return any(
+            normalize_manual_command(command) == normalized_body
+            for command in policy.trigger.manual_commands
+        )
     return any(command in body for command in policy.trigger.manual_commands)
+
+
+def normalize_manual_command(value: str) -> str:
+    return " ".join(value.strip().casefold().split())
 
 
 def branch_candidates(
