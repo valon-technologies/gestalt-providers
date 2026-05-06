@@ -502,7 +502,7 @@ export default function IntegrationCard({
         cardNavigationEnabled
           ? `Open ${integration.displayName || integration.name}`
           : cardSettingsEnabled
-            ? `${integration.displayName || integration.name} settings`
+            ? `Open ${integration.displayName || integration.name}`
           : undefined
       }
     >
