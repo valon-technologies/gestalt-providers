@@ -1520,10 +1520,12 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 
 	revokedAt := secondCreatedAt.Add(time.Minute)
+	updatedTarget := protoBoundTarget(t, "roadmap", "sync", nil)
+	updatedTarget.GetPlugin().CredentialMode = "none"
 	updated, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
 			Id:                  "ref-1",
-			Target:              protoBoundTarget(t, "roadmap", "sync", nil),
+			Target:              updatedTarget,
 			SubjectId:           "user:123",
 			CredentialSubjectId: "svc:workflow",
 			Permissions: []*proto.WorkflowAccessPermission{
@@ -1574,6 +1576,9 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	if got.GetCredentialSubjectId() != "svc:workflow" {
 		t.Fatalf("credential_subject_id = %q, want svc:workflow", got.GetCredentialSubjectId())
 	}
+	if got.GetTarget().GetPlugin().GetCredentialMode() != "none" {
+		t.Fatalf("target credential mode = %q, want none", got.GetTarget().GetPlugin().GetCredentialMode())
+	}
 	if len(got.GetPermissions()) != 1 || got.GetPermissions()[0].GetPlugin() != "roadmap" {
 		t.Fatalf("permissions = %#v, want roadmap entry", got.GetPermissions())
 	}
@@ -1600,6 +1605,43 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 	if len(all.GetReferences()) != 3 {
 		t.Fatalf("all references len = %d, want 3", len(all.GetReferences()))
+	}
+}
+
+func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
+	target := protoBoundTarget(t, " github ", " reviewPullRequest ", nil)
+	target.GetPlugin().CredentialMode = " none "
+
+	scoped, err := normalizeTarget(target)
+	if err != nil {
+		t.Fatalf("normalizeTarget: %v", err)
+	}
+	plugin := scoped.Target.GetPlugin()
+	if plugin.GetPluginName() != "github" || plugin.GetOperation() != "reviewPullRequest" {
+		t.Fatalf("plugin target = %#v", plugin)
+	}
+	if got := plugin.GetCredentialMode(); got != "none" {
+		t.Fatalf("credential mode = %q, want none", got)
+	}
+}
+
+func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
+	target := protoBoundTarget(t, "github", "reviewPullRequest", nil)
+	target.GetPlugin().CredentialMode = "platform"
+
+	_, err := normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), `target.plugin.credential_mode "platform" is not supported`) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
+	}
+}
+
+func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) {
+	target := protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
+	target.GetAgent().GetOutputDelivery().GetTarget().CredentialMode = "none"
+
+	_, err := normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), `target.agent.output_delivery.target.credential_mode "none" is not supported`) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported output delivery target mode", err)
 	}
 }
 

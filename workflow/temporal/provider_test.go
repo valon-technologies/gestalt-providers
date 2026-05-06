@@ -929,6 +929,55 @@ func pluginTarget(plugin, operation string) *proto.BoundWorkflowTarget {
 	}}}
 }
 
+func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
+	target := pluginTarget(" github ", " reviewPullRequest ")
+	target.GetPlugin().CredentialMode = " none "
+
+	scoped, err := normalizeTarget(target)
+	if err != nil {
+		t.Fatalf("normalizeTarget: %v", err)
+	}
+	plugin := scoped.Target.GetPlugin()
+	if plugin.GetPluginName() != "github" || plugin.GetOperation() != "reviewPullRequest" {
+		t.Fatalf("plugin target = %#v", plugin)
+	}
+	if got := plugin.GetCredentialMode(); got != "none" {
+		t.Fatalf("credential mode = %q, want none", got)
+	}
+}
+
+func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
+	target := pluginTarget("github", "reviewPullRequest")
+	target.GetPlugin().CredentialMode = "platform"
+
+	_, err := normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), `target.plugin.credential_mode "platform" is not supported`) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
+	}
+}
+
+func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) {
+	target := &proto.BoundWorkflowTarget{
+		Kind: &proto.BoundWorkflowTarget_Agent{Agent: &proto.BoundWorkflowAgentTarget{
+			ProviderName: "managed",
+			Prompt:       "review",
+			OutputDelivery: &proto.WorkflowOutputDelivery{
+				Target: &proto.BoundWorkflowPluginTarget{
+					PluginName:     "github",
+					Operation:      "reviewPullRequest",
+					CredentialMode: "none",
+				},
+				CredentialMode: "none",
+			},
+		}},
+	}
+
+	_, err := normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), `target.agent.output_delivery.target.credential_mode "none" is not supported`) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported output delivery target mode", err)
+	}
+}
+
 func updateCallback(t *testing.T, onComplete func(interface{})) *testsuite.TestUpdateCallback {
 	t.Helper()
 	return &testsuite.TestUpdateCallback{

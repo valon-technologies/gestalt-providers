@@ -205,6 +205,12 @@ properties:
                     instance:
                       type: string
                       description: Optional workflow target instance.
+                    credentialMode:
+                      type: string
+                      enum:
+                        - none
+                        - user
+                      description: Optional workflow target credential mode.
                     input:
                       type: object
                       description: >-

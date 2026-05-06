@@ -585,8 +585,13 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("operation", plugin_target_schema["properties"])
         self.assertIn("connection", plugin_target_schema["properties"])
         self.assertIn("instance", plugin_target_schema["properties"])
+        self.assertEqual(
+            plugin_target_schema["properties"]["credentialMode"]["enum"],
+            ["none", "user"],
+        )
         self.assertEqual(plugin_target_schema["properties"]["input"]["type"], "object")
         self.assertNotIn("pluginName", plugin_target_schema["properties"])
+        self.assertNotIn("credential_mode", plugin_target_schema["properties"])
         policy_schema = schema["properties"]["webhookPolicies"]["items"]["properties"]
         self.assertEqual(policy_schema["displayName"]["type"], "string")
         self.assertEqual(policy_schema["description"]["type"], "string")
@@ -2801,6 +2806,7 @@ class GitHubProviderTests(unittest.TestCase):
                         "operation": "reviewPullRequest",
                         "connection": "review-bot",
                         "instance": "prod",
+                        "credentialMode": "none",
                         "input": {
                             "maxComments": 10,
                             "changedLinesOnly": True,
@@ -2835,6 +2841,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(plugin.operation, "reviewPullRequest")
         self.assertEqual(plugin.connection, "review-bot")
         self.assertEqual(plugin.instance, "prod")
+        self.assertEqual(plugin.credential_mode, "none")
 
         target_input = json_format.MessageToDict(plugin.input)
         self.assertEqual(target_input["maxComments"], 10)
@@ -3815,6 +3822,44 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 },
                 "workflow.target.plugin.input must be JSON-compatible",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-plugin-credential-mode",
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github",
+                                        "operation": "reviewPullRequest",
+                                        "credentialMode": "platform",
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                'workflow.target.plugin.credentialMode "platform" is not supported',
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "snake-plugin-credential-mode",
+                            "workflow": {
+                                "target": {
+                                    "plugin": {
+                                        "plugin": "github",
+                                        "operation": "reviewPullRequest",
+                                        "credential_mode": "none",
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
+                "workflow.target.plugin.credential_mode is not supported",
             ),
             (
                 {
