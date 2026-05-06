@@ -310,6 +310,12 @@ export default function IntegrationCard({
     !!mountedPath &&
     !settingsOpen &&
     !showParamForm;
+  const cardSettingsEnabled =
+    !disableNavigation &&
+    !mountedPath &&
+    settingsAvailable &&
+    !settingsOpen &&
+    !showParamForm;
 
   useEffect(() => {
     if (!pendingSelection) return;
@@ -429,19 +435,32 @@ export default function IntegrationCard({
   }
 
   function handleCardClick(e: MouseEvent<HTMLDivElement>) {
-    if (!cardNavigationEnabled) return;
+    if (!cardNavigationEnabled && !cardSettingsEnabled) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest("button, a, input, textarea, select, label, form")) {
       return;
     }
-    navigateToMountedPath();
+    if (cardNavigationEnabled) {
+      navigateToMountedPath();
+      return;
+    }
+    setSettingsOpen(true);
   }
 
   function handleCardKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!cardNavigationEnabled || e.target !== e.currentTarget) return;
+    if (
+      (!cardNavigationEnabled && !cardSettingsEnabled) ||
+      e.target !== e.currentTarget
+    ) {
+      return;
+    }
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
-    navigateToMountedPath();
+    if (cardNavigationEnabled) {
+      navigateToMountedPath();
+      return;
+    }
+    setSettingsOpen(true);
   }
 
   function renderConnectionParamFields() {
@@ -471,17 +490,19 @@ export default function IntegrationCard({
     <div
       data-testid={`integration-card-${integration.name}`}
       className={`rounded-lg border border-alpha bg-base-white p-6 transition-all duration-150 dark:bg-surface ${
-        cardNavigationEnabled
+        cardNavigationEnabled || cardSettingsEnabled
           ? "cursor-pointer hover:border-alpha-strong hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-base-white dark:focus-visible:ring-offset-surface"
           : "hover:border-alpha-strong hover:shadow-card"
       }`}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
-      role={cardNavigationEnabled ? "link" : undefined}
-      tabIndex={cardNavigationEnabled ? 0 : undefined}
+      role={cardNavigationEnabled ? "link" : cardSettingsEnabled ? "button" : undefined}
+      tabIndex={cardNavigationEnabled || cardSettingsEnabled ? 0 : undefined}
       aria-label={
         cardNavigationEnabled
           ? `Open ${integration.displayName || integration.name}`
+          : cardSettingsEnabled
+            ? `${integration.displayName || integration.name} settings`
           : undefined
       }
     >

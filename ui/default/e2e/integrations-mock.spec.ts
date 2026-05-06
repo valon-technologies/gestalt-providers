@@ -429,6 +429,22 @@ test.describe("Integrations", () => {
     await expect(page).toHaveURL(/\/integrations$/);
   });
 
+  test("settings-only cards open settings from the card body", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [OAUTH_INTEGRATION]);
+    await mockTokens(page, []);
+
+    await page.goto("/integrations");
+    await page.getByTestId("integration-card-oauth-svc").click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "OAuth Service" })).toBeVisible();
+    await expect(page).toHaveURL(/\/integrations$/);
+  });
+
   test("filters plugins by display name", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
