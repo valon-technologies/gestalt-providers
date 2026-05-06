@@ -5245,7 +5245,7 @@
       "kind": "runtime",
       "latestInstallableVersion": "0.0.1-alpha.17",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/gkeagentsandbox/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.17",
+      "manifestVersion": "0.0.1-alpha.18",
       "name": "gkeagentsandbox",
       "package": "github.com/valon-technologies/gestalt-providers/runtime/gkeagentsandbox",
       "packagePath": "runtime/gkeagentsandbox",

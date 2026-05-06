@@ -111,10 +111,27 @@ type kubernetesSandboxRuntime struct {
 	readFile   func(context.Context, sandboxHandle, string) (string, error)
 }
 
+// kubernetesClientQPS and kubernetesClientBurst raise the per-process kube
+// client rate limits from the client-go defaults of 5 QPS / 10 burst. The
+// shared kube client is hit by ListSessions LISTs, hosted-runtime-pool
+// reconcile GETs, and per-session GetSession calls; under the defaults a
+// modestly active deployment saturated the limiter and ListSessions queued
+// behind unrelated GETs long enough to miss its 15s deadline.
+const (
+	kubernetesClientQPS   = 50
+	kubernetesClientBurst = 100
+)
+
 func newKubernetesSandboxRuntime(cfg Config) (sandboxRuntime, error) {
 	restConfig, err := kubernetesRESTConfig(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if restConfig.QPS == 0 {
+		restConfig.QPS = kubernetesClientQPS
+	}
+	if restConfig.Burst == 0 {
+		restConfig.Burst = kubernetesClientBurst
 	}
 	core, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
