@@ -873,8 +873,8 @@ func TestRuntimeContractListSessionsBulkPathIsBounded(t *testing.T) {
 	}
 
 	totalActions := len(core.Actions()) + len(agents.Actions()) + len(extensions.Actions())
-	if totalActions > 4 {
-		t.Fatalf("ListSessions issued %d kube actions for %d sessions, want <= 4 (claims+sandboxes+pods+leases)", totalActions, sessionCount)
+	if totalActions > 5 {
+		t.Fatalf("ListSessions issued %d kube actions for %d sessions, want <= 5 (claims+sandboxes+pods+leases+templates)", totalActions, sessionCount)
 	}
 
 	byID := map[string]sandboxSession{}

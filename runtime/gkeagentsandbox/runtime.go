@@ -630,6 +630,14 @@ func (r *kubernetesSandboxRuntime) buildListSessionsCache(ctx context.Context, n
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("list Leases: %w", err)
 	}
+	// SandboxTemplates do not carry the managed-by label; the dedicated
+	// gestalt runtime namespace makes an unfiltered LIST safe and removes the
+	// per-distinct-template GET fanout that runtimeTemplateMetadataFromCache
+	// would otherwise issue.
+	templates, err := r.extensions.ExtensionsV1alpha1().SandboxTemplates(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list SandboxTemplates: %w", err)
+	}
 
 	cache := newListSessionsCache()
 	for i := range sandboxes.Items {
@@ -651,6 +659,10 @@ func (r *kubernetesSandboxRuntime) buildListSessionsCache(ctx context.Context, n
 	for i := range leases.Items {
 		lease := &leases.Items[i]
 		cache.leasesByName[lease.Name] = lease
+	}
+	for i := range templates.Items {
+		tmpl := &templates.Items[i]
+		cache.templatesByName[tmpl.Name] = tmpl
 	}
 	return cache, claims, sandboxes, nil
 }
@@ -782,7 +794,7 @@ func (r *kubernetesSandboxRuntime) sessionFromSandbox(ctx context.Context, sandb
 	return session, nil
 }
 
-func (r *kubernetesSandboxRuntime) sandboxNameForClaimFromCache(ctx context.Context, handle sandboxHandle, claim *extv1alpha1.SandboxClaim, cache *listSessionsCache) (string, error) {
+func (r *kubernetesSandboxRuntime) sandboxNameForClaimFromCache(_ context.Context, handle sandboxHandle, claim *extv1alpha1.SandboxClaim, cache *listSessionsCache) (string, error) {
 	if claim != nil {
 		if name := strings.TrimSpace(claim.Status.SandboxStatus.Name); name != "" {
 			return name, nil
@@ -800,7 +812,11 @@ func (r *kubernetesSandboxRuntime) sandboxNameForClaimFromCache(ctx context.Cont
 			}
 		}
 	}
-	return r.sandboxNameForClaim(ctx, handle, claim)
+	// Pending claim: the cache holds every Sandbox in the namespace, so a miss
+	// here means there is no backing Sandbox yet. Returning "" surfaces a
+	// pending session and avoids per-claim kube fanout that would re-introduce
+	// the listing-time throttling this path is designed to eliminate.
+	return "", nil
 }
 
 func (r *kubernetesSandboxRuntime) refreshSandboxFromCache(ctx context.Context, handle sandboxHandle, cache *listSessionsCache, fallback bool) (sandboxHandle, error) {
@@ -1578,26 +1594,21 @@ func (r *kubernetesSandboxRuntime) enrichSessionFromSandboxWithCache(ctx context
 	return r.enrichSessionRuntimeMetadataFromCache(ctx, session, cache)
 }
 
-func (r *kubernetesSandboxRuntime) runtimeTemplateMetadataFromCache(ctx context.Context, namespace, templateName string, cache *listSessionsCache) (runtimeTemplateMetadata, error) {
+func (r *kubernetesSandboxRuntime) runtimeTemplateMetadataFromCache(_ context.Context, namespace, templateName string, cache *listSessionsCache) (runtimeTemplateMetadata, error) {
 	templateName = strings.TrimSpace(templateName)
 	if templateName == "" {
 		return runtimeTemplateMetadata{}, nil
 	}
-	var template *extv1alpha1.SandboxTemplate
-	if cache != nil {
-		if cached, ok := cache.templatesByName[templateName]; ok {
-			template = cached
-		}
+	if cache == nil {
+		return runtimeTemplateMetadata{}, nil
 	}
-	if template == nil {
-		got, err := r.extensions.ExtensionsV1alpha1().SandboxTemplates(namespace).Get(ctx, templateName, metav1.GetOptions{})
-		if err != nil {
-			return runtimeTemplateMetadata{}, fmt.Errorf("get SandboxTemplate %s/%s: %w", namespace, templateName, err)
-		}
-		template = got
-		if cache != nil {
-			cache.templatesByName[templateName] = got
-		}
+	template, ok := cache.templatesByName[templateName]
+	if !ok {
+		// Templates are LISTed up-front in buildListSessionsCache; a miss here
+		// means the template was deleted or has not propagated yet. The bulk
+		// listing path skips enrichment silently rather than issuing a GET
+		// per distinct template, which would re-introduce per-session fanout.
+		return runtimeTemplateMetadata{}, nil
 	}
 	image := podSpecContainerImage(template.Spec.PodTemplate.Spec, r.cfg.Container)
 	if image == "" {
