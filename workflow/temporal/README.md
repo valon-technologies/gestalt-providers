@@ -12,7 +12,7 @@ apiVersion: gestaltd.config/v5
 providers:
   workflow:
     temporal:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.6/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.7/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
