@@ -503,6 +503,40 @@ class FakeWorkflowManager:
         return request.event
 
 
+class FakeObjectStore:
+    def __init__(self, records: dict[str, dict[str, Any]]) -> None:
+        self.records = records
+        self.fail = False
+
+    def get(self, record_id: str) -> dict[str, Any]:
+        if self.fail:
+            raise RuntimeError("indexeddb unavailable")
+        if record_id not in self.records:
+            raise gestalt.NotFoundError("record not found")
+        return dict(self.records[record_id])
+
+    def put(self, record: dict[str, Any]) -> None:
+        if self.fail:
+            raise RuntimeError("indexeddb unavailable")
+        self.records[str(record["id"])] = dict(record)
+
+
+class FakeIndexedDB:
+    def __init__(self, records: dict[str, dict[str, Any]] | None = None) -> None:
+        self.records = records if records is not None else {}
+        self.created_stores: list[str] = []
+        self.object_store_client = FakeObjectStore(self.records)
+
+    def create_object_store(self, name: str) -> None:
+        self.created_stores.append(name)
+
+    def object_store(self, _name: str) -> FakeObjectStore:
+        return self.object_store_client
+
+    def close(self) -> None:
+        return None
+
+
 class ExplodingPublishResponseWorkflowManager(FakeWorkflowManager):
     def publish_event(self, request: Any) -> Any:
         self.publish_event_requests.append(request)
@@ -569,6 +603,7 @@ class SlackProviderTests(unittest.TestCase):
             "SlackAgentRoute",
             "SlackAgentRouteMatch",
             "SlackAgentToolRef",
+            "SlackAssistantLedgerConfig",
             "SlackAssistantConfig",
             "SlackBotConfig",
             "SlackCallbackType",
@@ -697,6 +732,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             _catalog_parameter_names(catalog_ops["interactions.request"]),
             ["reply_ref", "text", "actions", "expires_in_seconds"],
+        )
+        self.assertEqual(
+            _catalog_parameter_names(catalog_ops["assistant.reconcileStuckRequests"]),
+            ["limit"],
         )
         self.assertEqual(http_routes["interactions"]["path"], "/interactions")
         self.assertEqual(http_routes["interactions"]["target"], "interactions.handle")
@@ -1741,6 +1780,224 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
+    def test_slack_event_handler_records_ledger_state_after_durable_signal(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+                "assistantLedger": {
+                    "indexeddb": "main-db",
+                    "store": "slack_assistant_requests",
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        fake_db = FakeIndexedDB()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvLedger",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize deploy status",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db) as indexeddb,
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(response["ok"], True)
+        indexeddb.assert_called_once_with("main-db")
+        records = [
+            record
+            for record_id, record in fake_db.records.items()
+            if record_id != "v1/index"
+        ]
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["status"], "signaled")
+        self.assertEqual(record["team_id"], "T123")
+        self.assertEqual(record["channel_id"], "C789")
+        self.assertEqual(record["message_ts"], "1712161829.000300")
+        self.assertEqual(record["event_id"], "EvLedger")
+        self.assertEqual(record["subject_id"], "user:gestalt-123")
+        self.assertEqual(record["workflow_run_id"], "run-123")
+        self.assertEqual(record["workflow_signal_id"], "signal-123")
+        self.assertIn(record["id"], fake_db.records["v1/index"]["record_ids"])
+
+    def test_slack_event_signal_failure_marks_ledger_failed_without_ack(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+                "acknowledgement": {"reaction": "eyes"},
+                "assistantLedger": {
+                    "indexeddb": "main-db",
+                    "store": "slack_assistant_requests",
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_manager.signal_or_start_error = RuntimeError("signal failed")
+        fake_db = FakeIndexedDB()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvLedgerSignalFail",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize deploy status",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        slack_calls: list[str] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            slack_calls.append(request.full_url)
+            return FakeHTTPResponse('{"ok": true}')
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.slack_events_handle(payload, request)
+
+        self.assertIsInstance(result, gestalt.Response)
+        self.assertEqual(slack_calls, [])
+        records = [
+            record
+            for record_id, record in fake_db.records.items()
+            if record_id != "v1/index"
+        ]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["status"], "failed")
+        self.assertEqual(records[0]["last_error"], "signal failed")
+
+    def test_slack_assistant_reconciler_resignals_stale_request(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+                "assistantLedger": {
+                    "indexeddb": "main-db",
+                    "store": "slack_assistant_requests",
+                    "staleAfterSeconds": 30,
+                    "maxRecoveryAttempts": 2,
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        fake_db = FakeIndexedDB()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvLedgerReconcile",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize deploy status",
+                "ts": "1712161829.000300",
+            },
+        }
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(response["ok"], True)
+        record_ids = [record_id for record_id in fake_db.records if record_id != "v1/index"]
+        self.assertEqual(len(record_ids), 1)
+        record_id = record_ids[0]
+        fake_db.records[record_id]["updated_at"] = "1"
+        workflow_manager.signal_or_start_requests.clear()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.slack_assistant_reconcile_stuck_requests(
+                provider_module.SlackAssistantReconcileInput(limit=10),
+                gestalt.Request(subject=gestalt.Subject(id="system:reconciler")),
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(result["checked"], 1)
+        self.assertEqual(result["recovered"], 1)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        self.assertEqual(fake_db.records[record_id]["recovery_attempts"], 1)
+        self.assertEqual(fake_db.records[record_id]["status"], "signaled")
+
     def test_slack_event_handler_notifies_unlinked_user(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
         self.addCleanup(provider_module.configure, "slack", {})
@@ -1986,7 +2243,7 @@ class SlackProviderTests(unittest.TestCase):
             ],
         )
 
-    def test_slack_event_handler_adds_acknowledgement_reaction_before_workflow(
+    def test_slack_event_handler_adds_acknowledgement_reaction_after_workflow(
         self,
     ) -> None:
         provider_module.configure(
@@ -2058,7 +2315,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("acknowledgement_reaction_error", response)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
-            sequence, [("slack", "/api/reactions.add"), ("workflow", "signal")]
+            sequence, [("workflow", "signal"), ("slack", "/api/reactions.add")]
         )
         self.assertEqual(
             calls,
@@ -2489,6 +2746,112 @@ class SlackProviderTests(unittest.TestCase):
             denied_response.body,
             {"error": "reply_ref does not belong to this subject"},
         )
+
+    def test_slack_events_reply_marks_ledger_reply_posted(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "assistantLedger": {
+                    "indexeddb": "main-db",
+                    "store": "slack_assistant_requests",
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="EvReplyLedger",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        record_id = provider_module._agent.request_record_id(event)
+        fake_db = FakeIndexedDB({record_id: {"id": record_id, "status": "signaled"}})
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="Here is the answer"
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(fake_db.records[record_id]["status"], "reply_posted")
+        self.assertEqual(fake_db.records[record_id]["reply_ts"], "1712161830.000400")
+
+    def test_slack_events_reply_marks_ledger_failed_reply_pending(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "assistantLedger": {
+                    "indexeddb": "main-db",
+                    "store": "slack_assistant_requests",
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="EvReplyLedgerFailed",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        record_id = provider_module._agent.request_record_id(event)
+        fake_db = FakeIndexedDB({record_id: {"id": record_id, "status": "signaled"}})
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            return FakeHTTPResponse('{"ok": false, "error": "rate_limited"}')
+
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="Here is the answer"
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        self.assertEqual(
+            fake_db.records[record_id]["status"], "failed_reply_pending"
+        )
+        self.assertEqual(fake_db.records[record_id]["reply_error"], "rate_limited")
 
     def test_slack_interaction_request_posts_buttons_and_handler_signals_workflow(
         self,

@@ -10,6 +10,7 @@ from internals.agent import (
     SLACK_ADD_REACTION_OPERATION,
     SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
     SLACK_ASSISTANT_PROMPTS_OPERATION,
+    SLACK_ASSISTANT_RECONCILE_OPERATION,
     SLACK_ASSISTANT_STATUS_OPERATION,
     SLACK_ASSISTANT_TITLE_OPERATION,
     SLACK_CONTEXT_OPERATION,
@@ -33,6 +34,7 @@ from internals.agent import (
     handle_slack_interaction,
     request_slack_interaction,
     reply_to_slack_event,
+    reconcile_stuck_assistant_requests,
     resolve_slack_http_subject,
     remove_slack_event_reaction,
     set_slack_event_assistant_status,
@@ -387,6 +389,14 @@ class SlackInteractionRequestInput(gestalt.Model):
     )
 
 
+class SlackAssistantReconcileInput(gestalt.Model):
+    limit: int = gestalt.field(
+        description="Maximum number of stale assistant requests to reconcile",
+        default=50,
+        required=False,
+    )
+
+
 @plugin.http_subject
 def resolve_http_subject(
     request: gestalt.HTTPSubjectRequest, context: gestalt.Request
@@ -414,6 +424,18 @@ def slack_interactions_handle(
     input: dict[str, Any], req: gestalt.Request
 ) -> OperationResult:
     return handle_slack_interaction(input, req)
+
+
+@gestalt.operation(
+    id=SLACK_ASSISTANT_RECONCILE_OPERATION,
+    method="POST",
+    description="Reconcile stale Slack assistant requests that were durably accepted but never reached a visible terminal state",
+    visible=False,
+)
+def slack_assistant_reconcile_stuck_requests(
+    input: SlackAssistantReconcileInput, req: gestalt.Request
+) -> OperationResult:
+    return reconcile_stuck_assistant_requests(input.limit, req)
 
 
 @gestalt.operation(
