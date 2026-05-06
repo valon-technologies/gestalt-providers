@@ -330,13 +330,10 @@ func (p *Provider) requireBackend() (workflowBackend, error) {
 	return p.backend, nil
 }
 
-func (p *Provider) requireBackendStatus(ctx context.Context) (workflowBackend, error) {
+func (p *Provider) requireBackendStatus(context.Context) (workflowBackend, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	if err := backend.Start(ctx); err != nil {
-		return nil, status.Errorf(codes.Internal, "start temporal workflow provider: %v", err)
 	}
 	return backend, nil
 }
