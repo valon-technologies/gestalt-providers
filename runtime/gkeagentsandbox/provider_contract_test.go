@@ -1007,6 +1007,85 @@ func TestRuntimeProviderContractCanRetryStopAfterDeleteFailure(t *testing.T) {
 	}
 }
 
+func TestProviderContractListSessionsDoesNotExecPerSession(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{
+		sessions: map[string]sandboxSession{
+			"session-a": {
+				ID:            "session-a",
+				PluginStarted: true,
+				Handle:        sandboxHandle{Name: "session-a", Namespace: "runtime-system", Mode: "claim", ClaimName: "session-a", PodName: "pod-a", Ready: true},
+			},
+			"session-b": {
+				ID:            "session-b",
+				PluginStarted: true,
+				Handle:        sandboxHandle{Name: "session-b", Namespace: "runtime-system", Mode: "claim", ClaimName: "session-b", PodName: "pod-b", Ready: true},
+			},
+			"session-c": {
+				ID:     "session-c",
+				Handle: sandboxHandle{Name: "session-c", Namespace: "runtime-system", Mode: "claim", ClaimName: "session-c", PodName: "pod-c", Ready: true},
+			},
+		},
+	}
+	client := startRuntimeProviderServer(t, &Provider{
+		name:    "gkeAgentSandbox",
+		runtime: fake,
+		cfg:     Config{Namespace: "runtime-system"},
+	})
+
+	sessions, err := client.ListSessions(context.Background())
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if got, want := len(sessions), 3; got != want {
+		t.Fatalf("ListSessions returned %d sessions, want %d", got, want)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.healthCheckExecs != 0 {
+		t.Fatalf("ListSessions issued %d plugin health Exec calls, want 0 (bulk path must not probe)", fake.healthCheckExecs)
+	}
+	if len(fake.execCalls) != 0 {
+		t.Fatalf("ListSessions issued %d non-health Exec calls, want 0", len(fake.execCalls))
+	}
+	for _, session := range sessions {
+		if session.State == "" {
+			t.Fatalf("session %q State = empty", session.ID)
+		}
+	}
+}
+
+func TestProviderContractGetSessionExecsHealthProbe(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{
+		sessions: map[string]sandboxSession{
+			"session-a": {
+				ID:            "session-a",
+				PluginStarted: true,
+				Handle:        sandboxHandle{Name: "session-a", Namespace: "runtime-system", Mode: "claim", ClaimName: "session-a", PodName: "pod-a", Ready: true},
+			},
+		},
+	}
+	client := startRuntimeProviderServer(t, &Provider{
+		name:    "gkeAgentSandbox",
+		runtime: fake,
+		cfg:     Config{Namespace: "runtime-system"},
+	})
+
+	if _, err := client.GetSession(context.Background(), "session-a"); err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.healthCheckExecs < 1 {
+		t.Fatalf("GetSession issued %d plugin health Exec calls, want >= 1 (detail path must probe)", fake.healthCheckExecs)
+	}
+}
+
 type fakeSandboxRuntime struct {
 	mu sync.Mutex
 
@@ -1014,6 +1093,7 @@ type fakeSandboxRuntime struct {
 	sessions                map[string]sandboxSession
 	leases                  map[string]string
 	execCalls               []execCall
+	healthCheckExecs        int
 	forwardPorts            []int
 	podIPTargets            []int
 	serviceDNSTargets       []int
@@ -1137,6 +1217,7 @@ func (f *fakeSandboxRuntime) Exec(_ context.Context, handle sandboxHandle, comma
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.ensureLocked()
+		f.healthCheckExecs++
 		if f.failHealthChecks {
 			return status.Error(codes.Unavailable, "injected plugin health failure")
 		}

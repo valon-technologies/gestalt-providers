@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.16"
+	providerVersion      = "0.0.1-alpha.17"
 	sessionStatePending  = "pending"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
@@ -185,7 +185,7 @@ func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSes
 	})
 	out := make([]gestalt.PluginRuntimeSession, 0, len(sessions))
 	for _, session := range sessions {
-		out = append(out, pluginRuntimeSession(session, sessionStateForSandbox(ctx, runtime, session)))
+		out = append(out, pluginRuntimeSession(session, bulkSessionState(session)))
 	}
 	return out, nil
 }
@@ -482,6 +482,29 @@ func pluginRuntimeSession(session sandboxSession, state string) gestalt.PluginRu
 			ExpiresAt:          cloneTimePtr(session.ExpiresAt),
 		},
 	}
+}
+
+// bulkSessionState computes a session state without issuing any kube I/O or
+// runtime.Exec health probe. It is used from the bulk listing path
+// (Provider.ListSessions) where one Exec per session would multiply the
+// per-page kube fanout. Detail paths still use sessionStateForSandbox to live
+// probe.
+//
+// The "running" badge here is "last known": if a sandbox crashed after
+// MarkPluginStarted, it will keep showing as running in the list view until
+// the user opens the detail page. That trade is documented in the plan and is
+// acceptable for the listing UI.
+func bulkSessionState(session sandboxSession) string {
+	if !session.Handle.Ready {
+		return sessionStatePending
+	}
+	if session.PluginStarted {
+		return sessionStateRunning
+	}
+	if session.PluginStarting {
+		return sessionStateStarting
+	}
+	return sessionStateReady
 }
 
 func sessionStateForSandbox(ctx context.Context, runtime sandboxRuntime, session sandboxSession) string {

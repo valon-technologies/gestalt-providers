@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	sandboxv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	agentfake "sigs.k8s.io/agent-sandbox/clients/k8s/clientset/versioned/fake"
@@ -768,6 +770,130 @@ func TestRuntimeContractServiceDNSDialTargetUsesSandboxService(t *testing.T) {
 	}
 	if err := tunnel.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestRuntimeContractListSessionsBulkPathIsBounded(t *testing.T) {
+	t.Parallel()
+
+	const namespace = "runtime-system"
+	const sessionCount = 50
+
+	managedLabels := func(sessionID, pluginName string) map[string]string {
+		return map[string]string{
+			"app.kubernetes.io/managed-by": "gestalt",
+			"gestalt.dev/runtime":          "gke-agent-sandbox",
+			"gestalt.dev/plugin":           pluginName,
+			runtimeSessionLabel:            sessionID,
+		}
+	}
+
+	core := k8sfake.NewSimpleClientset()
+	agents := agentfake.NewSimpleClientset()
+	extensions := extfake.NewSimpleClientset()
+	runtime := &kubernetesSandboxRuntime{
+		core:       core,
+		agents:     agents,
+		extensions: extensions,
+	}
+	ctx := context.Background()
+
+	deletionMarkerID := "session-7"
+	now := metav1.Now()
+
+	for i := 0; i < sessionCount; i++ {
+		sessionID := "session-" + strconv.Itoa(i)
+		sandboxName := sessionID + "-sandbox"
+		podName := sessionID + "-pod"
+		claimUID := types.UID("claim-uid-" + strconv.Itoa(i))
+
+		if _, err := extensions.ExtensionsV1alpha1().SandboxClaims(namespace).Create(ctx, &extv1alpha1.SandboxClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      sessionID,
+				Namespace: namespace,
+				UID:       claimUID,
+				Labels:    managedLabels(sessionID, "linear"),
+				Annotations: map[string]string{
+					sessionPluginAnnotation: "linear",
+				},
+			},
+			Status: extv1alpha1.SandboxClaimStatus{
+				SandboxStatus: extv1alpha1.SandboxStatus{Name: sandboxName},
+			},
+		}, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("Create SandboxClaim %s: %v", sessionID, err)
+		}
+		if _, err := agents.AgentsV1alpha1().Sandboxes(namespace).Create(ctx, &sandboxv1alpha1.Sandbox{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      sandboxName,
+				Namespace: namespace,
+				Labels:    managedLabels(sessionID, "linear"),
+				Annotations: map[string]string{
+					sandboxv1alpha1.SandboxPodNameAnnotation: podName,
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: extv1alpha1.SchemeGroupVersion.String(),
+					Kind:       "SandboxClaim",
+					Name:       sessionID,
+					UID:        claimUID,
+				}},
+			},
+			Status: sandboxv1alpha1.SandboxStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(sandboxv1alpha1.SandboxConditionReady),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+		}, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("Create Sandbox %s: %v", sandboxName, err)
+		}
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
+			Status:     corev1.PodStatus{PodIP: "10.30.0." + strconv.Itoa(i+1)},
+		}
+		if sessionID == deletionMarkerID {
+			pod.ObjectMeta.DeletionTimestamp = &now
+			pod.ObjectMeta.Finalizers = []string{"gestalt.dev/test-finalizer"}
+		}
+		if _, err := core.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("Create Pod %s: %v", podName, err)
+		}
+	}
+
+	core.ClearActions()
+	agents.ClearActions()
+	extensions.ClearActions()
+
+	sessions, err := runtime.ListSessions(ctx, namespace)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if got, want := len(sessions), sessionCount; got != want {
+		t.Fatalf("ListSessions returned %d sessions, want %d", got, want)
+	}
+
+	totalActions := len(core.Actions()) + len(agents.Actions()) + len(extensions.Actions())
+	if totalActions > 5 {
+		t.Fatalf("ListSessions issued %d kube actions for %d sessions, want <= 5 (claims+sandboxes+pods+leases+templates)", totalActions, sessionCount)
+	}
+
+	byID := map[string]sandboxSession{}
+	for _, session := range sessions {
+		byID[session.ID] = session
+	}
+	deleted, ok := byID[deletionMarkerID]
+	if !ok {
+		t.Fatalf("ListSessions missing session %q", deletionMarkerID)
+	}
+	if deleted.Handle.PodIP != "" {
+		t.Fatalf("session %q PodIP = %q, want empty when pod has DeletionTimestamp", deletionMarkerID, deleted.Handle.PodIP)
+	}
+	live, ok := byID["session-0"]
+	if !ok {
+		t.Fatalf("ListSessions missing session-0")
+	}
+	if live.Handle.PodIP == "" {
+		t.Fatalf("session-0 PodIP = empty, want a pod IP from cache")
 	}
 }
 
