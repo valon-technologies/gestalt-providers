@@ -400,7 +400,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 route=route,
                 subject_id=req.subject.id,
                 reply_ref=reply_ref,
-                workflow_provider=workflow_provider,
             )
         except Exception as err:
             logger.exception("failed to record Slack assistant request %s", log_context)
@@ -435,7 +434,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         )
         response = {"ok": True, **fields}
         try:
-            ledger.mark_signaled(ledger_record_id, fields=fields)
+            ledger.mark_signaled(ledger_record_id)
         except Exception:
             logger.exception(
                 "failed to mark Slack assistant request signaled %s", log_context
@@ -590,18 +589,8 @@ def reconcile_stuck_assistant_requests(limit: int, req: gestalt.Request) -> Oper
                 event, route, reply_ref
             )
             with workflow_manager_factory() as workflow_manager:
-                workflow_response = workflow_manager.signal_or_start_run(
-                    workflow_request
-                )
-            try:
-                fields = _workflow_signal_response_fields(
-                    workflow_response,
-                    fallback_workflow_key=_agent_session_ref(event),
-                    fallback_provider_name=_workflow_provider_name(route),
-                )
-            except Exception:
-                fields = {}
-            ledger.increment_recovery_attempts(record_id, fields=fields)
+                workflow_manager.signal_or_start_run(workflow_request)
+            ledger.increment_recovery_attempts(record_id)
             recovered += 1
             logger.info(
                 "slack_assistant_request_status status=recovered record_id=%s",

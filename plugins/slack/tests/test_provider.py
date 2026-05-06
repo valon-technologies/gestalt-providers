@@ -1844,8 +1844,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(record["message_ts"], "1712161829.000300")
         self.assertEqual(record["event_id"], "EvLedger")
         self.assertEqual(record["subject_id"], "user:gestalt-123")
-        self.assertEqual(record["workflow_run_id"], "run-123")
-        self.assertEqual(record["workflow_signal_id"], "signal-123")
+        self.assertNotIn("workflow_run_id", record)
+        self.assertNotIn("workflow_signal_id", record)
+        self.assertNotIn("workflow_status", record)
+        self.assertNotIn("workflow_idempotency_key", record)
         self.assertIn(record["id"], fake_db.records["v1/index"]["record_ids"])
 
     def test_slack_event_signal_failure_marks_ledger_failed_without_ack(

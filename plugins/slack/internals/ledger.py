@@ -73,7 +73,6 @@ class SlackAssistantRequestLedger:
         route: SlackAgentRoute | None,
         subject_id: str,
         reply_ref: str,
-        workflow_provider: str,
     ) -> dict[str, Any]:
         record_id = request_record_id(event)
         now = _utc_timestamp()
@@ -96,9 +95,6 @@ class SlackAssistantRequestLedger:
             "user_id": event.user_id,
             "subject_id": subject_id,
             "route_id": route.id if route is not None else "",
-            "workflow_provider": workflow_provider,
-            "workflow_key": workflow_key_for_event(event),
-            "workflow_idempotency_key": turn_idempotency_key(event),
             "reply_ref": reply_ref,
             "event": event_to_record(event),
             "created_at": str(existing.get("created_at") or now),
@@ -109,18 +105,10 @@ class SlackAssistantRequestLedger:
     def mark_signaled(
         self,
         record_id: str,
-        *,
-        fields: dict[str, Any],
     ) -> dict[str, Any] | None:
         return self.update(
             record_id,
             status=STATUS_SIGNALED,
-            workflow_provider=fields.get("workflow_provider"),
-            workflow_run_id=fields.get("workflow_run_id"),
-            workflow_key=fields.get("workflow_key"),
-            workflow_signal_id=fields.get("workflow_signal_id"),
-            workflow_status=fields.get("status"),
-            started_run=fields.get("started_run"),
             last_error="",
         )
 
@@ -173,8 +161,6 @@ class SlackAssistantRequestLedger:
     def increment_recovery_attempts(
         self,
         record_id: str,
-        *,
-        fields: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         record = self.get(record_id)
         if record is None:
@@ -186,17 +172,6 @@ class SlackAssistantRequestLedger:
             "last_recovery_attempt_at": _utc_timestamp(),
             "last_error": "",
         }
-        if fields:
-            updates.update(
-                {
-                    "workflow_provider": fields.get("workflow_provider"),
-                    "workflow_run_id": fields.get("workflow_run_id"),
-                    "workflow_key": fields.get("workflow_key"),
-                    "workflow_signal_id": fields.get("workflow_signal_id"),
-                    "workflow_status": fields.get("status"),
-                    "started_run": fields.get("started_run"),
-                }
-            )
         record.update({key: value for key, value in updates.items() if value is not None})
         record["updated_at"] = _utc_timestamp()
         return self.put(record)
@@ -389,21 +364,6 @@ def event_from_record(record: dict[str, Any]) -> SlackAgentEvent | None:
             file_data for file_data in data.get("files", []) if isinstance(file_data, dict)
         ),
     )
-
-
-def workflow_key_for_event(event: SlackAgentEvent) -> str:
-    if event.channel_type in {"im", "mpim"} and not event.thread_ts:
-        return f"slack:{event.team_id}:{event.channel_id}"
-    root_ts = event.thread_ts or event.message_ts
-    return f"slack:{event.team_id}:{event.channel_id}:{root_ts}"
-
-
-def turn_idempotency_key(event: SlackAgentEvent) -> str:
-    if event.event_type in {"app_mention", "message"}:
-        return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
-    if event.event_id:
-        return f"slack:event:{event.event_id}"
-    return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
 
 
 def _b64(value: str) -> str:
