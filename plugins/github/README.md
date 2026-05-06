@@ -226,23 +226,32 @@ providers:
       config:
         dsn: sqlite:///var/lib/gestalt/github-preferences.db
 
-  plugin:
+  ui:
     github:
-      config:
-        actionPreferences:
-          indexeddb: main
-          store: github_action_preferences
-          failureMode: config_default
-        webhookPolicies:
-          - id: pr-review
-            match:
-              events: [pull_request, check_run]
-            action:
-              mode: pull_request
-              allowCodeReviewComments: true
-              allowSelfFix: true
-              preferenceSubject: pull_request_author
+      path: /github
+      source: /absolute/path/to/gestalt-providers/ui/github/manifest.yaml
+
+plugins:
+  github:
+    indexeddb:
+      provider: main
+    config:
+      actionPreferences: {}
+      webhookPolicies:
+        - id: pr-review
+          match:
+            events: [pull_request, check_run]
+          action:
+            mode: pull_request
+            allowCodeReviewComments: true
+            allowSelfFix: true
+            preferenceSubject: pull_request_author
 ```
+
+`actionPreferences: {}` enables the preference store and uses the provider's
+default IndexedDB binding plus the provider-name-derived object store. Configure
+`actionPreferences.indexeddb` only when the provider process has a non-default
+named IndexedDB SDK binding.
 
 `action.preferenceSubject` chooses which GitHub identity is used for the lookup:
 `pull_request_author`, `comment_author`, or `sender`. The provider keys GitHub

@@ -95,47 +95,6 @@ export interface IntegrationOperation {
   tags?: string[];
 }
 
-export type GitHubActionPreferenceField =
-  | "allow_code_review_comments"
-  | "allow_self_fix";
-
-export interface GitHubActionPreferenceControl {
-  id: string;
-  policy_id: string;
-  identity_kind?: "external_subject_id" | "subject_id";
-  field: GitHubActionPreferenceField;
-  label: string;
-  description?: string;
-  config_default: boolean;
-  stored: boolean | null;
-  effective: boolean;
-}
-
-export interface GitHubActionPreferenceRepository {
-  repository: string;
-  html_url?: string;
-  installation_id?: number;
-  controls: GitHubActionPreferenceControl[];
-}
-
-export interface GitHubActionPreferenceTargets {
-  identity: {
-    identity_kind: "external_subject_id" | "subject_id" | string;
-    external_identity_type?: string;
-    external_subject_id?: string;
-    subject_id?: string;
-  };
-  repositories: GitHubActionPreferenceRepository[];
-}
-
-export interface GitHubActionPreferenceUpdate {
-  repository: string;
-  policy_id: string;
-  identity_kind?: "external_subject_id" | "subject_id";
-  allow_code_review_comments?: boolean | null;
-  allow_self_fix?: boolean | null;
-}
-
 export interface AccessPermission {
   plugin: string;
   operations?: string[];
@@ -744,31 +703,6 @@ export async function getIntegrationOperations(
   return fetchAPI<IntegrationOperation[]>(
     `/api/v1/integrations/${encodeURIComponent(integration)}/operations`,
   );
-}
-
-export async function listGitHubActionPreferenceTargets(): Promise<GitHubActionPreferenceTargets> {
-  const response = await fetchAPI<{ data: GitHubActionPreferenceTargets }>(
-    "/api/v1/github/actionPreferences.listTargets",
-  );
-  return response.data;
-}
-
-export async function setGitHubActionPreference(
-  update: GitHubActionPreferenceUpdate,
-): Promise<void> {
-  await fetchAPI("/api/v1/github/actionPreferences.set", {
-    method: "POST",
-    body: JSON.stringify(update),
-  });
-}
-
-export async function deleteGitHubActionPreference(
-  update: Pick<GitHubActionPreferenceUpdate, "repository" | "policy_id" | "identity_kind">,
-): Promise<void> {
-  await fetchAPI("/api/v1/github/actionPreferences.delete", {
-    method: "POST",
-    body: JSON.stringify(update),
-  });
 }
 
 export async function startIntegrationOAuth(

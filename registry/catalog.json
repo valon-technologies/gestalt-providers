@@ -5950,7 +5950,7 @@
       "kind": "ui",
       "latestInstallableVersion": "0.0.1-alpha.29",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/default/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.29",
+      "manifestVersion": "0.0.1-alpha.30",
       "name": "default",
       "package": "github.com/valon-technologies/gestalt-providers/ui/default",
       "packagePath": "ui/default",
@@ -6112,6 +6112,38 @@
           "version": "0.0.1-alpha.12"
         }
       ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "ui",
+        "requiredSet": {
+          "path": "/"
+        },
+        "section": "providers.ui"
+      },
+      "description": "Mounted UI for GitHub integration settings.",
+      "displayName": "GitHub UI",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/github/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/ui/github/README.md",
+          "sourcePath": "ui/github/README.md",
+          "title": "GitHub UI"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "ui",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/github/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "github",
+      "package": "github.com/valon-technologies/gestalt-providers/ui/github",
+      "packagePath": "ui/github",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/github/README.md",
+      "registryPath": "/providers/ui/github/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/ui/github",
+      "versions": []
     },
     {
       "configTarget": {

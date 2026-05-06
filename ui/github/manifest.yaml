@@ -1,0 +1,12 @@
+kind: ui
+source: github.com/valon-technologies/gestalt-providers/ui/github
+version: 0.0.1-alpha.1
+displayName: GitHub UI
+description: Mounted UI for GitHub integration settings.
+spec:
+  assetRoot: src
+  routes:
+    - path: /
+      allowedRoles: [viewer, editor, admin]
+    - path: /*
+      allowedRoles: [viewer, editor, admin]
