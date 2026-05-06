@@ -92,8 +92,59 @@ tool_calls:
         - docs
 ```
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  trunk:
+    source: github.com/valon-technologies/gestalt-providers/plugins/trunk
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses manual credentials; mode `user`.
+  - Credential fields: `token`.
+  - `token`: Create a Trunk API token and use it as the `x-api-token` header. See [Trunk APIs](https://docs.trunk.io/setup-and-administration/apis).
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `getFlakyTests`
+- `mergeQueue.submitPullRequest`
+- `mergeQueue.cancelPullRequest`
+- `mergeQueue.getSubmittedPullRequest`
+- `mergeQueue.restartTestsOnPullRequest`
+- `mergeQueue.setImpactedTargets`
+- `mergeQueue.getTestingDetails`
+- `mergeQueue.getMetrics`
+- `queues.create`
+- `queues.delete`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: trunk
+        operation: getFlakyTests
+```
+
+Example `getFlakyTests` call:
+
+```ts
+await invoker.invoke("trunk", "getFlakyTests", { orgSlug: "acme", repoSlug: "widgets" });
+```
+
+## Documentation
 - [Trunk APIs](https://docs.trunk.io/setup-and-administration/apis)
 - [Trunk Merge Queue API reference](https://docs.trunk.io/merge-queue/reference/merge)
 - [Trunk Flaky Tests API](https://docs.trunk.io/flaky-tests/flaky-tests)

@@ -75,7 +75,57 @@ gestalt invoke datadog create_user_invitations \
 gestalt invoke datadog get_user_invitation -p user_invitation_uuid=<UUID>
 ```
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  datadog:
+    source: github.com/valon-technologies/gestalt-providers/plugins/datadog
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses manual credentials; mode `user`.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `listMonitors`
+- `list_dashboards`
+- `create_dashboard`
+- `get_dashboard`
+- `update_dashboard`
+- `list_monitors`
+- `create_monitor`
+- `get_monitor`
+- `update_monitor`
+
+- Provide both Datadog API key and application key when creating the manual connection.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: datadog
+        operation: listMonitors
+```
+
+Example `listMonitors` call:
+
+```ts
+await invoker.invoke("datadog", "listMonitors", { page: 0, page_size: 20 });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

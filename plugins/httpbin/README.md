@@ -28,7 +28,47 @@ and debugging.
 
 No authentication required.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  httpbin:
+    source: github.com/valon-technologies/gestalt-providers/plugins/httpbin
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses unspecified; mode `none`.
+
+Operation surfaces: REST.
+
+Representative operations include:
+
+- `get`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: httpbin
+        operation: get
+```
+
+Example `get` call:
+
+```ts
+await invoker.invoke("httpbin", "get", { anything: "value" });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

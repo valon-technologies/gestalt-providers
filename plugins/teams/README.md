@@ -32,8 +32,63 @@ OAuth 2.0 with least-privilege Graph scopes for browsing Teams content. Teams
 meetings, calling, and message send/write operations are intentionally excluded
 from this plugin for now.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  teams:
+    source: github.com/valon-technologies/gestalt-providers/plugins/teams
+    version: ...
+    config:
+      clientId: ${TEAMS_CLIENT_ID}
+      clientSecret: ${TEAMS_CLIENT_SECRET}
+```
+
+Provider config fields:
+
+- `clientId` (required): Microsoft Entra OAuth client ID for the Microsoft Teams integration.
+- `clientSecret` (required): Microsoft Entra OAuth client secret for the Microsoft Teams integration.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0; mode `user`.
+  - Requested scopes: `offline_access`, `Team.ReadBasic.All`, `TeamMember.Read.All`, `Channel.ReadBasic.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `Chat.Read`.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `listChats`
+- `list_joined_teams`
+- `get_team`
+- `list_team_members`
+- `list_team_channels`
+- `get_channel`
+- `list_channel_members`
+- `list_channel_messages`
+- `get_channel_message`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: teams
+        operation: listChats
+```
+
+Example `listChats` call:
+
+```ts
+await invoker.invoke("teams", "listChats", { top: 10 });
+```
+
+## Documentation
 - [Microsoft Graph OpenAPI metadata](https://github.com/microsoftgraph/msgraph-metadata)
 - [Microsoft Teams overview in Microsoft Graph](https://learn.microsoft.com/en-us/graph/teams-concept-overview)
 - [Use the Microsoft Graph API to work with Microsoft Teams](https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0)

@@ -25,7 +25,54 @@ automatically during the OAuth flow.
 
 Authenticates with Atlassian OAuth 2.0.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  confluence:
+    source: github.com/valon-technologies/gestalt-providers/plugins/confluence
+    version: ...
+    connections:
+      default:
+        params:
+          cloud_id: "..."
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0.
+  - Requested scopes: `read:me`, `read:space:confluence`, `read:page:confluence`, `search:confluence`, `write:page:confluence`, `offline_access`.
+  - Connection params:
+    - `cloud_id` (required): Confluence Cloud site identifier (discovered automatically)
+
+Operation surfaces: REST.
+
+Representative operations include:
+
+- `search`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: confluence
+        operation: search
+```
+
+Example `search` call:
+
+```ts
+await invoker.invoke("confluence", "search", { cql: "type=page and text~\"roadmap\"", limit: 10 });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

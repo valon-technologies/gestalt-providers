@@ -24,7 +24,58 @@ articles, tags, notes, data attributes, events, segments, and more.
 
 Authenticates with a manually provided API access token.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  intercom:
+    source: github.com/valon-technologies/gestalt-providers/plugins/intercom
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses manual credentials; mode `user`.
+  - Credential fields: `token`.
+  - `token`: Provide an Intercom API access token.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `listContacts`
+- `ArchiveContact`
+- `BlockContact`
+- `CreateContact`
+- `DeleteContact`
+- `ListAttachedContacts`
+- `ListAttachedSegmentsForCompanies`
+- `ListContacts`
+- `MergeContact`
+- `RetrieveACompanyById`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: intercom
+        operation: listContacts
+```
+
+Example `listContacts` call:
+
+```ts
+await invoker.invoke("intercom", "listContacts", { per_page: 25 });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

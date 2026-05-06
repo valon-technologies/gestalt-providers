@@ -23,9 +23,64 @@ Declarative provider with both an OpenAPI surface and an
 Notion REST API operations, while the MCP surface connects to the official
 Notion MCP server for tool-based interactions.
 
-Authenticates with MCP OAuth.
+REST operations authenticate with Notion OAuth. MCP tools authenticate with
+Notion MCP OAuth.
+
+## Configuration Reference
+
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  notion:
+    source: github.com/valon-technologies/gestalt-providers/plugins/notion
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `OAuth` uses OAuth 2.0; mode `user`.
+- `MCP` uses MCP OAuth; mode `user`.
+
+Managed request headers:
+
+- `Notion-Version: 2026-03-11`
+
+Operation surfaces: OpenAPI, MCP.
+
+Representative operations include:
+
+- `search`
+- `pages.create`
+- `pages.retrieve`
+- `pages.update`
+- `pages.properties.retrieve`
+- `pages.retrieveMarkdown`
+- `pages.updateMarkdown`
+- `blocks.retrieve`
+
+- REST operations use the Notion REST OAuth connection and managed `Notion-Version` header; MCP tools use the separate MCP OAuth connection.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: notion
+        operation: search
+```
+
+Example `search` call:
+
+```ts
+await invoker.invoke("notion", "search", { query: "Roadmap" });
+```
 
 ## Documentation
-
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

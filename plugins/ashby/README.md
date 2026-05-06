@@ -23,7 +23,66 @@ for managing the full recruiting lifecycle including candidates, applications,
 candidate file URLs, jobs, offers, interviews, interview stages, departments,
 locations, users, and reports. Supports cursor-based pagination.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  ashby:
+    source: github.com/valon-technologies/gestalt-providers/plugins/ashby
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses manual credentials; mode `user`.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `candidate.list`
+- `candidate.info`
+- `candidate.search`
+- `candidate.create`
+- `candidate.update`
+- `candidate.createNote`
+- `application.list`
+- `application.info`
+- `application.create`
+- `application.changeStage`
+
+- Ashby API keys use HTTP Basic authentication as described by Ashby; create a key in Ashby admin settings.
+- When creating the default connection, provide the Ashby API key expected by
+  Ashby's Basic-auth API-key scheme.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: ashby
+        operation: candidate.list
+```
+
+Example `candidate.list` call:
+
+```ts
+await invoker.invoke("ashby", "candidate.list", { limit: 25 });
+```
+
+Example `candidate.info` call:
+
+```ts
+await invoker.invoke("ashby", "candidate.info", { id: "candidate-id" });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

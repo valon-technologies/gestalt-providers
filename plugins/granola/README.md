@@ -39,8 +39,60 @@ than by reusing the REST API key connection.
 
 Granola only returns notes that already have an AI summary and transcript.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  granola:
+    source: github.com/valon-technologies/gestalt-providers/plugins/granola
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses bearer token; mode `user`.
+  - Credential fields: `token`.
+  - `token`: For user-scoped access, personal keys only expose notes the key owner can access. Create a key in the Granola desktop app under Settings > API.
+- `MCP` uses MCP OAuth; mode `user`.
+
+Operation surfaces: OpenAPI, MCP.
+
+Representative operations include:
+
+- `listNotes`
+- `getNote`
+
+- Personal API keys expose only notes the key owner can access; MCP uses Granola OAuth.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: granola
+        operation: listNotes
+```
+
+Example `listNotes` call:
+
+```ts
+await invoker.invoke("granola", "listNotes", { page_size: 10 });
+```
+
+Example `getNote` call:
+
+```ts
+await invoker.invoke("granola", "getNote", { id: "note-id", include: "transcript" });
+```
+
+## Documentation
 - [Granola API Introduction](https://docs.granola.ai/introduction)
 - `https://mcp.granola.ai/mcp`
 - [Provider Development](https://gestaltd.ai/providers)

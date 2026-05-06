@@ -25,7 +25,7 @@ access to GitHub's GraphQL API.
 
 The OpenAPI and GraphQL surfaces authenticate with GitHub OAuth 2.0.
 
-The source-backed bot operations use a configured GitHub App instead of a user
+The GitHub App bot operations use a configured GitHub App instead of a user
 connection:
 
 - `events.handle` receives signed GitHub App webhooks at `/github/event` and
@@ -699,7 +699,97 @@ Read CI state with the GitHub-shaped read operations:
 {"owner": "acme", "repo": "widgets", "run_id": 456, "filter": "all"}
 ```
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  github:
+    source: github.com/valon-technologies/gestalt-providers/plugins/github
+    version: ...
+    config:
+      clientId: ${GITHUB_CLIENT_ID}
+      clientSecret: ${GITHUB_CLIENT_SECRET}
+      appId: ${GITHUB_APP_ID}
+      appPrivateKey: ${GITHUB_APP_PRIVATE_KEY}
+      appPrivateKeyEnv: ${GITHUB_APP_PRIVATE_KEY}
+      appPrivateKeyPath: ${GITHUB_APP_PRIVATE_KEY_PATH}
+      apiBaseUrl: api.example.com
+      graphqlBaseUrl: api.example.com
+      webBaseUrl: api.example.com
+      webhookEvents: ...
+      webhookPolicies: ...
+      workflow: ...
+      actionPreferences: ...
+      ignoreBotSender: ...
+      agent: ...
+```
+
+Provider config fields:
+
+- `clientId` (optional): GitHub OAuth client ID.
+- `clientSecret` (optional): GitHub OAuth client secret.
+- `appId` (optional): GitHub App ID used for bot webhooks and installation-token API calls.
+- `appPrivateKey` (optional): PEM-encoded GitHub App private key. GITHUB_APP_PRIVATE_KEY is also supported.
+- `appPrivateKeyEnv` (optional): Environment variable containing the PEM-encoded GitHub App private key.
+- `appPrivateKeyPath` (optional): Filesystem path to the PEM-encoded GitHub App private key. GITHUB_APP_PRIVATE_KEY_PATH is also supported.
+- `apiBaseUrl` (optional): GitHub REST API base URL. Defaults to https://api.github.com.
+- `graphqlBaseUrl` (optional): GitHub GraphQL API URL for GitHub App bot operations. Defaults to https://api.github.com/graphql. For GitHub Enterprise Server, it is derived from apiBaseUrl when omitted.
+- `webBaseUrl` (optional): GitHub web base URL used to build commit links. Defaults to https://github.com.
+- `webhookEvents` (optional): GitHub webhook event types that should signal workflow runs. Defaults to check_run, check_suite, issue_comment, issues, pull_request, pull_request_review, pull_request_review_comment, and workflow_run.
+- `webhookPolicies` (optional): Ordered webhook policies. When present, the first matching policy selects the workflow provider, optional workflow target, and GitHub bot operations exposed to fallback agent targets. If no policy matches, the webhook is acknowledged and ignored.
+- `workflow` (required): Workflow provider used for GitHub App webhook dispatch.
+- `actionPreferences` (optional): Optional IndexedDB-backed per-subject action preferences for GitHub webhook policies. When omitted, config-only policy gates are used.
+- `ignoreBotSender` (optional): Ignore webhook payloads sent by the derived GitHub App bot login. Defaults to true.
+- `agent` (optional): Agent configuration for GitHub App webhook-triggered turns.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0.
+  - Requested scopes: `repo`.
+
+Operation surfaces: OpenAPI, GraphQL.
+
+Representative operations include:
+
+- `bot.getPullRequest`
+- `bot.resolveInstallation`
+- `events.handle`
+- `reviewPullRequest`
+- `actionPreferences.get`
+- `actionPreferences.listTargets`
+- `actionPreferences.set`
+- `actionPreferences.delete`
+- `bot.commitFiles`
+- `bot.openPullRequest`
+
+- Bot operations run as the configured GitHub App installation and are scoped to the repository that produced or resolved the installation subject.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: github
+        operation: bot.getPullRequest
+```
+
+Example `bot.getPullRequest` call:
+
+```ts
+await invoker.invoke("github", "bot.getPullRequest", { owner: "acme", repo: "widgets", pull_number: 42 });
+```
+
+Example `bot.resolveInstallation` call:
+
+```ts
+await invoker.invoke("github", "bot.resolveInstallation", { owner: "acme", repo: "widgets" });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

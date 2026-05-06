@@ -169,20 +169,34 @@ through the managed `external_identity` authorization relationship.
 ## Hidden Helper Operations
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
-`events.addReaction`, `events.removeReaction`, the native assistant helpers, and
-the interaction helpers are hidden operations.
+`events.addReaction`, `events.removeReaction`, the native assistant helpers, the
+streaming helpers, and the interaction helpers are hidden operations.
 
 `events.handle` starts or signals a keyed workflow run and passes an opaque
 `reply_ref` in the signal payload. The workflow runtime invokes `events.reply`
 using the configured output delivery binding. The same `reply_ref` scopes
 progress statuses, native assistant updates, suggested prompts, thread titles,
-reactions, and interactions to the source event channel, so the agent never
-needs raw `chat.postMessage` access for event replies.
+native streaming replies, reactions, and interactions to the source event
+channel, so the agent never needs raw `chat.postMessage` access for event
+replies.
 
 Runtime output-delivery input:
 
 ```json
 {"reply_ref":"...","text":"I'll check that now."}
+```
+
+Native streaming helper input:
+
+```json
+{"reply_ref":"...","markdown_text":"Working on it..."}
+```
+
+Use the returned stream timestamp with `events.appendStream` and
+`events.stopStream`:
+
+```json
+{"reply_ref":"...","stream_ts":"1712161830.000400","markdown_text":"Done."}
 ```
 
 ## Agent Routes

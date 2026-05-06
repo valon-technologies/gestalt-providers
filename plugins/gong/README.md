@@ -55,8 +55,60 @@ Declarative OpenAPI-backed provider generated from Gong's public API v2
 specification. The provider exposes Gong operations for calls, users, stats,
 settings, CRM, library, coaching, call outcomes, and data-privacy workflows.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  gong:
+    source: github.com/valon-technologies/gestalt-providers/plugins/gong
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses manual credentials; mode `user`.
+  - Credential fields: `access_key_id`, `secret_key`.
+  - `access_key_id`: Gong API access key ID. In Gong, this is the Basic auth username.
+  - `secret_key`: Gong API access key secret. In Gong, this is the Basic auth password.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `list_calls`
+- `listCalls`
+- `addCall`
+- `addCallRecording`
+- `get_call`
+- `getPermissionProfile`
+- `updatePermissionProfile`
+- `createPermissionProfile`
+- `updateMeeting`
+- `deleteMeeting`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: gong
+        operation: list_calls
+```
+
+Example `list_calls` call:
+
+```ts
+await invoker.invoke("gong", "list_calls", { fromDateTime: "2026-01-01T00:00:00Z", toDateTime: "2026-01-07T00:00:00Z" });
+```
+
+## Documentation
 - [Gong API access](https://help.gong.io/docs/receive-access-to-the-api)
 - [Gong API capabilities](https://help.gong.io/docs/what-the-gong-api-provides)
 - [Gong OAuth setup](https://help.gong.io/docs/create-an-app-for-gong)
