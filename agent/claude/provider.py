@@ -53,7 +53,7 @@ class ClaudeCodeAgentProvider(
             name=self._name,
             display_name="Claude Agent SDK",
             description="Runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.",
-            version="0.0.1-alpha.18",
+            version="0.0.1-alpha.20",
         )
 
     def warnings(self) -> list[str]:
@@ -144,9 +144,10 @@ class ClaudeCodeAgentProvider(
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
+        summary_only = bool(getattr(request, "summary_only", False))
         return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
-                _session_to_proto(session, summary_only=bool(getattr(request, "summary_only", False)))
+                _session_to_proto(session, summary_only=summary_only)
                 for session in self._store_call(
                     context,
                     lambda: store.list_sessions(
@@ -154,6 +155,7 @@ class ClaudeCodeAgentProvider(
                         subject_id=_subject_id(request),
                         state=int(getattr(request, "state", 0) or 0),
                         limit=limit,
+                        summary_only=summary_only,
                     ),
                 )
             ]
@@ -251,9 +253,10 @@ class ClaudeCodeAgentProvider(
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
+        summary_only = bool(getattr(request, "summary_only", False))
         return gestalt.ListAgentProviderTurnsResponse(
             turns=[
-                _turn_to_proto(turn, summary_only=bool(getattr(request, "summary_only", False)))
+                _turn_to_proto(turn, summary_only=summary_only)
                 for turn in self._store_call(
                     context,
                     lambda: store.list_turns(
@@ -262,6 +265,7 @@ class ClaudeCodeAgentProvider(
                         subject_id=_subject_id(request),
                         status=int(getattr(request, "status", 0) or 0),
                         limit=limit,
+                        summary_only=summary_only,
                     ),
                 )
             ]
