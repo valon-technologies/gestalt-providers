@@ -382,6 +382,55 @@ def signed_block_action_payload(
     }
 
 
+def signed_route_block_action_payload(
+    route_id: str,
+    *,
+    subject_id: str = "user:gestalt-123",
+    channel_id: str = "C_ROUTE",
+) -> dict[str, Any]:
+    event = provider_module.SlackAgentEvent(
+        callback_type="event_callback",
+        event_type="app_mention",
+        event_id="EvRouteInteraction",
+        team_id="T123",
+        user_id="U456",
+        channel_id=channel_id,
+        channel_type="channel",
+        text="<@UBOT> approve operation",
+        message_ts="1712161829.000300",
+        thread_ts="",
+        reply_thread_ts="1712161829.000300",
+    )
+    route = provider_module._agent._agent_route_by_id(route_id)
+    reply_ref = provider_module._agent._sign_reply_ref(event, subject_id, route)
+    verified_ref = provider_module._agent._verify_reply_ref(reply_ref, subject_id)
+    interaction_ref = provider_module._agent._sign_interaction_ref(
+        verified_ref,
+        action_id="approve",
+        action_value="approved",
+        expires_in_seconds=300,
+    )
+    return {
+        "type": "block_actions",
+        "team": {"id": "T123"},
+        "user": {"id": "U456"},
+        "channel": {"id": channel_id},
+        "container": {
+            "type": "message",
+            "channel_id": channel_id,
+            "message_ts": "1712161831.000500",
+        },
+        "trigger_id": "1337.abcdef",
+        "actions": [
+            {
+                "action_id": "approve",
+                "value": interaction_ref,
+                "action_ts": "1712161832.000600",
+            }
+        ],
+    }
+
+
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
     return [parameter["name"] for parameter in operation.get("parameters", [])]
 
@@ -538,6 +587,12 @@ class SlackProviderTests(unittest.TestCase):
             {"plugin": "linear", "operation": ""},
             {"plugin": "system", "operation": "shell"},
             {"plugin": "linear", "operation": "searchIssues", "credentialMode": "none"},
+            {"plugin": "linear", "operation": "searchIssues", "runAs": "user"},
+            {
+                "plugin": "linear",
+                "operation": "searchIssues",
+                "inputBindings": [],
+            },
             {"plugin": "linear", "operation": "searchIssues", "system": True},
         ]
 
@@ -552,8 +607,62 @@ class SlackProviderTests(unittest.TestCase):
                                 "model": "deep",
                                 "tools": [tool],
                             }
-                        },
-                    )
+                    },
+                )
+
+    def test_agent_routes_reject_duplicate_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
+            provider_module.configure(
+                "slack",
+                {
+                    "agent": {
+                        "routes": [
+                            {"id": "duplicate", "match": {"channel": "C1"}},
+                            {"id": "duplicate", "match": {"channel": "C2"}},
+                        ]
+                    }
+                },
+            )
+
+    def test_route_and_tool_set_tools_reject_runtime_policy_fields(self) -> None:
+        invalid_configs = [
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "route-tools",
+                            "agent": {
+                                "tools": [
+                                    {
+                                        "plugin": "linear",
+                                        "operation": "searchIssues",
+                                        "runAs": "user",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            },
+            {
+                "agent": {
+                    "toolSets": {
+                        "unsafe": [
+                            {
+                                "plugin": "linear",
+                                "operation": "searchIssues",
+                                "credentialMode": "none",
+                            }
+                        ]
+                    }
+                }
+            },
+        ]
+
+        for config in invalid_configs:
+            with self.subTest(config=config):
+                with self.assertRaises(ValueError):
+                    provider_module.configure("slack", config)
 
     def test_catalog_and_manifest_expose_native_assistant_contracts(self) -> None:
         catalog = yaml.safe_load((PLUGIN_DIR / "catalog.yaml").read_text())
@@ -831,7 +940,7 @@ class SlackProviderTests(unittest.TestCase):
                             "title": "Search Linear issues",
                             "description": "Find Linear issues relevant to the Slack request.",
                         },
-                        {"plugin": "deploymentViewer", "operation": "status"},
+                        {"plugin": "statusPage", "operation": "status"},
                     ],
                 },
             },
@@ -847,7 +956,7 @@ class SlackProviderTests(unittest.TestCase):
                 "user": "U456",
                 "channel": "C789",
                 "channel_type": "channel",
-                "text": "<@UBOT> summarize deploy status https://valon-technologies.slack.com/archives/C123/p1712161800000100",
+                "text": "<@UBOT> summarize deploy status https://example.slack.com/archives/C123/p1712161800000100",
                 "ts": "1712161829.000300",
                 "files": [
                     {
@@ -906,7 +1015,7 @@ class SlackProviderTests(unittest.TestCase):
             tool_ref_pairs(agent_target.tool_refs),
             [
                 ("linear", "searchIssues"),
-                ("deploymentViewer", "status"),
+                ("statusPage", "status"),
                 *BASE_EVENT_TOOL_REFS,
                 *WORKFLOW_EVENT_TOOL_REFS,
             ],
@@ -973,7 +1082,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             signal_payload["slack"]["text"],
             "<@UBOT> summarize deploy status"
-            " https://valon-technologies.slack.com/archives/C123/p1712161800000100",
+            " https://example.slack.com/archives/C123/p1712161800000100",
         )
         self.assertIn(
             "operation: slack.conversations.getThreadContext",
@@ -981,11 +1090,11 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertIn("Slack message permalink tools:", signal_payload["user_prompt"])
         self.assertIn(
-            "- url: https://valon-technologies.slack.com/archives/C123/p1712161800000100",
+            "- url: https://example.slack.com/archives/C123/p1712161800000100",
             signal_payload["user_prompt"],
         )
         self.assertIn(
-            'input: {"url": "https://valon-technologies.slack.com/archives/C123/p1712161800000100"}',
+            'input: {"url": "https://example.slack.com/archives/C123/p1712161800000100"}',
             signal_payload["user_prompt"],
         )
         self.assertIn(
@@ -1795,7 +1904,7 @@ class SlackProviderTests(unittest.TestCase):
                 "assistant": {
                     "enabled": True,
                     "iconEmoji": ":hourglass_flowing_sand:",
-                    "username": "Valon Assistant",
+                    "username": "Example Assistant",
                 },
             },
         )
@@ -1871,7 +1980,7 @@ class SlackProviderTests(unittest.TestCase):
                         "thread_ts": "1712161829.000300",
                         "status": "thinking...",
                         "icon_emoji": ":hourglass_flowing_sand:",
-                        "username": "Valon Assistant",
+                        "username": "Example Assistant",
                     },
                 )
             ],
@@ -2117,6 +2226,177 @@ class SlackProviderTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_assistant_thread_started_uses_route_specific_suggested_prompts(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "assistant": {
+                    "suggestedPrompts": {
+                        "prompts": [
+                            {
+                                "title": "Global prompt",
+                                "message": "Use the global prompt",
+                            }
+                        ],
+                    }
+                },
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "assistant-route",
+                            "match": {
+                                "channel": "C789",
+                                "eventType": "assistant_thread_started",
+                            },
+                            "agent": {
+                                "assistant": {
+                                    "enabled": True,
+                                    "suggestedPrompts": {
+                                        "title": "Route prompts",
+                                        "prompts": [
+                                            {
+                                                "title": "Route prompt",
+                                                "message": "Use the route prompt",
+                                            }
+                                        ],
+                                    },
+                                }
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAssistantThreadStarted",
+            "team_id": "T123",
+            "event": {
+                "type": "assistant_thread_started",
+                "assistant_thread": {
+                    "user_id": "U456",
+                    "channel_id": "D789",
+                    "thread_ts": "1712161829.000300",
+                    "context": {"channel_id": "C789", "team_id": "T123"},
+                },
+                "event_ts": "1712161829.000400",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            calls.append(
+                (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
+            )
+            return FakeHTTPResponse('{"ok": true}')
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(response["suggested_prompts_set"], True)
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/assistant.threads.setSuggestedPrompts",
+                    {
+                        "channel_id": "D789",
+                        "thread_ts": "1712161829.000300",
+                        "prompts": [
+                            {
+                                "title": "Route prompt",
+                                "message": "Use the route prompt",
+                            }
+                        ],
+                        "title": "Route prompts",
+                    },
+                )
+            ],
+        )
+
+    def test_assistant_thread_started_route_can_disable_inherited_prompts(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "assistant": {
+                    "suggestedPrompts": {
+                        "prompts": [
+                            {
+                                "title": "Global prompt",
+                                "message": "Use the global prompt",
+                            }
+                        ],
+                    }
+                },
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "assistant-disabled-route",
+                            "match": {
+                                "channel": "C789",
+                                "eventType": "assistant_thread_started",
+                            },
+                            "agent": {"assistant": {"enabled": False}},
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvAssistantThreadStarted",
+            "team_id": "T123",
+            "event": {
+                "type": "assistant_thread_started",
+                "assistant_thread": {
+                    "user_id": "U456",
+                    "channel_id": "D789",
+                    "thread_ts": "1712161829.000300",
+                    "context": {"channel_id": "C789", "team_id": "T123"},
+                },
+                "event_ts": "1712161829.000400",
+            },
+        }
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(
+            response,
+            {
+                "ok": True,
+                "event_type": "assistant_thread_started",
+                "suggested_prompts_set": False,
+            },
+        )
+        urlopen.assert_not_called()
 
     def test_slack_events_reply_posts_with_bot_token_and_reply_ref_scope(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -2594,7 +2874,7 @@ class SlackProviderTests(unittest.TestCase):
                     status="is checking deployment status",
                     loading_messages=["Reading the thread", "Checking deploys"],
                     icon_emoji=":hourglass_flowing_sand:",
-                    username="Valon Assistant",
+                    username="Example Assistant",
                 ),
                 gestalt.Request(
                     subject=gestalt.Subject(id="user:gestalt-123", kind="user")
@@ -2646,7 +2926,7 @@ class SlackProviderTests(unittest.TestCase):
                     ],
                     task_display_mode="plan",
                     icon_emoji=":hourglass_flowing_sand:",
-                    username="Valon Assistant",
+                    username="Example Assistant",
                 ),
                 gestalt.Request(
                     subject=gestalt.Subject(id="user:gestalt-123", kind="user")
@@ -2741,7 +3021,7 @@ class SlackProviderTests(unittest.TestCase):
                             "Checking deploys",
                         ],
                         "icon_emoji": ":hourglass_flowing_sand:",
-                        "username": "Valon Assistant",
+                        "username": "Example Assistant",
                     },
                 ),
                 (
@@ -2792,7 +3072,7 @@ class SlackProviderTests(unittest.TestCase):
                         "recipient_team_id": "T123",
                         "task_display_mode": "plan",
                         "icon_emoji": ":hourglass_flowing_sand:",
-                        "username": "Valon Assistant",
+                        "username": "Example Assistant",
                     },
                 ),
                 (
@@ -2866,7 +3146,7 @@ class SlackProviderTests(unittest.TestCase):
                                 "modelOptions": {"max_output_tokens": 2000},
                                 "tools": [
                                     {
-                                        "plugin": "deploymentViewer",
+                                        "plugin": "statusPage",
                                         "operation": "status",
                                     },
                                 ],
@@ -2917,7 +3197,7 @@ class SlackProviderTests(unittest.TestCase):
             tool_ref_pairs(agent_target.tool_refs),
             [
                 ("linear", "searchIssues"),
-                ("deploymentViewer", "status"),
+                ("statusPage", "status"),
                 ("supportSlackbot", "conversations.getThreadContext"),
                 ("supportSlackbot", "conversations.getMessage"),
                 ("supportSlackbot", "files.get"),
@@ -2964,6 +3244,700 @@ class SlackProviderTests(unittest.TestCase):
         model_options = json_format.MessageToDict(agent_options(agent_target))
         self.assertEqual(model_options["temperature"], 0)
         self.assertEqual(model_options["max_output_tokens"], 2000)
+
+    def test_agent_route_workflow_provider_handles_events_without_global_provider(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "route-local",
+                            "match": {"channel": "C_ROUTE"},
+                            "workflow": {"provider": "route-provider"},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteWorkflow",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ROUTE",
+                "channel_type": "channel",
+                "text": "<@UBOT> route this",
+                "ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(response["workflow_provider"], "route-provider")
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        self.assertEqual(
+            workflow_manager.signal_or_start_requests[0].provider_name,
+            "route-provider",
+        )
+
+    def test_agent_route_workflow_provider_handles_interactions_without_global_provider(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "route-local",
+                            "match": {"channel": "C_ROUTE"},
+                            "workflow": {"provider": "route-provider"},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        interaction_payload = signed_route_block_action_payload("route-local")
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(response["workflow_provider"], "route-provider")
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        self.assertEqual(
+            workflow_manager.signal_or_start_requests[0].provider_name,
+            "route-provider",
+        )
+
+    def test_signed_interaction_rejects_route_id_that_no_longer_resolves(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "stale-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "workflow": {"provider": "route-provider"},
+                        }
+                    ],
+                },
+            },
+        )
+        interaction_payload = signed_route_block_action_payload("stale-route")
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [{"id": "new-route", "match": {"channel": "C_ROUTE"}}],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+
+        with mock.patch.object(
+            gestalt.Request,
+            "workflow_manager",
+            return_value=workflow_manager,
+            create=True,
+        ):
+            result = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            response.body,
+            {"error": "Slack interaction route is no longer configured"},
+        )
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_agent_route_assistant_overrides_global_assistant_enabled_state(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "assistant": {"enabled": False},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "assistant-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {
+                                "assistant": {
+                                    "enabled": True,
+                                    "status": "checking route",
+                                }
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteAssistant",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ROUTE",
+                "channel_type": "channel",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            parsed = urllib.parse.urlsplit(request.full_url)
+            calls.append(
+                (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
+            )
+            return FakeHTTPResponse('{"ok": true}')
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertIn(
+            ("slack", "events.setAssistantStatus"),
+            tool_ref_pairs(agent_target.tool_refs),
+        )
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/assistant.threads.setStatus",
+                    {
+                        "channel_id": "C_ROUTE",
+                        "thread_ts": "1712161829.000300",
+                        "status": "checking route",
+                    },
+                )
+            ],
+        )
+
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "assistant": {"enabled": True},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "assistant-disabled-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {"assistant": {"enabled": False}},
+                        }
+                    ],
+                },
+            },
+        )
+        workflow_manager = FakeWorkflowManager()
+        calls.clear()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertNotIn(
+            ("slack", "events.setAssistantStatus"),
+            tool_ref_pairs(agent_target.tool_refs),
+        )
+        self.assertEqual(calls, [])
+
+    def test_agent_route_acknowledgement_can_override_or_disable_global_ack(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "acknowledgement": {"reaction": "eyes"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "ack-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {
+                                "acknowledgement": {
+                                    "enabled": True,
+                                    "reaction": "rocket",
+                                }
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteAck",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ROUTE",
+                "channel_type": "channel",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            parsed = urllib.parse.urlsplit(request.full_url)
+            calls.append(
+                (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
+            )
+            return FakeHTTPResponse('{"ok": true}')
+
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(calls[0][0], "/api/reactions.add")
+        self.assertEqual(calls[0][1]["name"], "rocket")
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "acknowledgement": {"reaction": "eyes"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "ack-disabled-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {"acknowledgement": {"enabled": False}},
+                        }
+                    ],
+                },
+            },
+        )
+        workflow_manager = FakeWorkflowManager()
+        calls.clear()
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(calls, [])
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
+    def test_agent_route_thread_context_prefetch_overrides_flags(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "threadContext": {"maxMessages": 200},
+                    "routes": [
+                        {
+                            "id": "context-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {
+                                "threadContext": {
+                                    "maxMessages": 25,
+                                    "includeUserInfo": True,
+                                    "includeBots": False,
+                                    "includeFiles": False,
+                                    "includeFileContent": True,
+                                    "includeImageData": True,
+                                    "maxFileBytes": 1024,
+                                }
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteThreadContext",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ROUTE",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        thread_context_result = {
+            "data": {
+                "channel": "C_ROUTE",
+                "thread_ts": "1712161829.000300",
+                "messages": [],
+                "messages_returned": 0,
+            }
+        }
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.agent.get_thread_context",
+                return_value=thread_context_result,
+            ) as get_context,
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        get_context.assert_called_once_with(
+            "xoxb-test-bot",
+            channel="C_ROUTE",
+            ts="1712161829.000300",
+            cursor="",
+            limit=25,
+            include_user_info=True,
+            include_bots=False,
+            include_files=False,
+            include_file_content=True,
+            include_image_data=True,
+            max_file_bytes=1024,
+        )
+
+    def test_agent_route_thread_context_can_disable_inherited_prefetch(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "threadContext": {"enabled": True, "maxMessages": 25},
+                    "routes": [
+                        {
+                            "id": "context-disabled-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {"threadContext": {"enabled": False}},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteThreadContextDisabled",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ROUTE",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize",
+                "ts": "1712161835.000400",
+                "thread_ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch("internals.agent.get_thread_context") as get_context,
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        get_context.assert_not_called()
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        self.assertNotIn("thread_context", signal_payload["slack"])
+        self.assertNotIn("thread_context_error", signal_payload["slack"])
+
+    def test_agent_tool_sets_expand_before_tools_and_dedupe_first_ref(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "toolSets": {
+                        "shared": [
+                            {"plugin": "deployment", "operation": "status"},
+                            {"plugin": "github", "operation": "search"},
+                        ],
+                        "route": [
+                            {"plugin": "notion", "operation": "search"},
+                            {"plugin": "pagerduty", "operation": "createIncident"},
+                        ],
+                    },
+                    "toolSetRefs": ["shared"],
+                    "tools": [
+                        {"plugin": "github", "operation": "search"},
+                        {"plugin": "notion", "operation": "search"},
+                    ],
+                    "routes": [
+                        {
+                            "id": "tool-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "agent": {
+                                "toolSetRefs": ["route"],
+                                "tools": [
+                                    {
+                                        "plugin": "pagerduty",
+                                        "operation": "createIncident",
+                                    },
+                                    {"plugin": "linear", "operation": "searchIssues"},
+                                ],
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteTools",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ROUTE",
+                "channel_type": "channel",
+                "text": "<@UBOT> route tools",
+                "ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(
+            tool_ref_pairs(agent_target.tool_refs),
+            [
+                ("deployment", "status"),
+                ("github", "search"),
+                ("notion", "search"),
+                ("pagerduty", "createIncident"),
+                ("linear", "searchIssues"),
+                *BASE_EVENT_TOOL_REFS,
+                *WORKFLOW_EVENT_TOOL_REFS,
+            ],
+        )
+
+        with self.assertRaisesRegex(ValueError, "unknown tool set"):
+            provider_module.configure(
+                "slack",
+                {
+                    "agent": {
+                        "toolSets": {"shared": []},
+                        "routes": [
+                            {
+                                "id": "missing-tool-set",
+                                "agent": {"toolSetRefs": ["missing"]},
+                            }
+                        ],
+                    }
+                },
+            )
 
     def test_configured_route_ignores_unaddressed_channel_message(self) -> None:
         provider_module.configure(
@@ -3767,7 +4741,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.conversations_get_message(
                 provider_module.GetMessageInput(
-                    url="https://valon.slack.com/archives/C123ABC456/p1712161829000300"
+                    url="https://example.slack.com/archives/C123ABC456/p1712161829000300"
                 ),
                 gestalt.Request(token="test-token"),
             )
@@ -4082,7 +5056,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.conversations_get_thread_context(
                 provider_module.GetThreadContextInput(
-                    url="https://valon.slack.com/archives/C123ABC456/p1712161829000300"
+                    url="https://example.slack.com/archives/C123ABC456/p1712161829000300"
                 ),
                 gestalt.Request(token="test-token"),
             )

@@ -115,8 +115,8 @@ plugins:
         operation: conversations.getThreadContext
       - plugin: slack
         operation: files.get
-      - plugin: workplaceHub
-        operation: getMe
+      - plugin: companyDirectory
+        operation: lookupProfile
     config:
       bot:
         token:
@@ -133,8 +133,8 @@ plugins:
           enabled: true
           maxMessages: 200
         tools:
-          - plugin: workplaceHub
-            operation: getMe
+          - plugin: companyDirectory
+            operation: lookupProfile
       assistant:
         enabled: true
         status: is checking that...
@@ -191,10 +191,16 @@ workflow still receives the event with `slack.thread_context_error` and the
 thread-context helper remains available as a fallback tool.
 
 The default prefetch limit is 200 messages and `agent.threadContext.maxMessages`
-is clamped to Slack's 1-1000 page-size range used by Marketplace and internal
-customer-built apps. New commercially distributed non-Marketplace Slack apps may
-have lower `conversations.replies` limits; set a lower `maxMessages` or disable
-prefetch with `agent.threadContext.enabled: false` for those deployments.
+is clamped to Slack's 1-1000 page-size range. Some Slack apps have lower
+`conversations.replies` limits; set a lower `maxMessages` or disable prefetch
+with `agent.threadContext.enabled: false` for those deployments. Prefetch can
+also be tuned with `includeUserInfo`, `includeBots`, `includeFiles`,
+`includeFileContent`, `includeImageData`, and `maxFileBytes`.
+
+Route-level `agent.routes[].agent.threadContext` overrides the global thread
+context settings for matching events. If omitted, the route inherits the global
+settings. If `enabled: false` is set on the route, prefetch is disabled for that
+route even when it is enabled globally.
 
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
@@ -236,11 +242,11 @@ plugins:
       events:
         publish:
           routes:
-            - id: deployment-events
+            - id: message-events
               workflowProvider: local
               workflowEventType: slack.event.received
               source: slack
-              subject: route:deployment-events
+              subject: route:message-events
               match:
                 eventTypes:
                   - message
@@ -272,7 +278,7 @@ Agent-facing event helper examples:
 Call `slack.events.setStatus` without `status_ts` to create a progress message:
 
 ```json
-{"reply_ref":"...","text":"Checking deployment status..."}
+{"reply_ref":"...","text":"Checking status..."}
 ```
 
 Use the returned `status_ts` to update or delete the same status:
@@ -295,8 +301,8 @@ typing/loading indicator. Passing an empty status, or calling
 ```json
 {
   "reply_ref": "...",
-  "status": "is checking deployment status",
-  "loading_messages": ["Reading the thread", "Checking deploys"],
+  "status": "is checking status",
+  "loading_messages": ["Reading the thread", "Checking status"],
   "icon_emoji": ":hourglass_flowing_sand:"
 }
 ```
@@ -313,7 +319,7 @@ native assistant thread metadata:
   "reply_ref": "...",
   "title": "Try next",
   "prompts": [
-    {"title": "Summarize deploys", "message": "Summarize the latest deploy status"}
+    {"title": "Summarize this", "message": "Summarize the latest status"}
   ]
 }
 ```
@@ -326,7 +332,7 @@ signed metadata and calls `WorkflowManager.SignalOrStartRun` with
 ```json
 {
   "reply_ref": "...",
-  "text": "Approve deployment?",
+  "text": "Approve this operation?",
   "actions": [
     {"id": "approve", "label": "Approve", "value": "approved", "style": "primary"},
     {"id": "reject", "label": "Reject", "value": "rejected", "style": "danger"}
@@ -374,8 +380,9 @@ features in Slack, add the bot `assistant:write` scope, and subscribe the bot to
 `assistant_thread_started`, `assistant_thread_context_changed`, and `message.im`
 events in addition to `app_mention`.
 
-To use different prompts for different Slack channels or event types, add
-`agent.routes`:
+To use different workflows, assistants, prompts, tools, acknowledgement
+reactions, or thread context behavior for different Slack channels or event
+types, add `agent.routes`:
 
 ```yaml
 plugins:
@@ -417,10 +424,10 @@ plugins:
       - plugin: slack
         operation: interactions.request
         credentialMode: none
-      - plugin: workplaceHub
-        operation: getMe
-      - plugin: deploymentViewer
-        operation: status
+      - plugin: companyDirectory
+        operation: lookupProfile
+      - plugin: statusPage
+        operation: getStatus
     config:
       bot:
         userId: U0123456789
@@ -432,11 +439,20 @@ plugins:
         provider: simple
         model: deep
         systemPrompt: Use Slack formatting and keep replies concise.
+        toolSets:
+          directory:
+            - plugin: companyDirectory
+              operation: lookupProfile
+          status:
+            - plugin: statusPage
+              operation: getStatus
+        toolSetRefs:
+          - directory
         tools:
-          - plugin: workplaceHub
-            operation: getMe
+          - plugin: tickets
+            operation: search
         routes:
-          - id: workplace-help
+          - id: team-help
             match:
               channels:
                 - C0123456789
@@ -444,28 +460,76 @@ plugins:
                 - app_mention
                 - message
             agent:
-              systemPrompt: Help employees with workplace questions.
-          - id: deploy-help
+              systemPrompt: Help with team questions.
+              acknowledgement:
+                reaction: eyes
+          - id: operations-help
             match:
               channels:
                 - C9876543210
               eventTypes:
                 - app_mention
+                - assistant_thread_started
+                - assistant_thread_context_changed
+            workflow:
+              provider: operations
             agent:
-              systemPrompt: Help engineers inspect deployment status.
-              tools:
-                - plugin: deploymentViewer
-                  operation: status
+              assistant:
+                enabled: true
+                status: is checking status...
+                suggestedPrompts:
+                  title: Try next
+                  prompts:
+                    - title: Summarize status
+                      message: Summarize the latest service status.
+              acknowledgement:
+                enabled: false
+              threadContext:
+                maxMessages: 50
+                includeFiles: false
+              toolSetRefs:
+                - status
+              systemPrompt: Help engineers inspect service status.
 ```
+
+Route settings inherit from the top-level provider configuration when omitted.
+Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
+`agent.threadContext` to explicitly disable an inherited global setting. Route
+`workflow.provider` overrides the global `workflow.provider` for both Slack
+events and Slack interaction button callbacks generated from that route. Signed
+interaction callbacks include the route ID; if a non-empty signed route ID no
+longer exists in the provider configuration, the provider rejects the callback
+instead of silently falling back to global behavior.
+
+Tool sets are named groups under `agent.toolSets`. The workflow agent target
+expands tool references in this order and deduplicates by exact
+plugin/operation/connection/instance with first reference winning:
+
+1. top-level `agent.toolSetRefs`
+2. top-level `agent.tools`
+3. route `agent.toolSetRefs`
+4. route `agent.tools`
+5. Slack helper operations
+
+Tool references must name exact plugin and operation IDs. Wildcards and
+runtime policy fields such as `credentialMode`, `runAs`, and host-invoke input
+bindings are rejected in provider configuration; configure runtime policy in the
+deployment's invoke policy instead.
+
+When a route uses `match.eventTypes`, include
+`assistant_thread_started` and `assistant_thread_context_changed` on routes that
+should handle native Slack assistant suggested prompts. For native assistant
+thread events, `match.channels` matches the active Slack context channel when
+Slack includes it; assistant API calls still use Slack's assistant thread
+channel internally.
 
 When `agent.routes` is present, only matching routes start or signal a workflow
 run. Match rules support singular or plural forms of `team`, `channel`,
-`channelType`, `eventType`, and `user`. Route-level `agent` fields override the
-top-level agent settings, `prompt` is accepted as an alias for `systemPrompt`,
-`tools` are appended to the top-level exact tool refs, and `modelOptions` are
-merged with route-level values taking precedence. Matching routes still require
-non-DM `message` events to be addressed to the bot; routes do not opt into every
-plain channel message.
+`channelType`, `eventType`, and `user`. Route-level `agent` fields override or
+extend the top-level agent settings, `prompt` is accepted as an alias for
+`systemPrompt`, and `modelOptions` are merged with route-level values taking
+precedence. Matching routes still require non-DM `message` events to be
+addressed to the bot; routes do not opt into every plain channel message.
 
 ## Documentation
 
