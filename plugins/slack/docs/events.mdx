@@ -62,10 +62,6 @@ plugins:
             name: slack-bot-token
       acknowledgement:
         reaction: eyes
-      assistantLedger:
-        indexeddb: main-db
-        staleAfterSeconds: 300
-        maxRecoveryAttempts: 2
       agent:
         provider: simple
         model: deep
@@ -139,47 +135,18 @@ context settings for matching events. If omitted, the route inherits the global
 settings. If `enabled: false` is set on the route, prefetch is disabled for that
 route even when it is enabled globally.
 
-## Reply Resilience
+## Durable Handoff
 
-Configure `assistantLedger` when a Slack assistant should either post a final
-reply or a Slack-visible failure message after accepting a request. The ledger is
-a thin Slack-side record: it tracks the source Slack event, acknowledgement
-errors, reply delivery success/failure, recovery attempts, and terminal status.
-Workflow run, signal, idempotency, and status state remain owned by the workflow
-provider.
+`events.handle` uses the workflow provider as the durable boundary. It signs a
+short-lived `reply_ref`, calls `WorkflowManager.SignalOrStartRun`, and only then
+acknowledges the Slack callback. If the workflow handoff fails, the handler
+returns an error so Slack can retry the same event. The workflow provider owns
+run state, signal idempotency, retries, and output delivery.
 
-```yaml
-plugins:
-  slack:
-    config:
-      workflow:
-        provider: local
-      assistantLedger:
-        indexeddb: main-db
-        staleAfterSeconds: 300
-        maxRecoveryAttempts: 2
-
-workflows:
-  schedules:
-    slack_assistant_reconcile_stuck_requests:
-      provider: local
-      cron: "*/5 * * * *"
-      timezone: America/New_York
-      target:
-        plugin:
-          name: slack
-          operation: assistant.reconcileStuckRequests
-          connection: default
-          input:
-            limit: 50
-```
-
-`assistantLedger.indexeddb` selects the IndexedDB provider instance used for the
-Slack-side ledger. The object store defaults to `slack_assistant_requests`; omit
-`store` unless an existing deployment needs a different store name. The
-reconciler retries stale non-terminal records by re-signaling the workflow, and
-posts the configured fallback message when reply delivery failed or recovery
-attempts are exhausted.
+After the workflow has accepted the event, Slack-visible acknowledgement
+reactions and native assistant loading status updates are best effort. Failures
+there are reported in the response body but do not block the Slack callback,
+because the durable workflow has already accepted the event.
 
 ## HTTP Routes
 
@@ -202,8 +169,8 @@ through the managed `external_identity` authorization relationship.
 ## Hidden Helper Operations
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
-`events.addReaction`, `events.removeReaction`, `assistant.reconcileStuckRequests`,
-the native assistant helpers, and the interaction helpers are hidden operations.
+`events.addReaction`, `events.removeReaction`, the native assistant helpers, and
+the interaction helpers are hidden operations.
 
 `events.handle` starts or signals a keyed workflow run and passes an opaque
 `reply_ref` in the signal payload. The workflow runtime invokes `events.reply`

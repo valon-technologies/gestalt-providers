@@ -9,7 +9,6 @@ from .models import (
     SlackAgentRoute,
     SlackAgentRouteMatch,
     SlackAgentToolRef,
-    SlackAssistantLedgerConfig,
     SlackAssistantConfig,
     SlackBotConfig,
     SlackEventPublishConfig,
@@ -44,7 +43,6 @@ def agent_config_from_provider_config(
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
     thread_context = _thread_context_config_from_provider_config(config, agent)
-    assistant_ledger = _assistant_ledger_config_from_provider_config(config)
     routes = _agent_routes_from_provider_config(
         config,
         agent,
@@ -76,7 +74,6 @@ def agent_config_from_provider_config(
         acknowledgement=acknowledgement,
         workflow=workflow,
         thread_context=thread_context,
-        assistant_ledger=assistant_ledger,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
         agent_model=model or _config_string(config, "agentModel", "agent_model"),
@@ -266,60 +263,6 @@ def _thread_context_config_from_config(
             minimum=0,
             maximum=25_000_000,
         ),
-    )
-
-
-def _assistant_ledger_config_from_provider_config(
-    config: dict[str, Any],
-) -> SlackAssistantLedgerConfig:
-    ledger = _config_dict(
-        config,
-        "assistantLedger",
-        "assistant_ledger",
-        "ledger",
-        "state",
-        "resilience",
-    )
-    if not ledger:
-        return SlackAssistantLedgerConfig()
-    enabled = _config_bool(ledger, "enabled", default=True)
-    return SlackAssistantLedgerConfig(
-        enabled=enabled,
-        indexeddb_provider=_config_string(
-            ledger, "indexeddb", "indexedDB", "indexeddbProvider", "indexeddb_provider"
-        ),
-        store=_config_string(ledger, "store", "objectStore", "object_store")
-        or "slack_assistant_requests",
-        stale_after_seconds=_clamp_int(
-            _config_int(
-                ledger,
-                "staleAfterSeconds",
-                "stale_after_seconds",
-                "stuckAfterSeconds",
-                "stuck_after_seconds",
-                default=300,
-            ),
-            minimum=30,
-            maximum=86_400,
-        ),
-        max_recovery_attempts=_clamp_int(
-            _config_int(
-                ledger,
-                "maxRecoveryAttempts",
-                "max_recovery_attempts",
-                default=2,
-            ),
-            minimum=0,
-            maximum=10,
-        ),
-        fallback_message=_config_string(
-            ledger,
-            "fallbackMessage",
-            "fallback_message",
-            "failureMessage",
-            "failure_message",
-        )
-        or SlackAssistantLedgerConfig().fallback_message,
     )
 
 

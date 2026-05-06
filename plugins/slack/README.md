@@ -167,10 +167,9 @@ plugins:
 ```
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
-reaction to the source Slack message before signaling the workflow. Emoji names
-may be written with or without colons, and Slack's `already_reacted` response is
-treated as idempotent success so retried events can continue to signal the
-workflow run.
+reaction to the source Slack message after the workflow provider accepts the
+event. Emoji names may be written with or without colons, and Slack's
+`already_reacted` response is treated as idempotent success.
 
 `events.handle` calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
 workflow_key="slack:${team_id}:${channel_id}:${root_ts}", signal.name="slack.event")`.
@@ -181,6 +180,10 @@ signal the existing keyed run instead of replacing its target or authorization
 context. The target also sets `output_delivery` so the workflow runtime delivers
 the agent's final assistant answer through `events.reply` with `text` sourced
 from the agent output and `reply_ref` sourced from the current signal payload.
+If the workflow handoff fails, `events.handle` returns an error so Slack can
+retry the callback. Once the workflow provider accepts the event, workflow state,
+signal idempotency, retries, and output delivery are owned by the workflow
+provider.
 
 For workflow-dispatched `message` and `app_mention` events that include
 `thread_ts`, `events.handle` fetches one bounded page of thread replies with the
