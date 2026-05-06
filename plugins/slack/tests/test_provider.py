@@ -693,6 +693,18 @@ class SlackProviderTests(unittest.TestCase):
             )
             self.assertEqual(target.timeout_seconds, 1200)
 
+        with self.subTest("top-level whole-number float"):
+            target = target_for_config(
+                {
+                    **base_config,
+                    "agent": {
+                        **base_config["agent"],
+                        "timeoutSeconds": 1800.0,
+                    },
+                }
+            )
+            self.assertEqual(target.timeout_seconds, 1800)
+
         with self.subTest("route agent override"):
             target = target_for_config(
                 {
