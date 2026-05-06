@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +73,9 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	}
 	b.worker = w
 	b.started = true
+	if err := b.migrateTemporalSchedules(ctx); err != nil {
+		slog.WarnContext(ctx, "temporal workflow: migrate schedules to indexeddb state failed", "error", err)
+	}
 	return nil
 }
 
@@ -875,6 +879,25 @@ func (b *temporalBackend) listTemporalSchedules(ctx context.Context) ([]*proto.B
 		}
 	}
 	return schedules, nil
+}
+
+func (b *temporalBackend) migrateTemporalSchedules(ctx context.Context) error {
+	schedules, err := b.listTemporalSchedules(ctx)
+	if err != nil {
+		return err
+	}
+	for _, schedule := range schedules {
+		if schedule == nil || strings.TrimSpace(schedule.GetId()) == "" {
+			continue
+		}
+		if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
+			return err
+		}
+		if err := b.putScheduleIndex(ctx, schedule); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b *temporalBackend) describeTemporalSchedule(ctx context.Context, scheduleID string) (*proto.BoundWorkflowSchedule, bool, error) {

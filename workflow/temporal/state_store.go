@@ -306,6 +306,26 @@ func (s *workflowStateStore) putWorkflowKey(ctx context.Context, workflowKey str
 	if workflowKey == "" || run == nil || strings.TrimSpace(run.GetId()) == "" {
 		return nil
 	}
+	storedRun, found, err := s.getRun(ctx, run.GetId())
+	if err != nil {
+		return err
+	}
+	if found && workflowRunTerminal(storedRun.GetStatus()) {
+		if err := s.workflowKeys.Delete(ctx, s.scopedID(workflowKey)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+			return err
+		}
+		return nil
+	}
+	if workflowRunTerminal(run.GetStatus()) {
+		if record, err := s.workflowKeys.Get(ctx, s.scopedID(workflowKey)); err == nil && recordString(record, "run_id") == run.GetId() {
+			if err := s.workflowKeys.Delete(ctx, s.scopedID(workflowKey)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+				return err
+			}
+		} else if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+			return err
+		}
+		return nil
+	}
 	now := time.Now().UTC()
 	return s.workflowKeys.Put(ctx, gestalt.Record{
 		"id":         s.scopedID(workflowKey),
@@ -334,7 +354,7 @@ func (s *workflowStateStore) getWorkflowKey(ctx context.Context, workflowKey str
 		return nil, found, err
 	}
 	if workflowRunTerminal(run.GetStatus()) {
-		_ = s.workflowKeys.Delete(ctx, workflowKey)
+		_ = s.workflowKeys.Delete(ctx, s.scopedID(workflowKey))
 		return nil, false, nil
 	}
 	return run, true, nil
