@@ -27,6 +27,7 @@ from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge
+from internals.config import _derive_store_names
 from internals.session_start import ADDITIONAL_CONTEXT_KEY, prepend_session_start_context, run_session_start_hooks
 from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 
@@ -556,6 +557,294 @@ class ClaudeProviderTests(unittest.TestCase):
         fetched_turn = client_b.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-durable"))
         self.assertEqual(fetched_turn.id, "turn-durable")
         _wait_for_turn(client_b, "turn-durable", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+    def test_list_paths_stream_projection_records_through_provider_rpc(self) -> None:
+        indexeddb = _indexeddb_servicer
+        assert indexeddb is not None
+        _, provider_client = _configure_provider()
+        store = provider_module.provider._store
+        assert store is not None
+
+        for suffix in ("a", "b"):
+            metadata = struct_pb2.Struct()
+            metadata.update({"large": "x" * 1024, "suffix": suffix})
+            session_req = agent_pb2.CreateAgentProviderSessionRequest(
+                session_id=f"session-stream-{suffix}",
+                idempotency_key=f"session-idem-stream-{suffix}",
+                metadata=metadata,
+                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
+            )
+            if hasattr(session_req, "prepared_workspace"):
+                session_req.prepared_workspace.root = f"/workspaces/session-stream-{suffix}"
+                session_req.prepared_workspace.cwd = f"/workspaces/session-stream-{suffix}/repo"
+            provider_client.CreateSession(session_req)
+            provider_client.CreateTurn(
+                _turn_request(
+                    turn_id=f"turn-stream-{suffix}",
+                    session_id=f"session-stream-{suffix}",
+                    messages=[agent_pb2.AgentMessage(role="user", text=f"stream {suffix}")],
+                )
+            )
+            _wait_for_turn(provider_client, f"turn-stream-{suffix}", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+            if suffix == "a":
+                time.sleep(0.001)
+
+        source_session_store = store._session_store_name
+        source_turn_store = store._run_store_name
+        session_projection_store = store._session_projection_store_name
+        turn_projection_store = store._turn_projection_store_name
+        before_counts = {
+            (source_session_store, "get_all"): indexeddb.operation_count(
+                store=source_session_store, operation="get_all"
+            ),
+            (source_turn_store, "get_all"): indexeddb.operation_count(store=source_turn_store, operation="get_all"),
+            (session_projection_store, "open_cursor"): indexeddb.operation_count(
+                store=session_projection_store, operation="open_cursor"
+            ),
+            (turn_projection_store, "open_cursor"): indexeddb.operation_count(
+                store=turn_projection_store, operation="open_cursor"
+            ),
+        }
+        before_session_projection_cursors = len(indexeddb.cursor_commands(store=session_projection_store))
+        before_turn_projection_cursors = len(indexeddb.cursor_commands(store=turn_projection_store))
+
+        summary_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                limit=1,
+                summary_only=True,
+            )
+        )
+        full_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                limit=1,
+            )
+        )
+        summary_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-stream-a",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                limit=1,
+                summary_only=True,
+            )
+        )
+        full_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-stream-a",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                limit=1,
+            )
+        )
+        running_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-stream-a",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
+                limit=10,
+                summary_only=True,
+            )
+        )
+        succeeded_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-stream-a",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+                limit=10,
+                summary_only=True,
+            )
+        )
+        bounded_source_session_get_all = (
+            indexeddb.operation_count(store=source_session_store, operation="get_all")
+            - before_counts[(source_session_store, "get_all")]
+        )
+        bounded_source_turn_get_all = (
+            indexeddb.operation_count(store=source_turn_store, operation="get_all")
+            - before_counts[(source_turn_store, "get_all")]
+        )
+        provider_client.UpdateSession(
+            agent_pb2.UpdateAgentProviderSessionRequest(
+                session_id="session-stream-b", state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED
+            )
+        )
+        active_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                limit=10,
+                summary_only=True,
+            )
+        )
+        archived_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
+                limit=10,
+                summary_only=True,
+            )
+        )
+
+        self.assertEqual([session.id for session in summary_sessions.sessions], ["session-stream-b"])
+        self.assertFalse(summary_sessions.sessions[0].HasField("metadata"))
+        self.assertEqual([session.id for session in full_sessions.sessions], ["session-stream-b"])
+        self.assertEqual(full_sessions.sessions[0].metadata.fields["suffix"].string_value, "b")
+        self.assertEqual([turn.id for turn in summary_turns.turns], ["turn-stream-a"])
+        self.assertEqual(len(summary_turns.turns[0].messages), 0)
+        self.assertEqual(summary_turns.turns[0].output_text, "")
+        self.assertEqual([turn.id for turn in full_turns.turns], ["turn-stream-a"])
+        self.assertEqual(full_turns.turns[0].messages[0].text, "stream a")
+        self.assertEqual(full_turns.turns[0].output_text, "Claude completed")
+        self.assertEqual(list(running_turns.turns), [])
+        self.assertEqual([turn.id for turn in succeeded_turns.turns], ["turn-stream-a"])
+        self.assertEqual([session.id for session in active_sessions.sessions], ["session-stream-a"])
+        self.assertEqual([session.id for session in archived_sessions.sessions], ["session-stream-b"])
+        self.assertEqual(bounded_source_session_get_all, 0)
+        self.assertEqual(bounded_source_turn_get_all, 0)
+        self.assertGreater(
+            indexeddb.operation_count(store=session_projection_store, operation="open_cursor")
+            - before_counts[(session_projection_store, "open_cursor")],
+            0,
+        )
+        self.assertGreater(
+            indexeddb.operation_count(store=turn_projection_store, operation="open_cursor")
+            - before_counts[(turn_projection_store, "open_cursor")],
+            0,
+        )
+        session_projection_commands = indexeddb.cursor_commands(store=session_projection_store)[
+            before_session_projection_cursors:
+        ]
+        turn_projection_commands = indexeddb.cursor_commands(store=turn_projection_store)[before_turn_projection_cursors:]
+        for commands in session_projection_commands[:2]:
+            self.assertEqual(commands.count("next"), 1)
+        for commands in turn_projection_commands[:2]:
+            self.assertEqual(commands.count("next"), 1)
+
+    def test_projection_backfill_streams_legacy_records(self) -> None:
+        indexeddb = _indexeddb_servicer
+        assert indexeddb is not None
+        run_store, _ = _derive_store_names("claude")
+        session_store = f"{run_store}_sessions"
+        turn_store = run_store
+        session_projection_store = f"{run_store}_session_projections"
+        turn_projection_store = f"{run_store}_turn_projections"
+        first = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        second = datetime(2026, 1, 1, 12, 0, 1, tzinfo=UTC)
+        indexeddb.put_record(
+            session_store,
+            {
+                "id": "legacy-session-a",
+                "idempotency_key": "legacy-session-a",
+                "provider_name": "claude",
+                "model": "sonnet-config",
+                "client_ref": "",
+                "state": agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                "metadata": {"large": "x" * 1024},
+                "prepared_workspace": None,
+                "created_by": {"subject_id": "user-123", "subject_kind": "human"},
+                "created_at": first,
+                "updated_at": first,
+                "last_turn_at": first,
+            },
+        )
+        indexeddb.put_record(
+            session_store,
+            {
+                "id": "legacy-session-b",
+                "idempotency_key": "legacy-session-b",
+                "provider_name": "claude",
+                "model": "sonnet-config",
+                "client_ref": "",
+                "state": agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                "metadata": {"large": "y" * 1024},
+                "prepared_workspace": None,
+                "created_by": {"subject_id": "user-123", "subject_kind": "human"},
+                "created_at": second,
+                "updated_at": second,
+                "last_turn_at": second,
+            },
+        )
+        indexeddb.put_record(
+            turn_store,
+            {
+                "id": "legacy-turn-a",
+                "session_id": "legacy-session-a",
+                "idempotency_key": "legacy-turn-a",
+                "provider_name": "claude",
+                "model": "sonnet-config",
+                "status": agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+                "messages": [{"role": "user", "text": "legacy"}],
+                "output_text": "legacy answer",
+                "status_message": "",
+                "created_by": {"subject_id": "user-123", "subject_kind": "human"},
+                "created_at": first,
+                "started_at": first,
+                "completed_at": first,
+                "execution_ref": "legacy-turn-a",
+            },
+        )
+        before_counts = {
+            (session_store, "open_cursor"): indexeddb.operation_count(store=session_store, operation="open_cursor"),
+            (turn_store, "open_cursor"): indexeddb.operation_count(store=turn_store, operation="open_cursor"),
+            (session_store, "get_all"): indexeddb.operation_count(store=session_store, operation="get_all"),
+            (turn_store, "get_all"): indexeddb.operation_count(store=turn_store, operation="get_all"),
+            (session_projection_store, "open_cursor"): indexeddb.operation_count(
+                store=session_projection_store, operation="open_cursor"
+            ),
+            (turn_projection_store, "open_cursor"): indexeddb.operation_count(
+                store=turn_projection_store, operation="open_cursor"
+            ),
+        }
+
+        _, provider_client = _configure_provider()
+        summary_sessions = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                limit=2,
+                summary_only=True,
+            )
+        )
+        summary_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="legacy-session-a",
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                limit=1,
+                summary_only=True,
+            )
+        )
+
+        self.assertEqual([session.id for session in summary_sessions.sessions], ["legacy-session-b", "legacy-session-a"])
+        self.assertFalse(summary_sessions.sessions[0].HasField("metadata"))
+        self.assertEqual([turn.id for turn in summary_turns.turns], ["legacy-turn-a"])
+        self.assertEqual(len(summary_turns.turns[0].messages), 0)
+        self.assertEqual(
+            indexeddb.operation_count(store=session_store, operation="get_all")
+            - before_counts[(session_store, "get_all")],
+            0,
+        )
+        self.assertEqual(
+            indexeddb.operation_count(store=turn_store, operation="get_all") - before_counts[(turn_store, "get_all")],
+            0,
+        )
+        self.assertGreater(
+            indexeddb.operation_count(store=session_store, operation="open_cursor")
+            - before_counts[(session_store, "open_cursor")],
+            0,
+        )
+        self.assertGreater(
+            indexeddb.operation_count(store=turn_store, operation="open_cursor")
+            - before_counts[(turn_store, "open_cursor")],
+            0,
+        )
+        self.assertGreater(
+            indexeddb.operation_count(store=session_projection_store, operation="open_cursor")
+            - before_counts[(session_projection_store, "open_cursor")],
+            0,
+        )
+        self.assertGreater(
+            indexeddb.operation_count(store=turn_projection_store, operation="open_cursor")
+            - before_counts[(turn_projection_store, "open_cursor")],
+            0,
+        )
 
     def test_missing_indexeddb_socket_fails_first_store_rpc_with_failed_precondition(self) -> None:
         missing_socket = _fresh_socket("claude-agent-missing-indexeddb")

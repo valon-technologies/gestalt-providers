@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import base64
 import copy
 import os
 import threading
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,6 +21,10 @@ TERMINAL_STATUSES = {
 
 BUSY_RETRY_INITIAL_DELAY_SECONDS = 0.02
 BUSY_RETRY_MAX_DELAY_SECONDS = 0.25
+PROJECTION_SCHEMA_VERSION = 1
+PROJECTION_SEP = "\x1f"
+PROJECTION_RANGE_SUFFIX = "\x7f"
+MAX_INVERTED_SORT_MICROS = 99_999_999_999_999_999_999
 TURN_IDEMPOTENCY_SEP = "\x1f"
 RANGE_SUFFIX = "\U0010ffff"
 
@@ -84,11 +89,15 @@ class IndexedDBRunStore:
         self._turns = _LazyObjectStore(self, run_store)
         self._events = _LazyObjectStore(self, f"{run_store}_events")
         self._sessions = _LazyObjectStore(self, f"{run_store}_sessions")
+        self._session_projections = _LazyObjectStore(self, f"{run_store}_session_projections")
+        self._turn_projections = _LazyObjectStore(self, f"{run_store}_turn_projections")
         self._session_idempotency = _LazyObjectStore(self, f"{idempotency_store}_sessions")
         self._turn_idempotency = _LazyObjectStore(self, f"{idempotency_store}_turns")
         self._run_store_name = run_store
         self._event_store_name = f"{run_store}_events"
         self._session_store_name = f"{run_store}_sessions"
+        self._session_projection_store_name = f"{run_store}_session_projections"
+        self._turn_projection_store_name = f"{run_store}_turn_projections"
         self._session_idempotency_store_name = f"{idempotency_store}_sessions"
         self._turn_idempotency_store_name = f"{idempotency_store}_turns"
         self._initialize_lock = threading.RLock()
@@ -108,6 +117,8 @@ class IndexedDBRunStore:
                     self._run_store_name,
                     self._event_store_name,
                     self._session_store_name,
+                    self._session_projection_store_name,
+                    self._turn_projection_store_name,
                     self._session_idempotency_store_name,
                     self._turn_idempotency_store_name,
                 ):
@@ -115,6 +126,7 @@ class IndexedDBRunStore:
                         _call_with_busy_retry(lambda name=name: client.create_object_store(name))
                     except gestalt.AlreadyExistsError:
                         pass
+                self._backfill_projections(client)
             except Exception:
                 self._close_client()
                 raise
@@ -144,14 +156,17 @@ class IndexedDBRunStore:
         def create(stores: dict[str, Any]) -> tuple[StoredSession, bool]:
             sessions = stores[self._session_store_name]
             idempotency = stores[self._session_idempotency_store_name]
+            session_projections = stores[self._session_projection_store_name]
 
             existing = _record_to_session(_get_optional_record(sessions, session_id))
             if existing is not None:
+                _replace_session_projections(session_projections, None, existing)
                 return existing, False
 
             if idempotency_key:
                 existing = _session_for_idempotency_key_from_stores(idempotency, sessions, idempotency_key)
                 if existing is not None:
+                    _replace_session_projections(session_projections, None, existing)
                     return existing, False
 
             now = _utcnow()
@@ -173,18 +188,25 @@ class IndexedDBRunStore:
                     {"id": idempotency_key, "session_id": session_id, "provider_name": provider_name, "created_at": now}
                 )
             sessions.add(_session_to_record(session))
+            _replace_session_projections(session_projections, None, session)
             return session, True
 
         with self._mutation_lock:
             try:
                 session, created = self._with_transaction(
-                    [self._session_store_name, self._session_idempotency_store_name], create
+                    [
+                        self._session_store_name,
+                        self._session_idempotency_store_name,
+                        self._session_projection_store_name,
+                    ],
+                    create,
                 )
             except gestalt.AlreadyExistsError:
                 existing = self._session_after_create_conflict(session_id=session_id, idempotency_key=idempotency_key)
                 if existing is None:
                     raise
                 session, created = existing, False
+                self._repair_session_projection(session)
             return copy.deepcopy(session), created
 
     def get_session(self, session_id: str) -> StoredSession | None:
@@ -197,15 +219,25 @@ class IndexedDBRunStore:
         return _session_for_idempotency_key_from_stores(self._session_idempotency, self._sessions, idempotency_key)
 
     def list_sessions(
-        self, *, session_ids: list[str] | None = None, subject_id: str = "", state: int = 0, limit: int = 0
+        self,
+        *,
+        session_ids: list[str] | None = None,
+        subject_id: str = "",
+        state: int = 0,
+        limit: int = 0,
+        summary_only: bool = False,
     ) -> list[StoredSession]:
         requested_ids = _normalized_unique_ids(session_ids)
         if requested_ids:
             sessions = [self.get_session(session_id) for session_id in requested_ids]
-            filtered = [session for session in sessions if session is not None]
+        elif summary_only or limit > 0:
+            projected = self._list_session_projections(subject_id=subject_id, state=state, limit=limit)
+            if summary_only:
+                return copy.deepcopy(projected)
+            sessions = [self.get_session(session.session_id) for session in projected]
         else:
-            filtered = [_record_to_session(record) for record in self._sessions.iter_records()]
-            filtered = [session for session in filtered if session is not None]
+            sessions = [_record_to_session(record) for record in self._sessions.iter_records()]
+        filtered = [session for session in sessions if session is not None]
 
         subject_id = subject_id.strip()
         if subject_id:
@@ -216,7 +248,7 @@ class IndexedDBRunStore:
             ]
         if state:
             filtered = [session for session in filtered if session.state == state]
-        filtered = sorted(filtered, key=lambda session: session.last_turn_at or session.updated_at, reverse=True)
+        filtered = sorted(filtered, key=_session_projection_order_key)
         if limit > 0:
             filtered = filtered[:limit]
         return copy.deepcopy(filtered)
@@ -228,9 +260,11 @@ class IndexedDBRunStore:
 
         def update(stores: dict[str, Any]) -> StoredSession | None:
             sessions = stores[self._session_store_name]
+            session_projections = stores[self._session_projection_store_name]
             session = _record_to_session(_get_optional_record(sessions, session_id))
             if session is None:
                 return None
+            previous = replace(session)
             if client_ref:
                 session.client_ref = client_ref
             if state:
@@ -239,10 +273,11 @@ class IndexedDBRunStore:
                 session.metadata = copy.deepcopy(metadata)
             session.updated_at = _utcnow()
             sessions.put(_session_to_record(session))
+            _replace_session_projections(session_projections, previous, session)
             return session
 
         with self._mutation_lock:
-            session = self._with_transaction([self._session_store_name], update)
+            session = self._with_transaction([self._session_store_name, self._session_projection_store_name], update)
             return copy.deepcopy(session) if session is not None else None
 
     def begin_turn(
@@ -268,12 +303,15 @@ class IndexedDBRunStore:
             turns = stores[self._run_store_name]
             idempotency = stores[self._turn_idempotency_store_name]
             sessions = stores[self._session_store_name]
+            session_projections = stores[self._session_projection_store_name]
+            turn_projections = stores[self._turn_projection_store_name]
             events = stores[self._event_store_name]
 
             existing = _record_to_turn(_get_optional_record(turns, turn_id))
             if existing is not None:
                 if existing.session_id != session_id:
                     raise StoreConflictError(f"turn_id {turn_id!r} already exists for another session")
+                _replace_turn_projections(turn_projections, None, existing)
                 return existing, False
 
             if idempotency_key:
@@ -281,10 +319,11 @@ class IndexedDBRunStore:
                     idempotency, turns, session_id=session_id, idempotency_key=idempotency_key
                 )
                 if existing is not None:
+                    _replace_turn_projections(turn_projections, None, existing)
                     return existing, False
 
             now = _utcnow()
-            _touch_session_for_turn_in_store(sessions, session_id, now)
+            _touch_session_for_turn_in_store(sessions, session_id, now, session_projections)
             turn = StoredTurn(
                 turn_id=turn_id,
                 session_id=session_id,
@@ -313,6 +352,7 @@ class IndexedDBRunStore:
                     }
                 )
             turns.add(_turn_to_record(turn))
+            _replace_turn_projections(turn_projections, None, turn)
             self._append_turn_event_locked(
                 turn_id=turn_id,
                 event_type="turn.started",
@@ -329,6 +369,8 @@ class IndexedDBRunStore:
                         self._run_store_name,
                         self._turn_idempotency_store_name,
                         self._session_store_name,
+                        self._session_projection_store_name,
+                        self._turn_projection_store_name,
                         self._event_store_name,
                     ],
                     begin,
@@ -340,6 +382,7 @@ class IndexedDBRunStore:
                 if existing is None:
                     raise
                 turn, created = existing, False
+                self._repair_turn_projection(turn)
             return copy.deepcopy(turn), created
 
     def get_turn(self, turn_id: str) -> StoredTurn | None:
@@ -353,24 +396,34 @@ class IndexedDBRunStore:
         subject_id: str = "",
         status: int = 0,
         limit: int = 0,
+        summary_only: bool = False,
     ) -> list[StoredTurn]:
         requested_ids = _normalized_unique_ids(turn_ids)
         if requested_ids:
             turns = [self.get_turn(turn_id) for turn_id in requested_ids]
-            filtered = [turn for turn in turns if turn is not None]
         else:
             session_id = session_id.strip()
             if not session_id:
                 return []
-            filtered = [_record_to_turn(record) for record in self._turns.iter_records()]
-            filtered = [turn for turn in filtered if turn is not None and turn.session_id == session_id]
+            if summary_only or limit > 0:
+                projected = self._list_turn_projections(
+                    session_id=session_id, subject_id=subject_id, status=status, limit=limit
+                )
+                if summary_only:
+                    return copy.deepcopy(projected)
+                turns = [self.get_turn(turn.turn_id) for turn in projected]
+            else:
+                turns = [_record_to_turn(record) for record in self._turns.iter_records()]
+        filtered = [turn for turn in turns if turn is not None]
+        if not requested_ids:
+            filtered = [turn for turn in filtered if turn.session_id == session_id]
 
         subject_id = subject_id.strip()
         if subject_id:
             filtered = [turn for turn in filtered if str(turn.created_by.get("subject_id", "") or "") == subject_id]
         if status:
             filtered = [turn for turn in filtered if turn.status == status]
-        filtered = sorted(filtered, key=lambda turn: turn.created_at, reverse=True)
+        filtered = sorted(filtered, key=_turn_projection_order_key)
         if limit > 0:
             filtered = filtered[:limit]
         return copy.deepcopy(filtered)
@@ -378,17 +431,20 @@ class IndexedDBRunStore:
     def complete_turn(self, *, turn_id: str, output_text: str) -> StoredTurn | None:
         def complete(stores: dict[str, Any]) -> StoredTurn | None:
             turns = stores[self._run_store_name]
+            turn_projections = stores[self._turn_projection_store_name]
             events = stores[self._event_store_name]
             turn = _record_to_turn(_get_optional_record(turns, turn_id.strip()))
             if turn is None:
                 return None
             if turn.status in TERMINAL_STATUSES:
                 return turn
+            previous = replace(turn)
             turn.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
             turn.output_text = output_text
             turn.status_message = ""
             turn.completed_at = _utcnow()
             turns.put(_turn_to_record(turn))
+            _replace_turn_projections(turn_projections, previous, turn)
             self._append_turn_event_locked(
                 turn_id=turn.turn_id,
                 event_type="assistant.message",
@@ -406,22 +462,27 @@ class IndexedDBRunStore:
             return turn
 
         with self._mutation_lock:
-            turn = self._with_transaction([self._run_store_name, self._event_store_name], complete)
+            turn = self._with_transaction(
+                [self._run_store_name, self._turn_projection_store_name, self._event_store_name], complete
+            )
             return copy.deepcopy(turn) if turn is not None else None
 
     def fail_turn(self, *, turn_id: str, message: str) -> StoredTurn | None:
         def fail(stores: dict[str, Any]) -> StoredTurn | None:
             turns = stores[self._run_store_name]
+            turn_projections = stores[self._turn_projection_store_name]
             events = stores[self._event_store_name]
             turn = _record_to_turn(_get_optional_record(turns, turn_id.strip()))
             if turn is None:
                 return None
             if turn.status in TERMINAL_STATUSES:
                 return turn
+            previous = replace(turn)
             turn.status = gestalt.AGENT_EXECUTION_STATUS_FAILED
             turn.status_message = message
             turn.completed_at = _utcnow()
             turns.put(_turn_to_record(turn))
+            _replace_turn_projections(turn_projections, previous, turn)
             self._append_turn_event_locked(
                 turn_id=turn.turn_id,
                 event_type="turn.failed",
@@ -432,21 +493,26 @@ class IndexedDBRunStore:
             return turn
 
         with self._mutation_lock:
-            turn = self._with_transaction([self._run_store_name, self._event_store_name], fail)
+            turn = self._with_transaction(
+                [self._run_store_name, self._turn_projection_store_name, self._event_store_name], fail
+            )
             return copy.deepcopy(turn) if turn is not None else None
 
     def cancel_turn(self, *, turn_id: str, reason: str) -> StoredTurn | None:
         def cancel(stores: dict[str, Any]) -> StoredTurn | None:
             turns = stores[self._run_store_name]
+            turn_projections = stores[self._turn_projection_store_name]
             events = stores[self._event_store_name]
             turn = _record_to_turn(_get_optional_record(turns, turn_id.strip()))
             if turn is None:
                 return None
             if turn.status not in TERMINAL_STATUSES:
+                previous = replace(turn)
                 turn.status = gestalt.AGENT_EXECUTION_STATUS_CANCELED
                 turn.status_message = reason
                 turn.completed_at = _utcnow()
                 turns.put(_turn_to_record(turn))
+                _replace_turn_projections(turn_projections, previous, turn)
                 self._append_turn_event_locked(
                     turn_id=turn.turn_id,
                     event_type="turn.canceled",
@@ -457,7 +523,9 @@ class IndexedDBRunStore:
             return turn
 
         with self._mutation_lock:
-            turn = self._with_transaction([self._run_store_name, self._event_store_name], cancel)
+            turn = self._with_transaction(
+                [self._run_store_name, self._turn_projection_store_name, self._event_store_name], cancel
+            )
             return copy.deepcopy(turn) if turn is not None else None
 
     def list_turn_events(self, *, turn_id: str, after_seq: int = 0, limit: int = 0) -> list[StoredTurnEvent]:
@@ -500,6 +568,50 @@ class IndexedDBRunStore:
                 return operation(stores)
 
         return _call_with_busy_retry(run_transaction)
+
+    def _backfill_projections(self, client: Any) -> None:
+        sessions = _RetryingObjectStore(client.object_store(self._session_store_name))
+        session_projections = _RetryingObjectStore(client.object_store(self._session_projection_store_name))
+        turns = _RetryingObjectStore(client.object_store(self._run_store_name))
+        turn_projections = _RetryingObjectStore(client.object_store(self._turn_projection_store_name))
+
+        for record in sessions.iter_records(require_cursor=True):
+            session = _record_to_session(record)
+            if session is not None:
+                _replace_session_projections(session_projections, None, session)
+
+        for record in turns.iter_records(require_cursor=True):
+            turn = _record_to_turn(record)
+            if turn is not None:
+                _replace_turn_projections(turn_projections, None, turn)
+
+    def _list_session_projections(
+        self, *, subject_id: str = "", state: int = 0, limit: int = 0
+    ) -> list[StoredSession]:
+        prefix = _session_projection_prefix(subject_id=subject_id, state=state)
+        records = self._session_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
+        return [
+            session for session in (_record_to_session_projection(record) for record in records) if session is not None
+        ]
+
+    def _list_turn_projections(
+        self, *, session_id: str, subject_id: str = "", status: int = 0, limit: int = 0
+    ) -> list[StoredTurn]:
+        prefix = _turn_projection_prefix(session_id=session_id, subject_id=subject_id, status=status)
+        records = self._turn_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
+        return [turn for turn in (_record_to_turn_projection(record) for record in records) if turn is not None]
+
+    def _repair_session_projection(self, session: StoredSession) -> None:
+        def repair(stores: dict[str, Any]) -> None:
+            _replace_session_projections(stores[self._session_projection_store_name], None, session)
+
+        self._with_transaction([self._session_projection_store_name], repair)
+
+    def _repair_turn_projection(self, turn: StoredTurn) -> None:
+        def repair(stores: dict[str, Any]) -> None:
+            _replace_turn_projections(stores[self._turn_projection_store_name], None, turn)
+
+        self._with_transaction([self._turn_projection_store_name], repair)
 
     def _close_client(self) -> None:
         if self._client is None:
@@ -596,9 +708,29 @@ class _RetryingObjectStore:
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return _call_with_busy_retry(lambda: self._store.get_all(key_range))
 
-    def iter_records(self, key_range: Any | None = None) -> Iterator[dict[str, Any]]:
-        records = self.get_all(key_range)
-        yield from records
+    def iter_records(
+        self, key_range: Any | None = None, *, limit: int = 0, require_cursor: bool = False
+    ) -> Iterator[dict[str, Any]]:
+        open_cursor = getattr(self._store, "open_cursor", None)
+        if open_cursor is None:
+            if require_cursor:
+                raise RuntimeError("indexeddb cursor support is required for bounded list projections")
+            records = self.get_all(key_range)
+            if limit > 0:
+                records = records[:limit]
+            yield from records
+            return
+
+        cursor = _call_with_busy_retry(lambda: open_cursor(key_range))
+        try:
+            yielded = 0
+            while limit <= 0 or yielded < limit:
+                if not cursor.continue_():
+                    break
+                yielded += 1
+                yield copy.deepcopy(cursor.value)
+        finally:
+            cursor.close()
 
 
 class _LazyObjectStore:
@@ -621,8 +753,10 @@ class _LazyObjectStore:
     def get_all(self, key_range: Any | None = None) -> list[dict[str, Any]]:
         return self._resolve().get_all(key_range)
 
-    def iter_records(self, key_range: Any | None = None) -> Iterator[dict[str, Any]]:
-        return self._resolve().iter_records(key_range)
+    def iter_records(
+        self, key_range: Any | None = None, *, limit: int = 0, require_cursor: bool = False
+    ) -> Iterator[dict[str, Any]]:
+        return self._resolve().iter_records(key_range, limit=limit, require_cursor=require_cursor)
 
     def _resolve(self) -> _RetryingObjectStore:
         return self._owner._object_store(self._name)
@@ -704,6 +838,209 @@ def _record_to_turn(record: dict[str, Any] | None) -> StoredTurn | None:
     )
 
 
+def _replace_session_projections(store: Any, old: StoredSession | None, new: StoredSession) -> None:
+    for key in set(_session_projection_keys(old) if old is not None else []):
+        try:
+            store.delete(key)
+        except gestalt.NotFoundError:
+            pass
+    for key in _session_projection_keys(new):
+        store.put(_session_projection_to_record(key, new))
+
+
+def _replace_turn_projections(store: Any, old: StoredTurn | None, new: StoredTurn) -> None:
+    for key in set(_turn_projection_keys(old) if old is not None else []):
+        try:
+            store.delete(key)
+        except gestalt.NotFoundError:
+            pass
+    for key in _turn_projection_keys(new):
+        store.put(_turn_projection_to_record(key, new))
+
+
+def _session_projection_to_record(record_id: str, session: StoredSession) -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "schema_version": PROJECTION_SCHEMA_VERSION,
+        "session_id": session.session_id,
+        "idempotency_key": session.idempotency_key,
+        "provider_name": session.provider_name,
+        "model": session.model,
+        "client_ref": session.client_ref,
+        "state": session.state,
+        "created_by": copy.deepcopy(session.created_by),
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "last_turn_at": session.last_turn_at,
+    }
+
+
+def _record_to_session_projection(record: dict[str, Any] | None) -> StoredSession | None:
+    if record is None:
+        return None
+    session_id = str(record.get("session_id") or "").strip()
+    if not session_id:
+        return None
+    return StoredSession(
+        session_id=session_id,
+        idempotency_key=str(record.get("idempotency_key") or ""),
+        provider_name=str(record.get("provider_name") or ""),
+        model=str(record.get("model") or ""),
+        client_ref=str(record.get("client_ref") or ""),
+        state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
+        metadata={},
+        prepared_workspace=None,
+        created_by=_coerce_string_dict(record.get("created_by")),
+        created_at=_coerce_required_datetime(record.get("created_at")),
+        updated_at=_coerce_required_datetime(record.get("updated_at")),
+        last_turn_at=_coerce_datetime(record.get("last_turn_at")),
+    )
+
+
+def _turn_projection_to_record(record_id: str, turn: StoredTurn) -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "schema_version": PROJECTION_SCHEMA_VERSION,
+        "turn_id": turn.turn_id,
+        "session_id": turn.session_id,
+        "idempotency_key": turn.idempotency_key,
+        "provider_name": turn.provider_name,
+        "model": turn.model,
+        "status": turn.status,
+        "status_message": turn.status_message,
+        "created_by": copy.deepcopy(turn.created_by),
+        "created_at": turn.created_at,
+        "started_at": turn.started_at,
+        "completed_at": turn.completed_at,
+        "execution_ref": turn.execution_ref,
+    }
+
+
+def _record_to_turn_projection(record: dict[str, Any] | None) -> StoredTurn | None:
+    if record is None:
+        return None
+    turn_id = str(record.get("turn_id") or "").strip()
+    if not turn_id:
+        return None
+    return StoredTurn(
+        turn_id=turn_id,
+        session_id=str(record.get("session_id") or ""),
+        idempotency_key=str(record.get("idempotency_key") or ""),
+        provider_name=str(record.get("provider_name") or ""),
+        model=str(record.get("model") or ""),
+        status=int(record.get("status") or gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED),
+        messages=[],
+        output_text="",
+        status_message=str(record.get("status_message") or ""),
+        created_by=_coerce_string_dict(record.get("created_by")),
+        created_at=_coerce_required_datetime(record.get("created_at")),
+        started_at=_coerce_datetime(record.get("started_at")),
+        completed_at=_coerce_datetime(record.get("completed_at")),
+        execution_ref=str(record.get("execution_ref") or ""),
+    )
+
+
+def _session_projection_keys(session: StoredSession) -> list[str]:
+    sort_key = _projection_sort_key(_session_sort_time(session))
+    session_id = _projection_value(session.session_id)
+    state = str(session.state)
+    keys = [
+        _projection_key("session", "all", sort_key, session_id),
+        _projection_key("session", "state", state, sort_key, session_id),
+    ]
+    subject_id = _subject_id_from_actor(session.created_by)
+    if subject_id:
+        subject = _projection_value(subject_id)
+        keys.append(_projection_key("session", "subject", subject, "all", sort_key, session_id))
+        keys.append(_projection_key("session", "subject", subject, "state", state, sort_key, session_id))
+    return keys
+
+
+def _turn_projection_keys(turn: StoredTurn) -> list[str]:
+    sort_key = _projection_sort_key(turn.created_at)
+    session = _projection_value(turn.session_id)
+    turn_id = _projection_value(turn.turn_id)
+    status = str(turn.status)
+    keys = [
+        _projection_key("turn", "session", session, "all", sort_key, turn_id),
+        _projection_key("turn", "session", session, "status", status, sort_key, turn_id),
+    ]
+    subject_id = _subject_id_from_actor(turn.created_by)
+    if subject_id:
+        subject = _projection_value(subject_id)
+        keys.append(_projection_key("turn", "session", session, "subject", subject, "all", sort_key, turn_id))
+        keys.append(_projection_key("turn", "session", session, "subject", subject, "status", status, sort_key, turn_id))
+    return keys
+
+
+def _session_projection_prefix(*, subject_id: str = "", state: int = 0) -> str:
+    subject_id = subject_id.strip()
+    if subject_id and state:
+        return _projection_prefix("session", "subject", _projection_value(subject_id), "state", str(state))
+    if subject_id:
+        return _projection_prefix("session", "subject", _projection_value(subject_id), "all")
+    if state:
+        return _projection_prefix("session", "state", str(state))
+    return _projection_prefix("session", "all")
+
+
+def _turn_projection_prefix(*, session_id: str, subject_id: str = "", status: int = 0) -> str:
+    session = _projection_value(session_id.strip())
+    subject_id = subject_id.strip()
+    if subject_id and status:
+        return _projection_prefix("turn", "session", session, "subject", _projection_value(subject_id), "status", str(status))
+    if subject_id:
+        return _projection_prefix("turn", "session", session, "subject", _projection_value(subject_id), "all")
+    if status:
+        return _projection_prefix("turn", "session", session, "status", str(status))
+    return _projection_prefix("turn", "session", session, "all")
+
+
+def _session_projection_order_key(session: StoredSession) -> tuple[str, str]:
+    return _projection_sort_key(_session_sort_time(session)), _projection_value(session.session_id)
+
+
+def _turn_projection_order_key(turn: StoredTurn) -> tuple[str, str]:
+    return _projection_sort_key(turn.created_at), _projection_value(turn.turn_id)
+
+
+def _session_sort_time(session: StoredSession) -> datetime:
+    if session.last_turn_at is not None:
+        return session.last_turn_at
+    return session.updated_at or session.created_at
+
+
+def _projection_sort_key(value: datetime) -> str:
+    normalized = value.astimezone(UTC)
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    delta = normalized - epoch
+    micros = (delta.days * 86_400 + delta.seconds) * 1_000_000 + delta.microseconds
+    inverted = MAX_INVERTED_SORT_MICROS - max(0, micros)
+    return f"{inverted:020d}"
+
+
+def _projection_value(value: str) -> str:
+    raw = str(value or "").strip().encode()
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return encoded or "-"
+
+
+def _projection_key(*parts: str) -> str:
+    return PROJECTION_SEP.join(parts)
+
+
+def _projection_prefix(*parts: str) -> str:
+    return _projection_key(*parts) + PROJECTION_SEP
+
+
+def _prefix_key_range(prefix: str) -> Any:
+    return gestalt.KeyRange(lower=prefix, upper=f"{prefix}{PROJECTION_RANGE_SUFFIX}")
+
+
+def _subject_id_from_actor(actor: dict[str, str]) -> str:
+    return str(actor.get("subject_id", "") or "").strip()
+
+
 def _turn_event_to_record(event: StoredTurnEvent) -> dict[str, Any]:
     return {
         "id": event.event_id,
@@ -736,6 +1073,13 @@ def _get_optional_record(store: Any, record_id: str) -> dict[str, Any] | None:
     record_id = record_id.strip()
     if not record_id:
         return None
+    if isinstance(store, (_LazyObjectStore, _RetryingObjectStore)):
+        try:
+            return store.get(record_id)
+        except gestalt.NotFoundError:
+            return None
+    # Transaction-scoped get() closes the transaction stream on NOT_FOUND, so use
+    # a bounded exact-key range where missing records are expected.
     records = store.get_all(gestalt.KeyRange(lower=record_id, upper=record_id))
     for record in records:
         if str(record.get("id") or "") == record_id:
@@ -769,13 +1113,18 @@ def _turn_for_idempotency_key_from_stores(
     return _record_to_turn(_get_optional_record(turn_store, turn_id))
 
 
-def _touch_session_for_turn_in_store(store: Any, session_id: str, now: datetime) -> None:
+def _touch_session_for_turn_in_store(
+    store: Any, session_id: str, now: datetime, projection_store: Any | None = None
+) -> None:
     session = _record_to_session(_get_optional_record(store, session_id))
     if session is None:
         return
+    previous = replace(session)
     session.last_turn_at = now
     session.updated_at = now
     store.put(_session_to_record(session))
+    if projection_store is not None:
+        _replace_session_projections(projection_store, previous, session)
 
 
 def _next_turn_event_seq_from_store(store: Any, turn_id: str) -> int:

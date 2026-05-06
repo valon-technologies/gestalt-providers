@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-agent-claude"
-version = "0.0.1a19"
+version = "0.0.1a20"
 requires-python = "==3.14.*"
 dependencies = [
   "claude-agent-sdk==0.1.71",
@@ -53,7 +53,10 @@ vulture-ignore-names = [
   "Get",
   "Add",
   "Put",
+  "Delete",
+  "Clear",
   "GetAll",
+  "OpenCursor",
   "Transaction",
 ]
 
