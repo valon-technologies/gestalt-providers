@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -561,23 +562,112 @@ func (r *kubernetesSandboxRuntime) ResolveSession(ctx context.Context, namespace
 	return sandboxSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
 }
 
-func (r *kubernetesSandboxRuntime) ListSessions(ctx context.Context, namespace string) ([]sandboxSession, error) {
-	namespace = strings.TrimSpace(namespace)
-	if namespace == "" {
-		return nil, fmt.Errorf("gke agent sandbox namespace is required")
+// errListSessionsStragglerCap is returned when ListSessions is forced to do
+// more straggler GETs (cache misses on referenced Sandboxes) than the cap
+// allows. Hitting the cap suggests a structural fanout regression rather than
+// the natural single-RV race the fallback is meant to absorb.
+var errListSessionsStragglerCap = errors.New("plugin runtime list sessions: straggler cap exceeded")
+
+// listSessionsStragglerCap bounds per-call straggler Get fanout for sessions
+// whose backing Sandbox was missing from the namespace LIST. The natural race
+// only ever explains at most a handful of misses; a higher count is treated
+// as a structural bug.
+const listSessionsStragglerCap = 10
+
+// listSessionsCache holds the namespace-wide objects fetched by
+// buildListSessionsCache so that per-session enrichment can serve from memory
+// instead of re-Getting per-session. Pods carrying a non-nil DeletionTimestamp
+// are excluded to match refreshSandbox's PodIP filter at runtime.go ~1086.
+type listSessionsCache struct {
+	sandboxesByName     map[string]*sandboxv1alpha1.Sandbox
+	podsByName          map[string]*corev1.Pod
+	leasesByName        map[string]*coordinationv1.Lease
+	sandboxesByClaimUID map[types.UID]string
+	templatesByName     map[string]*extv1alpha1.SandboxTemplate
+	stragglerBudget     int
+}
+
+func newListSessionsCache() *listSessionsCache {
+	return &listSessionsCache{
+		sandboxesByName:     map[string]*sandboxv1alpha1.Sandbox{},
+		podsByName:          map[string]*corev1.Pod{},
+		leasesByName:        map[string]*coordinationv1.Lease{},
+		sandboxesByClaimUID: map[types.UID]string{},
+		templatesByName:     map[string]*extv1alpha1.SandboxTemplate{},
+		stragglerBudget:     listSessionsStragglerCap,
 	}
+}
+
+func (c *listSessionsCache) consumeStraggler() bool {
+	if c == nil {
+		return false
+	}
+	if c.stragglerBudget <= 0 {
+		return false
+	}
+	c.stragglerBudget--
+	return true
+}
+
+func (r *kubernetesSandboxRuntime) buildListSessionsCache(ctx context.Context, namespace string) (*listSessionsCache, *extv1alpha1.SandboxClaimList, *sandboxv1alpha1.SandboxList, error) {
 	managedSelector := labels.Set{
 		"app.kubernetes.io/managed-by": "gestalt",
 		"gestalt.dev/runtime":          "gke-agent-sandbox",
 	}.String()
 	claims, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).List(ctx, metav1.ListOptions{LabelSelector: managedSelector})
 	if err != nil {
-		return nil, fmt.Errorf("list SandboxClaims: %w", err)
+		return nil, nil, nil, fmt.Errorf("list SandboxClaims: %w", err)
+	}
+	sandboxes, err := r.agents.AgentsV1alpha1().Sandboxes(namespace).List(ctx, metav1.ListOptions{LabelSelector: managedSelector})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list Sandboxes: %w", err)
+	}
+	pods, err := r.core.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list Pods: %w", err)
+	}
+	leases, err := r.core.CoordinationV1().Leases(namespace).List(ctx, metav1.ListOptions{LabelSelector: managedSelector})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list Leases: %w", err)
+	}
+
+	cache := newListSessionsCache()
+	for i := range sandboxes.Items {
+		sb := &sandboxes.Items[i]
+		cache.sandboxesByName[sb.Name] = sb
+		for _, owner := range sb.OwnerReferences {
+			if owner.UID != "" {
+				cache.sandboxesByClaimUID[owner.UID] = sb.Name
+			}
+		}
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		cache.podsByName[pod.Name] = pod
+	}
+	for i := range leases.Items {
+		lease := &leases.Items[i]
+		cache.leasesByName[lease.Name] = lease
+	}
+	return cache, claims, sandboxes, nil
+}
+
+func (r *kubernetesSandboxRuntime) ListSessions(ctx context.Context, namespace string) ([]sandboxSession, error) {
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return nil, fmt.Errorf("gke agent sandbox namespace is required")
+	}
+	cache, claims, sandboxes, err := r.buildListSessionsCache(ctx, namespace)
+	if err != nil {
+		return nil, err
 	}
 	sessions := make([]sandboxSession, 0, len(claims.Items))
 	claimedSandboxes := map[string]struct{}{}
 	for i := range claims.Items {
-		session, err := r.sessionFromClaim(ctx, &claims.Items[i])
+		session, err := r.sessionFromClaimWithCache(ctx, &claims.Items[i], cache)
 		if err != nil {
 			return nil, err
 		}
@@ -587,10 +677,6 @@ func (r *kubernetesSandboxRuntime) ListSessions(ctx context.Context, namespace s
 		sessions = append(sessions, session)
 	}
 
-	sandboxes, err := r.agents.AgentsV1alpha1().Sandboxes(namespace).List(ctx, metav1.ListOptions{LabelSelector: managedSelector})
-	if err != nil {
-		return nil, fmt.Errorf("list Sandboxes: %w", err)
-	}
 	for i := range sandboxes.Items {
 		if _, ok := claimedSandboxes[sandboxes.Items[i].Name]; ok {
 			continue
@@ -598,7 +684,7 @@ func (r *kubernetesSandboxRuntime) ListSessions(ctx context.Context, namespace s
 		if len(sandboxes.Items[i].OwnerReferences) > 0 {
 			continue
 		}
-		session, err := r.sessionFromSandbox(ctx, &sandboxes.Items[i])
+		session, err := r.sessionFromSandboxWithCache(ctx, &sandboxes.Items[i], cache)
 		if err != nil {
 			return nil, err
 		}
@@ -692,6 +778,168 @@ func (r *kubernetesSandboxRuntime) sessionFromSandbox(ctx context.Context, sandb
 			return sandboxSession{}, err
 		}
 		session.PluginStarting = starting
+	}
+	return session, nil
+}
+
+func (r *kubernetesSandboxRuntime) sandboxNameForClaimFromCache(ctx context.Context, handle sandboxHandle, claim *extv1alpha1.SandboxClaim, cache *listSessionsCache) (string, error) {
+	if claim != nil {
+		if name := strings.TrimSpace(claim.Status.SandboxStatus.Name); name != "" {
+			return name, nil
+		}
+	}
+	if claim != nil && claim.UID != "" && cache != nil {
+		if name, ok := cache.sandboxesByClaimUID[claim.UID]; ok {
+			return name, nil
+		}
+	}
+	if claim != nil {
+		if name := strings.TrimSpace(handle.ClaimName); name != "" && cache != nil {
+			if _, ok := cache.sandboxesByName[name]; ok {
+				return name, nil
+			}
+		}
+	}
+	return r.sandboxNameForClaim(ctx, handle, claim)
+}
+
+func (r *kubernetesSandboxRuntime) refreshSandboxFromCache(ctx context.Context, handle sandboxHandle, cache *listSessionsCache, fallback bool) (sandboxHandle, error) {
+	if handle.SandboxName == "" {
+		return sandboxHandle{}, fmt.Errorf("sandbox name is not available")
+	}
+	if cache != nil {
+		if sb, ok := cache.sandboxesByName[handle.SandboxName]; ok {
+			handle.Ready = sandboxReadyCondition(sb)
+			handle.PodName = sandboxPodName(sb)
+			if handle.PodName == "" && sb.Status.LabelSelector != "" {
+				if !fallback {
+					return handle, nil
+				}
+				if !cache.consumeStraggler() {
+					return sandboxHandle{}, fmt.Errorf("%w: too many straggler Sandbox lookups during ListSessions: structural fanout", errListSessionsStragglerCap)
+				}
+				podName, err := r.firstPodNameForSelector(ctx, handle.Namespace, sb.Status.LabelSelector)
+				if err != nil {
+					return sandboxHandle{}, err
+				}
+				handle.PodName = podName
+			}
+			if handle.PodName != "" {
+				if pod, ok := cache.podsByName[handle.PodName]; ok {
+					handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
+				}
+			}
+			return handle, nil
+		}
+	}
+	if !fallback {
+		return handle, nil
+	}
+	if cache != nil && !cache.consumeStraggler() {
+		return sandboxHandle{}, fmt.Errorf("%w: too many straggler Sandbox lookups during ListSessions: structural fanout", errListSessionsStragglerCap)
+	}
+	return r.refreshSandbox(ctx, handle)
+}
+
+func (r *kubernetesSandboxRuntime) pluginStartLeaseActiveFromCache(handle sandboxHandle, cache *listSessionsCache) bool {
+	if cache == nil {
+		return false
+	}
+	name := pluginStartLeaseName(handle)
+	lease, ok := cache.leasesByName[name]
+	if !ok {
+		return false
+	}
+	return pluginStartLeaseHeld(lease, time.Now().UTC())
+}
+
+func (r *kubernetesSandboxRuntime) sessionFromClaimWithCache(ctx context.Context, claim *extv1alpha1.SandboxClaim, cache *listSessionsCache) (sandboxSession, error) {
+	if claim == nil {
+		return sandboxSession{}, fmt.Errorf("SandboxClaim is required")
+	}
+	handle := sandboxHandle{
+		Name:      claim.Name,
+		Namespace: claim.Namespace,
+		Mode:      "claim",
+		ClaimName: claim.Name,
+	}
+	sandboxName, err := r.sandboxNameForClaimFromCache(ctx, handle, claim, cache)
+	if err != nil {
+		return sandboxSession{}, err
+	}
+	if sandboxName != "" {
+		handle.SandboxName = sandboxName
+		refreshed, err := r.refreshSandboxFromCache(ctx, handle, cache, true)
+		if err != nil {
+			if errors.Is(err, errListSessionsStragglerCap) {
+				return sandboxSession{}, err
+			}
+			if !k8serrors.IsNotFound(err) {
+				return sandboxSession{}, err
+			}
+		} else {
+			handle = refreshed
+		}
+	}
+	session := sandboxSessionFromRuntimeObject(
+		claim.Name,
+		pluginNameFromObject(claim.ObjectMeta),
+		strings.TrimSpace(claim.Annotations[sessionTemplateAnnotation]),
+		nil,
+		claim.Annotations,
+		handle,
+	)
+	if err := r.enrichSessionFromClaimWithCache(ctx, &session, claim, cache); err != nil {
+		return sandboxSession{}, err
+	}
+	if !session.PluginStarted {
+		session.PluginStarting = r.pluginStartLeaseActiveFromCache(handle, cache)
+	}
+	return session, nil
+}
+
+func (r *kubernetesSandboxRuntime) sessionFromSandboxWithCache(ctx context.Context, sandbox *sandboxv1alpha1.Sandbox, cache *listSessionsCache) (sandboxSession, error) {
+	if sandbox == nil {
+		return sandboxSession{}, fmt.Errorf("Sandbox is required")
+	}
+	handle := sandboxHandle{
+		Name:        sandbox.Name,
+		Namespace:   sandbox.Namespace,
+		Mode:        "sandbox",
+		SandboxName: sandbox.Name,
+		Ready:       sandboxReadyCondition(sandbox),
+		PodName:     sandboxPodName(sandbox),
+	}
+	if handle.PodName == "" && sandbox.Status.LabelSelector != "" {
+		if cache != nil && !cache.consumeStraggler() {
+			return sandboxSession{}, fmt.Errorf("%w: too many straggler Sandbox lookups during ListSessions: structural fanout", errListSessionsStragglerCap)
+		}
+		podName, err := r.firstPodNameForSelector(ctx, sandbox.Namespace, sandbox.Status.LabelSelector)
+		if err != nil {
+			return sandboxSession{}, err
+		}
+		handle.PodName = podName
+	}
+	if handle.PodName != "" {
+		if cache != nil {
+			if pod, ok := cache.podsByName[handle.PodName]; ok {
+				handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
+			}
+		}
+	}
+	session := sandboxSessionFromRuntimeObject(
+		sandbox.Name,
+		pluginNameFromObject(sandbox.ObjectMeta),
+		strings.TrimSpace(sandbox.Annotations[sessionTemplateAnnotation]),
+		nil,
+		sandbox.Annotations,
+		handle,
+	)
+	if err := r.enrichSessionFromSandboxWithCache(ctx, &session, sandbox, cache); err != nil {
+		return sandboxSession{}, err
+	}
+	if !session.PluginStarted {
+		session.PluginStarting = r.pluginStartLeaseActiveFromCache(handle, cache)
 	}
 	return session, nil
 }
@@ -1277,6 +1525,138 @@ func (r *kubernetesSandboxRuntime) enrichSessionRuntimeMetadata(ctx context.Cont
 			return nil
 		}
 		return err
+	}
+	if actualImage != "" {
+		session.Metadata[metadataActualImage] = actualImage
+	}
+	if actualImageID != "" {
+		session.Metadata[metadataActualImageID] = actualImageID
+	}
+	expectedImage := strings.TrimSpace(session.Metadata[metadataCurrentImage])
+	if expectedImage == "" {
+		expectedImage = strings.TrimSpace(session.Metadata[metadataExpectedImage])
+	}
+	if expectedImage != "" && actualImage != "" {
+		session.Metadata[metadataImageMatch] = strconv.FormatBool(expectedImage == actualImage)
+	}
+	return nil
+}
+
+func (r *kubernetesSandboxRuntime) enrichSessionFromClaimWithCache(ctx context.Context, session *sandboxSession, claim *extv1alpha1.SandboxClaim, cache *listSessionsCache) error {
+	if session == nil || claim == nil {
+		return nil
+	}
+	if !claim.CreationTimestamp.IsZero() {
+		startedAt := claim.CreationTimestamp.Time.UTC()
+		session.StartedAt = &startedAt
+	}
+	if claim.Spec.Lifecycle != nil && claim.Spec.Lifecycle.ShutdownTime != nil {
+		expiresAt := claim.Spec.Lifecycle.ShutdownTime.Time.UTC()
+		session.ExpiresAt = &expiresAt
+		if drainAt := recommendedDrainAt(expiresAt, r.cfg.SessionDrainBefore); !drainAt.IsZero() {
+			session.DrainAt = &drainAt
+		}
+	}
+	return r.enrichSessionRuntimeMetadataFromCache(ctx, session, cache)
+}
+
+func (r *kubernetesSandboxRuntime) enrichSessionFromSandboxWithCache(ctx context.Context, session *sandboxSession, sandbox *sandboxv1alpha1.Sandbox, cache *listSessionsCache) error {
+	if session == nil || sandbox == nil {
+		return nil
+	}
+	if !sandbox.CreationTimestamp.IsZero() {
+		startedAt := sandbox.CreationTimestamp.Time.UTC()
+		session.StartedAt = &startedAt
+	}
+	if sandbox.Spec.Lifecycle.ShutdownTime != nil {
+		expiresAt := sandbox.Spec.Lifecycle.ShutdownTime.Time.UTC()
+		session.ExpiresAt = &expiresAt
+		if drainAt := recommendedDrainAt(expiresAt, r.cfg.SessionDrainBefore); !drainAt.IsZero() {
+			session.DrainAt = &drainAt
+		}
+	}
+	return r.enrichSessionRuntimeMetadataFromCache(ctx, session, cache)
+}
+
+func (r *kubernetesSandboxRuntime) runtimeTemplateMetadataFromCache(ctx context.Context, namespace, templateName string, cache *listSessionsCache) (runtimeTemplateMetadata, error) {
+	templateName = strings.TrimSpace(templateName)
+	if templateName == "" {
+		return runtimeTemplateMetadata{}, nil
+	}
+	var template *extv1alpha1.SandboxTemplate
+	if cache != nil {
+		if cached, ok := cache.templatesByName[templateName]; ok {
+			template = cached
+		}
+	}
+	if template == nil {
+		got, err := r.extensions.ExtensionsV1alpha1().SandboxTemplates(namespace).Get(ctx, templateName, metav1.GetOptions{})
+		if err != nil {
+			return runtimeTemplateMetadata{}, fmt.Errorf("get SandboxTemplate %s/%s: %w", namespace, templateName, err)
+		}
+		template = got
+		if cache != nil {
+			cache.templatesByName[templateName] = got
+		}
+	}
+	image := podSpecContainerImage(template.Spec.PodTemplate.Spec, r.cfg.Container)
+	if image == "" {
+		return runtimeTemplateMetadata{}, fmt.Errorf("SandboxTemplate %s/%s has no runtime container image for container %q", namespace, templateName, r.cfg.Container)
+	}
+	hash := ""
+	if data, err := json.Marshal(template.Spec.PodTemplate); err == nil {
+		sum := sha256.Sum256(data)
+		hash = hex.EncodeToString(sum[:])
+	}
+	return runtimeTemplateMetadata{
+		Template:             templateName,
+		ExpectedTemplateHash: hash,
+		ExpectedImage:        image,
+	}, nil
+}
+
+func (r *kubernetesSandboxRuntime) podRuntimeImageFromCache(handle sandboxHandle, cache *listSessionsCache) (string, string, bool) {
+	if cache == nil {
+		return "", "", false
+	}
+	podName := strings.TrimSpace(handle.PodName)
+	if podName == "" {
+		return "", "", false
+	}
+	pod, ok := cache.podsByName[podName]
+	if !ok {
+		return "", "", false
+	}
+	return podSpecContainerImage(pod.Spec, r.cfg.Container), podStatusContainerImageID(pod.Status, r.cfg.Container), true
+}
+
+func (r *kubernetesSandboxRuntime) enrichSessionRuntimeMetadataFromCache(ctx context.Context, session *sandboxSession, cache *listSessionsCache) error {
+	if session == nil {
+		return nil
+	}
+	if session.Metadata == nil {
+		session.Metadata = map[string]string{}
+	}
+	if session.Template != "" {
+		template, err := r.runtimeTemplateMetadataFromCache(ctx, session.Handle.Namespace, session.Template, cache)
+		if err != nil && !k8serrors.IsNotFound(err) {
+			return err
+		}
+		for key, value := range template.metadata() {
+			if _, exists := session.Metadata[key]; !exists || key == metadataRuntimeTemplate {
+				session.Metadata[key] = value
+			}
+		}
+		if template.ExpectedImage != "" {
+			session.Metadata[metadataCurrentImage] = template.ExpectedImage
+		}
+	}
+	actualImage, actualImageID, ok := r.podRuntimeImageFromCache(session.Handle, cache)
+	if !ok {
+		if session.Handle.PodName == "" {
+			return nil
+		}
+		return nil
 	}
 	if actualImage != "" {
 		session.Metadata[metadataActualImage] = actualImage
