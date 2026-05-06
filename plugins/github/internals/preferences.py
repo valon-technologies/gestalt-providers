@@ -28,7 +28,6 @@ class GitHubActionPreferenceStore:
     def __init__(self, config: GitHubActionPreferencesConfig) -> None:
         self._config = config
         self._client: Any | None = None
-        self._initialized = False
 
     @property
     def enabled(self) -> bool:
@@ -63,16 +62,9 @@ class GitHubActionPreferenceStore:
             self._client.close()
         finally:
             self._client = None
-            self._initialized = False
 
     def _store(self) -> Any:
         client = self._ensure_client()
-        if not self._initialized:
-            try:
-                client.create_object_store(self._config.store)
-            except gestalt.AlreadyExistsError:
-                pass
-            self._initialized = True
         return client.object_store(self._config.store)
 
     def _ensure_client(self) -> Any:

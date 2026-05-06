@@ -111,22 +111,8 @@ class IndexedDBRunStore:
         with self._initialize_lock:
             if self._initialized:
                 return
-            client = self._ensure_client()
             try:
-                for name in (
-                    self._run_store_name,
-                    self._event_store_name,
-                    self._session_store_name,
-                    self._session_projection_store_name,
-                    self._turn_projection_store_name,
-                    self._session_idempotency_store_name,
-                    self._turn_idempotency_store_name,
-                ):
-                    try:
-                        _call_with_busy_retry(lambda name=name: client.create_object_store(name))
-                    except gestalt.AlreadyExistsError:
-                        pass
-                self._backfill_projections(client)
+                self._ensure_client()
             except Exception:
                 self._close_client()
                 raise
@@ -568,22 +554,6 @@ class IndexedDBRunStore:
                 return operation(stores)
 
         return _call_with_busy_retry(run_transaction)
-
-    def _backfill_projections(self, client: Any) -> None:
-        sessions = _RetryingObjectStore(client.object_store(self._session_store_name))
-        session_projections = _RetryingObjectStore(client.object_store(self._session_projection_store_name))
-        turns = _RetryingObjectStore(client.object_store(self._run_store_name))
-        turn_projections = _RetryingObjectStore(client.object_store(self._turn_projection_store_name))
-
-        for record in sessions.iter_records(require_cursor=True):
-            session = _record_to_session(record)
-            if session is not None:
-                _replace_session_projections(session_projections, None, session)
-
-        for record in turns.iter_records(require_cursor=True):
-            turn = _record_to_turn(record)
-            if turn is not None:
-                _replace_turn_projections(turn_projections, None, turn)
 
     def _list_session_projections(
         self, *, subject_id: str = "", state: int = 0, limit: int = 0

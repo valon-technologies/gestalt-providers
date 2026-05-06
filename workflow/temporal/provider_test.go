@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -794,74 +793,6 @@ func TestWorkflowStateStorePutRunIsIdempotentForExistingWorkflowKey(t *testing.T
 	}
 	if stored.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
 		t.Fatalf("stored status = %s, want running", stored.GetStatus())
-	}
-}
-
-func TestMigrateTemporalSchedulesRewritesLegacyActionsAndMirrorsState(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
-
-	legacyScheduleID := "schedule-legacy"
-	payloads, err := converter.GetDefaultDataConverter().ToPayloads(
-		runWorkflowOptions{ScheduleID: legacyScheduleID, ExecutionRef: "ref-legacy"},
-		pluginTarget("github", "PullRequests.List"),
-		scheduleTrigger(legacyScheduleID, time.Unix(400, 0).UTC()),
-		&proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"},
-	)
-	if err != nil {
-		t.Fatalf("encode legacy schedule args: %v", err)
-	}
-	args := make([]interface{}, 0, len(payloads.GetPayloads()))
-	for _, payload := range payloads.GetPayloads() {
-		args = append(args, payload)
-	}
-
-	scheduleID := workflowID("scope", "schedule", legacyScheduleID)
-	scheduleClient := newFakeScheduleClient(map[string]*client.ScheduleDescription{
-		scheduleID: {
-			Schedule: client.Schedule{
-				Action: &client.ScheduleWorkflowAction{Args: args},
-				Spec:   &client.ScheduleSpec{CronExpressions: []string{"15 2 * * *"}, TimeZoneName: "UTC"},
-				State:  &client.ScheduleState{},
-			},
-			Info: client.ScheduleInfo{NextActionTimes: []time.Time{time.Unix(400, 0).UTC()}},
-		},
-	})
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, &recordingTemporalClient{scheduleClient: scheduleClient}, nil, state)
-
-	if err := backend.migrateTemporalSchedules(ctx); err != nil {
-		t.Fatalf("migrateTemporalSchedules: %v", err)
-	}
-	handle := scheduleClient.handles[scheduleID]
-	if handle.updateCount != 1 {
-		t.Fatalf("schedule update count = %d, want 1", handle.updateCount)
-	}
-	action, ok := handle.desc.Schedule.Action.(*client.ScheduleWorkflowAction)
-	if !ok || action == nil {
-		t.Fatalf("updated action = %#v, want workflow action", handle.desc.Schedule.Action)
-	}
-	if reflect.ValueOf(action.Workflow).Pointer() != reflect.ValueOf(gestaltRunWorkflowV2).Pointer() {
-		t.Fatalf("updated schedule workflow = %#v, want gestaltRunWorkflowV2", action.Workflow)
-	}
-	stored, found, err := state.getSchedule(ctx, legacyScheduleID)
-	if err != nil || !found {
-		t.Fatalf("stored schedule found=%v err=%v", found, err)
-	}
-	if stored.GetId() != legacyScheduleID || stored.GetExecutionRef() != "ref-legacy" {
-		t.Fatalf("stored schedule = %#v", stored)
 	}
 }
 

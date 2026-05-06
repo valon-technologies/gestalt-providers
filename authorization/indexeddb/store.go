@@ -68,10 +68,6 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	st.state = client.ObjectStore(st.stateName)
 	st.models = client.ObjectStore(st.modelsName)
 	st.relationships = client.ObjectStore(st.relationsName)
-	if err := st.ensure(ctx); err != nil {
-		_ = client.Close()
-		return nil, err
-	}
 	return st, nil
 }
 
@@ -80,32 +76,6 @@ func (s *store) Close() error {
 		return nil
 	}
 	return s.client.Close()
-}
-
-func (s *store) ensure(ctx context.Context) error {
-	definitions := []struct {
-		name   string
-		schema gestalt.ObjectStoreSchema
-	}{
-		{name: s.stateName, schema: gestalt.ObjectStoreSchema{}},
-		{name: s.modelsName, schema: gestalt.ObjectStoreSchema{}},
-		{
-			name: s.relationsName,
-			schema: gestalt.ObjectStoreSchema{
-				Indexes: []gestalt.IndexSchema{
-					{Name: relationshipsBySubj, KeyPath: []string{"subject_type", "subject_id"}},
-					{Name: relationshipsByRes, KeyPath: []string{"resource_type", "resource_id"}},
-					{Name: relationshipsByPair, KeyPath: []string{"subject_type", "subject_id", "resource_type", "resource_id"}},
-				},
-			},
-		},
-	}
-	for _, definition := range definitions {
-		if err := s.client.CreateObjectStore(ctx, definition.name, definition.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-			return fmt.Errorf("create object store %q: %w", definition.name, err)
-		}
-	}
-	return nil
 }
 
 func (s *store) activeModelID(ctx context.Context) (string, error) {

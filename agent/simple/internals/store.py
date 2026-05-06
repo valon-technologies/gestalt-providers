@@ -153,23 +153,8 @@ class SimpleRunStore:
         with self._initialize_lock:
             if self._initialized:
                 return
-            client = self._ensure_client()
             try:
-                for name in (
-                    self._run_store_name,
-                    self._idempotency_store_name,
-                    self._event_store_name,
-                    self._checkpoint_store_name,
-                    self._tool_result_store_name,
-                    self._session_store_name,
-                    self._session_idempotency_store_name,
-                    self._session_projection_store_name,
-                    self._turn_projection_store_name,
-                ):
-                    try:
-                        _call_with_busy_retry(lambda name=name: client.create_object_store(name))
-                    except gestalt.AlreadyExistsError:
-                        pass
+                self._ensure_client()
             except Exception:
                 self._close_client()
                 raise
