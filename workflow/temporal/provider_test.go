@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -716,6 +718,121 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	}
 }
 
+func TestWorkflowStateStoreDeletesScopedWorkflowKeyForTerminalRun(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	run := &proto.BoundWorkflowRun{
+		Id:          "run-1",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		Target:      pluginTarget("slack", "postMessage"),
+		CreatedAt:   timestamppb.Now(),
+		WorkflowKey: "thread-1",
+	}
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("put running run: %v", err)
+	}
+	if _, found, err := state.getWorkflowKey(ctx, "thread-1"); err != nil || !found {
+		t.Fatalf("get running workflow key found=%v err=%v", found, err)
+	}
+
+	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
+	run.CompletedAt = timestamppb.Now()
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("put terminal run: %v", err)
+	}
+	if _, found, err := state.getWorkflowKey(ctx, "thread-1"); err != nil || found {
+		t.Fatalf("get terminal workflow key found=%v err=%v, want not found", found, err)
+	}
+	if err := state.putWorkflowKey(ctx, "thread-1", run); err != nil {
+		t.Fatalf("put terminal workflow key: %v", err)
+	}
+	if _, err := state.workflowKeys.Get(ctx, state.scopedID("thread-1")); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("raw workflow key after terminal put = %v, want ErrNotFound", err)
+	}
+	stale := gproto.Clone(run).(*proto.BoundWorkflowRun)
+	stale.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+	if err := state.putWorkflowKey(ctx, "thread-1", stale); err != nil {
+		t.Fatalf("put stale workflow key: %v", err)
+	}
+	if _, err := state.workflowKeys.Get(ctx, state.scopedID("thread-1")); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("raw workflow key after stale put = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMigrateTemporalSchedulesRewritesLegacyActionsAndMirrorsState(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	legacyScheduleID := "schedule-legacy"
+	payloads, err := converter.GetDefaultDataConverter().ToPayloads(
+		runWorkflowOptions{ScheduleID: legacyScheduleID, ExecutionRef: "ref-legacy"},
+		pluginTarget("github", "PullRequests.List"),
+		scheduleTrigger(legacyScheduleID, time.Unix(400, 0).UTC()),
+		&proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"},
+	)
+	if err != nil {
+		t.Fatalf("encode legacy schedule args: %v", err)
+	}
+	args := make([]interface{}, 0, len(payloads.GetPayloads()))
+	for _, payload := range payloads.GetPayloads() {
+		args = append(args, payload)
+	}
+
+	scheduleID := workflowID("scope", "schedule", legacyScheduleID)
+	scheduleClient := newFakeScheduleClient(map[string]*client.ScheduleDescription{
+		scheduleID: {
+			Schedule: client.Schedule{
+				Action: &client.ScheduleWorkflowAction{Args: args},
+				Spec:   &client.ScheduleSpec{CronExpressions: []string{"15 2 * * *"}, TimeZoneName: "UTC"},
+				State:  &client.ScheduleState{},
+			},
+			Info: client.ScheduleInfo{NextActionTimes: []time.Time{time.Unix(400, 0).UTC()}},
+		},
+	})
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, &recordingTemporalClient{scheduleClient: scheduleClient}, nil, state)
+
+	if err := backend.migrateTemporalSchedules(ctx); err != nil {
+		t.Fatalf("migrateTemporalSchedules: %v", err)
+	}
+	handle := scheduleClient.handles[scheduleID]
+	if handle.updateCount != 1 {
+		t.Fatalf("schedule update count = %d, want 1", handle.updateCount)
+	}
+	action, ok := handle.desc.Schedule.Action.(*client.ScheduleWorkflowAction)
+	if !ok || action == nil {
+		t.Fatalf("updated action = %#v, want workflow action", handle.desc.Schedule.Action)
+	}
+	if reflect.ValueOf(action.Workflow).Pointer() != reflect.ValueOf(gestaltRunWorkflowV2).Pointer() {
+		t.Fatalf("updated schedule workflow = %#v, want gestaltRunWorkflowV2", action.Workflow)
+	}
+	stored, found, err := state.getSchedule(ctx, legacyScheduleID)
+	if err != nil || !found {
+		t.Fatalf("stored schedule found=%v err=%v", found, err)
+	}
+	if stored.GetId() != legacyScheduleID || stored.GetExecutionRef() != "ref-legacy" {
+		t.Fatalf("stored schedule = %#v", stored)
+	}
+}
+
 func TestProviderSurfaceRequiresConfiguredBackend(t *testing.T) {
 	provider := New()
 	_, err := provider.ListRuns(context.Background(), &proto.ListWorkflowProviderRunsRequest{})
@@ -816,6 +933,7 @@ type recordingTemporalClient struct {
 	queries            []recordedQuery
 	queryStarted       chan<- recordedQuery
 	releaseQueries     <-chan struct{}
+	scheduleClient     client.ScheduleClient
 }
 
 func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, _ interface{}, _ ...interface{}) client.WithStartWorkflowOperation {
@@ -862,6 +980,13 @@ func (c *recordingTemporalClient) QueryWorkflow(ctx context.Context, workflowID 
 		}
 	}
 	return recordingEncodedValue{query: query}, nil
+}
+
+func (c *recordingTemporalClient) ScheduleClient() client.ScheduleClient {
+	if c.scheduleClient != nil {
+		return c.scheduleClient
+	}
+	return c.Client.ScheduleClient()
 }
 
 func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
@@ -947,6 +1072,121 @@ func (v recordingEncodedValue) HasValue() bool { return true }
 
 func (v recordingEncodedValue) Get(valuePtr interface{}) error {
 	return nil
+}
+
+type fakeScheduleClient struct {
+	handles map[string]*fakeScheduleHandle
+	order   []string
+}
+
+func newFakeScheduleClient(descriptions map[string]*client.ScheduleDescription) *fakeScheduleClient {
+	c := &fakeScheduleClient{handles: map[string]*fakeScheduleHandle{}, order: make([]string, 0, len(descriptions))}
+	for id, desc := range descriptions {
+		c.handles[id] = &fakeScheduleHandle{id: id, desc: cloneScheduleDescription(desc)}
+		c.order = append(c.order, id)
+	}
+	return c
+}
+
+func (c *fakeScheduleClient) Create(_ context.Context, options client.ScheduleOptions) (client.ScheduleHandle, error) {
+	handle := &fakeScheduleHandle{id: options.ID, desc: &client.ScheduleDescription{
+		Schedule: client.Schedule{
+			Action: options.Action,
+			Spec:   &options.Spec,
+			Policy: &client.SchedulePolicies{Overlap: options.Overlap, CatchupWindow: options.CatchupWindow},
+			State:  &client.ScheduleState{Paused: options.Paused},
+		},
+	}}
+	c.handles[options.ID] = handle
+	c.order = append(c.order, options.ID)
+	return handle, nil
+}
+
+func (c *fakeScheduleClient) List(context.Context, client.ScheduleListOptions) (client.ScheduleListIterator, error) {
+	entries := make([]*client.ScheduleListEntry, 0, len(c.order))
+	for _, id := range c.order {
+		entries = append(entries, &client.ScheduleListEntry{ID: id})
+	}
+	return &fakeScheduleListIterator{entries: entries}, nil
+}
+
+func (c *fakeScheduleClient) GetHandle(_ context.Context, scheduleID string) client.ScheduleHandle {
+	handle, ok := c.handles[scheduleID]
+	if !ok {
+		handle = &fakeScheduleHandle{id: scheduleID}
+		c.handles[scheduleID] = handle
+	}
+	return handle
+}
+
+type fakeScheduleHandle struct {
+	id          string
+	desc        *client.ScheduleDescription
+	updateCount int
+}
+
+func (h *fakeScheduleHandle) GetID() string { return h.id }
+func (h *fakeScheduleHandle) Delete(context.Context) error {
+	h.desc = nil
+	return nil
+}
+func (h *fakeScheduleHandle) Backfill(context.Context, client.ScheduleBackfillOptions) error {
+	return nil
+}
+func (h *fakeScheduleHandle) Update(_ context.Context, options client.ScheduleUpdateOptions) error {
+	update, err := options.DoUpdate(client.ScheduleUpdateInput{Description: *cloneScheduleDescription(h.desc)})
+	if err != nil {
+		return err
+	}
+	if update != nil && update.Schedule != nil {
+		h.desc = &client.ScheduleDescription{Schedule: *update.Schedule}
+	}
+	h.updateCount++
+	return nil
+}
+func (h *fakeScheduleHandle) Describe(context.Context) (*client.ScheduleDescription, error) {
+	if h.desc == nil {
+		return nil, errors.New("not found")
+	}
+	return cloneScheduleDescription(h.desc), nil
+}
+func (h *fakeScheduleHandle) Trigger(context.Context, client.ScheduleTriggerOptions) error {
+	return nil
+}
+func (h *fakeScheduleHandle) Pause(context.Context, client.SchedulePauseOptions) error {
+	if h.desc != nil {
+		h.desc.Schedule.State = &client.ScheduleState{Paused: true}
+	}
+	return nil
+}
+func (h *fakeScheduleHandle) Unpause(context.Context, client.ScheduleUnpauseOptions) error {
+	if h.desc != nil {
+		h.desc.Schedule.State = &client.ScheduleState{Paused: false}
+	}
+	return nil
+}
+
+type fakeScheduleListIterator struct {
+	entries []*client.ScheduleListEntry
+	index   int
+}
+
+func (i *fakeScheduleListIterator) HasNext() bool {
+	return i.index < len(i.entries)
+}
+
+func (i *fakeScheduleListIterator) Next() (*client.ScheduleListEntry, error) {
+	entry := i.entries[i.index]
+	i.index++
+	return entry, nil
+}
+
+func cloneScheduleDescription(desc *client.ScheduleDescription) *client.ScheduleDescription {
+	if desc == nil {
+		return nil
+	}
+	clone := *desc
+	return &clone
 }
 
 type fakeBackend struct {
