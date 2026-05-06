@@ -20,29 +20,6 @@ const (
 	indexByLookup            = "by_lookup"
 )
 
-var storeSchema = gestalt.ObjectStoreSchema{
-	Indexes: []gestalt.IndexSchema{
-		{Name: indexBySubject, KeyPath: []string{"subject_id"}},
-		{Name: indexBySubjectConnection, KeyPath: []string{"subject_id", "connection_id"}},
-		{Name: indexByLookup, KeyPath: []string{"subject_id", "connection_id", "instance"}, Unique: true},
-	},
-	Columns: []gestalt.ColumnDef{
-		{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-		{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
-		{Name: "connection_id", Type: gestalt.TypeString, NotNull: true},
-		{Name: "instance", Type: gestalt.TypeString},
-		{Name: "access_token_encrypted", Type: gestalt.TypeString},
-		{Name: "refresh_token_encrypted", Type: gestalt.TypeString},
-		{Name: "scopes", Type: gestalt.TypeString},
-		{Name: "expires_at", Type: gestalt.TypeTime},
-		{Name: "last_refreshed_at", Type: gestalt.TypeTime},
-		{Name: "refresh_error_count", Type: gestalt.TypeInt},
-		{Name: "metadata_json", Type: gestalt.TypeString},
-		{Name: "created_at", Type: gestalt.TypeTime},
-		{Name: "updated_at", Type: gestalt.TypeTime},
-	},
-}
-
 type store struct {
 	client      *gestalt.IndexedDBClient
 	credentials *gestalt.ObjectStoreClient
@@ -74,10 +51,6 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 		credentials: client.ObjectStore(storeName),
 		encryptor:   encryptor,
 	}
-	if err := st.ensure(ctx); err != nil {
-		_ = client.Close()
-		return nil, err
-	}
 	return st, nil
 }
 
@@ -86,13 +59,6 @@ func (s *store) Close() error {
 		return nil
 	}
 	return s.client.Close()
-}
-
-func (s *store) ensure(ctx context.Context) error {
-	if err := s.client.CreateObjectStore(ctx, storeName, storeSchema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create object store %q: %w", storeName, err)
-	}
-	return nil
 }
 
 func (s *store) upsertCredential(ctx context.Context, credential *gestalt.ExternalCredential, preserveTimestamps bool, now time.Time) (*gestalt.ExternalCredential, error) {

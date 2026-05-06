@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -1364,70 +1363,6 @@ func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "by_run_sequence") {
 		t.Fatalf("Configure error = %v, want by_run_sequence validation failure", err)
-	}
-}
-
-func TestProviderConfigureFailsExistingSignalStoreMissingIndexesWithoutMigration(t *testing.T) {
-	ctx := context.Background()
-	var spy *indexedDBServerSpy
-	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
-		spy = &indexedDBServerSpy{IndexedDBServer: inner}
-		return spy
-	})
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
-
-	db, err := gestalt.IndexedDB()
-	if err != nil {
-		t.Fatalf("IndexedDB: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := createWorkflowStore(ctx, db, storeSignals, gestalt.ObjectStoreSchema{}); err != nil {
-		t.Fatalf("precreate workflow_signals: %v", err)
-	}
-	precreateCount := spy.createObjectStoreCount(storeSignals)
-
-	provider := New()
-	err = provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
-	if err == nil {
-		t.Fatal("Configure succeeded, want missing signal index error")
-	}
-	if !strings.Contains(err.Error(), "by_run") {
-		t.Fatalf("Configure error = %v, want signal index validation failure", err)
-	}
-	if got := spy.createObjectStoreCount(storeSignals); got != precreateCount {
-		t.Fatalf("workflow_signals CreateObjectStore calls = %d, want %d", got, precreateCount)
-	}
-}
-
-func TestProviderConfigureFailsExistingExecutionRefsMissingSubjectIndexWithoutMigration(t *testing.T) {
-	ctx := context.Background()
-	var spy *indexedDBServerSpy
-	startTestIndexedDBBackendWithWrapper(t, func(inner proto.IndexedDBServer) proto.IndexedDBServer {
-		spy = &indexedDBServerSpy{IndexedDBServer: inner}
-		return spy
-	})
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
-
-	db, err := gestalt.IndexedDB()
-	if err != nil {
-		t.Fatalf("IndexedDB: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := createWorkflowStore(ctx, db, storeExecutionRefs, gestalt.ObjectStoreSchema{}); err != nil {
-		t.Fatalf("precreate execution_refs: %v", err)
-	}
-	precreateCount := spy.createObjectStoreCount(storeExecutionRefs)
-
-	provider := New()
-	err = provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
-	if err == nil {
-		t.Fatal("Configure succeeded, want missing execution ref index error")
-	}
-	if !strings.Contains(err.Error(), "by_subject") {
-		t.Fatalf("Configure error = %v, want by_subject validation failure", err)
-	}
-	if got := spy.createObjectStoreCount(storeExecutionRefs); got != precreateCount {
-		t.Fatalf("execution_refs CreateObjectStore calls = %d, want %d", got, precreateCount)
 	}
 }
 
@@ -3846,7 +3781,6 @@ type indexedDBServerSpy struct {
 	failUnscopedSignalGetAll bool
 	missingSignalIndex       string
 	mu                       sync.Mutex
-	createObjectStores       map[string]int
 	getCounts                map[string]int
 }
 
@@ -3874,22 +3808,6 @@ func (s *blockingGetAllServer) GetAll(ctx context.Context, req *proto.ObjectStor
 		}
 	}
 	return s.IndexedDBServer.GetAll(ctx, req)
-}
-
-func (s *indexedDBServerSpy) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
-	s.mu.Lock()
-	if s.createObjectStores == nil {
-		s.createObjectStores = make(map[string]int)
-	}
-	s.createObjectStores[req.GetName()]++
-	s.mu.Unlock()
-	return s.IndexedDBServer.CreateObjectStore(ctx, req)
-}
-
-func (s *indexedDBServerSpy) createObjectStoreCount(name string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.createObjectStores[name]
 }
 
 func (s *indexedDBServerSpy) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {

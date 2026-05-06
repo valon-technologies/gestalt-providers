@@ -72,12 +72,6 @@ const (
 	signalStateDelivered = "delivered"
 	signalStateFailed    = "failed"
 
-	columnTypeString = gestalt.TypeString
-	columnTypeInt    = gestalt.TypeInt
-	columnTypeBool   = gestalt.TypeBool
-	columnTypeTime   = gestalt.TypeTime
-	columnTypeJSON   = gestalt.TypeJSON
-
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
 )
@@ -269,11 +263,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	cleanup := func() {
 		_ = host.Close()
 		_ = db.Close()
-	}
-
-	if err := ensureWorkflowStores(ctx, db); err != nil {
-		cleanup()
-		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
 	}
 
 	runStore := db.ObjectStore(storeRuns)
@@ -2672,66 +2661,6 @@ func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
 	return renewEvery
 }
 
-func ensureWorkflowStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
-	for _, def := range []storeSchemaDef{
-		{name: storeSchedules, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeEventTriggers, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeIdempotency, schema: gestalt.ObjectStoreSchema{}},
-	} {
-		if err := createWorkflowStore(ctx, db, def.name, def.schema); err != nil {
-			return err
-		}
-	}
-	if err := ensureWorkflowStoreExists(ctx, db, db.ObjectStore(storeWorkflowKeys), storeWorkflowKeys, gestalt.ObjectStoreSchema{}); err != nil {
-		return err
-	}
-
-	runStore := db.ObjectStore(storeRuns)
-	if err := ensureWorkflowStoreExists(ctx, db, runStore, storeRuns, gestalt.ObjectStoreSchema{}); err != nil {
-		return err
-	}
-	if err := ensureWorkflowStoreExists(ctx, db, db.ObjectStore(storeRunClaims), storeRunClaims, workflowRunClaimSchema()); err != nil {
-		return err
-	}
-
-	if err := ensureIndexedWorkflowStore(ctx, db, db.ObjectStore(storeExecutionRefs), storeExecutionRefs, workflowExecutionReferenceSchema(), validateWorkflowExecutionReferenceIndexes); err != nil {
-		return err
-	}
-	if err := ensureIndexedWorkflowStore(ctx, db, db.ObjectStore(storeSignals), storeSignals, workflowSignalSchema(), validateWorkflowSignalIndexes); err != nil {
-		return err
-	}
-	return nil
-}
-
-func createWorkflowStore(ctx context.Context, db *gestalt.IndexedDBClient, name string, schema gestalt.ObjectStoreSchema) error {
-	err := db.CreateObjectStore(ctx, name, schema)
-	if err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return err
-	}
-	return nil
-}
-
-func ensureWorkflowStoreExists(ctx context.Context, db *gestalt.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema gestalt.ObjectStoreSchema) error {
-	if _, err := store.Count(ctx, nil); err == nil {
-		return nil
-	} else if !errors.Is(err, gestalt.ErrNotFound) {
-		return err
-	}
-	return createWorkflowStore(ctx, db, name, schema)
-}
-
-func ensureIndexedWorkflowStore(ctx context.Context, db *gestalt.IndexedDBClient, store *gestalt.ObjectStoreClient, name string, schema gestalt.ObjectStoreSchema, validate func(context.Context, *gestalt.ObjectStoreClient) error) error {
-	if _, err := store.Count(ctx, nil); errors.Is(err, gestalt.ErrNotFound) {
-		if err := createWorkflowStore(ctx, db, name, schema); err != nil {
-			return err
-		}
-		return validate(ctx, store)
-	} else if err != nil {
-		return err
-	}
-	return validate(ctx, store)
-}
-
 func validateWorkflowExecutionReferenceIndexes(ctx context.Context, store *gestalt.ObjectStoreClient) error {
 	if _, err := store.Index("by_subject").Count(ctx, nil, "__workflow_schema_probe__"); err != nil {
 		return fmt.Errorf("by_subject: %w", err)
@@ -2754,81 +2683,6 @@ func validateWorkflowSignalIndexes(ctx context.Context, store *gestalt.ObjectSto
 		}
 	}
 	return nil
-}
-
-type storeSchemaDef struct {
-	name   string
-	schema gestalt.ObjectStoreSchema
-}
-
-func workflowKeySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: columnTypeString, PrimaryKey: true},
-			{Name: "run_id", Type: columnTypeString, NotNull: true},
-			{Name: "created_at", Type: columnTypeTime},
-		},
-	}
-}
-
-func workflowRunClaimSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: columnTypeString, PrimaryKey: true},
-			{Name: "run_id", Type: columnTypeString, NotNull: true},
-			{Name: "owner_id", Type: columnTypeString, NotNull: true},
-			{Name: "claimed_at", Type: columnTypeTime},
-			{Name: "expires_at", Type: columnTypeTime},
-		},
-	}
-}
-
-func workflowSignalSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: "by_run", KeyPath: []string{"run_id"}},
-			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},
-			{Name: "by_run_sequence", KeyPath: []string{"run_id", "sequence"}, Unique: true},
-		},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: columnTypeString, PrimaryKey: true},
-			{Name: "run_id", Type: columnTypeString, NotNull: true},
-			{Name: "workflow_key", Type: columnTypeString},
-			{Name: "state", Type: columnTypeString, NotNull: true},
-			{Name: "signal_json", Type: columnTypeString},
-			{Name: "idempotency_key", Type: columnTypeString},
-			{Name: "sequence", Type: columnTypeInt},
-			{Name: "started_run", Type: columnTypeBool},
-			{Name: "batch_id", Type: columnTypeString},
-			{Name: "created_at", Type: columnTypeTime},
-			{Name: "claimed_at", Type: columnTypeTime},
-			{Name: "delivered_at", Type: columnTypeTime},
-			{Name: "failed_at", Type: columnTypeTime},
-			{Name: "status_message", Type: columnTypeString},
-		},
-	}
-}
-
-func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: "by_subject", KeyPath: []string{"subject_id"}},
-		},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: columnTypeString, PrimaryKey: true},
-			{Name: "provider_name", Type: columnTypeString, NotNull: true},
-			{Name: "target_json", Type: columnTypeString},
-			{Name: "subject_id", Type: columnTypeString, NotNull: true},
-			{Name: "subject_kind", Type: columnTypeString},
-			{Name: "display_name", Type: columnTypeString},
-			{Name: "auth_source", Type: columnTypeString},
-			{Name: "credential_subject_id", Type: columnTypeString},
-			{Name: "permissions_json", Type: columnTypeString},
-			{Name: "caller_plugin_name", Type: columnTypeString},
-			{Name: "created_at", Type: columnTypeTime},
-			{Name: "revoked_at", Type: columnTypeTime},
-		},
-	}
 }
 
 func recoverStaleWorkflowRuns(ctx context.Context, db *gestalt.IndexedDBClient, runStore, runClaimStore, workflowKeyStore, signalStore *gestalt.ObjectStoreClient, now time.Time) error {

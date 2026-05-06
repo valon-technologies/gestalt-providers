@@ -108,11 +108,7 @@ class FakeObjectStore:
 class FakeIndexedDB:
     def __init__(self, records: dict[str, dict[str, Any]] | None = None) -> None:
         self.records = records if records is not None else {}
-        self.created_stores: list[str] = []
         self.object_store_client = FakeObjectStore(self.records)
-
-    def create_object_store(self, name: str) -> None:
-        self.created_stores.append(name)
 
     def object_store(self, _name: str) -> FakeObjectStore:
         return self.object_store_client
