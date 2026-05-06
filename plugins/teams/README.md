@@ -60,7 +60,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listChats`
+- `list_joined_teams`
 - `list_joined_teams`
 - `get_team`
 - `list_team_members`
@@ -79,13 +79,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: teams
-        operation: listChats
+        operation: list_joined_teams
 ```
 
-Example `listChats` call:
+Example `list_joined_teams` call:
 
 ```ts
-await invoker.invoke("teams", "listChats", { top: 10 });
+await invoker.invoke("teams", "list_joined_teams", { top: 10 });
 ```
 
 ## Documentation

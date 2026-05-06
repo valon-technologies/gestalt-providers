@@ -53,7 +53,7 @@ Operation surfaces: OpenAPI.
 Representative operations include:
 
 - `forms.get`
-- `forms.responses.list`
+- `responses.list`
 - `forms.create`
 - `forms.batchUpdate`
 - `responses.list`
@@ -77,10 +77,10 @@ Example `forms.get` call:
 await invoker.invoke("google_forms", "forms.get", { formId: "form-id" });
 ```
 
-Example `forms.responses.list` call:
+Example `responses.list` call:
 
 ```ts
-await invoker.invoke("google_forms", "forms.responses.list", { formId: "form-id" });
+await invoker.invoke("google_forms", "responses.list", { formId: "form-id" });
 ```
 
 ## Documentation

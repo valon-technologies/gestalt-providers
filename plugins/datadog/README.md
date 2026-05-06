@@ -91,12 +91,14 @@ This provider does not define provider-level config fields in its config schema.
 Connections and authentication:
 
 - `default` uses manual credentials; mode `user`.
+  - Configure the Datadog API key as `DD-API-KEY`.
+  - Configure the Datadog application key as `DD-APPLICATION-KEY`.
 
 Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listMonitors`
+- `list_monitors`
 - `list_dashboards`
 - `create_dashboard`
 - `get_dashboard`
@@ -117,13 +119,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: datadog
-        operation: listMonitors
+        operation: list_monitors
 ```
 
-Example `listMonitors` call:
+Example `list_monitors` call:
 
 ```ts
-await invoker.invoke("datadog", "listMonitors", { page: 0, page_size: 20 });
+await invoker.invoke("datadog", "list_monitors", { page: 0, page_size: 20 });
 ```
 
 ## Documentation

@@ -70,7 +70,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `users.list`
+- `directory.users.list`
 - `admin.channels.stop`
 - `admin.customer.devices.chromeos.commands.get`
 - `admin.customer.devices.chromeos.issueCommand`
@@ -90,11 +90,11 @@ plugins:
   example_consumer:
     invokes:
       - plugin: google_admin_directory
-        operation: users.list
+        operation: directory.users.list
 ```
 
-Example `users.list` call:
+Example `directory.users.list` call:
 
 ```ts
-await invoker.invoke("google_admin_directory", "users.list", { customer: "my_customer", maxResults: 10 });
+await invoker.invoke("google_admin_directory", "directory.users.list", { customer: "my_customer", maxResults: 10 });
 ```

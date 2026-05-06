@@ -52,7 +52,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `spreadsheets.values.get`
+- `values.get`
 - `create`
 - `get`
 - `values.get`
@@ -72,13 +72,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: google_sheets
-        operation: spreadsheets.values.get
+        operation: values.get
 ```
 
-Example `spreadsheets.values.get` call:
+Example `values.get` call:
 
 ```ts
-await invoker.invoke("google_sheets", "spreadsheets.values.get", { spreadsheetId: "sheet-id", range: "Sheet1!A1:D10" });
+await invoker.invoke("google_sheets", "values.get", { spreadsheetId: "sheet-id", range: "Sheet1!A1:D10" });
 ```
 
 ## Documentation

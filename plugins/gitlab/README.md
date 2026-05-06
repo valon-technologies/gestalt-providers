@@ -44,7 +44,7 @@ Operation surfaces: OpenAPI, GraphQL.
 
 Representative operations include:
 
-- `getProject`
+- `get_project`
 - `list_projects`
 - `get_project`
 - `list_merge_requests`
@@ -63,13 +63,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: gitlab
-        operation: getProject
+        operation: get_project
 ```
 
-Example `getProject` call:
+Example `get_project` call:
 
 ```ts
-await invoker.invoke("gitlab", "getProject", { id: "group%2Fproject" });
+await invoker.invoke("gitlab", "get_project", { id: "group%2Fproject" });
 ```
 
 ## Documentation

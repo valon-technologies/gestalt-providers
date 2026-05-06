@@ -51,7 +51,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `documents.get`
+- `get`
 - `get`
 - `create`
 - `batchUpdate`
@@ -65,13 +65,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: google_docs
-        operation: documents.get
+        operation: get
 ```
 
-Example `documents.get` call:
+Example `get` call:
 
 ```ts
-await invoker.invoke("google_docs", "documents.get", { documentId: "document-id" });
+await invoker.invoke("google_docs", "get", { documentId: "document-id" });
 ```
 
 ## Documentation

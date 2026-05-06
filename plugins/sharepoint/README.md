@@ -59,7 +59,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listDrives`
+- `list_site_drives`
 - `list_sites`
 - `get_site`
 - `get_site_default_drive`
@@ -78,13 +78,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: sharepoint
-        operation: listDrives
+        operation: list_site_drives
 ```
 
-Example `listDrives` call:
+Example `list_site_drives` call:
 
 ```ts
-await invoker.invoke("sharepoint", "listDrives", { site_id: "contoso.sharepoint.com,site-id,web-id" });
+await invoker.invoke("sharepoint", "list_site_drives", { site_id: "contoso.sharepoint.com,site-id,web-id" });
 ```
 
 ## Documentation

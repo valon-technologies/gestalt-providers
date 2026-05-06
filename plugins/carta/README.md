@@ -64,7 +64,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listIssuers`
+- `v1alpha1.corporations.listCorporations`
 - `v1alpha1.corporations.listCorporations`
 - `v1alpha1.compensation.GetCompensationBenchmarkAttributes`
 - `v1alpha1.compensation.GetCompensationBenchmarks`
@@ -83,13 +83,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: carta
-        operation: listIssuers
+        operation: v1alpha1.corporations.listCorporations
 ```
 
-Example `listIssuers` call:
+Example `v1alpha1.corporations.listCorporations` call:
 
 ```ts
-await invoker.invoke("carta", "listIssuers", {});
+await invoker.invoke("carta", "v1alpha1.corporations.listCorporations", {});
 ```
 
 ## Documentation

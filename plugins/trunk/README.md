@@ -115,7 +115,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `getFlakyTests`
+- `flakyTests.listUnhealthyTests`
 - `mergeQueue.submitPullRequest`
 - `mergeQueue.cancelPullRequest`
 - `mergeQueue.getSubmittedPullRequest`
@@ -135,13 +135,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: trunk
-        operation: getFlakyTests
+        operation: flakyTests.listUnhealthyTests
 ```
 
-Example `getFlakyTests` call:
+Example `flakyTests.listUnhealthyTests` call:
 
 ```ts
-await invoker.invoke("trunk", "getFlakyTests", { orgSlug: "acme", repoSlug: "widgets" });
+await invoker.invoke("trunk", "flakyTests.listUnhealthyTests", { orgSlug: "acme", repoSlug: "widgets" });
 ```
 
 ## Documentation

@@ -50,7 +50,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listEmployees`
+- `Employees.List`
 - `Companies.List`
 - `Compensations.List`
 - `Compensations.Get`
@@ -69,13 +69,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: rippling
-        operation: listEmployees
+        operation: Employees.List
 ```
 
-Example `listEmployees` call:
+Example `Employees.List` call:
 
 ```ts
-await invoker.invoke("rippling", "listEmployees", { limit: 20 });
+await invoker.invoke("rippling", "Employees.List", { limit: 20 });
 ```
 
 ## Documentation

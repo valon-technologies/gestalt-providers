@@ -49,7 +49,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listFiles`
+- `list_files`
 - `upload_file`
 - `list_files`
 - `get_file`
@@ -70,13 +70,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: extend
-        operation: listFiles
+        operation: list_files
 ```
 
-Example `listFiles` call:
+Example `list_files` call:
 
 ```ts
-await invoker.invoke("extend", "listFiles", { page_size: 20 });
+await invoker.invoke("extend", "list_files", { page_size: 20 });
 ```
 
 ## Documentation

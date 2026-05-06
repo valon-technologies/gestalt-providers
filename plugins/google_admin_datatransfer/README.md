@@ -9,7 +9,7 @@ OAuth 2.0 with scope: `admin.datatransfer`
 ## Operations
 
 - **List application transfers** — `datatransfer.applicationTransfers.list`
-- **List transfer applications** — `datatransfer.applications.list`
+- **List transfer applications** — `datatransfer.datatransfer.applications.list`
 - **Get a transfer** — `datatransfer.transfers.get`
 - **Insert (start) a transfer** — `datatransfer.transfers.insert`
 - **List transfers** — `datatransfer.transfers.list`
@@ -46,9 +46,9 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `applications.list`
-- `datatransfer.applicationTransfers.list`
 - `datatransfer.applications.list`
+- `datatransfer.applicationTransfers.list`
+- `datatransfer.datatransfer.applications.list`
 - `datatransfer.transfers.get`
 - `datatransfer.transfers.insert`
 - `datatransfer.transfers.list`
@@ -62,11 +62,11 @@ plugins:
   example_consumer:
     invokes:
       - plugin: google_admin_datatransfer
-        operation: applications.list
+        operation: datatransfer.applications.list
 ```
 
-Example `applications.list` call:
+Example `datatransfer.applications.list` call:
 
 ```ts
-await invoker.invoke("google_admin_datatransfer", "applications.list", {});
+await invoker.invoke("google_admin_datatransfer", "datatransfer.applications.list", {});
 ```

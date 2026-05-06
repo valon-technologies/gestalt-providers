@@ -99,7 +99,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listTickets`
+- `ListTickets`
 - `ListTickets`
 - `ShowTicket`
 - `CreateTicket`
@@ -119,13 +119,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: zendesk
-        operation: listTickets
+        operation: ListTickets
 ```
 
-Example `listTickets` call:
+Example `ListTickets` call:
 
 ```ts
-await invoker.invoke("zendesk", "listTickets", { page: { size: 25 } });
+await invoker.invoke("zendesk", "ListTickets", { page: { size: 25 } });
 ```
 
 ## Documentation

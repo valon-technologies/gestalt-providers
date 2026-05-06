@@ -56,8 +56,10 @@ Representative operations include:
 - `application.changeStage`
 
 - Ashby API keys use HTTP Basic authentication as described by Ashby; create a key in Ashby admin settings.
-- When creating the default connection, provide the Ashby API key expected by
-  Ashby's Basic-auth API-key scheme.
+- When creating the default connection, provide the Ashby API key for the HTTP
+  Basic credential. If your connection UI separates username and password, use
+  the API key as the Basic username and leave the password empty unless Ashby
+  instructs otherwise.
 
 ## Usage Examples
 

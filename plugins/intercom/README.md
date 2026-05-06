@@ -47,7 +47,7 @@ Operation surfaces: OpenAPI.
 
 Representative operations include:
 
-- `listContacts`
+- `ListContacts`
 - `ArchiveContact`
 - `BlockContact`
 - `CreateContact`
@@ -67,13 +67,13 @@ plugins:
   example_consumer:
     invokes:
       - plugin: intercom
-        operation: listContacts
+        operation: ListContacts
 ```
 
-Example `listContacts` call:
+Example `ListContacts` call:
 
 ```ts
-await invoker.invoke("intercom", "listContacts", { per_page: 25 });
+await invoker.invoke("intercom", "ListContacts", { per_page: 25 });
 ```
 
 ## Documentation
