@@ -130,6 +130,8 @@ class GitHubWebhookComments:
 @dataclass(frozen=True, slots=True)
 class GitHubWebhookPolicy:
     id: str
+    display_name: str = ""
+    description: str = ""
     match: GitHubWebhookPolicyMatch = field(default_factory=GitHubWebhookPolicyMatch)
     trigger: GitHubWebhookTrigger = field(default_factory=GitHubWebhookTrigger)
     dedupe: GitHubWebhookDedupe = field(default_factory=GitHubWebhookDedupe)
@@ -315,9 +317,7 @@ def parse_action_preferences_config(
         provider_name
     )
     if not _STORE_NAME_RE.fullmatch(store):
-        raise ValueError(
-            f"actionPreferences.store must match {_STORE_NAME_RE.pattern}"
-        )
+        raise ValueError(f"actionPreferences.store must match {_STORE_NAME_RE.pattern}")
     failure_mode = enum_string(
         pref_config,
         "failureMode",
@@ -433,6 +433,10 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
         policies.append(
             GitHubWebhookPolicy(
                 id=policy_id,
+                display_name=config_string(
+                    policy_config, "displayName", "display_name"
+                ),
+                description=config_string(policy_config, "description"),
                 match=GitHubWebhookPolicyMatch(
                     events=lower_string_tuple(match_config, "events"),
                     actions=lower_string_tuple(match_config, "actions"),

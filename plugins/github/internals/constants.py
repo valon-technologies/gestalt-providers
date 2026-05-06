@@ -9,6 +9,7 @@ GITHUB_EXTERNAL_IDENTITY_TYPE = "github_identity"
 
 GITHUB_EVENT_OPERATION = "events.handle"
 REVIEW_PULL_REQUEST_OPERATION = "reviewPullRequest"
+ACTION_PREFERENCES_LIST_TARGETS_OPERATION = "actionPreferences.listTargets"
 BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CLOSE_PULL_REQUEST_OPERATION = "bot.closePullRequest"

@@ -58,6 +58,12 @@ properties:
           pattern: '^[A-Za-z0-9._-]+$'
           minLength: 1
           description: Stable policy identifier used in workflow keys.
+        displayName:
+          type: string
+          description: Human-readable label for configurable policy controls.
+        description:
+          type: string
+          description: Human-readable detail shown beside configurable policy controls.
         match:
           type: object
           additionalProperties: false
