@@ -2,6 +2,7 @@ package gkeagentsandbox
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"slices"
@@ -174,6 +175,48 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	}
 	if !fake.tunnel.(*fakeTunnel).Closed() {
 		t.Fatalf("plugin tunnel was not closed")
+	}
+}
+
+func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{verifyErr: errors.New("template image mismatch")}
+	client := startRuntimeProviderServer(t, &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*localSession{},
+	})
+
+	ctx := context.Background()
+	session, err := client.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{
+		PluginName: "github",
+		Template:   "python-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	_, err = client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
+		SessionID:  session.ID,
+		PluginName: "github",
+		Command:    "./plugin",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("StartPlugin code = %v, want FailedPrecondition: %v", status.Code(err), err)
+	}
+	fake.mu.Lock()
+	leases := len(fake.leases)
+	fake.mu.Unlock()
+	if leases != 0 {
+		t.Fatalf("leases = %d, want no lease acquired for stale session", leases)
 	}
 }
 
@@ -990,6 +1033,7 @@ type fakeSandboxRuntime struct {
 	forwardPortErr    error
 	podIPDialErr      error
 	serviceDNSDialErr error
+	verifyErr         error
 }
 
 type execCall struct {
@@ -1235,6 +1279,10 @@ func (f *fakeSandboxRuntime) MarkPluginStarted(_ context.Context, handle sandbox
 	session.PluginName = pluginName
 	f.sessions[handle.Name] = session
 	return nil
+}
+
+func (f *fakeSandboxRuntime) VerifySessionCompatible(context.Context, sandboxSession) error {
+	return f.verifyErr
 }
 
 func (f *fakeSandboxRuntime) Close() error {

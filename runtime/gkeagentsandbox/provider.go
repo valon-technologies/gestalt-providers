@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.14"
+	providerVersion      = "0.0.1-alpha.15"
 	sessionStatePending  = "pending"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
@@ -230,6 +230,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 	if err != nil {
 		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
 	}
+	if err := runtime.VerifySessionCompatible(ctx, session); err != nil {
+		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "gke agent sandbox session is stale: %v", err)
+	}
 	if state := sessionStateForSandbox(ctx, runtime, session); state == sessionStateRunning || state == sessionStateStarting {
 		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
 	}
@@ -259,6 +262,9 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 	}
 	if state := sessionStateForSandbox(ctx, runtime, lockedSession); state == sessionStateRunning {
 		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+	}
+	if err := runtime.VerifySessionCompatible(ctx, lockedSession); err != nil {
+		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "gke agent sandbox session is stale: %v", err)
 	}
 	session = lockedSession
 	handle := session.Handle
@@ -470,6 +476,11 @@ func pluginRuntimeSession(session sandboxSession, state string) gestalt.PluginRu
 		ID:       session.ID,
 		State:    state,
 		Metadata: cloneStringMap(session.Metadata),
+		Lifecycle: gestalt.PluginRuntimeSessionLifecycle{
+			StartedAt:          cloneTimePtr(session.StartedAt),
+			RecommendedDrainAt: cloneTimePtr(session.DrainAt),
+			ExpiresAt:          cloneTimePtr(session.ExpiresAt),
+		},
 	}
 }
 
@@ -508,6 +519,14 @@ func cloneStringMap(src map[string]string) map[string]string {
 	dst := make(map[string]string, len(src))
 	maps.Copy(dst, src)
 	return dst
+}
+
+func cloneTimePtr(src *time.Time) *time.Time {
+	if src == nil {
+		return nil
+	}
+	value := src.UTC()
+	return &value
 }
 
 func cloneBindings(src map[string]hostServiceBinding) []hostServiceBinding {

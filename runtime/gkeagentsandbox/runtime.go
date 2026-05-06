@@ -3,13 +3,16 @@ package gkeagentsandbox
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +58,7 @@ type sandboxRuntime interface {
 	AcquirePluginStartLease(context.Context, sandboxHandle, string, time.Duration) error
 	ReleasePluginStartLease(context.Context, sandboxHandle, string) error
 	MarkPluginStarted(context.Context, sandboxHandle, string, string) error
+	VerifySessionCompatible(context.Context, sandboxSession) error
 	Close() error
 }
 
@@ -80,6 +84,9 @@ type sandboxSession struct {
 	Handle         sandboxHandle
 	PluginStarting bool
 	PluginStarted  bool
+	StartedAt      *time.Time
+	DrainAt        *time.Time
+	ExpiresAt      *time.Time
 }
 
 type sandboxHandle struct {
@@ -232,31 +239,69 @@ func (r *kubernetesSandboxRuntime) Start(ctx context.Context, req startSandboxRe
 }
 
 func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSandboxRequest) (sandboxSession, error) {
-	objectMeta := runtimeObjectMeta(req)
-	claim := &extv1alpha1.SandboxClaim{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: extv1alpha1.SchemeGroupVersion.String(),
-			Kind:       "SandboxClaim",
-		},
-		ObjectMeta: objectMeta,
-		Spec: extv1alpha1.SandboxClaimSpec{
-			TemplateRef: extv1alpha1.SandboxTemplateRef{Name: req.Template},
-		},
-	}
-	if _, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(req.Namespace).Create(ctx, claim, metav1.CreateOptions{}); err != nil {
-		return sandboxSession{}, fmt.Errorf("create SandboxClaim %s/%s: %w", req.Namespace, req.Name, err)
-	}
-	handle := sandboxHandle{
-		Name:      req.Name,
-		Namespace: req.Namespace,
-		Mode:      "claim",
-		ClaimName: req.Name,
-	}
-	ready, err := r.waitForClaimReady(ctx, handle)
+	templateMeta, err := r.runtimeTemplateMetadata(ctx, req.Namespace, req.Template)
 	if err != nil {
-		return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
+		return sandboxSession{}, err
 	}
-	return sandboxSessionFromRuntimeObject(req.Name, req.PluginName, req.Template, req.Metadata, objectMeta.Annotations, ready), nil
+	req.Metadata = mergeRuntimeMetadata(req.Metadata, templateMeta.metadata())
+	var lastErr error
+	for attempt := 0; attempt <= r.cfg.StaleSessionRetries; attempt++ {
+		attemptReq := req
+		if attempt > 0 {
+			attemptReq.Name = dnsLabelWithSuffix(req.Name, fmt.Sprintf("retry-%d", attempt))
+		}
+		objectMeta := runtimeObjectMeta(attemptReq)
+		claim := &extv1alpha1.SandboxClaim{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: extv1alpha1.SchemeGroupVersion.String(),
+				Kind:       "SandboxClaim",
+			},
+			ObjectMeta: objectMeta,
+			Spec: extv1alpha1.SandboxClaimSpec{
+				TemplateRef: extv1alpha1.SandboxTemplateRef{Name: attemptReq.Template},
+			},
+		}
+		if warmPool := r.sandboxClaimWarmPool(); warmPool != nil {
+			claim.Spec.WarmPool = warmPool
+		}
+		if lifecycle := r.sandboxClaimLifecycle(time.Now()); lifecycle != nil {
+			claim.Spec.Lifecycle = lifecycle
+		}
+		claim.Spec.AdditionalPodMetadata = sandboxv1alpha1.PodMetadata{
+			Labels:      cloneStringMap(objectMeta.Labels),
+			Annotations: cloneStringMap(objectMeta.Annotations),
+		}
+		if _, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(attemptReq.Namespace).Create(ctx, claim, metav1.CreateOptions{}); err != nil {
+			return sandboxSession{}, fmt.Errorf("create SandboxClaim %s/%s: %w", attemptReq.Namespace, attemptReq.Name, err)
+		}
+		handle := sandboxHandle{
+			Name:      attemptReq.Name,
+			Namespace: attemptReq.Namespace,
+			Mode:      "claim",
+			ClaimName: attemptReq.Name,
+		}
+		ready, err := r.waitForClaimReady(ctx, handle)
+		if err != nil {
+			return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
+		}
+		session := sandboxSessionFromRuntimeObject(attemptReq.Name, attemptReq.PluginName, attemptReq.Template, attemptReq.Metadata, objectMeta.Annotations, ready)
+		if err := r.enrichSessionFromClaim(ctx, &session, claim); err != nil {
+			return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(ready))
+		}
+		if err := r.VerifySessionCompatible(ctx, session); err != nil {
+			lastErr = err
+			_ = r.cleanupCreatedSandbox(ready)
+			if attempt < r.cfg.StaleSessionRetries {
+				continue
+			}
+			return sandboxSession{}, err
+		}
+		return session, nil
+	}
+	if lastErr != nil {
+		return sandboxSession{}, lastErr
+	}
+	return sandboxSession{}, fmt.Errorf("start SandboxClaim %s/%s: stale session retry loop exhausted", req.Namespace, req.Name)
 }
 
 func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req startSandboxRequest) (sandboxSession, error) {
@@ -592,6 +637,9 @@ func (r *kubernetesSandboxRuntime) sessionFromClaim(ctx context.Context, claim *
 		claim.Annotations,
 		handle,
 	)
+	if err := r.enrichSessionFromClaim(ctx, &session, claim); err != nil {
+		return sandboxSession{}, err
+	}
 	if !session.PluginStarted {
 		starting, err := r.pluginStartLeaseActive(ctx, handle)
 		if err != nil {
@@ -635,6 +683,9 @@ func (r *kubernetesSandboxRuntime) sessionFromSandbox(ctx context.Context, sandb
 		sandbox.Annotations,
 		handle,
 	)
+	if err := r.enrichSessionFromSandbox(ctx, &session, sandbox); err != nil {
+		return sandboxSession{}, err
+	}
 	if !session.PluginStarted {
 		starting, err := r.pluginStartLeaseActive(ctx, handle)
 		if err != nil {
@@ -1080,6 +1131,226 @@ func sandboxPodName(sb *sandboxv1alpha1.Sandbox) string {
 	return strings.TrimSpace(sb.Name)
 }
 
+type runtimeTemplateMetadata struct {
+	Template             string
+	ExpectedTemplateHash string
+	ExpectedImage        string
+}
+
+func (m runtimeTemplateMetadata) metadata() map[string]string {
+	out := map[string]string{}
+	if m.Template != "" {
+		out[metadataRuntimeTemplate] = m.Template
+	}
+	if m.ExpectedTemplateHash != "" {
+		out[metadataExpectedTemplateHash] = m.ExpectedTemplateHash
+	}
+	if m.ExpectedImage != "" {
+		out[metadataExpectedImage] = m.ExpectedImage
+	}
+	return out
+}
+
+func (r *kubernetesSandboxRuntime) runtimeTemplateMetadata(ctx context.Context, namespace, templateName string) (runtimeTemplateMetadata, error) {
+	templateName = strings.TrimSpace(templateName)
+	if templateName == "" {
+		return runtimeTemplateMetadata{}, nil
+	}
+	template, err := r.extensions.ExtensionsV1alpha1().SandboxTemplates(namespace).Get(ctx, templateName, metav1.GetOptions{})
+	if err != nil {
+		return runtimeTemplateMetadata{}, fmt.Errorf("get SandboxTemplate %s/%s: %w", namespace, templateName, err)
+	}
+	image := podSpecContainerImage(template.Spec.PodTemplate.Spec, r.cfg.Container)
+	if image == "" {
+		return runtimeTemplateMetadata{}, fmt.Errorf("SandboxTemplate %s/%s has no runtime container image for container %q", namespace, templateName, r.cfg.Container)
+	}
+	hash := ""
+	if data, err := json.Marshal(template.Spec.PodTemplate); err == nil {
+		sum := sha256.Sum256(data)
+		hash = hex.EncodeToString(sum[:])
+	}
+	return runtimeTemplateMetadata{
+		Template:             templateName,
+		ExpectedTemplateHash: hash,
+		ExpectedImage:        image,
+	}, nil
+}
+
+func (r *kubernetesSandboxRuntime) sandboxClaimWarmPool() *extv1alpha1.WarmPoolPolicy {
+	warmPool := strings.TrimSpace(r.cfg.WarmPool)
+	if warmPool == "" {
+		return nil
+	}
+	policy := extv1alpha1.WarmPoolPolicy(warmPool)
+	return &policy
+}
+
+func (r *kubernetesSandboxRuntime) sandboxClaimLifecycle(now time.Time) *extv1alpha1.Lifecycle {
+	if r.cfg.SessionTTL <= 0 {
+		return nil
+	}
+	shutdownTime := metav1.NewTime(now.UTC().Add(r.cfg.SessionTTL))
+	return &extv1alpha1.Lifecycle{
+		ShutdownTime:   &shutdownTime,
+		ShutdownPolicy: extv1alpha1.ShutdownPolicyDeleteForeground,
+	}
+}
+
+func (r *kubernetesSandboxRuntime) VerifySessionCompatible(ctx context.Context, session sandboxSession) error {
+	if !r.cfg.EnforceTemplateImageMatch() || strings.TrimSpace(session.Template) == "" {
+		return nil
+	}
+	expected, err := r.runtimeTemplateMetadata(ctx, session.Handle.Namespace, session.Template)
+	if err != nil {
+		return err
+	}
+	actualImage, actualImageID, err := r.podRuntimeImage(ctx, session.Handle)
+	if err != nil {
+		return err
+	}
+	if actualImage != expected.ExpectedImage {
+		return fmt.Errorf("stale gke agent sandbox runtime session %q: SandboxTemplate %s expects image %q, pod %s runs image %q (imageID %q)", session.ID, session.Template, expected.ExpectedImage, session.Handle.PodName, actualImage, actualImageID)
+	}
+	return nil
+}
+
+func (r *kubernetesSandboxRuntime) enrichSessionFromClaim(ctx context.Context, session *sandboxSession, claim *extv1alpha1.SandboxClaim) error {
+	if session == nil || claim == nil {
+		return nil
+	}
+	if !claim.CreationTimestamp.IsZero() {
+		startedAt := claim.CreationTimestamp.Time.UTC()
+		session.StartedAt = &startedAt
+	}
+	if claim.Spec.Lifecycle != nil && claim.Spec.Lifecycle.ShutdownTime != nil {
+		expiresAt := claim.Spec.Lifecycle.ShutdownTime.Time.UTC()
+		session.ExpiresAt = &expiresAt
+		if drainAt := recommendedDrainAt(expiresAt, r.cfg.SessionDrainBefore); !drainAt.IsZero() {
+			session.DrainAt = &drainAt
+		}
+	}
+	return r.enrichSessionRuntimeMetadata(ctx, session)
+}
+
+func (r *kubernetesSandboxRuntime) enrichSessionFromSandbox(ctx context.Context, session *sandboxSession, sandbox *sandboxv1alpha1.Sandbox) error {
+	if session == nil || sandbox == nil {
+		return nil
+	}
+	if !sandbox.CreationTimestamp.IsZero() {
+		startedAt := sandbox.CreationTimestamp.Time.UTC()
+		session.StartedAt = &startedAt
+	}
+	if sandbox.Spec.Lifecycle.ShutdownTime != nil {
+		expiresAt := sandbox.Spec.Lifecycle.ShutdownTime.Time.UTC()
+		session.ExpiresAt = &expiresAt
+		if drainAt := recommendedDrainAt(expiresAt, r.cfg.SessionDrainBefore); !drainAt.IsZero() {
+			session.DrainAt = &drainAt
+		}
+	}
+	return r.enrichSessionRuntimeMetadata(ctx, session)
+}
+
+func (r *kubernetesSandboxRuntime) enrichSessionRuntimeMetadata(ctx context.Context, session *sandboxSession) error {
+	if session == nil {
+		return nil
+	}
+	if session.Metadata == nil {
+		session.Metadata = map[string]string{}
+	}
+	if session.Template != "" {
+		template, err := r.runtimeTemplateMetadata(ctx, session.Handle.Namespace, session.Template)
+		if err != nil && !k8serrors.IsNotFound(err) {
+			return err
+		}
+		for key, value := range template.metadata() {
+			if _, exists := session.Metadata[key]; !exists || key == metadataRuntimeTemplate {
+				session.Metadata[key] = value
+			}
+		}
+		if template.ExpectedImage != "" {
+			session.Metadata[metadataCurrentImage] = template.ExpectedImage
+		}
+	}
+	actualImage, actualImageID, err := r.podRuntimeImage(ctx, session.Handle)
+	if err != nil {
+		if k8serrors.IsNotFound(err) || session.Handle.PodName == "" {
+			return nil
+		}
+		return err
+	}
+	if actualImage != "" {
+		session.Metadata[metadataActualImage] = actualImage
+	}
+	if actualImageID != "" {
+		session.Metadata[metadataActualImageID] = actualImageID
+	}
+	expectedImage := strings.TrimSpace(session.Metadata[metadataCurrentImage])
+	if expectedImage == "" {
+		expectedImage = strings.TrimSpace(session.Metadata[metadataExpectedImage])
+	}
+	if expectedImage != "" && actualImage != "" {
+		session.Metadata[metadataImageMatch] = strconv.FormatBool(expectedImage == actualImage)
+	}
+	return nil
+}
+
+func (r *kubernetesSandboxRuntime) podRuntimeImage(ctx context.Context, handle sandboxHandle) (string, string, error) {
+	if strings.TrimSpace(handle.PodName) == "" {
+		return "", "", fmt.Errorf("plugin runtime session %q has no backing pod", handle.Name)
+	}
+	pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, handle.PodName, metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("get Pod %s/%s: %w", handle.Namespace, handle.PodName, err)
+	}
+	return podSpecContainerImage(pod.Spec, r.cfg.Container), podStatusContainerImageID(pod.Status, r.cfg.Container), nil
+}
+
+func podSpecContainerImage(spec corev1.PodSpec, containerName string) string {
+	containerName = strings.TrimSpace(containerName)
+	for _, container := range spec.Containers {
+		if strings.TrimSpace(container.Name) == containerName {
+			return strings.TrimSpace(container.Image)
+		}
+	}
+	if len(spec.Containers) == 1 {
+		return strings.TrimSpace(spec.Containers[0].Image)
+	}
+	return ""
+}
+
+func podStatusContainerImageID(status corev1.PodStatus, containerName string) string {
+	containerName = strings.TrimSpace(containerName)
+	for _, container := range status.ContainerStatuses {
+		if strings.TrimSpace(container.Name) == containerName {
+			return strings.TrimSpace(container.ImageID)
+		}
+	}
+	if len(status.ContainerStatuses) == 1 {
+		return strings.TrimSpace(status.ContainerStatuses[0].ImageID)
+	}
+	return ""
+}
+
+func recommendedDrainAt(expiresAt time.Time, drainBefore time.Duration) time.Time {
+	if expiresAt.IsZero() || drainBefore <= 0 {
+		return time.Time{}
+	}
+	return expiresAt.Add(-drainBefore).UTC()
+}
+
+func mergeRuntimeMetadata(metadata map[string]string, runtimeMetadata map[string]string) map[string]string {
+	out := cloneStringMap(metadata)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for key, value := range runtimeMetadata {
+		if strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 const (
 	runtimeSessionLabel       = "gestalt.dev/runtime-session"
 	sessionMetadataAnnotation = "gestalt.dev/session-metadata"
@@ -1087,6 +1358,14 @@ const (
 	sessionPluginAnnotation   = "gestalt.dev/session-plugin"
 	pluginStartedAnnotation   = "gestalt.dev/plugin-started"
 	startedPluginAnnotation   = "gestalt.dev/started-plugin"
+
+	metadataRuntimeTemplate      = "runtime.template"
+	metadataExpectedTemplateHash = "runtime.expectedTemplateHash"
+	metadataExpectedImage        = "runtime.expectedImage"
+	metadataCurrentImage         = "runtime.currentImage"
+	metadataActualImage          = "runtime.actualImage"
+	metadataActualImageID        = "runtime.actualImageID"
+	metadataImageMatch           = "runtime.imageMatch"
 )
 
 func runtimeLabels(pluginName string) map[string]string {
@@ -1115,6 +1394,11 @@ func runtimeObjectMeta(req startSandboxRequest) metav1.ObjectMeta {
 	if len(req.Metadata) > 0 {
 		if encoded, err := json.Marshal(req.Metadata); err == nil {
 			annotations[sessionMetadataAnnotation] = string(encoded)
+		}
+		for key, value := range req.Metadata {
+			if strings.HasPrefix(key, "runtime.") && strings.TrimSpace(value) != "" {
+				annotations[key] = value
+			}
 		}
 	}
 	return metav1.ObjectMeta{

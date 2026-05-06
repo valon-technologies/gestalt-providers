@@ -161,6 +161,69 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+func seedReadyClaimSandbox(ctx context.Context, runtime *kubernetesSandboxRuntime, namespace, claimName, sandboxName, podName, image string) error {
+	var claim *extv1alpha1.SandboxClaim
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var err error
+		claim, err = runtime.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
+		if err == nil {
+			break
+		}
+		if !k8serrors.IsNotFound(err) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if claim == nil {
+		return errors.New("SandboxClaim was not created")
+	}
+	_, err := runtime.agents.AgentsV1alpha1().Sandboxes(namespace).Create(ctx, &sandboxv1alpha1.Sandbox{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sandboxName,
+			Namespace: namespace,
+			Annotations: map[string]string{
+				sandboxv1alpha1.SandboxPodNameAnnotation: podName,
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: extv1alpha1.SchemeGroupVersion.String(),
+				Kind:       "SandboxClaim",
+				Name:       claim.Name,
+				UID:        claim.UID,
+			}},
+		},
+		Status: sandboxv1alpha1.SandboxStatus{
+			Conditions: []metav1.Condition{{
+				Type:   string(sandboxv1alpha1.SandboxConditionReady),
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return err
+	}
+	_, err = runtime.core.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name:  runtime.cfg.Container,
+			Image: image,
+		}}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{
+			Name:    runtime.cfg.Container,
+			ImageID: "containerd://" + image,
+		}}},
+	}, metav1.CreateOptions{})
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return err
+	}
+	claim.Status.SandboxStatus.Name = sandboxName
+	_, err = runtime.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).Update(ctx, claim, metav1.UpdateOptions{})
+	return err
+}
+
 func TestRuntimeContractHostnameEgressPolicyRejectsManagedTemplates(t *testing.T) {
 	t.Parallel()
 
@@ -213,6 +276,136 @@ func TestRuntimeContractHostnameEgressPolicyRejectsManagedTemplates(t *testing.T
 	}
 	if got := len(policies.Items); got != 0 {
 		t.Fatalf("network policy count = %d, want 0", got)
+	}
+}
+
+func TestRuntimeContractStartClaimStampsFreshLifecycleAndRuntimeMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtime := &kubernetesSandboxRuntime{
+		cfg: Config{
+			Namespace:           "runtime-system",
+			Container:           "runtime",
+			SandboxReadyTimeout: 2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+			SessionTTL:          2 * time.Hour,
+			SessionDrainBefore:  5 * time.Minute,
+			WarmPool:            "none",
+		},
+		core:   k8sfake.NewSimpleClientset(),
+		agents: agentfake.NewSimpleClientset(),
+		extensions: extfake.NewSimpleClientset(&extv1alpha1.SandboxTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "agent-runtime",
+				Namespace: "runtime-system",
+			},
+			Spec: extv1alpha1.SandboxTemplateSpec{
+				PodTemplate: sandboxv1alpha1.PodTemplate{
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name:  "runtime",
+						Image: "us-docker.pkg.dev/test/agent-runtime@sha256:current",
+					}}},
+				},
+			},
+		}),
+	}
+	readyErr := make(chan error, 1)
+	go func() {
+		readyErr <- seedReadyClaimSandbox(ctx, runtime, "runtime-system", "session-1", "session-1-sandbox", "session-1-pod", "us-docker.pkg.dev/test/agent-runtime@sha256:current")
+	}()
+
+	session, err := runtime.Start(ctx, startSandboxRequest{
+		Name:       "session-1",
+		PluginName: "agent-provider",
+		Namespace:  "runtime-system",
+		Template:   "agent-runtime",
+		Metadata:   map[string]string{"tenant": "dev"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := <-readyErr; err != nil {
+		t.Fatalf("seed ready claim: %v", err)
+	}
+
+	claim, err := runtime.extensions.ExtensionsV1alpha1().SandboxClaims("runtime-system").Get(ctx, "session-1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get SandboxClaim: %v", err)
+	}
+	if claim.Spec.WarmPool == nil || *claim.Spec.WarmPool != extv1alpha1.WarmPoolPolicyNone {
+		t.Fatalf("WarmPool = %v, want none", claim.Spec.WarmPool)
+	}
+	if claim.Spec.Lifecycle == nil || claim.Spec.Lifecycle.ShutdownTime == nil {
+		t.Fatalf("Lifecycle.ShutdownTime missing")
+	}
+	if got, want := claim.Spec.Lifecycle.ShutdownPolicy, extv1alpha1.ShutdownPolicyDeleteForeground; got != want {
+		t.Fatalf("Lifecycle.ShutdownPolicy = %q, want %q", got, want)
+	}
+	if got, want := claim.Annotations[metadataExpectedImage], "us-docker.pkg.dev/test/agent-runtime@sha256:current"; got != want {
+		t.Fatalf("expected image annotation = %q, want %q", got, want)
+	}
+	if got, want := session.Metadata[metadataActualImage], "us-docker.pkg.dev/test/agent-runtime@sha256:current"; got != want {
+		t.Fatalf("actual image metadata = %q, want %q", got, want)
+	}
+	if got, want := session.Metadata[metadataImageMatch], "true"; got != want {
+		t.Fatalf("image match metadata = %q, want %q", got, want)
+	}
+	if session.DrainAt == nil || session.ExpiresAt == nil {
+		t.Fatalf("session lifecycle = (%v, %v, %v), want drain/expires", session.StartedAt, session.DrainAt, session.ExpiresAt)
+	}
+}
+
+func TestRuntimeContractRejectsStaleSandboxPodImage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtime := &kubernetesSandboxRuntime{
+		cfg: Config{
+			Namespace:           "runtime-system",
+			Container:           "runtime",
+			SandboxReadyTimeout: 2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+			SessionTTL:          2 * time.Hour,
+			SessionDrainBefore:  5 * time.Minute,
+			WarmPool:            "none",
+		},
+		core:   k8sfake.NewSimpleClientset(),
+		agents: agentfake.NewSimpleClientset(),
+		extensions: extfake.NewSimpleClientset(&extv1alpha1.SandboxTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "agent-runtime",
+				Namespace: "runtime-system",
+			},
+			Spec: extv1alpha1.SandboxTemplateSpec{
+				PodTemplate: sandboxv1alpha1.PodTemplate{
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name:  "runtime",
+						Image: "us-docker.pkg.dev/test/agent-runtime@sha256:current",
+					}}},
+				},
+			},
+		}),
+	}
+	readyErr := make(chan error, 1)
+	go func() {
+		readyErr <- seedReadyClaimSandbox(ctx, runtime, "runtime-system", "session-2", "session-2-sandbox", "session-2-pod", "us-docker.pkg.dev/test/agent-runtime@sha256:old")
+	}()
+
+	_, err := runtime.Start(ctx, startSandboxRequest{
+		Name:       "session-2",
+		PluginName: "agent-provider",
+		Namespace:  "runtime-system",
+		Template:   "agent-runtime",
+	})
+	if err == nil || !strings.Contains(err.Error(), "stale gke agent sandbox runtime session") {
+		t.Fatalf("Start error = %v, want stale runtime session", err)
+	}
+	if err := <-readyErr; err != nil {
+		t.Fatalf("seed ready claim: %v", err)
+	}
+	if _, err := runtime.extensions.ExtensionsV1alpha1().SandboxClaims("runtime-system").Get(ctx, "session-2", metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+		t.Fatalf("stale SandboxClaim still exists err = %v, want not found", err)
 	}
 }
 
