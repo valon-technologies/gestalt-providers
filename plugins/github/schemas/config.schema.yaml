@@ -131,6 +131,14 @@ properties:
                 pull_request_review_comment bodies when frequency is manual_only.
               items:
                 type: string
+            manualCommandMatch:
+              type: string
+              enum:
+                - contains
+                - exact
+              description: >-
+                How manualCommands are matched. contains preserves legacy
+                substring matching; exact trims and case-folds the whole comment.
         dedupe:
           type: object
           additionalProperties: false
@@ -255,9 +263,18 @@ properties:
             allowSelfFix:
               type: boolean
               description: >-
-                Whether this policy may expose code-changing self-fix tools such
-                as bot.commitFiles, bot.openPullRequest, and
-                bot.createPullRequest. Defaults to true.
+                Deprecated ceiling for code-changing self-fix tools. False
+                disables self-fix even when selfFixMode allows it.
+            selfFixMode:
+              type: string
+              enum:
+                - disabled
+                - suggest
+                - branch_commit
+                - pull_request
+              description: >-
+                Maximum self-fix behavior for this policy. Defaults to disabled;
+                branch_commit and pull_request must be opted into explicitly.
             preferenceSubject:
               type: string
               enum:
@@ -280,6 +297,8 @@ properties:
                   - bot.listPullRequestFiles
                   - bot.listPullRequestReviewThreads
                   - bot.getCheckRun
+                  - bot.createCheckRun
+                  - bot.updateCheckRun
                   - bot.listCheckSuiteCheckRuns
                   - bot.listCheckRunAnnotations
                   - bot.getWorkflowRun

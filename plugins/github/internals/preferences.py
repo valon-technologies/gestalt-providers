@@ -13,6 +13,8 @@ from .config import (
     GitHubActionPreferencesConfig,
     GitHubWebhookPolicy,
     ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,
+    SELF_FIX_DISABLED,
+    SELF_FIX_MODES,
 )
 from .identity import GitHubPreferenceIdentity
 
@@ -140,21 +142,26 @@ def apply_action_preferences(
         policy.allow_code_review_comments,
         preference.get("allow_code_review_comments"),
     )
-    allow_self_fix = _merge_gate(policy.allow_self_fix, preference.get("allow_self_fix"))
+    self_fix_mode = _merge_self_fix_mode(
+        policy,
+        preference.get("self_fix_mode"),
+        preference.get("allow_self_fix"),
+    )
     metadata.update(
         {
             "source": source,
             "record_id": str(preference["id"]),
             "effective": {
                 "allow_code_review_comments": allow_code_review_comments,
-                "allow_self_fix": allow_self_fix,
+                "allow_self_fix": self_fix_mode != SELF_FIX_DISABLED,
+                "self_fix_mode": self_fix_mode,
             },
         }
     )
     return replace(
         policy,
         allow_code_review_comments=allow_code_review_comments,
-        allow_self_fix=allow_self_fix,
+        self_fix_mode=self_fix_mode,
         action_preferences=metadata,
     )
 
@@ -169,7 +176,9 @@ def set_action_preference(
     allow_code_review_comments: bool | None,
     allow_self_fix: bool | None,
     updated_by_subject_id: str,
+    self_fix_mode: str | None = None,
 ) -> dict[str, Any]:
+    validated_self_fix_mode = _optional_self_fix_mode(self_fix_mode)
     record_id = preference_record_id(
         repository=repository,
         policy_id=policy_id,
@@ -180,7 +189,7 @@ def set_action_preference(
     existing = action_preference_store(config).get(record_id) or {}
     record = {
         "id": record_id,
-        "schema_version": 1,
+        "schema_version": 2,
         "repository": repository,
         "policy_id": policy_id,
         "identity_kind": identity_kind,
@@ -197,6 +206,7 @@ def set_action_preference(
         "subject_id": identity.subject_id if identity_kind == IDENTITY_SUBJECT_ID else "",
         "allow_code_review_comments": allow_code_review_comments,
         "allow_self_fix": allow_self_fix,
+        "self_fix_mode": validated_self_fix_mode,
         "updated_by_subject_id": updated_by_subject_id,
         "created_at": str(existing.get("created_at") or now),
         "updated_at": now,
@@ -336,17 +346,23 @@ def _base_metadata(
         "static_ceiling": {
             "allow_code_review_comments": policy.allow_code_review_comments,
             "allow_self_fix": policy.allow_self_fix,
+            "self_fix_mode": policy.self_fix_mode,
         },
         "effective": {
             "allow_code_review_comments": policy.allow_code_review_comments,
-            "allow_self_fix": policy.allow_self_fix,
+            "allow_self_fix": policy.allow_self_fix
+            and policy.self_fix_mode != SELF_FIX_DISABLED,
+            "self_fix_mode": policy.self_fix_mode
+            if policy.allow_self_fix
+            else SELF_FIX_DISABLED,
         },
     }
 
 
 def _validated_preference_record(record: dict[str, Any]) -> dict[str, Any]:
     record_id = _required_text(record.get("id"), "id")
-    if int(record.get("schema_version") or 0) != 1:
+    schema_version = int(record.get("schema_version") or 0)
+    if schema_version not in {1, 2}:
         raise ValueError(f"{record_id}: unsupported schema_version")
     for field_name in ("repository", "policy_id", "identity_kind"):
         _required_text(record.get(field_name), field_name)
@@ -360,10 +376,12 @@ def _validated_preference_record(record: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"{record_id}: invalid identity_kind")
     return {
         **record,
+        "schema_version": schema_version,
         "allow_code_review_comments": _optional_bool(
             record.get("allow_code_review_comments"), "allow_code_review_comments"
         ),
         "allow_self_fix": _optional_bool(record.get("allow_self_fix"), "allow_self_fix"),
+        "self_fix_mode": _optional_self_fix_mode(record.get("self_fix_mode")),
     }
 
 
@@ -375,12 +393,38 @@ def _merge_gate(static_ceiling: bool, preferred: bool | None) -> bool:
     return preferred
 
 
+def _merge_self_fix_mode(
+    policy: GitHubWebhookPolicy, preferred_mode: str | None, preferred_bool: bool | None
+) -> str:
+    if not policy.allow_self_fix or policy.self_fix_mode == SELF_FIX_DISABLED:
+        return SELF_FIX_DISABLED
+    if preferred_bool is False:
+        return SELF_FIX_DISABLED
+    if preferred_mode is not None:
+        return _bounded_self_fix_mode(policy.self_fix_mode, preferred_mode)
+    return policy.self_fix_mode
+
+
+def _bounded_self_fix_mode(static_mode: str, preferred_mode: str) -> str:
+    static_rank = SELF_FIX_MODES.index(static_mode)
+    preferred_rank = SELF_FIX_MODES.index(preferred_mode)
+    return SELF_FIX_MODES[min(static_rank, preferred_rank)]
+
+
 def _optional_bool(value: Any, field_name: str) -> bool | None:
     if value is None:
         return None
     if isinstance(value, bool):
         return value
     raise ValueError(f"{field_name} must be a boolean or null")
+
+
+def _optional_self_fix_mode(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value in SELF_FIX_MODES:
+        return value
+    raise ValueError("self_fix_mode must be disabled, suggest, branch_commit, pull_request, or null")
 
 
 def _required_text(value: Any, field_name: str) -> str:

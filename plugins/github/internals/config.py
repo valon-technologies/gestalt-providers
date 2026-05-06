@@ -43,6 +43,13 @@ WEBHOOK_TRIGGER_FREQUENCIES = (
     WEBHOOK_TRIGGER_MANUAL_ONLY,
 )
 
+WEBHOOK_MANUAL_COMMAND_CONTAINS = "contains"
+WEBHOOK_MANUAL_COMMAND_EXACT = "exact"
+WEBHOOK_MANUAL_COMMAND_MATCH_MODES = (
+    WEBHOOK_MANUAL_COMMAND_CONTAINS,
+    WEBHOOK_MANUAL_COMMAND_EXACT,
+)
+
 WEBHOOK_DEDUPE_DELIVERY = "delivery"
 WEBHOOK_DEDUPE_PULL_REQUEST = "pull_request"
 WEBHOOK_DEDUPE_PR_HEAD = "pr_head"
@@ -81,6 +88,17 @@ WEBHOOK_PREFERENCE_SUBJECTS = (
     WEBHOOK_PREFERENCE_SUBJECT_SENDER,
 )
 
+SELF_FIX_DISABLED = "disabled"
+SELF_FIX_SUGGEST = "suggest"
+SELF_FIX_BRANCH_COMMIT = "branch_commit"
+SELF_FIX_PULL_REQUEST = "pull_request"
+SELF_FIX_MODES = (
+    SELF_FIX_DISABLED,
+    SELF_FIX_SUGGEST,
+    SELF_FIX_BRANCH_COMMIT,
+    SELF_FIX_PULL_REQUEST,
+)
+
 ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT = "config_default"
 ACTION_PREFERENCES_FAILURE_MODES = (ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,)
 
@@ -114,6 +132,7 @@ class GitHubWebhookTrigger:
     frequency: str = WEBHOOK_TRIGGER_EVERY_DELIVERY
     include_drafts: bool = True
     manual_commands: tuple[str, ...] = ()
+    manual_command_match: str = WEBHOOK_MANUAL_COMMAND_CONTAINS
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +165,7 @@ class GitHubWebhookPolicy:
     action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
     allow_code_review_comments: bool = True
     allow_self_fix: bool = True
+    self_fix_mode: str = SELF_FIX_DISABLED
     allowed_operations: tuple[str, ...] = ()
     action_preference_subject: str = ""
     action_preferences: dict[str, Any] | None = None
@@ -411,6 +431,14 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
             path=f"webhookPolicies[{index}].action.allowSelfFix",
             default=True,
         )
+        self_fix_mode = enum_string(
+            action_config,
+            "selfFixMode",
+            f"webhookPolicies[{index}].action.selfFixMode",
+            SELF_FIX_MODES,
+            SELF_FIX_DISABLED,
+            "self_fix_mode",
+        )
         action_preference_subject = enum_string(
             action_config,
             "preferenceSubject",
@@ -464,6 +492,7 @@ def parse_webhook_policies(config: dict[str, Any]) -> tuple[GitHubWebhookPolicy,
                 action_mode=action_mode,
                 allow_code_review_comments=allow_code_review_comments,
                 allow_self_fix=allow_self_fix,
+                self_fix_mode=self_fix_mode,
                 allowed_operations=allowed_operations,
                 action_preference_subject=action_preference_subject,
             )
@@ -490,6 +519,14 @@ def parse_policy_trigger(
         default=True,
     )
     manual_commands = string_tuple(trigger_config, "manualCommands", "manual_commands")
+    manual_command_match = enum_string(
+        trigger_config,
+        "manualCommandMatch",
+        f"webhookPolicies[{policy_index}].trigger.manualCommandMatch",
+        WEBHOOK_MANUAL_COMMAND_MATCH_MODES,
+        WEBHOOK_MANUAL_COMMAND_CONTAINS,
+        "manual_command_match",
+    )
     if frequency == WEBHOOK_TRIGGER_MANUAL_ONLY and not manual_commands:
         raise ValueError(
             f"webhookPolicies[{policy_index}].trigger.manualCommands is required "
@@ -499,6 +536,7 @@ def parse_policy_trigger(
         frequency=frequency,
         include_drafts=include_drafts,
         manual_commands=manual_commands,
+        manual_command_match=manual_command_match,
     )
 
 
@@ -572,13 +610,26 @@ def effective_policy_operations(policy: GitHubWebhookPolicy) -> tuple[str, ...]:
             for operation in operations
             if operation != BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION
         ]
-    if not policy.allow_self_fix:
+    if not policy.allow_self_fix or policy.self_fix_mode in {
+        SELF_FIX_DISABLED,
+        SELF_FIX_SUGGEST,
+    }:
         operations = [
             operation
             for operation in operations
             if operation
             not in {
                 BOT_COMMIT_FILES_OPERATION,
+                BOT_OPEN_PULL_REQUEST_OPERATION,
+                BOT_CREATE_PULL_REQUEST_OPERATION,
+            }
+        ]
+    elif policy.self_fix_mode == SELF_FIX_BRANCH_COMMIT:
+        operations = [
+            operation
+            for operation in operations
+            if operation
+            not in {
                 BOT_OPEN_PULL_REQUEST_OPERATION,
                 BOT_CREATE_PULL_REQUEST_OPERATION,
             }

@@ -234,6 +234,41 @@ class GitHubCheckRunRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubCheckRunOutput:
+    title: str = ""
+    summary: str = ""
+    text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreateCheckRunRequest:
+    owner: str
+    repo: str
+    name: str
+    head_sha: str
+    status: str = "in_progress"
+    conclusion: str = ""
+    details_url: str = ""
+    external_id: str = ""
+    output: GitHubCheckRunOutput | None = None
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubUpdateCheckRunRequest:
+    owner: str
+    repo: str
+    check_run_id: int
+    name: str = ""
+    status: str = ""
+    conclusion: str = ""
+    details_url: str = ""
+    output: GitHubCheckRunOutput | None = None
+    completed_at: str = ""
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubListCheckSuiteCheckRunsRequest:
     owner: str
     repo: str
@@ -400,6 +435,18 @@ LABEL_ISSUE = "issue"
 LABEL_PULL_REQUEST = "pull_request"
 LABEL_SUBJECT_TYPES = frozenset((LABEL_ISSUE, LABEL_PULL_REQUEST))
 PULL_REQUEST_CREATE_PERMISSIONS = {"contents": "read", "pull_requests": "write"}
+CHECK_RUN_STATUSES = frozenset(("queued", "in_progress", "completed"))
+CHECK_RUN_CONCLUSIONS = frozenset(
+    (
+        "action_required",
+        "cancelled",
+        "failure",
+        "neutral",
+        "skipped",
+        "success",
+        "timed_out",
+    )
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1111,6 +1158,73 @@ def list_pull_request_files(
     if not isinstance(data, list):
         raise GitHubAPIError(502, "GitHub pull request files response was not a list")
     return [item for item in data if isinstance(item, dict)]
+
+
+def create_check_run(
+    request: GitHubCreateCheckRunRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    name = require_text(request.name, "name")
+    head_sha = require_text(request.head_sha, "head_sha")
+    payload = check_run_payload(
+        name=name,
+        head_sha=head_sha,
+        status=request.status,
+        conclusion=request.conclusion,
+        details_url=request.details_url,
+        external_id=request.external_id,
+        output=request.output,
+    )
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "write"}
+    )
+    return github.github_json(
+        "POST",
+        repo_path(owner, repo, "check-runs"),
+        token,
+        payload,
+    )
+
+
+def update_check_run(
+    request: GitHubUpdateCheckRunRequest,
+    *,
+    subject: Any,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    check_run_id = require_positive_int(request.check_run_id, "check_run_id")
+    payload = check_run_payload(
+        name=request.name,
+        status=request.status,
+        conclusion=request.conclusion,
+        details_url=request.details_url,
+        output=request.output,
+        completed_at=request.completed_at,
+        require_any=True,
+    )
+    installation_id = scoped_installation_id(
+        subject, owner=owner, repo=repo, explicit=request.installation_id
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "write"}
+    )
+    return github.github_json(
+        "PATCH",
+        repo_path(owner, repo, "check-runs", str(check_run_id)),
+        token,
+        payload,
+    )
 
 
 def get_check_run(
@@ -1860,6 +1974,62 @@ def path_with_query(path: str, params: Mapping[str, Any]) -> str:
     if not params:
         return path
     return path + "?" + urllib.parse.urlencode(params)
+
+
+def check_run_payload(
+    *,
+    name: str = "",
+    head_sha: str = "",
+    status: str = "",
+    conclusion: str = "",
+    details_url: str = "",
+    external_id: str = "",
+    output: GitHubCheckRunOutput | None = None,
+    completed_at: str = "",
+    require_any: bool = False,
+) -> JsonObject:
+    payload: JsonObject = {}
+    if name.strip():
+        payload["name"] = name.strip()
+    if head_sha.strip():
+        payload["head_sha"] = head_sha.strip()
+    if details_url.strip():
+        payload["details_url"] = details_url.strip()
+    if external_id.strip():
+        payload["external_id"] = external_id.strip()
+    if status.strip():
+        normalized_status = status.strip()
+        if normalized_status not in CHECK_RUN_STATUSES:
+            raise ValueError("status must be queued, in_progress, or completed")
+        payload["status"] = normalized_status
+    if conclusion.strip():
+        normalized_conclusion = conclusion.strip()
+        if normalized_conclusion not in CHECK_RUN_CONCLUSIONS:
+            raise ValueError(
+                "conclusion must be action_required, cancelled, failure, neutral, "
+                "skipped, success, or timed_out"
+            )
+        payload["conclusion"] = normalized_conclusion
+        payload["status"] = "completed"
+    if output is not None:
+        output_payload = check_run_output_payload(output)
+        if output_payload:
+            payload["output"] = output_payload
+    if completed_at.strip():
+        payload["completed_at"] = completed_at.strip()
+    if require_any and not payload:
+        raise ValueError("at least one check run field must be provided")
+    return payload
+
+
+def check_run_output_payload(output: GitHubCheckRunOutput) -> JsonObject:
+    return _compact_dict(
+        {
+            "title": output.title.strip(),
+            "summary": output.summary.strip(),
+            "text": output.text.strip(),
+        }
+    )
 
 
 def require_positive_int(value: int, name: str) -> int:

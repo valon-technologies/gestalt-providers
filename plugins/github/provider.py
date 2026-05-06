@@ -15,6 +15,8 @@ from internals.client import (
 from internals.config import (
     GitHubActionPreferencesConfig,
     GitHubWebhookPolicy,
+    SELF_FIX_DISABLED,
+    SELF_FIX_MODES,
     configure_from_mapping,
     effective_policy_operations,
     get_github_config,
@@ -25,6 +27,7 @@ from internals.constants import (
     BOT_ADD_REACTION_OPERATION,
     BOT_CLOSE_PULL_REQUEST_OPERATION,
     BOT_COMMIT_FILES_OPERATION,
+    BOT_CREATE_CHECK_RUN_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
@@ -42,6 +45,7 @@ from internals.constants import (
     BOT_REQUEST_REVIEWERS_OPERATION,
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     BOT_RESOLVE_INSTALLATION_OPERATION,
+    BOT_UPDATE_CHECK_RUN_OPERATION,
     GITHUB_EVENT_OPERATION,
     GITHUB_EXTERNAL_IDENTITY_TYPE,
     REVIEW_PULL_REQUEST_OPERATION,
@@ -60,7 +64,9 @@ from internals.operations import (
     GitHubCoAuthor,
     GitHubCommitRequest,
     GitHubCheckRunRequest,
+    GitHubCheckRunOutput,
     GitHubCreateIssueCommentRequest,
+    GitHubCreateCheckRunRequest,
     GitHubCreatePullRequestConversationCommentRequest,
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
@@ -77,6 +83,7 @@ from internals.operations import (
     GitHubRequestReviewersRequest,
     GitHubResolvePullRequestReviewThreadRequest,
     GitHubResolveInstallationRequest,
+    GitHubUpdateCheckRunRequest,
     GitHubWorkflowRunRequest,
     add_labels,
     add_reaction,
@@ -85,6 +92,7 @@ from internals.operations import (
     close_pull_request,
     commit_files,
     commit_result_dict,
+    create_check_run,
     create_issue_comment,
     create_pull_request_conversation_comment,
     create_pull_request_review,
@@ -109,6 +117,7 @@ from internals.operations import (
     request_reviewers,
     resolve_pull_request_review_thread,
     resolve_installation_subject,
+    update_check_run,
     workflow_run_job_summary,
     workflow_run_summary,
 )
@@ -134,14 +143,15 @@ logger = logging.getLogger(__name__)
 
 _ACTION_PREFERENCE_CONTROL_LABELS = {
     "allow_code_review_comments": "Automatic PR code review",
-    "allow_self_fix": "Self-fix from PR comments",
+    "self_fix_mode": "Self-fix from PR comments",
 }
 _ACTION_PREFERENCE_CONTROL_DESCRIPTIONS = {
     "allow_code_review_comments": (
         "Allow the GitHub bot to post provider-owned inline review comments on your PRs."
     ),
-    "allow_self_fix": (
-        "Allow the GitHub bot to push commits or open pull requests to fix issues it finds."
+    "self_fix_mode": (
+        "Choose whether the GitHub bot may suggest, commit, or open pull requests "
+        "to fix issues it finds."
     ),
 }
 _SELF_FIX_OPERATIONS = {
@@ -476,6 +486,16 @@ class ReviewPullRequestInput(gestalt.Model):
         default=True,
         required=False,
     )
+    publishCheckRun: bool = gestalt.field(
+        description="Publish a GitHub check run for the review result",
+        default=False,
+        required=False,
+    )
+    checkRunName: str = gestalt.field(
+        description="GitHub check run name to create when publishCheckRun is enabled",
+        default="Gestalt Review",
+        required=False,
+    )
     turnTimeoutMs: int = gestalt.field(
         description="Maximum time to wait for the review agent turn",
         default=180000,
@@ -669,6 +689,84 @@ class GetCheckRunInput(gestalt.Model):
     )
 
 
+class CheckRunOutputInput(gestalt.Model):
+    title: str = gestalt.field(
+        description="Check run output title", default="", required=False
+    )
+    summary: str = gestalt.field(
+        description="Check run output summary", default="", required=False
+    )
+    text: str = gestalt.field(
+        description="Optional check run output details", default="", required=False
+    )
+
+
+class CreateCheckRunInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    name: str = gestalt.field(description="Check run name")
+    head_sha: str = gestalt.field(description="Git commit SHA to attach the check run to")
+    status: str = gestalt.field(
+        description="Check run status: queued, in_progress, or completed",
+        default="in_progress",
+        required=False,
+    )
+    conclusion: str = gestalt.field(
+        description="Completed check conclusion",
+        default="",
+        required=False,
+    )
+    details_url: str = gestalt.field(
+        description="Optional details URL", default="", required=False
+    )
+    external_id: str = gestalt.field(
+        description="Optional caller-owned external ID", default="", required=False
+    )
+    output: CheckRunOutputInput | None = gestalt.field(
+        description="Optional check run output",
+        default=None,
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class UpdateCheckRunInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    check_run_id: int = gestalt.field(description="GitHub check run ID")
+    name: str = gestalt.field(
+        description="Optional replacement check run name", default="", required=False
+    )
+    status: str = gestalt.field(
+        description="Optional check run status", default="", required=False
+    )
+    conclusion: str = gestalt.field(
+        description="Optional completed check conclusion", default="", required=False
+    )
+    details_url: str = gestalt.field(
+        description="Optional details URL", default="", required=False
+    )
+    output: CheckRunOutputInput | None = gestalt.field(
+        description="Optional check run output",
+        default=None,
+        required=False,
+    )
+    completed_at: str = gestalt.field(
+        description="Optional ISO timestamp for completed check runs",
+        default="",
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
 class ListCheckRunAnnotationsInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
@@ -772,7 +870,12 @@ class SetActionPreferenceInput(ActionPreferenceInput):
         required=False,
     )
     allow_self_fix: bool | None = gestalt.field(
-        description="Whether this caller allows self-fix commits or pull requests for this policy. Null leaves the policy default in effect.",
+        description="Deprecated boolean self-fix preference. False disables self-fix; true/null leave self_fix_mode in effect.",
+        default=None,
+        required=False,
+    )
+    self_fix_mode: str | None = gestalt.field(
+        description="Self-fix mode: disabled, suggest, branch_commit, pull_request, or null for policy default.",
         default=None,
         required=False,
     )
@@ -1212,6 +1315,7 @@ def github_action_preferences_set(
             allow_code_review_comments=input.allow_code_review_comments,
             allow_self_fix=input.allow_self_fix,
             updated_by_subject_id=identity.subject_id,
+            self_fix_mode=input.self_fix_mode,
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1798,6 +1902,76 @@ def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> Operatio
 
 
 @plugin.operation(
+    id=BOT_CREATE_CHECK_RUN_OPERATION,
+    method="POST",
+    description="Create a GitHub check run using a GitHub App installation token",
+)
+def bot_create_check_run(
+    input: CreateCheckRunInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        check_run = create_check_run(
+            GitHubCreateCheckRunRequest(
+                owner=input.owner,
+                repo=input.repo,
+                name=input.name,
+                head_sha=input.head_sha,
+                status=input.status,
+                conclusion=input.conclusion,
+                details_url=input.details_url,
+                external_id=input.external_id,
+                output=_check_run_output_from_input(input.output),
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"check_run": check_run_summary(check_run)}}
+
+
+@plugin.operation(
+    id=BOT_UPDATE_CHECK_RUN_OPERATION,
+    method="POST",
+    description="Update a GitHub check run using a GitHub App installation token",
+)
+def bot_update_check_run(
+    input: UpdateCheckRunInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        check_run = update_check_run(
+            GitHubUpdateCheckRunRequest(
+                owner=input.owner,
+                repo=input.repo,
+                check_run_id=input.check_run_id,
+                name=input.name,
+                status=input.status,
+                conclusion=input.conclusion,
+                details_url=input.details_url,
+                output=_check_run_output_from_input(input.output),
+                completed_at=input.completed_at,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"check_run": check_run_summary(check_run)}}
+
+
+@plugin.operation(
     id=BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     method="GET",
     description="List check runs in a GitHub check suite using a GitHub App installation token",
@@ -2042,6 +2216,18 @@ def _pull_request_review_comments_from_input(
     )
 
 
+def _check_run_output_from_input(
+    output: CheckRunOutputInput | None,
+) -> GitHubCheckRunOutput | None:
+    if output is None:
+        return None
+    return GitHubCheckRunOutput(
+        title=output.title,
+        summary=output.summary,
+        text=output.text,
+    )
+
+
 def _action_preference_target_repositories(
     policies: tuple[GitHubWebhookPolicy, ...],
     *,
@@ -2236,8 +2422,10 @@ def _policy_action_preference_fields(
     )
     if BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations or is_review_workflow:
         fields.append("allow_code_review_comments")
-    if operations.intersection(_SELF_FIX_OPERATIONS):
-        fields.append("allow_self_fix")
+    if operations.intersection(_SELF_FIX_OPERATIONS) or (
+        policy.allow_self_fix and policy.self_fix_mode != SELF_FIX_DISABLED
+    ):
+        fields.append("self_fix_mode")
     return tuple(fields)
 
 
@@ -2249,8 +2437,8 @@ def _action_preference_control_summary(
     identity_kind: str,
     multiple_controls: bool,
 ) -> dict[str, Any]:
-    raw_stored = preference.get(field) if preference is not None else None
-    stored = raw_stored if isinstance(raw_stored, bool) else None
+    raw_stored = _raw_stored_preference_value(field, preference)
+    stored = _stored_preference_value(field, raw_stored)
     default_label = _ACTION_PREFERENCE_CONTROL_LABELS[field]
     if policy.display_name and not multiple_controls:
         label = policy.display_name
@@ -2266,10 +2454,66 @@ def _action_preference_control_summary(
         "label": label,
         "description": policy.description
         or _ACTION_PREFERENCE_CONTROL_DESCRIPTIONS[field],
-        "config_default": True,
+        "type": "enum" if field == "self_fix_mode" else "boolean",
+        "options": _action_preference_control_options(field, policy),
+        "config_default": _config_default_preference_value(field, policy),
         "stored": stored,
-        "effective": True if stored is None else stored,
+        "effective": _effective_preference_value(field, policy, stored),
     }
+
+
+def _raw_stored_preference_value(
+    field: str, preference: dict[str, Any] | None
+) -> Any:
+    if preference is None:
+        return None
+    if field == "self_fix_mode" and preference.get("allow_self_fix") is False:
+        return SELF_FIX_DISABLED
+    return preference.get(field)
+
+
+def _stored_preference_value(field: str, value: Any) -> Any:
+    if field == "self_fix_mode":
+        return value if isinstance(value, str) and value in SELF_FIX_MODES else None
+    return value if isinstance(value, bool) else None
+
+
+def _config_default_preference_value(field: str, policy: GitHubWebhookPolicy) -> Any:
+    if field == "self_fix_mode":
+        return policy.self_fix_mode if policy.allow_self_fix else SELF_FIX_DISABLED
+    return True
+
+
+def _effective_preference_value(
+    field: str, policy: GitHubWebhookPolicy, stored: Any
+) -> Any:
+    if field == "self_fix_mode":
+        if not policy.allow_self_fix or policy.self_fix_mode == SELF_FIX_DISABLED:
+            return SELF_FIX_DISABLED
+        if isinstance(stored, str):
+            max_rank = SELF_FIX_MODES.index(policy.self_fix_mode)
+            stored_rank = SELF_FIX_MODES.index(stored)
+            return SELF_FIX_MODES[min(max_rank, stored_rank)]
+        return policy.self_fix_mode
+    return True if stored is None else stored
+
+
+def _action_preference_control_options(
+    field: str, policy: GitHubWebhookPolicy
+) -> list[dict[str, str]]:
+    if field != "self_fix_mode":
+        return []
+    max_rank = SELF_FIX_MODES.index(policy.self_fix_mode)
+    labels = {
+        "disabled": "Disabled",
+        "suggest": "Suggest only",
+        "branch_commit": "Commit to branch",
+        "pull_request": "Open pull request",
+    }
+    return [
+        {"value": mode, "label": labels[mode]}
+        for mode in SELF_FIX_MODES[: max_rank + 1]
+    ]
 
 
 def _preference_identity_summary(
@@ -2317,6 +2561,7 @@ def _preference_summary(preference: dict[str, Any]) -> dict[str, Any]:
             "subject_id",
             "allow_code_review_comments",
             "allow_self_fix",
+            "self_fix_mode",
             "updated_by_subject_id",
             "created_at",
             "updated_at",

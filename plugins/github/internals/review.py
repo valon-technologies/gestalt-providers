@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import time
+import datetime as dt
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -14,12 +15,17 @@ from google.protobuf import json_format
 from .client import bot_identity_or_none
 from .config import get_github_config
 from .operations import (
+    GitHubCheckRunOutput,
+    GitHubCreateCheckRunRequest,
     GitHubCreatePullRequestReviewRequest,
     GitHubListPullRequestReviewThreadsRequest,
     GitHubListPullRequestFilesRequest,
     GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
     GitHubResolvePullRequestReviewThreadRequest,
+    GitHubUpdateCheckRunRequest,
+    check_run_summary,
+    create_check_run,
     create_pull_request_review,
     get_pull_request,
     list_pull_request_review_threads,
@@ -28,6 +34,7 @@ from .operations import (
     pull_request_review_summary,
     pull_request_summary,
     resolve_pull_request_review_thread,
+    update_check_run,
 )
 
 DEFAULT_AGENT_PROVIDER = "claude"
@@ -40,11 +47,16 @@ DEFAULT_POLL_INTERVAL_MS = 1_000
 MAX_COMMENT_BODY_CHARS = 1_200
 REVIEW_FINDING_SOURCE = "github.reviewPullRequest"
 REVIEW_FINDING_MARKER_RE = re.compile(
-    r"<!--\s*gestalt:github-review-finding\s+v1\s+"
-    r"fingerprint=(?P<fingerprint>\S+)\s+source=(?P<source>\S+)\s*-->"
+    r"<!--\s*gestalt:github-review-finding\s+v(?P<version>[12])\s+"
+    r"fingerprint=(?P<fingerprint>\S+)"
+    r"(?:\s+stable_fingerprint=(?P<stable_fingerprint>\S+))?"
+    r"\s+source=(?P<source>\S+)\s*-->"
 )
 REVIEW_FINDING_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 AUTO_RESOLVE_MAX_THREAD_PAGES = 10
+SUPPORTED_PULL_REQUEST_ACTIONS = frozenset(
+    ("opened", "synchronize", "reopened", "ready_for_review")
+)
 
 DEFAULT_SYSTEM_PROMPT = " ".join(
     [
@@ -70,6 +82,8 @@ class ReviewSettings:
     changed_lines_only: bool
     dry_run: bool
     auto_resolve_stale_findings: bool
+    publish_check_run: bool
+    check_run_name: str
     turn_timeout_ms: int
     poll_interval_ms: int
 
@@ -113,7 +127,14 @@ class ValidatedFinding:
 @dataclass(frozen=True, slots=True)
 class ReviewFindingMarker:
     fingerprint: str
+    stable_fingerprint: str
     source: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFindingFingerprints:
+    fingerprint: str
+    stable_fingerprint: str
 
 
 def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
@@ -122,20 +143,15 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
     if not signal:
         return skipped_result("missing_github_signal")
 
-    if str(signal.get("github_event", "")).strip() != "pull_request":
-        return skipped_result("unsupported_event")
-    if str(signal.get("github_action", "")).strip() not in {
-        "opened",
-        "synchronize",
-        "reopened",
-        "ready_for_review",
-    }:
-        return skipped_result("unsupported_action")
+    unsupported_reason = unsupported_review_signal_reason(signal)
+    if unsupported_reason:
+        return skipped_result(unsupported_reason)
 
     subject = pull_request_subject(signal)
     if subject is None:
         return skipped_result("missing_pull_request_subject")
 
+    check_run: Mapping[str, Any] | None = None
     pull_request = get_pull_request(
         GitHubPullRequestRequest(
             owner=subject.owner,
@@ -145,6 +161,55 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
         ),
         subject=req.subject,
     )
+    pull_summary = pull_request_summary(pull_request)
+    if settings.publish_check_run and not settings.dry_run:
+        check_run = create_review_check_run(subject, req, settings, pull_summary)
+    try:
+        if pull_request.get("draft") is True:
+            result = review_result(
+                subject, posted=False, comments=0, reason="draft_pull_request"
+            )
+            result["skipped"] = True
+            completed_check_run = complete_review_check_run(
+                check_run,
+                subject,
+                req,
+                conclusion="skipped",
+                title="Review skipped",
+                summary="Gestalt review skipped this draft pull request.",
+            )
+            add_check_run_result(result, completed_check_run or check_run)
+            return result
+
+        return _review_pull_request_after_fetch(
+            settings=settings,
+            signal=signal,
+            subject=subject,
+            req=req,
+            pull_summary=pull_summary,
+            check_run=check_run,
+        )
+    except Exception:
+        complete_review_check_run(
+            check_run,
+            subject,
+            req,
+            conclusion="failure",
+            title="Review failed",
+            summary="Gestalt review failed before it could complete.",
+        )
+        raise
+
+
+def _review_pull_request_after_fetch(
+    *,
+    settings: ReviewSettings,
+    signal: Mapping[str, Any],
+    subject: PullRequestSubject,
+    req: gestalt.Request,
+    pull_summary: Mapping[str, Any],
+    check_run: Mapping[str, Any] | None,
+) -> dict[str, Any]:
     raw_files = list_pull_request_files(
         GitHubListPullRequestFilesRequest(
             owner=subject.owner,
@@ -158,7 +223,17 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
     )
     files = review_files(raw_files, settings)
     if not files:
-        return review_result(subject, posted=False, comments=0, reason="no_files")
+        result = review_result(subject, posted=False, comments=0, reason="no_files")
+        completed_check_run = complete_review_check_run(
+            check_run,
+            subject,
+            req,
+            conclusion="success",
+            title="No reviewable files",
+            summary="Gestalt review found no reviewable changed files.",
+        )
+        add_check_run_result(result, completed_check_run or check_run)
+        return result
 
     line_index = build_line_index(files, settings)
     agent_findings = ask_agent_for_findings(
@@ -166,14 +241,31 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
         settings,
         signal=signal,
         subject=subject,
-        pull_request=pull_request_summary(pull_request),
+        pull_request=pull_summary,
         files=files,
     )
     findings, dropped = validate_findings(agent_findings, line_index, settings)
     current_fingerprints = [
-        review_finding_fingerprint(subject, finding) for finding in findings
+        review_finding_fingerprints(subject, finding) for finding in findings
     ]
-    current_fingerprint_set = set(current_fingerprints)
+    current_fingerprint_set = fingerprint_marker_values(current_fingerprints)
+    existing = existing_review_findings(
+        subject,
+        req,
+        enabled=not settings.dry_run,
+    )
+    duplicate_fingerprints = set(existing["fingerprints"])
+    postable_findings: list[tuple[ValidatedFinding, ReviewFindingFingerprints]] = []
+    suppressed = 0
+    for finding, fingerprints in zip(findings, current_fingerprints, strict=True):
+        if (
+            fingerprints.fingerprint in duplicate_fingerprints
+            or fingerprints.stable_fingerprint in duplicate_fingerprints
+        ):
+            suppressed += 1
+            continue
+        postable_findings.append((finding, fingerprints))
+
     if not findings:
         resolution = auto_resolve_stale_findings(
             subject,
@@ -181,7 +273,7 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
             current_fingerprints=current_fingerprint_set,
             enabled=settings.auto_resolve_stale_findings and not settings.dry_run,
         )
-        return review_result(
+        result = review_result(
             subject,
             posted=False,
             comments=0,
@@ -190,19 +282,29 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
             resolved_threads=resolution["resolvedThreads"],
             skipped_resolution_reasons=resolution["skippedResolutionReasons"],
         )
+        completed_check_run = complete_review_check_run(
+            check_run,
+            subject,
+            req,
+            conclusion="success",
+            title="No findings",
+            summary="Gestalt review found no concrete line-anchored issues.",
+        )
+        add_check_run_result(result, completed_check_run or check_run)
+        return result
 
     review: Mapping[str, Any] | None = None
-    if not settings.dry_run:
+    if postable_findings and not settings.dry_run:
         review = create_pull_request_review(
             GitHubCreatePullRequestReviewRequest(
                 owner=subject.owner,
                 repo=subject.repo,
                 pull_number=subject.pull_number,
                 installation_id=subject.installation_id,
-                commit_id=str(pull_request_summary(pull_request).get("head_sha", "")),
+                commit_id=str(pull_summary.get("head_sha", "")),
                 body=(
-                    f"Automated review found {len(findings)} concrete "
-                    f"issue{'' if len(findings) == 1 else 's'}."
+                    f"Automated review found {len(postable_findings)} new concrete "
+                    f"issue{'' if len(postable_findings) == 1 else 's'}."
                 ),
                 comments=tuple(
                     GitHubPullRequestReviewComment(
@@ -211,10 +313,10 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
                         side="RIGHT",
                         body=review_comment_body_with_marker(
                             finding.body,
-                            current_fingerprints[index],
+                            fingerprints,
                         ),
                     )
-                    for index, finding in enumerate(findings)
+                    for finding, fingerprints in postable_findings
                 ),
             ),
             subject=req.subject,
@@ -228,16 +330,31 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
 
     result = review_result(
         subject,
-        posted=not settings.dry_run,
-        comments=len(findings),
+        posted=bool(review),
+        comments=len(postable_findings),
         dropped_findings=dropped,
+        suppressed_findings=suppressed,
         resolved_threads=resolution["resolvedThreads"],
         skipped_resolution_reasons=resolution["skippedResolutionReasons"],
     )
+    if not postable_findings and suppressed:
+        result["reason"] = "duplicate_findings"
     if settings.dry_run:
         result["dry_run"] = True
     if review:
         result["review"] = pull_request_review_summary(review)
+    completed_check_run = complete_review_check_run(
+        check_run,
+        subject,
+        req,
+        conclusion="action_required",
+        title="Findings require review",
+        summary=(
+            f"Gestalt review found {len(findings)} concrete "
+            f"issue{'' if len(findings) == 1 else 's'}."
+        ),
+    )
+    add_check_run_result(result, completed_check_run or check_run)
     return result
 
 
@@ -259,6 +376,8 @@ def normalize_review_settings(input: Any) -> ReviewSettings:
         auto_resolve_stale_findings=bool_setting(
             input, "autoResolveStaleFindings", True
         ),
+        publish_check_run=bool_setting(input, "publishCheckRun", False),
+        check_run_name=string_setting(input, "checkRunName", "Gestalt Review"),
         turn_timeout_ms=bounded_int_setting(
             input, "turnTimeoutMs", DEFAULT_TURN_TIMEOUT_MS, 10_000, 600_000
         ),
@@ -290,6 +409,76 @@ def input_value(input: Any, key: str) -> Any:
     return getattr(input, key, None)
 
 
+def create_review_check_run(
+    subject: PullRequestSubject,
+    req: gestalt.Request,
+    settings: ReviewSettings,
+    pull_request: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    head_sha = string_value(pull_request.get("head_sha"))
+    if not head_sha:
+        return None
+    return create_check_run(
+        GitHubCreateCheckRunRequest(
+            owner=subject.owner,
+            repo=subject.repo,
+            name=settings.check_run_name,
+            head_sha=head_sha,
+            status="in_progress",
+            output=GitHubCheckRunOutput(
+                title="Review running",
+                summary="Gestalt is reviewing this pull request.",
+            ),
+            installation_id=subject.installation_id,
+        ),
+        subject=req.subject,
+    )
+
+
+def complete_review_check_run(
+    check_run: Mapping[str, Any] | None,
+    subject: PullRequestSubject,
+    req: gestalt.Request,
+    *,
+    conclusion: str,
+    title: str,
+    summary: str,
+) -> Mapping[str, Any] | None:
+    if check_run is None:
+        return None
+    check_run_id = int_value(check_run.get("id"))
+    if check_run_id <= 0:
+        return None
+    return update_check_run(
+        GitHubUpdateCheckRunRequest(
+            owner=subject.owner,
+            repo=subject.repo,
+            check_run_id=check_run_id,
+            conclusion=conclusion,
+            completed_at=utc_timestamp(),
+            output=GitHubCheckRunOutput(title=title, summary=summary),
+            installation_id=subject.installation_id,
+        ),
+        subject=req.subject,
+    )
+
+
+def add_check_run_result(
+    result: dict[str, Any], check_run: Mapping[str, Any] | None
+) -> None:
+    if check_run is not None:
+        result["checkRun"] = check_run_summary(check_run)
+
+
+def utc_timestamp() -> str:
+    return (
+        dt.datetime.now(dt.UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
 def latest_github_signal(workflow: Mapping[str, Any]) -> dict[str, Any] | None:
     signals = workflow.get("signals")
     if not isinstance(signals, list):
@@ -300,6 +489,43 @@ def latest_github_signal(workflow: Mapping[str, Any]) -> dict[str, Any] | None:
         if payload and payload.get("github_event"):
             return payload
     return None
+
+
+def unsupported_review_signal_reason(signal: Mapping[str, Any]) -> str:
+    event = string_value(signal.get("github_event"))
+    action = string_value(signal.get("github_action"))
+    if event == "pull_request":
+        return "" if action in SUPPORTED_PULL_REQUEST_ACTIONS else "unsupported_action"
+    if event != "issue_comment":
+        return "unsupported_event"
+    if action != "created":
+        return "unsupported_action"
+    issue = object_value(nested_value(signal, "agent_request", "issue")) or {}
+    if issue.get("is_pull_request") is not True:
+        return "not_pull_request_comment"
+    commands = [
+        str(command)
+        for command in nested_value(signal, "webhook_policy", "trigger", "manual_commands")
+        or []
+        if str(command).strip()
+    ]
+    if not commands:
+        return "missing_manual_command"
+    if not manual_command_body_matches(
+        string_value(nested_value(signal, "agent_request", "comment", "body")),
+        commands,
+    ):
+        return "manual_command_mismatch"
+    return ""
+
+
+def manual_command_body_matches(body: str, commands: Sequence[str]) -> bool:
+    normalized_body = normalize_manual_command(body)
+    return any(normalize_manual_command(command) == normalized_body for command in commands)
+
+
+def normalize_manual_command(value: str) -> str:
+    return " ".join(value.strip().casefold().split())
 
 
 def pull_request_subject(signal: Mapping[str, Any]) -> PullRequestSubject | None:
@@ -599,10 +825,10 @@ def format_comment_body(raw: ReviewFinding, body: str) -> str:
     return body
 
 
-def review_finding_fingerprint(
+def review_finding_fingerprints(
     subject: PullRequestSubject, finding: ValidatedFinding
-) -> str:
-    payload = {
+) -> ReviewFindingFingerprints:
+    exact_payload = {
         "source": REVIEW_FINDING_SOURCE,
         "repository": subject.repository,
         "pull_number": subject.pull_number,
@@ -611,20 +837,166 @@ def review_finding_fingerprint(
         "line": finding.line,
         "body": finding.body,
     }
+    stable_payload = {
+        "source": REVIEW_FINDING_SOURCE,
+        "repository": subject.repository,
+        "pull_number": subject.pull_number,
+        "path": finding.path.strip().lstrip("/"),
+        "side": "RIGHT",
+        "body": normalized_finding_body(finding.body),
+    }
+    return ReviewFindingFingerprints(
+        fingerprint=sha256_payload(exact_payload),
+        stable_fingerprint=sha256_payload(stable_payload),
+    )
+
+
+def review_finding_fingerprint(
+    subject: PullRequestSubject, finding: ValidatedFinding
+) -> str:
+    return review_finding_fingerprints(subject, finding).fingerprint
+
+
+def fingerprint_marker_values(
+    fingerprints: Sequence[ReviewFindingFingerprints],
+) -> set[str]:
+    values: set[str] = set()
+    for item in fingerprints:
+        values.add(item.fingerprint)
+        values.add(item.stable_fingerprint)
+    return values
+
+
+def normalized_finding_body(body: str) -> str:
+    return " ".join(body.casefold().split())
+
+
+def sha256_payload(payload: Mapping[str, Any]) -> str:
     encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode(
         "utf-8"
     )
     return hashlib.sha256(encoded).hexdigest()
 
 
-def review_comment_body_with_marker(body: str, fingerprint: str) -> str:
-    return f"{body}\n\n{review_comment_marker(fingerprint)}"
+def review_comment_body_with_marker(
+    body: str, fingerprints: ReviewFindingFingerprints
+) -> str:
+    return f"{body}\n\n{review_comment_marker(fingerprints)}"
 
 
-def review_comment_marker(fingerprint: str) -> str:
+def review_comment_marker(fingerprints: ReviewFindingFingerprints | str) -> str:
+    if isinstance(fingerprints, str):
+        return (
+            "<!-- gestalt:github-review-finding v1 "
+            f"fingerprint={fingerprints} source={REVIEW_FINDING_SOURCE} -->"
+        )
     return (
-        "<!-- gestalt:github-review-finding v1 "
-        f"fingerprint={fingerprint} source={REVIEW_FINDING_SOURCE} -->"
+        "<!-- gestalt:github-review-finding v2 "
+        f"fingerprint={fingerprints.fingerprint} "
+        f"stable_fingerprint={fingerprints.stable_fingerprint} "
+        f"source={REVIEW_FINDING_SOURCE} -->"
+    )
+
+
+def existing_review_findings(
+    subject: PullRequestSubject,
+    req: gestalt.Request,
+    *,
+    enabled: bool,
+) -> dict[str, Any]:
+    fingerprints: set[str] = set()
+    skipped_reasons: list[dict[str, str]] = []
+    if not enabled:
+        return {"fingerprints": fingerprints, "skippedReasons": skipped_reasons}
+
+    identity = bot_identity_or_none()
+    bot_login = identity.login.strip().lower() if identity is not None else ""
+    if not bot_login:
+        skipped_reasons.append({"threadId": "", "reason": "missing_bot_identity"})
+        return {"fingerprints": fingerprints, "skippedReasons": skipped_reasons}
+
+    for thread, reason in provider_review_threads(subject, req):
+        thread_id = string_value(thread.get("id"))
+        if reason:
+            skipped_reasons.append({"threadId": thread_id, "reason": reason})
+            continue
+        marker, marker_reason = provider_marker_for_duplicate_suppression(
+            thread, bot_login=bot_login
+        )
+        if marker is None:
+            skipped_reasons.append({"threadId": thread_id, "reason": marker_reason})
+            continue
+        fingerprints.add(marker.fingerprint)
+        fingerprints.add(marker.stable_fingerprint)
+    return {"fingerprints": fingerprints, "skippedReasons": skipped_reasons}
+
+
+def provider_review_threads(
+    subject: PullRequestSubject, req: gestalt.Request
+) -> list[tuple[Mapping[str, Any], str]]:
+    results: list[tuple[Mapping[str, Any], str]] = []
+    after = ""
+    for _page in range(AUTO_RESOLVE_MAX_THREAD_PAGES):
+        try:
+            response = list_pull_request_review_threads(
+                GitHubListPullRequestReviewThreadsRequest(
+                    owner=subject.owner,
+                    repo=subject.repo,
+                    pull_number=subject.pull_number,
+                    first=100,
+                    after=after,
+                    comments_first=20,
+                    installation_id=subject.installation_id,
+                ),
+                subject=req.subject,
+            )
+        except Exception as err:
+            results.append(({}, f"list_failed: {err}"))
+            break
+
+        raw_threads = response.get("threads")
+        threads = raw_threads if isinstance(raw_threads, list) else []
+        for thread in threads:
+            if isinstance(thread, dict):
+                results.append((thread, ""))
+
+        page_info = object_value(response.get("pageInfo")) or {}
+        if not bool(page_info.get("hasNextPage")):
+            break
+        after = string_value(page_info.get("endCursor"))
+        if not after:
+            results.append(({}, "missing_next_page_cursor"))
+            break
+    else:
+        results.append(({}, "thread_page_limit_reached"))
+    return results
+
+
+def provider_marker_for_duplicate_suppression(
+    thread: Mapping[str, Any], *, bot_login: str
+) -> tuple[ReviewFindingMarker | None, str]:
+    if bool(thread.get("isResolved")):
+        return None, "already_resolved"
+    comments = thread_comments(thread)
+    if not comments:
+        return None, "missing_marker"
+    author_login = string_value(comments[0].get("authorLogin")).lower()
+    if author_login != bot_login:
+        return None, "not_bot_authored"
+    return provider_marker_from_first_comment(comments[0])
+
+
+def thread_comments(thread: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    raw_comments = thread.get("comments")
+    if not isinstance(raw_comments, list):
+        return []
+    return [comment for comment in raw_comments if isinstance(comment, dict)]
+
+
+def has_malformed_thread_comment(thread: Mapping[str, Any]) -> bool:
+    raw_comments = thread.get("comments")
+    return isinstance(raw_comments, list) and any(
+        not isinstance(comment, dict) for comment in raw_comments
     )
 
 
@@ -743,13 +1115,12 @@ def review_thread_resolution_decision(
     if bool(thread.get("commentsTruncated")):
         return "comments_truncated"
 
-    raw_comments = thread.get("comments")
-    comments = raw_comments if isinstance(raw_comments, list) else []
+    if has_malformed_thread_comment(thread):
+        return "malformed_comment"
+    comments = thread_comments(thread)
     if not comments:
         return "missing_marker"
     for comment in comments:
-        if not isinstance(comment, dict):
-            return "malformed_comment"
         author_login = string_value(comment.get("authorLogin")).lower()
         if author_login != bot_login:
             return "human_reply"
@@ -757,7 +1128,10 @@ def review_thread_resolution_decision(
     marker, reason = provider_marker_from_first_comment(comments[0])
     if marker is None:
         return reason
-    if marker.fingerprint in current_fingerprints:
+    if (
+        marker.fingerprint in current_fingerprints
+        or marker.stable_fingerprint in current_fingerprints
+    ):
         return "current_finding"
     return ""
 
@@ -771,11 +1145,18 @@ def provider_marker_from_first_comment(
         return None, "missing_marker"
     fingerprint = match.group("fingerprint")
     source = match.group("source")
+    stable_fingerprint = match.group("stable_fingerprint") or fingerprint
     if not REVIEW_FINDING_FINGERPRINT_RE.fullmatch(fingerprint):
+        return None, "malformed_marker"
+    if not REVIEW_FINDING_FINGERPRINT_RE.fullmatch(stable_fingerprint):
         return None, "malformed_marker"
     if source != REVIEW_FINDING_SOURCE:
         return None, "wrong_marker_source"
-    return ReviewFindingMarker(fingerprint=fingerprint, source=source), ""
+    return ReviewFindingMarker(
+        fingerprint=fingerprint,
+        stable_fingerprint=stable_fingerprint,
+        source=source,
+    ), ""
 
 
 def review_result(
@@ -785,6 +1166,7 @@ def review_result(
     comments: int,
     reason: str = "",
     dropped_findings: int = 0,
+    suppressed_findings: int = 0,
     resolved_threads: Sequence[str] = (),
     skipped_resolution_reasons: Sequence[Mapping[str, str]] = (),
 ) -> dict[str, Any]:
@@ -803,6 +1185,8 @@ def review_result(
         result["reason"] = reason
     if dropped_findings:
         result["droppedFindings"] = dropped_findings
+    if suppressed_findings:
+        result["suppressedFindings"] = suppressed_findings
     return result
 
 

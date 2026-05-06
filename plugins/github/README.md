@@ -57,11 +57,13 @@ connection:
   `bot.listWorkflowRunJobs` inspect CI failures using GitHub's Checks and
   Actions REST interfaces. Use `bot.listCheckSuiteCheckRuns` to expand a
   `check_suite` webhook into specific failed check runs.
+- `bot.createCheckRun` and `bot.updateCheckRun` publish GitHub Checks status
+  for deterministic reviewer workflows.
 
 The bot operations do not require a GitHub user OAuth connection. The GitHub App
 must be installed on the target repository and must have the permissions needed
-for the action, typically Contents write for commits and Pull requests write for
-pull requests and pull request reviews.
+for the action, typically Contents write for commits, Pull requests write for
+pull requests and pull request reviews, and Checks write for check runs.
 
 ## GitHub App Bot Configuration
 
@@ -197,8 +199,8 @@ a field are ORed, and fields are ANDed. Event matching prefers the
 `head_branch`, and push refs. `action.mode` defaults operations as follows:
 `observe` grants read-only pull request and CI tools, `comment` adds
 `bot.createPullRequestReview`, `bot.createPullRequestConversationComment`, and
-`bot.createIssueComment`, `branch_commit` adds `bot.commitFiles`, and
-`pull_request` adds the comment, commit, and pull request tools. Use
+`bot.createIssueComment`, `branch_commit` may add `bot.commitFiles`, and
+`pull_request` may add the comment, commit, and pull request tools. Use
 `bot.createPullRequestReview` for inline file/line PR review comments, the pull
 request conversation operation for PR timeline comments, and the issue comment
 operation for Issues. `allowedOperations` can narrow or replace those defaults;
@@ -206,15 +208,18 @@ an explicit empty list grants no tools. Reaction, label, reviewer-request, and
 review-thread resolution tools are explicit opt-ins through `allowedOperations`.
 Set `action.allowCodeReviewComments: false` to remove PR review comment tools
 even when `mode` or `allowedOperations` would otherwise expose them. Set
-`action.allowSelfFix: false` to remove code-changing self-fix tools
-(`bot.commitFiles`, `bot.openPullRequest`, and `bot.createPullRequest`) from the
-effective tool list.
+`action.selfFixMode` to choose the maximum self-fix behavior allowed by static
+configuration: `disabled` exposes no code-changing tools, `suggest` exposes no
+code-changing tools but allows the agent to describe a patch, `branch_commit`
+can expose `bot.commitFiles` without pull request creation, and `pull_request`
+can expose commit and pull request tools. `action.selfFixMode` defaults to
+`disabled`; the older `action.allowSelfFix` remains a deprecated ceiling.
 
 `actionPreferences` optionally layers per-subject preferences over those static
 gates. The static config values remain hard ceilings: a stored preference can
 disable inline review comments or self-fix for one identity, but it cannot grant
 tools that `mode`, `allowedOperations`, `allowCodeReviewComments`, or
-`allowSelfFix` do not already allow. When `actionPreferences` is omitted, no
+`selfFixMode` do not already allow. When `actionPreferences` is omitted, no
 IndexedDB or authorization lookup is performed and the policy behaves exactly as
 configured.
 
@@ -244,7 +249,7 @@ plugins:
           action:
             mode: pull_request
             allowCodeReviewComments: true
-            allowSelfFix: true
+            selfFixMode: branch_commit
             preferenceSubject: pull_request_author
 ```
 
@@ -270,7 +275,7 @@ POST github.actionPreferences.set
   "policy_id": "pr-review",
   "identity_kind": "external_subject_id",
   "allow_code_review_comments": false,
-  "allow_self_fix": null
+  "self_fix_mode": "suggest"
 }
 ```
 
@@ -301,14 +306,15 @@ webhookPolicies:
     action:
       mode: comment
       allowCodeReviewComments: false
-      allowSelfFix: false
+      selfFixMode: disabled
   - id: manual-pr-review
     match:
       events: [issue_comment, pull_request_review_comment]
       actions: [created]
     trigger:
       frequency: manual_only
-      manualCommands: ["@gestalt review"]
+      manualCommands: ["gestalt review"]
+      manualCommandMatch: exact
     dedupe:
       scope: pr_head
     comments:
@@ -323,6 +329,9 @@ webhookPolicies:
 coalesces equivalent turns for the same PR, `once_per_head_sha` coalesces for a
 PR and head SHA, `once_per_ci_incident` coalesces failed CI events for the same
 PR and head SHA, and `manual_only` only matches configured comment commands.
+`trigger.manualCommandMatch: exact` normalizes whitespace and case but rejects
+suffixes such as `gestalt review verbose=true`; `contains` keeps the legacy
+substring behavior.
 `dedupe.scope` controls the workflow key independently, with the same PR/head/CI
 shapes plus the legacy `delivery` scope. If a requested PR or head SHA is absent
 from a payload, the provider falls back to the legacy event-shaped key so it
@@ -352,15 +361,20 @@ comment-capable modes, `bot.createPullRequestReview`. Add an explicit
 behavior.
 
 `reviewPullRequest` adds hidden provider markers only to inline comments it
-creates itself. By default, after a successful current review, or after an agent
-run produces zero valid findings, it lists unresolved review threads and
-resolves older bot-owned marked threads whose fingerprint is no longer present
-in the current findings. Set `autoResolveStaleFindings: false` on the
-`reviewPullRequest` input to leave old marked threads open. The low-level
-`bot.createPullRequestReview` operation never adds hidden markers unless the
-caller supplies them explicitly, and `bot.resolvePullRequestReviewThread` is not
-included in any default policy mode; expose it with `allowedOperations` only for
-workflows that should be able to resolve threads directly.
+creates itself. Before posting, it lists unresolved bot-owned marked threads and
+suppresses exact or materially identical findings that are already present, so
+it does not repost the same issue on every delivery. By default, after a
+successful current review, or after an agent run produces zero valid findings,
+it resolves older marked threads whose fingerprint is no longer present in the
+current findings. Set `autoResolveStaleFindings: false` on the
+`reviewPullRequest` input to leave old marked threads open. Set
+`publishCheckRun: true` to publish an in-progress check run and complete it as
+success, skipped, action required, or failure with the review result. The
+low-level `bot.createPullRequestReview` operation never adds hidden markers
+unless the caller supplies them explicitly, and
+`bot.resolvePullRequestReviewThread` is not included in any default policy mode;
+expose it with `allowedOperations` only for workflows that should be able to
+resolve threads directly.
 
 Set `workflow.target.plugin` on a policy to dispatch the matched webhook to a
 deterministic workflow/plugin target instead of the generated agent target. The
@@ -369,7 +383,9 @@ through the workflow signal payload and are not merged into `input`. Use
 `plugin: github` with `operation: reviewPullRequest` for the built-in
 workflow-backed PR reviewer; it fetches the PR, validates agent findings against
 changed RIGHT-side diff lines, and posts one inline review only when it has
-line-anchored findings. Workflow providers derive plugin-target access from the
+line-anchored findings. It rejects draft pull requests and only supports exact
+manual `gestalt review`-style comment triggers when invoked from
+`issue_comment` signals. Workflow providers derive plugin-target access from the
 target plugin plus optional `_gestalt.eventRunPermissions` entries in target
 input; include extra permissions only when a target operation calls other
 plugins through the host invoker.
