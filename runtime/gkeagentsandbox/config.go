@@ -19,6 +19,10 @@ const (
 	defaultPluginReadyTimeout  = 30 * time.Second
 	defaultExecTimeout         = 2 * time.Minute
 	defaultCleanupTimeout      = 30 * time.Second
+	defaultSessionTTL          = 2 * time.Hour
+	defaultSessionDrainBefore  = 5 * time.Minute
+	defaultWarmPool            = "none"
+	defaultStaleSessionRetries = 2
 	defaultRuntimeClassName    = "gvisor"
 	defaultCPURequest          = "250m"
 	defaultMemoryRequest       = "512Mi"
@@ -46,6 +50,11 @@ type Config struct {
 	PluginReadyTimeout  time.Duration `yaml:"pluginReadyTimeout,omitempty"`
 	ExecTimeout         time.Duration `yaml:"execTimeout,omitempty"`
 	CleanupTimeout      time.Duration `yaml:"cleanupTimeout,omitempty"`
+	SessionTTL          time.Duration `yaml:"sessionTTL,omitempty"`
+	SessionDrainBefore  time.Duration `yaml:"sessionDrainBefore,omitempty"`
+	WarmPool            string        `yaml:"warmPool,omitempty"`
+	EnforceImageMatch   *bool         `yaml:"enforceTemplateImageMatch,omitempty"`
+	StaleSessionRetries int           `yaml:"staleSessionStartRetries,omitempty"`
 	Direct              DirectConfig  `yaml:"direct,omitempty"`
 }
 
@@ -105,6 +114,8 @@ func normalizeConfigValues(values map[string]any) (map[string]any, error) {
 		"pluginReadyTimeout",
 		"execTimeout",
 		"cleanupTimeout",
+		"sessionTTL",
+		"sessionDrainBefore",
 	} {
 		value, ok := normalized[key]
 		if !ok {
@@ -180,6 +191,19 @@ func (c *Config) Normalize() {
 	if c.CleanupTimeout == 0 {
 		c.CleanupTimeout = defaultCleanupTimeout
 	}
+	if c.SessionTTL == 0 {
+		c.SessionTTL = defaultSessionTTL
+	}
+	if c.SessionDrainBefore == 0 {
+		c.SessionDrainBefore = defaultSessionDrainBefore
+	}
+	c.WarmPool = strings.TrimSpace(c.WarmPool)
+	if c.WarmPool == "" {
+		c.WarmPool = defaultWarmPool
+	}
+	if c.StaleSessionRetries == 0 {
+		c.StaleSessionRetries = defaultStaleSessionRetries
+	}
 	c.Direct.Normalize()
 }
 
@@ -210,6 +234,15 @@ func (c Config) Validate() error {
 	if c.CleanupTimeout < 0 {
 		return fmt.Errorf("gke agent sandbox runtime cleanupTimeout must be non-negative")
 	}
+	if c.SessionTTL < 0 {
+		return fmt.Errorf("gke agent sandbox runtime sessionTTL must be non-negative")
+	}
+	if c.SessionDrainBefore < 0 {
+		return fmt.Errorf("gke agent sandbox runtime sessionDrainBefore must be non-negative")
+	}
+	if c.StaleSessionRetries < 0 {
+		return fmt.Errorf("gke agent sandbox runtime staleSessionStartRetries must be non-negative")
+	}
 	if c.GKE.IsConfigured() && (c.Kubeconfig != "" || c.Context != "") {
 		return fmt.Errorf("gke agent sandbox runtime gke config cannot be combined with kubeconfig or context")
 	}
@@ -217,6 +250,13 @@ func (c Config) Validate() error {
 		return err
 	}
 	return c.Direct.Validate()
+}
+
+func (c Config) EnforceTemplateImageMatch() bool {
+	if c.EnforceImageMatch == nil {
+		return true
+	}
+	return *c.EnforceImageMatch
 }
 
 func (c *GKEConfig) Normalize() {
