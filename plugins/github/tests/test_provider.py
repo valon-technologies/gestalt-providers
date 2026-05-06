@@ -4276,7 +4276,7 @@ class GitHubProviderTests(unittest.TestCase):
                 permissions = body["permissions"]
                 if permissions == {"contents": "write", "pull_requests": "write"}:
                     return FakeHTTPResponse({"token": "write-token"})
-                if permissions == {"pull_requests": "write"}:
+                if permissions == {"contents": "read", "pull_requests": "write"}:
                     return FakeHTTPResponse({"token": "pr-token"})
             if path == "/repos/acme/widgets/git/ref/heads/feature":
                 raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
@@ -4345,6 +4345,71 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             data["pull_request"]["html_url"],
             "https://github.com/acme/widgets/pull/42",
+        )
+
+    def test_open_pull_request_uses_contents_read_for_ref_visibility(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(
+                    body["permissions"],
+                    {"contents": "read", "pull_requests": "write"},
+                )
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/pulls":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body["title"], "Update README")
+                self.assertEqual(body["head"], "feature")
+                self.assertEqual(body["base"], "main")
+                return FakeHTTPResponse(
+                    {
+                        "number": 42,
+                        "title": "Update README",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/pull/42",
+                        "url": "https://api.github.com/repos/acme/widgets/pulls/42",
+                        "head": {"ref": "feature"},
+                        "base": {"ref": "main"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_open_pull_request(
+                provider_module.OpenPullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    head="feature",
+                    base="main",
+                ),
+                github_agent_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        self.assertEqual(data["number"], 42)
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"contents": "read", "pull_requests": "write"}],
         )
 
     def test_close_pull_request_uses_pull_request_write_permission(self) -> None:
