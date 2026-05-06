@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.15"
+	providerVersion      = "0.0.1-alpha.16"
 	sessionStatePending  = "pending"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
