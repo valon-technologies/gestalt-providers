@@ -816,6 +816,8 @@ def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
             raise ValueError(f"{key} must be a positive integer number of seconds")
         if isinstance(value, int):
             seconds = value
+        elif isinstance(value, float) and value.is_integer():
+            seconds = int(value)
         elif isinstance(value, str):
             normalized = value.strip()
             if not normalized:
