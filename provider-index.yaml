@@ -3795,6 +3795,16 @@ packages:
     displayName: "Temporal Workflow"
     description: "Temporal Cloud-backed workflow provider with durable workflow state and schedules."
     versions:
+      "0.0.1-alpha.9":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.9/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
       "0.0.1-alpha.8":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.8/provider-release.yaml"
         kind: "workflow"
