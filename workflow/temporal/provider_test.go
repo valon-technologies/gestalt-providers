@@ -765,6 +765,38 @@ func TestWorkflowStateStoreDeletesScopedWorkflowKeyForTerminalRun(t *testing.T) 
 	}
 }
 
+func TestWorkflowStateStorePutRunIsIdempotentForExistingWorkflowKey(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	run := &proto.BoundWorkflowRun{
+		Id:          "run-1",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:      pluginTarget("slack", "postMessage"),
+		CreatedAt:   timestamppb.Now(),
+		WorkflowKey: "thread-1",
+	}
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("initial putRun: %v", err)
+	}
+	run.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("second putRun: %v", err)
+	}
+	stored, found, err := state.getWorkflowKey(ctx, "thread-1")
+	if err != nil || !found {
+		t.Fatalf("workflow key found=%v err=%v", found, err)
+	}
+	if stored.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		t.Fatalf("stored status = %s, want running", stored.GetStatus())
+	}
+}
+
 func TestMigrateTemporalSchedulesRewritesLegacyActionsAndMirrorsState(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()

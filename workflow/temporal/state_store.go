@@ -214,12 +214,23 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflo
 	if run == nil || strings.TrimSpace(run.GetId()) == "" {
 		return nil
 	}
-	if existing, found, err := s.getRun(ctx, run.GetId()); err != nil {
+	existing, runFound, err := s.getRun(ctx, run.GetId())
+	if err != nil {
 		return err
-	} else if found && workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(run.GetStatus()) {
+	}
+	if runFound && workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(run.GetStatus()) {
 		return nil
 	}
 	now := time.Now().UTC()
+	workflowKey := strings.TrimSpace(run.GetWorkflowKey())
+	keyFound := false
+	if workflowKey != "" && !workflowRunTerminal(run.GetStatus()) {
+		if _, err := s.workflowKeys.Get(ctx, s.scopedID(workflowKey)); err == nil {
+			keyFound = true
+		} else if !errors.Is(err, gestalt.ErrNotFound) {
+			return err
+		}
+	}
 	tx, err := s.db.Transaction(ctx, []string{storeTemporalRuns, storeTemporalWorkflowKeys}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
 	if err != nil {
 		return err
@@ -232,11 +243,20 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflo
 	}()
 	runStore := tx.ObjectStore(storeTemporalRuns)
 	keyStore := tx.ObjectStore(storeTemporalWorkflowKeys)
+	if runFound {
+		if err := runStore.Delete(ctx, s.scopedID(run.GetId())); err != nil {
+			return err
+		}
+	}
 	if err := runStore.Put(ctx, s.runRecord(run, now)); err != nil {
 		return err
 	}
-	workflowKey := strings.TrimSpace(run.GetWorkflowKey())
 	if workflowKey != "" && !workflowRunTerminal(run.GetStatus()) {
+		if keyFound {
+			if err := keyStore.Delete(ctx, s.scopedID(workflowKey)); err != nil {
+				return err
+			}
+		}
 		if err := keyStore.Put(ctx, gestalt.Record{
 			"id":         s.scopedID(workflowKey),
 			"scope_id":   s.scopeID,
