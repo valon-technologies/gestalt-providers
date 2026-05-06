@@ -6182,7 +6182,7 @@
       ],
       "iconUrl": null,
       "kind": "workflow",
-      "latestInstallableVersion": "0.0.1-alpha.46",
+      "latestInstallableVersion": "0.0.1-alpha.47",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/indexeddb/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.47",
       "name": "indexeddb",
@@ -6192,6 +6192,19 @@
       "registryPath": "/providers/workflow/indexeddb/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/workflow/indexeddb",
       "versions": [
+        {
+          "kind": "workflow",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.47/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.47"
+        },
         {
           "kind": "workflow",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.46/provider-release.yaml",
