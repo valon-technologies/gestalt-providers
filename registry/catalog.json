@@ -5364,6 +5364,35 @@
         "entryKind": "runtime",
         "section": "runtime.providers"
       },
+      "description": "Hosted executable-plugin runtime backed by Kubernetes.",
+      "displayName": "Kubernetes Runtime",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/kubernetes/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/runtime/kubernetes/README.md",
+          "sourcePath": "runtime/kubernetes/README.md",
+          "title": "Kubernetes Runtime Provider"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "runtime",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/kubernetes/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "kubernetes",
+      "package": "github.com/valon-technologies/gestalt-providers/runtime/kubernetes",
+      "packagePath": "runtime/kubernetes",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/kubernetes/README.md",
+      "registryPath": "/providers/runtime/kubernetes/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/runtime/kubernetes",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "runtime",
+        "section": "runtime.providers"
+      },
       "description": "Hosted executable-plugin runtime backed by Modal Sandboxes.",
       "displayName": "Modal Runtime",
       "docs": [
