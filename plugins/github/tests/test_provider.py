@@ -225,6 +225,34 @@ def github_agent_request(
     )
 
 
+class GitHubExternalIdentityRequest:
+    def __init__(
+        self,
+        *,
+        external_identity: Mapping[str, str],
+        subject_installation_id: int = 123,
+        subject_repo: str = "acme/other",
+    ) -> None:
+        self.external_identity = dict(external_identity)
+        self.subject = github_request(
+            installation_id=subject_installation_id, repo=subject_repo
+        ).subject
+
+
+def github_external_identity_request(
+    *,
+    identity_type: str = "github_app_installation",
+    identity_id: str = "repo:acme/widgets",
+    subject_installation_id: int = 123,
+    subject_repo: str = "acme/other",
+) -> GitHubExternalIdentityRequest:
+    return GitHubExternalIdentityRequest(
+        external_identity={"type": identity_type, "id": identity_id},
+        subject_installation_id=subject_installation_id,
+        subject_repo=subject_repo,
+    )
+
+
 class RecordingGitHubClient(client_module.GitHubAPIClient):
     def __init__(self) -> None:
         self.tokens: list[tuple[int, tuple[str, ...], dict[str, str]]] = []
@@ -250,6 +278,10 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
             f"{key}:{value}" for key, value in sorted(permissions_dict.items())
         )
         return f"token:{permissions_key}"
+
+    def repository_installation_id(self, owner: str, repo: str) -> int:
+        self.requests.append(("GET", f"/repos/{owner}/{repo}/installation", None, {}))
+        return 99
 
     def github_json(
         self,
@@ -382,37 +414,38 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.addCleanup(provider_module.configure, "github", {})
 
-    def test_resolve_installation_subject_discovers_and_validates_repo(self) -> None:
+    def test_resolve_repository_installation_discovers_and_validates_repo(self) -> None:
         client = RecordingGitHubClient()
 
-        subject = operations_module.resolve_installation_subject(
-            operations_module.GitHubResolveInstallationRequest(
-                owner="acme", repo="widgets"
-            ),
-            client=client,
+        resolution = operations_module.resolve_repository_installation(
+            "acme", "widgets", client=client
         )
 
-        self.assertEqual(subject.installation_id, 99)
-        self.assertEqual(
-            subject.subject_id,
-            "service_account:github_app_installation:99:repo:acme/widgets",
-        )
+        self.assertEqual(resolution.installation_id, 99)
+        self.assertEqual(resolution.owner, "acme")
+        self.assertEqual(resolution.repo, "widgets")
         self.assertEqual(client.tokens, [(99, ("widgets",), {})])
 
-    def test_bot_resolve_installation_returns_service_account_subject(self) -> None:
+    def test_bot_resolve_installation_returns_run_as_identity(self) -> None:
         client = RecordingGitHubClient()
         with mock.patch.object(operations_module, "DEFAULT_GITHUB_CLIENT", client):
             result = provider_module.bot_resolve_installation(
-                provider_module.ResolveInstallationInput(owner="acme", repo="widgets")
+                provider_module.ResolveInstallationInput(owner="acme", repo="widgets"),
+                github_request(),
             )
 
-        installation = result["data"]["installation"]
+        installation = result["data"]
         self.assertEqual(installation["installation_id"], 99)
         self.assertEqual(installation["repository"], "acme/widgets")
         self.assertEqual(
-            installation["subject"]["id"],
+            installation["external_identity"],
+            {"type": "github_app_installation", "id": "repo:acme/widgets"},
+        )
+        self.assertEqual(
+            installation["legacy_subject"],
             "service_account:github_app_installation:99:repo:acme/widgets",
         )
+        self.assertEqual(client.tokens, [(99, ("widgets",), {})])
 
     def test_manifest_declares_github_app_webhook_contract(self) -> None:
         manifest_path = pathlib.Path(__file__).resolve().parents[1] / "manifest.yaml"
@@ -446,7 +479,7 @@ class GitHubProviderTests(unittest.TestCase):
         preference_targets = operations[
             provider_module.ACTION_PREFERENCES_LIST_TARGETS_OPERATION
         ]
-        installation = operations[provider_module.BOT_RESOLVE_INSTALLATION_OPERATION]
+        resolve = operations[provider_module.BOT_RESOLVE_INSTALLATION_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
@@ -471,7 +504,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("workflow targets", event["description"])
         self.assertIn("pull_request workflow signal", review["description"])
         self.assertIn("repositories", preference_targets["description"])
-        self.assertIn("installation", installation["description"])
+        self.assertIn("runAs identities", resolve["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
@@ -487,6 +520,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("check suite", suite_check_runs["description"])
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
+        )
+        self.assertEqual(
+            ["owner", "repo"], [parameter["name"] for parameter in resolve["parameters"]]
         )
         self.assertIn(
             "per_page",
@@ -3043,7 +3079,10 @@ class GitHubProviderTests(unittest.TestCase):
         )
         created_reviews: list[Any] = []
 
-        def fake_create_pull_request_review(request: Any, *, subject: Any) -> Any:
+        def fake_create_pull_request_review(
+            request: Any, *, subject: Any, external_identity: Any = None
+        ) -> Any:
+            self.assertIsNone(external_identity)
             created_reviews.append((request, subject))
             return {
                 "id": 80,
@@ -6694,6 +6733,308 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertIn("delete cannot include content", response.body["error"])
         urlopen.assert_not_called()
+
+    def test_resolve_installation_returns_external_identity_and_legacy_subject(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            calls.append((request.get_method(), request_path(request), auth_header(request)))
+            if request_path(request) == "/repos/acme/widgets/installation":
+                self.assertEqual(request.get_method(), "GET")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                return FakeHTTPResponse({"id": 99})
+            if request_path(request) == "/app/installations/99/access_tokens":
+                self.assertEqual(request.get_method(), "POST")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                self.assertEqual(request_json(request)["repositories"], ["widgets"])
+                return FakeHTTPResponse({"token": "install-token"})
+            self.fail(f"unexpected request {request.get_method()} {request_path(request)}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_resolve_installation(
+                provider_module.ResolveInstallationInput(owner="acme", repo="widgets"),
+                gestalt.Request(),
+            )
+
+        self.assertIsInstance(result, dict)
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["installation_id"], 99)
+        self.assertEqual(
+            data["external_identity"],
+            {"type": "github_app_installation", "id": "repo:acme/widgets"},
+        )
+        self.assertEqual(
+            data["legacy_subject"],
+            "service_account:github_app_installation:99:repo:acme/widgets",
+        )
+        self.assertEqual(
+            calls,
+            [
+                ("GET", "/repos/acme/widgets/installation", "Bearer app-jwt"),
+                ("POST", "/app/installations/99/access_tokens", "Bearer app-jwt"),
+            ],
+        )
+
+    def test_bot_operations_prefer_external_identity_over_legacy_subject(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(
+                    body["permissions"],
+                    {"contents": "read", "pull_requests": "write"},
+                )
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/pulls":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer pr-token")
+                self.assertEqual(body["head"], "feature")
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "title": "Update README",
+                        "state": "open",
+                        "html_url": "https://github.example/acme/widgets/pull/7",
+                        "url": "https://api.github.example/repos/acme/widgets/pulls/7",
+                        "head": {"ref": "feature", "sha": "head-sha"},
+                        "base": {"ref": "main", "sha": "base-sha"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_open_pull_request(
+                provider_module.OpenPullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    head="feature",
+                    base="main",
+                    installation_id=99,
+                ),
+                github_external_identity_request(
+                    subject_installation_id=123, subject_repo="acme/other"
+                ),
+            )
+
+        self.assertIsInstance(result, dict)
+        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        self.assertEqual(data["number"], 7)
+        self.assertEqual(
+            [call[1] for call in calls],
+            [
+                "/repos/acme/widgets/installation",
+                "/app/installations/99/access_tokens",
+                "/repos/acme/widgets/pulls",
+            ],
+        )
+
+    def test_bot_operations_treat_empty_external_identity_as_absent(self) -> None:
+        calls: list[str] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            calls.append(path)
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(request.get_method(), "POST")
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues/7/comments":
+                self.assertEqual(request.get_method(), "POST")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                return FakeHTTPResponse(
+                    {
+                        "id": 11,
+                        "body": "Looks good.",
+                        "html_url": "https://github.example/acme/widgets/issues/7#issuecomment-11",
+                    }
+                )
+            self.fail(f"unexpected request {request.get_method()} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_create_issue_comment(
+                provider_module.CreateIssueCommentInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=7,
+                    body="Looks good.",
+                    installation_id=99,
+                ),
+                GitHubExternalIdentityRequest(
+                    external_identity={"type": "", "id": ""},
+                    subject_installation_id=99,
+                    subject_repo="acme/widgets",
+                ),
+            )
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(
+            calls,
+            [
+                "/app/installations/99/access_tokens",
+                "/repos/acme/widgets/issues/7/comments",
+            ],
+        )
+
+    def test_external_identity_invalid_mismatch_and_unresolvable_fail_closed(
+        self,
+    ) -> None:
+        valid_legacy_request = github_external_identity_request(
+            subject_installation_id=99, subject_repo="acme/widgets"
+        )
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_create_issue_comment(
+                provider_module.CreateIssueCommentInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=7,
+                    body="Looks broken.",
+                    installation_id=99,
+                ),
+                github_external_identity_request(
+                    identity_type="github_identity",
+                    identity_id="repo:acme/widgets",
+                    subject_installation_id=99,
+                    subject_repo="acme/widgets",
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("external_identity.type", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_create_issue_comment(
+                provider_module.CreateIssueCommentInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=7,
+                    body="Looks broken.",
+                    installation_id=99,
+                ),
+                github_external_identity_request(
+                    identity_id="repo:acme/other",
+                    subject_installation_id=99,
+                    subject_repo="acme/widgets",
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("external_identity.id", response.body["error"])
+        urlopen.assert_not_called()
+
+        calls: list[str] = []
+
+        def unresolved_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            calls.append(request_path(request))
+            if request_path(request) == "/repos/acme/widgets/installation":
+                raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
+            self.fail(f"unexpected request {request.get_method()} {request_path(request)}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen",
+                side_effect=unresolved_urlopen,
+            ),
+        ):
+            result = provider_module.bot_create_issue_comment(
+                provider_module.CreateIssueCommentInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=7,
+                    body="Looks broken.",
+                    installation_id=99,
+                ),
+                valid_legacy_request,
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("could not be resolved", response.body["error"])
+        self.assertEqual(calls, ["/repos/acme/widgets/installation"])
+
+        calls = []
+
+        def explicit_mismatch_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            calls.append(request_path(request))
+            if request_path(request) == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            self.fail(f"unexpected request {request.get_method()} {request_path(request)}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen",
+                side_effect=explicit_mismatch_urlopen,
+            ),
+        ):
+            result = provider_module.bot_open_pull_request(
+                provider_module.OpenPullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    head="feature",
+                    base="main",
+                    installation_id=100,
+                ),
+                valid_legacy_request,
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertIn("installation_id", response.body["error"])
+        self.assertEqual(calls, ["/repos/acme/widgets/installation"])
 
     def test_bot_operations_require_matching_installation_subject(self) -> None:
         with mock.patch("internals.client.urllib.request.urlopen") as urlopen:

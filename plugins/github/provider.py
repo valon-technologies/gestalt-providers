@@ -82,7 +82,6 @@ from internals.operations import (
     GitHubRemoveLabelsRequest,
     GitHubRequestReviewersRequest,
     GitHubResolvePullRequestReviewThreadRequest,
-    GitHubResolveInstallationRequest,
     GitHubUpdateCheckRunRequest,
     GitHubWorkflowRunRequest,
     add_labels,
@@ -100,8 +99,8 @@ from internals.operations import (
     get_check_run,
     get_pull_request,
     get_workflow_run,
-    installation_subject_summary,
     issue_comment_summary,
+    installation_resolution_dict,
     label_summary,
     list_check_suite_check_runs,
     list_check_run_annotations,
@@ -116,8 +115,8 @@ from internals.operations import (
     remove_labels,
     request_reviewers,
     resolve_pull_request_review_thread,
-    resolve_installation_subject,
     update_check_run,
+    resolve_repository_installation,
     workflow_run_job_summary,
     workflow_run_summary,
 )
@@ -217,7 +216,7 @@ class CommitFilesInput(gestalt.Model):
         required=False,
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -267,7 +266,7 @@ class OpenPullRequestInput(gestalt.Model):
         description="Pull request body", default="", required=False
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -322,7 +321,7 @@ class CreatePullRequestInput(gestalt.Model):
         required=False,
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -371,7 +370,7 @@ class CreateIssueCommentInput(gestalt.Model):
     issue_number: int = gestalt.field(description="Issue number")
     body: str = gestalt.field(description="Comment body")
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -383,7 +382,7 @@ class CreatePullRequestConversationCommentInput(gestalt.Model):
     pull_number: int = gestalt.field(description="Pull request number")
     body: str = gestalt.field(description="Comment body")
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -434,7 +433,7 @@ class CreatePullRequestReviewInput(gestalt.Model):
         required=False,
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -653,7 +652,7 @@ class GetPullRequestInput(gestalt.Model):
     repo: str = gestalt.field(description="Repository name")
     pull_number: int = gestalt.field(description="Pull request number")
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -672,7 +671,7 @@ class ListPullRequestFilesInput(gestalt.Model):
         description="Page number, starting at 1", default=0, required=False
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -683,7 +682,7 @@ class GetCheckRunInput(gestalt.Model):
     repo: str = gestalt.field(description="Repository name")
     check_run_id: int = gestalt.field(description="GitHub check run ID")
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -780,7 +779,7 @@ class ListCheckRunAnnotationsInput(gestalt.Model):
         description="Page number, starting at 1", default=0, required=False
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -823,7 +822,7 @@ class GetWorkflowRunInput(gestalt.Model):
     repo: str = gestalt.field(description="Repository name")
     run_id: int = gestalt.field(description="GitHub Actions workflow run ID")
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -847,7 +846,7 @@ class ListWorkflowRunJobsInput(gestalt.Model):
         description="Page number, starting at 1", default=0, required=False
     )
     installation_id: int = gestalt.field(
-        description="GitHub App installation ID. If omitted, it is taken from the webhook service account subject.",
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
         default=0,
         required=False,
     )
@@ -1363,20 +1362,20 @@ def github_action_preferences_delete(
 @plugin.operation(
     id=BOT_RESOLVE_INSTALLATION_OPERATION,
     method="GET",
-    description="Resolve the GitHub App installation service-account subject for a repository",
+    description="Resolve the GitHub App installation and runAs identities for a repository",
 )
-def bot_resolve_installation(input: ResolveInstallationInput) -> OperationResult:
+def bot_resolve_installation(
+    input: ResolveInstallationInput, _req: gestalt.Request
+) -> OperationResult:
     try:
-        subject = resolve_installation_subject(
-            GitHubResolveInstallationRequest(owner=input.owner, repo=input.repo)
-        )
+        resolution = resolve_repository_installation(input.owner, input.repo)
     except ValueError as err:
         return _bad_request(str(err))
     except GitHubConfigError as err:
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"installation": installation_subject_summary(subject)}}
+    return {"data": installation_resolution_dict(resolution)}
 
 
 @plugin.operation(
@@ -1390,6 +1389,7 @@ def bot_commit_files(input: CommitFilesInput, req: gestalt.Request) -> Operation
             _commit_request_from_input(input, req),
             subject=req.subject,
             pull_request_permissions=False,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1426,6 +1426,7 @@ def bot_open_pull_request(
                 maintainer_can_modify=input.maintainer_can_modify,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1456,6 +1457,7 @@ def bot_close_pull_request(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1503,6 +1505,7 @@ def bot_create_pull_request(
                 maintainer_can_modify=input.maintainer_can_modify,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1538,6 +1541,7 @@ def bot_create_issue_comment(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1571,6 +1575,7 @@ def bot_create_pull_request_review(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1604,6 +1609,7 @@ def bot_list_pull_request_review_threads(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1635,6 +1641,7 @@ def bot_resolve_pull_request_review_thread(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1666,6 +1673,7 @@ def bot_add_reaction(input: AddReactionInput, req: gestalt.Request) -> Operation
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1696,6 +1704,7 @@ def bot_add_labels(input: AddLabelsInput, req: gestalt.Request) -> OperationResu
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1728,6 +1737,7 @@ def bot_remove_labels(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1765,6 +1775,7 @@ def bot_request_reviewers(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1795,6 +1806,7 @@ def bot_create_pull_request_conversation_comment(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1825,6 +1837,7 @@ def bot_get_pull_request(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1857,6 +1870,7 @@ def bot_list_pull_request_files(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1889,6 +1903,7 @@ def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> Operatio
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1924,6 +1939,7 @@ def bot_create_check_run(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1959,6 +1975,7 @@ def bot_update_check_run(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1993,6 +2010,7 @@ def bot_list_check_suite_check_runs(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -2036,6 +2054,7 @@ def bot_list_check_run_annotations(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -2072,6 +2091,7 @@ def bot_get_workflow_run(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -2104,6 +2124,7 @@ def bot_list_workflow_run_jobs(
                 installation_id=input.installation_id,
             ),
             subject=req.subject,
+            external_identity=_request_external_identity(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -2173,6 +2194,13 @@ def _github_user_id_from_external_identity(identity_id: str) -> str:
     if prefix != "user":
         return ""
     return user_id.strip()
+
+
+def _request_external_identity(req: gestalt.Request) -> Any:
+    # This is the delegated GitHub App installation identity authorized by the
+    # host. Do not fall back to agent_external_identity; that field identifies
+    # the original agent caller's GitHub user.
+    return getattr(req, "external_identity", None)
 
 
 def _file_changes_from_input(

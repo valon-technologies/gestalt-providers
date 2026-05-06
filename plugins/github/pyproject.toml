@@ -42,6 +42,7 @@ vulture-ignore-names = [
   "checkRunName",
   "turnTimeoutMs",
   "pollIntervalMs",
+  "bot_resolve_installation",
   "bot_commit_files",
   "bot_resolve_installation",
   "bot_open_pull_request",

@@ -10,6 +10,7 @@ GITHUB_EXTERNAL_IDENTITY_TYPE = "github_identity"
 GITHUB_EVENT_OPERATION = "events.handle"
 REVIEW_PULL_REQUEST_OPERATION = "reviewPullRequest"
 ACTION_PREFERENCES_LIST_TARGETS_OPERATION = "actionPreferences.listTargets"
+BOT_RESOLVE_INSTALLATION_OPERATION = "bot.resolveInstallation"
 BOT_COMMIT_FILES_OPERATION = "bot.commitFiles"
 BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CLOSE_PULL_REQUEST_OPERATION = "bot.closePullRequest"
@@ -34,7 +35,6 @@ BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION = "bot.listCheckSuiteCheckRuns"
 BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION = "bot.listCheckRunAnnotations"
 BOT_GET_WORKFLOW_RUN_OPERATION = "bot.getWorkflowRun"
 BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION = "bot.listWorkflowRunJobs"
-BOT_RESOLVE_INSTALLATION_OPERATION = "bot.resolveInstallation"
 
 BOT_OPERATION_ORDER = (
     BOT_RESOLVE_INSTALLATION_OPERATION,
@@ -118,6 +118,7 @@ GITHUB_WORKFLOW_SIGNAL_NAME = "github.app.webhook"
 # provider-owned installation reference before supporting more delegation cases.
 GITHUB_INSTALLATION_SUBJECT_PREFIX = "service_account:github_app_installation:"
 GITHUB_REPOSITORY_SUBJECT_SEPARATOR = ":repo:"
+GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE = "github_app_installation"
 
 DEFAULT_WEBHOOK_EVENTS = (
     "check_run",

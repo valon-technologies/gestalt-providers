@@ -148,7 +148,7 @@ operations:
     default: ''
 - id: bot.resolveInstallation
   method: GET
-  description: Resolve the GitHub App installation service-account subject for a repository
+  description: Resolve the GitHub App installation and runAs identities for a repository
   parameters:
   - name: owner
     type: string
@@ -190,8 +190,8 @@ operations:
     default: ''
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
   - name: coauthors
     type: array
@@ -257,8 +257,8 @@ operations:
     default: ''
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
   - name: head_owner
     type: string
@@ -335,8 +335,8 @@ operations:
     default: ''
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
   - name: coauthors
     type: array
@@ -394,8 +394,8 @@ operations:
     required: true
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.listPullRequestFiles
   method: GET
@@ -425,8 +425,8 @@ operations:
     default: 0
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.createPullRequestReview
   method: POST
@@ -461,8 +461,8 @@ operations:
     default: ''
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.listPullRequestReviewThreads
   method: GET
@@ -549,8 +549,8 @@ operations:
     required: true
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.createIssueComment
   method: POST
@@ -574,8 +574,8 @@ operations:
     required: true
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.addReaction
   method: POST
@@ -733,8 +733,8 @@ operations:
     required: true
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.createCheckRun
   method: POST
@@ -895,8 +895,8 @@ operations:
     default: 0
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.getWorkflowRun
   method: GET
@@ -916,8 +916,8 @@ operations:
     required: true
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
 - id: bot.listWorkflowRunJobs
   method: GET
@@ -950,6 +950,6 @@ operations:
     default: 0
   - name: installation_id
     type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
     default: 0
