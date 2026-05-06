@@ -7,6 +7,7 @@ import re
 import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Any
 
 from .client import (
@@ -16,6 +17,7 @@ from .client import (
     repo_path,
 )
 from .constants import (
+    GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE,
     GITHUB_INSTALLATION_SUBJECT_PREFIX,
     GITHUB_REPOSITORY_SUBJECT_SEPARATOR,
     MAX_GITHUB_PATCH_CHARS,
@@ -311,12 +313,6 @@ class GitHubListWorkflowRunJobsRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class GitHubResolveInstallationRequest:
-    owner: str
-    repo: str
-
-
-@dataclass(frozen=True, slots=True)
 class CommitResult:
     owner: str
     repo: str
@@ -456,45 +452,10 @@ class GitHubSubjectScope:
 
 
 @dataclass(frozen=True, slots=True)
-class GitHubInstallationSubject:
-    installation_id: int
+class GitHubInstallationResolution:
     owner: str
     repo: str
-    subject_id: str
-    subject_kind: str = "service_account"
-    auth_source: str = "github_app_webhook"
-
-
-def resolve_installation_subject(
-    request: GitHubResolveInstallationRequest,
-    *,
-    client: GitHubAPIClient | None = None,
-) -> GitHubInstallationSubject:
-    github = github_client(client)
-    owner = require_slug(request.owner, "owner")
-    repo = require_slug(request.repo, "repo")
-    installation = github.repository_installation(owner, repo)
-    installation_id = int_field(installation, "id")
-    if installation_id <= 0:
-        raise GitHubAPIError(502, "GitHub installation response did not include id")
-
-    # Mint a repo-restricted token to validate that this app installation can act on the repo.
-    github.installation_token(installation_id, repositories=[repo])
-    repository = f"{owner}/{repo}"
-    # TODO(hughhan1): This mirrors github_scope_from_subject's string parser.
-    # The expected subject format is
-    # `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
-    # That is a brittle cross-component contract; prefer a structured
-    # installation reference or provider-owned service-account registry.
-    return GitHubInstallationSubject(
-        installation_id=installation_id,
-        owner=owner,
-        repo=repo,
-        subject_id=(
-            f"{GITHUB_INSTALLATION_SUBJECT_PREFIX}{installation_id}"
-            f"{GITHUB_REPOSITORY_SUBJECT_SEPARATOR}{repository}"
-        ),
-    )
+    installation_id: int
 
 
 def commit_files(
@@ -502,17 +463,13 @@ def commit_files(
     *,
     subject: Any,
     pull_request_permissions: bool,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> CommitResult:
     github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
-    message = commit_message_with_coauthors(
-        require_text(request.message, "message"),
-        coauthors=request.coauthors,
-        include_bot=request.include_bot_coauthor,
-        client=github,
-    )
+    message_text = require_text(request.message, "message")
     files = normalize_file_changes(request.files)
     if not files:
         raise ValueError("files must contain at least one change")
@@ -529,7 +486,18 @@ def commit_files(
     )
 
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
+    )
+    message = commit_message_with_coauthors(
+        message_text,
+        coauthors=request.coauthors,
+        include_bot=request.include_bot_coauthor,
+        client=github,
     )
     permissions = {"contents": "write"}
     if pull_request_permissions:
@@ -632,6 +600,7 @@ def open_pull_request(
     request: GitHubOpenPullRequestRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -642,7 +611,12 @@ def open_pull_request(
     base = require_branch_name(request.base, "base")
     head_owner = optional_slug(request.head_owner, "head_owner")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id,
@@ -668,6 +642,7 @@ def close_pull_request(
     request: GitHubPullRequestRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -675,7 +650,12 @@ def close_pull_request(
     repo = require_slug(request.repo, "repo")
     pull_number = require_positive_int(request.pull_number, "pull_number")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id,
@@ -694,6 +674,7 @@ def create_pull_request_with_files(
     request: GitHubCreatePullRequestRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> CreatePullRequestResult:
     github = github_client(client)
@@ -717,6 +698,7 @@ def create_pull_request_with_files(
         ),
         subject=subject,
         pull_request_permissions=True,
+        external_identity=external_identity,
         client=github,
     )
     token = github.installation_token(
@@ -773,6 +755,7 @@ def create_issue_comment(
     request: GitHubCreateIssueCommentRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -781,7 +764,12 @@ def create_issue_comment(
     issue_number = require_positive_int(request.issue_number, "issue_number")
     body = require_text(request.body, "body")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     path = repo_path(owner, repo, "issues", str(issue_number), "comments")
     token = github.installation_token(
@@ -799,6 +787,7 @@ def add_reaction(
     request: GitHubAddReactionRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -809,7 +798,12 @@ def add_reaction(
     )
     content = require_reaction_content(request.content)
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
 
     if subject_type == REACTION_ISSUE:
@@ -841,6 +835,7 @@ def add_labels(
     request: GitHubAddLabelsRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -853,7 +848,12 @@ def add_labels(
     )
     labels = normalize_unique_strings(request.labels, "labels")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions=permissions
@@ -871,6 +871,7 @@ def remove_labels(
     request: GitHubRemoveLabelsRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> tuple[tuple[str, ...], list[JsonObject]]:
     github = github_client(client)
@@ -883,7 +884,12 @@ def remove_labels(
     )
     labels = normalize_unique_strings(request.labels, "labels")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions=permissions
@@ -903,6 +909,7 @@ def request_reviewers(
     request: GitHubRequestReviewersRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -916,7 +923,12 @@ def request_reviewers(
     if not reviewers and not team_reviewers:
         raise ValueError("reviewers or team_reviewers must contain at least one value")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     payload: JsonObject = {}
     if reviewers:
@@ -938,6 +950,7 @@ def create_pull_request_conversation_comment(
     request: GitHubCreatePullRequestConversationCommentRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -946,7 +959,12 @@ def create_pull_request_conversation_comment(
     pull_number = require_positive_int(request.pull_number, "pull_number")
     body = require_text(request.body, "body")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     path = repo_path(owner, repo, "issues", str(pull_number), "comments")
     token = github.installation_token(
@@ -964,6 +982,7 @@ def create_pull_request_review(
     request: GitHubCreatePullRequestReviewRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -975,7 +994,12 @@ def create_pull_request_review(
     if not comments:
         raise ValueError("comments must contain at least one comment")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     payload: JsonObject = {
         "body": body,
@@ -998,6 +1022,7 @@ def list_pull_request_review_threads(
     request: GitHubListPullRequestReviewThreadsRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1009,7 +1034,12 @@ def list_pull_request_review_threads(
         request.comments_first, "comments_first", 20, 50
     )
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     variables: JsonObject = {
         "owner": owner,
@@ -1060,6 +1090,7 @@ def resolve_pull_request_review_thread(
     request: GitHubResolvePullRequestReviewThreadRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1068,7 +1099,12 @@ def resolve_pull_request_review_thread(
     pull_number = require_positive_int(request.pull_number, "pull_number")
     thread_id = require_text(request.thread_id, "thread_id")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"pull_requests": "write"}
@@ -1111,6 +1147,7 @@ def get_pull_request(
     request: GitHubPullRequestRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1118,7 +1155,12 @@ def get_pull_request(
     repo = require_slug(request.repo, "repo")
     pull_number = require_positive_int(request.pull_number, "pull_number")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"pull_requests": "read"}
@@ -1134,6 +1176,7 @@ def list_pull_request_files(
     request: GitHubListPullRequestFilesRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1142,7 +1185,12 @@ def list_pull_request_files(
     pull_number = require_positive_int(request.pull_number, "pull_number")
     params = pagination_params(per_page=request.per_page, page=request.page)
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"pull_requests": "read"}
@@ -1164,6 +1212,7 @@ def create_check_run(
     request: GitHubCreateCheckRunRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1181,7 +1230,12 @@ def create_check_run(
         output=request.output,
     )
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "write"}
@@ -1198,6 +1252,7 @@ def update_check_run(
     request: GitHubUpdateCheckRunRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1214,7 +1269,12 @@ def update_check_run(
         require_any=True,
     )
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "write"}
@@ -1231,6 +1291,7 @@ def get_check_run(
     request: GitHubCheckRunRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1238,7 +1299,12 @@ def get_check_run(
     repo = require_slug(request.repo, "repo")
     check_run_id = require_positive_int(request.check_run_id, "check_run_id")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "read"}
@@ -1254,6 +1320,7 @@ def list_check_suite_check_runs(
     request: GitHubListCheckSuiteCheckRunsRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1285,7 +1352,12 @@ def list_check_suite_check_runs(
         params["filter"] = filter_value
     params.update(pagination_params(per_page=request.per_page, page=request.page))
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "read"}
@@ -1304,6 +1376,7 @@ def list_check_run_annotations(
     request: GitHubListCheckRunAnnotationsRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1311,7 +1384,12 @@ def list_check_run_annotations(
     repo = require_slug(request.repo, "repo")
     check_run_id = require_positive_int(request.check_run_id, "check_run_id")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "read"}
@@ -1335,6 +1413,7 @@ def get_workflow_run(
     request: GitHubWorkflowRunRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1342,7 +1421,12 @@ def get_workflow_run(
     repo = require_slug(request.repo, "repo")
     run_id = require_positive_int(request.run_id, "run_id")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"actions": "read"}
@@ -1358,6 +1442,7 @@ def list_workflow_run_jobs(
     request: GitHubListWorkflowRunJobsRequest,
     *,
     subject: Any,
+    external_identity: Any = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1368,7 +1453,12 @@ def list_workflow_run_jobs(
     if filter_value and filter_value not in {"latest", "all"}:
         raise ValueError("filter must be either 'latest' or 'all'")
     installation_id = scoped_installation_id(
-        subject, owner=owner, repo=repo, explicit=request.installation_id
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
     )
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"actions": "read"}
@@ -1632,14 +1722,31 @@ def pull_request_review_comment_payload(
 
 
 def scoped_installation_id(
-    subject: Any, *, owner: str, repo: str, explicit: int
+    subject: Any,
+    *,
+    owner: str,
+    repo: str,
+    explicit: int,
+    external_identity: Any = None,
+    client: GitHubAPIClient | None = None,
 ) -> int:
+    explicit_id = optional_positive_int(explicit, "installation_id")
+    external_identity = non_empty_external_identity(external_identity)
+    if external_identity is not None:
+        return scoped_installation_id_from_external_identity(
+            external_identity,
+            owner=owner,
+            repo=repo,
+            explicit=explicit_id,
+            client=client,
+        )
+
     scope = github_scope_from_subject(subject)
     if scope.installation_id <= 0:
         raise GitHubAuthorizationError(
             "GitHub bot operations require a GitHub App installation service account subject"
         )
-    if explicit > 0 and explicit != scope.installation_id:
+    if explicit_id > 0 and explicit_id != scope.installation_id:
         raise GitHubAuthorizationError(
             "installation_id must match the caller's GitHub App installation subject"
         )
@@ -1652,7 +1759,114 @@ def scoped_installation_id(
         raise GitHubAuthorizationError(
             "repository must match the caller's GitHub App webhook subject"
         )
-    return explicit or scope.installation_id
+    return explicit_id or scope.installation_id
+
+
+def scoped_installation_id_from_external_identity(
+    external_identity: Any,
+    *,
+    owner: str,
+    repo: str,
+    explicit: int,
+    client: GitHubAPIClient | None = None,
+) -> int:
+    identity_type = external_identity_field(external_identity, "type")
+    if identity_type != GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE:
+        raise GitHubAuthorizationError(
+            "external_identity.type must be github_app_installation"
+        )
+
+    identity_id = external_identity_field(external_identity, "id")
+    expected_id = github_app_installation_external_identity_id(owner, repo)
+    if identity_id.lower() != expected_id.lower():
+        raise GitHubAuthorizationError(
+            "external_identity.id must match the requested GitHub repository"
+        )
+
+    try:
+        installation_id = github_client(client).repository_installation_id(owner, repo)
+    except GitHubAPIError as err:
+        if err.status == HTTPStatus.NOT_FOUND:
+            raise GitHubAuthorizationError(
+                "GitHub App installation could not be resolved for external_identity.id"
+            ) from err
+        raise
+    if explicit > 0 and explicit != installation_id:
+        raise GitHubAuthorizationError(
+            "installation_id must match the GitHub App installation resolved from external_identity"
+        )
+    return installation_id
+
+
+def non_empty_external_identity(external_identity: Any) -> Any | None:
+    if external_identity is None:
+        return None
+    if (
+        not external_identity_field(external_identity, "type")
+        and not external_identity_field(external_identity, "id")
+    ):
+        return None
+    return external_identity
+
+
+def external_identity_field(external_identity: Any, field: str) -> str:
+    if isinstance(external_identity, Mapping):
+        value = external_identity.get(field)
+    else:
+        value = getattr(external_identity, field, None)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def resolve_repository_installation(
+    owner: str, repo: str, *, client: GitHubAPIClient | None = None
+) -> GitHubInstallationResolution:
+    github = github_client(client)
+    normalized_owner = require_slug(owner, "owner")
+    normalized_repo = require_slug(repo, "repo")
+    installation_id = github.repository_installation_id(normalized_owner, normalized_repo)
+    # Mint a repo-restricted token so the resolver proves the app can act on
+    # the repository before returning an install/runAs contract to config.
+    github.installation_token(installation_id, repositories=[normalized_repo])
+    return GitHubInstallationResolution(
+        owner=normalized_owner,
+        repo=normalized_repo,
+        installation_id=installation_id,
+    )
+
+
+def github_app_installation_external_identity_id(owner: str, repo: str) -> str:
+    return f"repo:{owner}/{repo}"
+
+
+def legacy_github_installation_subject(
+    installation_id: int, owner: str, repo: str
+) -> str:
+    return (
+        f"{GITHUB_INSTALLATION_SUBJECT_PREFIX}{installation_id}"
+        f"{GITHUB_REPOSITORY_SUBJECT_SEPARATOR}{owner}/{repo}"
+    )
+
+
+def installation_resolution_dict(
+    resolution: GitHubInstallationResolution,
+) -> dict[str, Any]:
+    external_identity = {
+        "type": GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE,
+        "id": github_app_installation_external_identity_id(
+            resolution.owner, resolution.repo
+        ),
+    }
+    legacy_subject = legacy_github_installation_subject(
+        resolution.installation_id, resolution.owner, resolution.repo
+    )
+    return {
+        "owner": resolution.owner,
+        "repo": resolution.repo,
+        "repository": f"{resolution.owner}/{resolution.repo}",
+        "installation_id": resolution.installation_id,
+        "external_identity": external_identity,
+        "legacy_subject": legacy_subject,
+    }
 
 
 def github_scope_from_subject(subject: Any) -> GitHubSubjectScope:
@@ -1941,20 +2155,6 @@ def workflow_run_job_summary(job: Mapping[str, Any]) -> dict[str, Any]:
             "completed_at": str_field(job, "completed_at"),
         }
     )
-
-
-def installation_subject_summary(subject: GitHubInstallationSubject) -> dict[str, Any]:
-    return {
-        "installation_id": subject.installation_id,
-        "owner": subject.owner,
-        "repo": subject.repo,
-        "repository": f"{subject.owner}/{subject.repo}",
-        "subject": {
-            "id": subject.subject_id,
-            "kind": subject.subject_kind,
-            "auth_source": subject.auth_source,
-        },
-    }
 
 
 def pagination_params(*, per_page: int, page: int) -> dict[str, Any]:

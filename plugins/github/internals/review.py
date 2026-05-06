@@ -152,6 +152,7 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
         return skipped_result("missing_pull_request_subject")
 
     check_run: Mapping[str, Any] | None = None
+    identity_kwargs = request_external_identity_kwargs(req)
     pull_request = get_pull_request(
         GitHubPullRequestRequest(
             owner=subject.owner,
@@ -160,6 +161,7 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
+        **identity_kwargs,
     )
     pull_summary = pull_request_summary(pull_request)
     if settings.publish_check_run and not settings.dry_run:
@@ -210,6 +212,7 @@ def _review_pull_request_after_fetch(
     pull_summary: Mapping[str, Any],
     check_run: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
+    identity_kwargs = request_external_identity_kwargs(req)
     raw_files = list_pull_request_files(
         GitHubListPullRequestFilesRequest(
             owner=subject.owner,
@@ -220,6 +223,7 @@ def _review_pull_request_after_fetch(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
+        **identity_kwargs,
     )
     files = review_files(raw_files, settings)
     if not files:
@@ -320,6 +324,7 @@ def _review_pull_request_after_fetch(
                 ),
             ),
             subject=req.subject,
+            **identity_kwargs,
         )
     resolution = auto_resolve_stale_findings(
         subject,
@@ -409,6 +414,15 @@ def input_value(input: Any, key: str) -> Any:
     return getattr(input, key, None)
 
 
+def request_external_identity_kwargs(req: gestalt.Request) -> dict[str, Any]:
+    external_identity = getattr(req, "external_identity", None)
+    return (
+        {"external_identity": external_identity}
+        if external_identity is not None
+        else {}
+    )
+
+
 def create_review_check_run(
     subject: PullRequestSubject,
     req: gestalt.Request,
@@ -432,6 +446,7 @@ def create_review_check_run(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
+        **request_external_identity_kwargs(req),
     )
 
 
@@ -460,6 +475,7 @@ def complete_review_check_run(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
+        **request_external_identity_kwargs(req),
     )
 
 
@@ -936,6 +952,7 @@ def provider_review_threads(
 ) -> list[tuple[Mapping[str, Any], str]]:
     results: list[tuple[Mapping[str, Any], str]] = []
     after = ""
+    identity_kwargs = request_external_identity_kwargs(req)
     for _page in range(AUTO_RESOLVE_MAX_THREAD_PAGES):
         try:
             response = list_pull_request_review_threads(
@@ -949,6 +966,7 @@ def provider_review_threads(
                     installation_id=subject.installation_id,
                 ),
                 subject=req.subject,
+                **identity_kwargs,
             )
         except Exception as err:
             results.append(({}, f"list_failed: {err}"))
@@ -1025,6 +1043,7 @@ def auto_resolve_stale_findings(
         }
 
     after = ""
+    identity_kwargs = request_external_identity_kwargs(req)
     for _page in range(AUTO_RESOLVE_MAX_THREAD_PAGES):
         try:
             response = list_pull_request_review_threads(
@@ -1038,6 +1057,7 @@ def auto_resolve_stale_findings(
                     installation_id=subject.installation_id,
                 ),
                 subject=req.subject,
+                **identity_kwargs,
             )
         except Exception as err:
             skipped_reasons.append(
@@ -1076,6 +1096,7 @@ def auto_resolve_stale_findings(
                         installation_id=subject.installation_id,
                     ),
                     subject=req.subject,
+                    **identity_kwargs,
                 )
             except Exception as err:
                 skipped_reasons.append(

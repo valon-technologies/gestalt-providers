@@ -48,6 +48,8 @@ class GitHubAPIClient(Protocol):
         permissions: GitHubPermissions | None = None,
     ) -> str: ...
 
+    def repository_installation_id(self, owner: str, repo: str) -> int: ...
+
     def github_json(
         self,
         method: str,
@@ -118,6 +120,9 @@ class GitHubAppClient:
             repositories=repositories,
             permissions=permissions,
         )
+
+    def repository_installation_id(self, owner: str, repo: str) -> int:
+        return repository_installation_id(owner, repo)
 
     def github_json(
         self,
@@ -275,6 +280,20 @@ def installation_token(
     if not token:
         raise GitHubAPIError(502, "GitHub access token response did not include token")
     return token
+
+
+def repository_installation_id(owner: str, repo: str) -> int:
+    data = github_json(
+        "GET",
+        repo_path(owner, repo, "installation"),
+        create_app_jwt(),
+    )
+    installation_id = int_field(data, "id")
+    if installation_id <= 0:
+        raise GitHubAPIError(
+            502, "GitHub repository installation response did not include id"
+        )
+    return installation_id
 
 
 def create_app_jwt() -> str:

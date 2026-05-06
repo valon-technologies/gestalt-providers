@@ -501,11 +501,19 @@ plugins:
 
 ## Bot Operation Interfaces
 
-Bot write operations are scoped to the verified webhook service account subject:
-`service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`. If
-`installation_id` is omitted, the operation uses the service account subject
-installation. If it is supplied, it must match the service account subject. The target
-`owner` and `repo` must also match the repository that produced the webhook.
+Bot write operations prefer the invocation external identity
+`{ "type": "github_app_installation", "id": "repo:<owner>/<repo>" }` and resolve the
+GitHub App installation from the repository. During migration they still accept the
+legacy webhook service account subject
+`service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>` when
+no external identity is present. If `installation_id` is supplied, it must match the
+resolved installation. The target `owner` and `repo` must also match the scoped
+repository identity.
+
+This requires a Gestalt host/SDK that forwards `Request.external_identity`. The
+provider intentionally does not use `Request.agent_external_identity` for these
+operations because that field identifies the original agent caller, not the
+GitHub App installation that the run-as subject is authorized to assume.
 
 Create or update a branch commit with `bot.commitFiles`:
 
