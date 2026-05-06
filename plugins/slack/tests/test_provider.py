@@ -738,7 +738,7 @@ class SlackProviderTests(unittest.TestCase):
             self.assertEqual(target.timeout_seconds, 0)
 
     def test_agent_timeout_seconds_rejects_invalid_values(self) -> None:
-        invalid_values = [True, -1, 1.5, "ten minutes", 2_147_483_648]
+        invalid_values = [True, 0, -1, 1.5, "ten minutes", 2_147_483_648]
         for value in invalid_values:
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, "timeoutSeconds"):

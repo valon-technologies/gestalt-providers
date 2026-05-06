@@ -813,7 +813,7 @@ def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
         if value is None:
             return 0
         if isinstance(value, bool):
-            raise ValueError(f"{key} must be a non-negative integer number of seconds")
+            raise ValueError(f"{key} must be a positive integer number of seconds")
         if isinstance(value, int):
             seconds = value
         elif isinstance(value, str):
@@ -822,13 +822,13 @@ def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
                 return 0
             if not normalized.isdecimal():
                 raise ValueError(
-                    f"{key} must be a non-negative integer number of seconds"
+                    f"{key} must be a positive integer number of seconds"
                 )
             seconds = int(normalized)
         else:
-            raise ValueError(f"{key} must be a non-negative integer number of seconds")
-        if seconds < 0:
-            raise ValueError(f"{key} must be a non-negative integer number of seconds")
+            raise ValueError(f"{key} must be a positive integer number of seconds")
+        if seconds <= 0:
+            raise ValueError(f"{key} must be a positive integer number of seconds")
         if seconds > MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS:
             raise ValueError(
                 f"{key} must be at most {MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS} seconds"

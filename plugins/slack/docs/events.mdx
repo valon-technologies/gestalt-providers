@@ -110,8 +110,8 @@ plugins:
 `provider_name=workflow.provider`, a thread-scoped workflow key, and a
 `slack.event` signal. Later Slack messages in the same thread signal the
 existing keyed run instead of replacing its target or authorization context.
-Set `agent.timeoutSeconds` to pass an explicit workflow-agent run budget to
-Gestalt. When omitted, Gestalt's workflow-agent default applies.
+Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent run
+budget to Gestalt. When omitted, Gestalt's workflow-agent default applies.
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
 reaction to the source Slack message only after the workflow signal-or-start
