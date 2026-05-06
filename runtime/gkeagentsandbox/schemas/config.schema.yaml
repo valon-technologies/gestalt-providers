@@ -57,6 +57,22 @@ properties:
   cleanupTimeout:
     type: string
     description: Go duration for best-effort cleanup calls.
+  sessionTTL:
+    type: string
+    description: Go duration after which a runtime session should be shut down. Defaults to 2h.
+  sessionDrainBefore:
+    type: string
+    description: Go duration before session expiration when the session should stop accepting new work. Defaults to 5m.
+  warmPool:
+    type: string
+    description: SandboxClaim warm pool policy. Defaults to none to avoid reusing stale runtime pods across deploys.
+  enforceTemplateImageMatch:
+    type: boolean
+    description: Whether sessions created from templates must match the current template image before plugin startup. Defaults to true.
+  staleSessionStartRetries:
+    type: integer
+    minimum: 0
+    description: Number of stale session startup retries before returning an error. Defaults to 2.
   direct:
     type: object
     additionalProperties: false

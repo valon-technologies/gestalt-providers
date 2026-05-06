@@ -1,9 +1,12 @@
 package gkeagentsandbox
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDecodeConfigAcceptsDurationStringsAndLockedDurationNumbers(t *testing.T) {
@@ -55,6 +58,32 @@ func TestDecodeConfigAcceptsDurationStringsAndLockedDurationNumbers(t *testing.T
 				t.Fatalf("CleanupTimeout = %s, want %s", got, want)
 			}
 		})
+	}
+}
+
+func TestConfigSchemaExposesRuntimeLifecycleFields(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("schemas/config.schema.yaml")
+	if err != nil {
+		t.Fatalf("read config schema: %v", err)
+	}
+	var schema struct {
+		Properties map[string]any `yaml:"properties"`
+	}
+	if err := yaml.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("decode config schema: %v", err)
+	}
+	for _, field := range []string{
+		"sessionTTL",
+		"sessionDrainBefore",
+		"warmPool",
+		"enforceTemplateImageMatch",
+		"staleSessionStartRetries",
+	} {
+		if _, ok := schema.Properties[field]; !ok {
+			t.Fatalf("config schema missing %q", field)
+		}
 	}
 }
 
