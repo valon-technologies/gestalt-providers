@@ -254,6 +254,19 @@ class SlackThreadContextConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackAssistantLedgerConfig:
+    enabled: bool = False
+    indexeddb_provider: str = ""
+    store: str = "slack_assistant_requests"
+    stale_after_seconds: int = 300
+    max_recovery_attempts: int = 2
+    fallback_message: str = (
+        "Sorry, I lost track of this request during processing. "
+        "Please try again in this thread."
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class SlackAgentConfig:
     plugin_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
@@ -265,6 +278,9 @@ class SlackAgentConfig:
     workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
     thread_context: SlackThreadContextConfig = field(
         default_factory=SlackThreadContextConfig
+    )
+    assistant_ledger: SlackAssistantLedgerConfig = field(
+        default_factory=SlackAssistantLedgerConfig
     )
     agent_provider: str = ""
     agent_model: str = ""
@@ -290,6 +306,7 @@ class SlackReplyRef:
     user_id: str = ""
     channel_type: str = ""
     route_id: str = ""
+    client_msg_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
