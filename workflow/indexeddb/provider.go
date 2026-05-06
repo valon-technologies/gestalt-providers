@@ -3094,13 +3094,24 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	if operation == "" {
 		return scopedTarget{}, errors.New("target.plugin.operation is required")
 	}
-	normalized := pluginTargetProto(
-		pluginName,
-		operation,
-		strings.TrimSpace(pluginTarget.GetConnection()),
-		strings.TrimSpace(pluginTarget.GetInstance()),
-		cloneStructMap(pluginTarget.GetInput()),
-	)
+	credentialMode := strings.ToLower(strings.TrimSpace(pluginTarget.GetCredentialMode()))
+	switch credentialMode {
+	case "", "none", "user":
+	default:
+		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", pluginTarget.GetCredentialMode())
+	}
+	normalized := &proto.BoundWorkflowTarget{
+		Kind: &proto.BoundWorkflowTarget_Plugin{
+			Plugin: &proto.BoundWorkflowPluginTarget{
+				PluginName:     pluginName,
+				Operation:      operation,
+				Connection:     strings.TrimSpace(pluginTarget.GetConnection()),
+				Instance:       strings.TrimSpace(pluginTarget.GetInstance()),
+				CredentialMode: credentialMode,
+				Input:          structFromAny(cloneStructMap(pluginTarget.GetInput())),
+			},
+		},
+	}
 	return scopedTarget{
 		OwnerKey: pluginName,
 		Target:   normalized,
@@ -3157,6 +3168,10 @@ func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error 
 	}
 	if operation == "" {
 		return errors.New("target.agent.output_delivery.target.operation is required")
+	}
+	targetCredentialMode := strings.ToLower(strings.TrimSpace(deliveryTarget.GetCredentialMode()))
+	if targetCredentialMode != "" {
+		return fmt.Errorf("target.agent.output_delivery.target.credential_mode %q is not supported", deliveryTarget.GetCredentialMode())
 	}
 	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
 	switch credentialMode {

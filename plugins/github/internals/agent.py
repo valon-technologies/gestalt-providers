@@ -93,6 +93,7 @@ def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
         operation=target.operation,
         connection=target.connection,
         instance=target.instance,
+        credential_mode=target.credential_mode,
     )
     plugin.input.CopyFrom(dict_to_struct(target.input))
     return gestalt.BoundWorkflowTarget(plugin=plugin)

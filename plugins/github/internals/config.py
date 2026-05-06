@@ -105,6 +105,7 @@ class GitHubWorkflowPluginTarget:
     operation: str
     connection: str = ""
     instance: str = ""
+    credential_mode: str = ""
     input: dict[str, Any] = field(default_factory=dict)
 
 
@@ -594,6 +595,10 @@ def parse_policy_workflow_target(
     target_config = required_config_object(workflow_config, "target", target_path)
     plugin_path = f"{target_path}.plugin"
     plugin_config = required_config_object(target_config, "plugin", plugin_path)
+    if "credential_mode" in plugin_config:
+        raise ValueError(
+            f"{plugin_path}.credential_mode is not supported; use credentialMode"
+        )
 
     input_value: dict[str, Any] = {}
     input_path = f"{plugin_path}.input"
@@ -603,6 +608,13 @@ def parse_policy_workflow_target(
             raise ValueError(f"{input_path} must be an object")
         input_value = dict(input_config)
     validate_struct_compatible(input_value, input_path)
+    credential_mode = optional_string(
+        plugin_config, "credentialMode", f"{plugin_path}.credentialMode"
+    ).lower()
+    if credential_mode not in ("", "none", "user"):
+        raise ValueError(
+            f'{plugin_path}.credentialMode "{credential_mode}" is not supported'
+        )
 
     return GitHubWorkflowPluginTarget(
         plugin_name=required_string(plugin_config, "plugin", f"{plugin_path}.plugin"),
@@ -613,6 +625,7 @@ def parse_policy_workflow_target(
             plugin_config, "connection", f"{plugin_path}.connection"
         ),
         instance=optional_string(plugin_config, "instance", f"{plugin_path}.instance"),
+        credential_mode=credential_mode,
         input=input_value,
     )
 
