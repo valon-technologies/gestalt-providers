@@ -2296,16 +2296,20 @@ def _build_workflow_agent_target(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
 ) -> Any:
-    agent = gestalt.BoundWorkflowAgentTarget(
-        provider_name=_agent_provider(route),
-        model=_agent_model(route),
-        prompt=_workflow_agent_prompt(),
-        messages=[
+    target_kwargs: dict[str, Any] = {
+        "provider_name": _agent_provider(route),
+        "model": _agent_model(route),
+        "prompt": _workflow_agent_prompt(),
+        "messages": [
             gestalt.AgentMessage(role="system", text=_agent_system_prompt(route)),
         ],
-        tool_refs=_agent_event_tool_refs(route),
-        output_delivery=_workflow_output_delivery(),
-    )
+        "tool_refs": _agent_event_tool_refs(route),
+        "output_delivery": _workflow_output_delivery(),
+    }
+    timeout_seconds = _agent_timeout_seconds(route)
+    if timeout_seconds > 0:
+        target_kwargs["timeout_seconds"] = timeout_seconds
+    agent = gestalt.BoundWorkflowAgentTarget(**target_kwargs)
     agent.metadata.CopyFrom(_agent_session_metadata(event))
     model_options = _agent_model_options(route)
     if model_options:
@@ -2745,6 +2749,12 @@ def _agent_model_options(route: SlackAgentRoute | None) -> dict[str, Any]:
     if route is not None and route.agent_model_options:
         options.update(route.agent_model_options)
     return options
+
+
+def _agent_timeout_seconds(route: SlackAgentRoute | None) -> int:
+    if route is not None and route.agent_timeout_seconds > 0:
+        return route.agent_timeout_seconds
+    return _agent_config.agent_timeout_seconds
 
 
 def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
