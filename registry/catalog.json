@@ -5399,7 +5399,7 @@
       ],
       "iconUrl": null,
       "kind": "runtime",
-      "latestInstallableVersion": null,
+      "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/kubernetes/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "kubernetes",
@@ -5408,7 +5408,21 @@
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/kubernetes/README.md",
       "registryPath": "/providers/runtime/kubernetes/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/runtime/kubernetes",
-      "versions": []
+      "versions": [
+        {
+          "kind": "runtime",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/kubernetes/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
     },
     {
       "configTarget": {
