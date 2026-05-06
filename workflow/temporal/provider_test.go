@@ -3,13 +3,18 @@ package temporal
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/mock"
+	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -59,6 +64,47 @@ func TestGestaltRunWorkflowInvokesHostActivityAndReturnsSucceededRun(t *testing.
 	}
 	if got := host.calls[0].GetRunId(); got != run.GetId() {
 		t.Fatalf("host run id = %q, want %q", got, run.GetId())
+	}
+}
+
+func TestGestaltRunWorkflowV2PersistsFinalRunStateInIndexedDB(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	state, err := openWorkflowStateStore(context.Background(), "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	env.RegisterWorkflow(gestaltRunWorkflowV2)
+	env.RegisterActivity(&workflowActivities{host: host, state: state})
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV2, runWorkflowOptions{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		IndexShardCount:               1,
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+	}, pluginTarget("slack", "postMessage"), newManualTrigger(), &proto.WorkflowActor{SubjectId: "user-1"})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var run proto.BoundWorkflowRun
+	if err := env.GetWorkflowResult(&run); err != nil {
+		t.Fatalf("workflow result: %v", err)
+	}
+	stored, found, err := state.getRun(context.Background(), run.GetId())
+	if err != nil {
+		t.Fatalf("state getRun: %v", err)
+	}
+	if !found {
+		t.Fatalf("stored run %q not found", run.GetId())
+	}
+	if stored.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || stored.GetResultBody() != "ok" {
+		t.Fatalf("stored run = %#v, want succeeded with body", stored)
 	}
 }
 
@@ -509,6 +555,12 @@ func TestIndexInputStateDataConverterRoundTrip(t *testing.T) {
 }
 
 func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	state, err := openWorkflowStateStore(context.Background(), "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
 	tc := &recordingTemporalClient{}
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
@@ -518,7 +570,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil)
+	}, tc, nil, state)
 	trigger := &proto.BoundWorkflowEventTrigger{
 		Id:        "trigger-1",
 		Match:     &proto.WorkflowEventMatch{Type: "message.created"},
@@ -530,16 +582,18 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
 		t.Fatalf("putTriggerIndex: %v", err)
 	}
-	matchKey := eventMatchKey("slack", "message.created", "", "")
-	matchWorkflowID := indexWorkflowID("scope", shardFor(triggerMatchIndexKey(matchKey), 8))
-	if !tc.hasUpdate(matchWorkflowID, updatePutTrigger) {
-		t.Fatalf("putTriggerIndex did not write match shard %q; updates=%#v", matchWorkflowID, tc.updates)
+	if len(tc.updates) != 0 {
+		t.Fatalf("putTriggerIndex touched temporal index updates=%#v", tc.updates)
 	}
-	if _, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"}); err != nil {
+	matched, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
+	if err != nil {
 		t.Fatalf("matchTriggersIndex: %v", err)
 	}
-	if !tc.hasQuery(matchWorkflowID, updateMatchTriggers) {
-		t.Fatalf("matchTriggersIndex did not query match shard %q; queries=%#v", matchWorkflowID, tc.queries)
+	if len(matched) != 1 || matched[0].GetId() != trigger.GetId() {
+		t.Fatalf("matched triggers = %#v, want %q", matched, trigger.GetId())
+	}
+	if len(tc.queries) != 0 {
+		t.Fatalf("matchTriggersIndex touched temporal index queries=%#v", tc.queries)
 	}
 
 	ref := &proto.WorkflowExecutionReference{
@@ -552,52 +606,113 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if err := backend.putExecutionRefIndex(context.Background(), ref); err != nil {
 		t.Fatalf("putExecutionRefIndex: %v", err)
 	}
-	subjectWorkflowID := indexWorkflowID("scope", shardFor(executionRefSubjectIndexKey("user-1"), 8))
-	if !tc.hasUpdate(subjectWorkflowID, updatePutRef) {
-		t.Fatalf("putExecutionRefIndex did not write subject shard %q; updates=%#v", subjectWorkflowID, tc.updates)
+	if len(tc.updates) != 0 {
+		t.Fatalf("putExecutionRefIndex touched temporal index updates=%#v", tc.updates)
 	}
-	if _, err := backend.listExecutionRefsIndex(context.Background(), "user-1"); err != nil {
+	refs, err := backend.listExecutionRefsIndex(context.Background(), "user-1")
+	if err != nil {
 		t.Fatalf("listExecutionRefsIndex: %v", err)
 	}
-	if !tc.hasQuery(subjectWorkflowID, updateListRefsBySubject) {
-		t.Fatalf("listExecutionRefsIndex did not query subject shard %q; queries=%#v", subjectWorkflowID, tc.queries)
+	if len(refs) != 1 || refs[0].GetId() != ref.GetId() {
+		t.Fatalf("refs = %#v, want %q", refs, ref.GetId())
+	}
+	if len(tc.queries) != 0 {
+		t.Fatalf("listExecutionRefsIndex touched temporal index queries=%#v", tc.queries)
 	}
 }
 
-func TestListTriggersIndexQueriesShardsConcurrently(t *testing.T) {
-	const shardCount = 4
-	queryStarted := make(chan recordedQuery, shardCount)
-	releaseQueries := make(chan struct{})
-	tc := &recordingTemporalClient{queryStarted: queryStarted, releaseQueries: releaseQueries}
+func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	state, err := openWorkflowStateStore(context.Background(), "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             shardCount,
+		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil)
+	}, &recordingTemporalClient{}, nil, state)
 
-	done := make(chan error, 1)
-	go func() {
-		_, err := backend.listTriggersIndex(context.Background())
-		done <- err
-	}()
+	trigger := &proto.BoundWorkflowEventTrigger{
+		Id:        "trigger-1",
+		Match:     &proto.WorkflowEventMatch{Type: "message.created"},
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedAt: timestamppb.Now(),
+		UpdatedAt: timestamppb.Now(),
+	}
+	if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
+		t.Fatalf("putTriggerIndex(first): %v", err)
+	}
+	trigger.Match = &proto.WorkflowEventMatch{Type: "reaction.added"}
+	if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
+		t.Fatalf("putTriggerIndex(second): %v", err)
+	}
+	oldMatches, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
+	if err != nil {
+		t.Fatalf("match old: %v", err)
+	}
+	if len(oldMatches) != 0 {
+		t.Fatalf("old match returned %#v, want none", oldMatches)
+	}
+	newMatches, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "reaction.added"})
+	if err != nil {
+		t.Fatalf("match new: %v", err)
+	}
+	if len(newMatches) != 1 || newMatches[0].GetId() != trigger.GetId() {
+		t.Fatalf("new match returned %#v, want %q", newMatches, trigger.GetId())
+	}
+}
 
-	for i := 0; i < shardCount; i++ {
-		select {
-		case <-queryStarted:
-		case <-time.After(time.Second):
-			t.Fatalf("waited for query %d of %d; queries appear serialized", i+1, shardCount)
-		}
+func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	scopeA, err := openWorkflowStateStore(ctx, "", "scope-a")
+	if err != nil {
+		t.Fatalf("open scope-a: %v", err)
 	}
-	close(releaseQueries)
-	if err := <-done; err != nil {
-		t.Fatalf("listTriggersIndex: %v", err)
+	t.Cleanup(func() { _ = scopeA.Close() })
+	scopeB, err := openWorkflowStateStore(ctx, "", "scope-b")
+	if err != nil {
+		t.Fatalf("open scope-b: %v", err)
 	}
-	if got := tc.queryCount(updateListTriggers); got != shardCount {
-		t.Fatalf("query count = %d, want %d", got, shardCount)
+	t.Cleanup(func() { _ = scopeB.Close() })
+
+	refA := &proto.WorkflowExecutionReference{Id: "ref-1", ProviderName: "temporal", Target: pluginTarget("slack", "postMessage"), SubjectId: "user-1", CreatedAt: timestamppb.Now()}
+	refB := cloneExecutionReference(refA)
+	refB.SubjectId = "user-2"
+	if err := scopeA.putExecutionRef(ctx, refA); err != nil {
+		t.Fatalf("scopeA put ref: %v", err)
+	}
+	if err := scopeB.putExecutionRef(ctx, refB); err != nil {
+		t.Fatalf("scopeB put ref: %v", err)
+	}
+	gotA, found, err := scopeA.getExecutionRef(ctx, "ref-1")
+	if err != nil || !found {
+		t.Fatalf("scopeA get ref found=%v err=%v", found, err)
+	}
+	gotB, found, err := scopeB.getExecutionRef(ctx, "ref-1")
+	if err != nil || !found {
+		t.Fatalf("scopeB get ref found=%v err=%v", found, err)
+	}
+	if gotA.GetSubjectId() != "user-1" || gotB.GetSubjectId() != "user-2" {
+		t.Fatalf("scoped refs leaked: scopeA=%q scopeB=%q", gotA.GetSubjectId(), gotB.GetSubjectId())
+	}
+
+	trigger := &proto.BoundWorkflowEventTrigger{Id: "trigger-1", Match: &proto.WorkflowEventMatch{Type: "message.created"}, Target: pluginTarget("slack", "postMessage"), CreatedAt: timestamppb.Now(), UpdatedAt: timestamppb.Now()}
+	if err := scopeA.putTrigger(ctx, trigger); err != nil {
+		t.Fatalf("scopeA put trigger: %v", err)
+	}
+	matchesB, err := scopeB.matchTriggers(ctx, "slack", &proto.WorkflowEvent{Type: "message.created"})
+	if err != nil {
+		t.Fatalf("scopeB match: %v", err)
+	}
+	if len(matchesB) != 0 {
+		t.Fatalf("scopeB matched scopeA triggers: %#v", matchesB)
 	}
 }
 
@@ -624,25 +739,19 @@ func TestProviderSurfaceDelegatesWorkflowRPCs(t *testing.T) {
 	if !backend.calledListRuns {
 		t.Fatalf("backend ListRuns was not called")
 	}
-	if backend.startCount != 1 {
-		t.Fatalf("backend Start calls = %d, want 1", backend.startCount)
+	if backend.startCount != 0 {
+		t.Fatalf("metadata ListRuns started backend %d times, want 0", backend.startCount)
 	}
 }
 
-func TestProviderSurfaceFailsWhenBackendStartFails(t *testing.T) {
+func TestProviderSurfaceStartsBackendForExecutionRPCs(t *testing.T) {
 	backend := &fakeBackend{
 		startErr: errors.New("worker unavailable"),
-		listRuns: &proto.ListWorkflowProviderRunsResponse{
-			Runs: []*proto.BoundWorkflowRun{{Id: "run-1"}},
-		},
 	}
 	provider := &Provider{name: "temporal", backend: backend}
-	_, err := provider.ListRuns(context.Background(), &proto.ListWorkflowProviderRunsRequest{})
+	_, err := provider.StartRun(context.Background(), &proto.StartWorkflowProviderRunRequest{})
 	if status.Code(err) != codes.Internal {
-		t.Fatalf("ListRuns error = %v, want Internal", err)
-	}
-	if backend.calledListRuns {
-		t.Fatalf("backend ListRuns was called after Start failed")
+		t.Fatalf("StartRun error = %v, want Internal", err)
 	}
 	if backend.startCount != 1 {
 		t.Fatalf("backend Start calls = %d, want 1", backend.startCount)
@@ -921,4 +1030,51 @@ func (f *fakeBackend) ListExecutionReferences(context.Context, *proto.ListWorkfl
 }
 func (f *fakeBackend) PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func startTestIndexedDBBackend(t *testing.T) {
+	t.Helper()
+
+	socketDir, err := os.MkdirTemp("/tmp", "temporal-indexeddb-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "indexeddb.sock")
+	store := relationaldb.New()
+	if err := store.Configure(context.Background(), "temporal_workflow_state", map[string]any{
+		"dsn": "file:" + filepath.Join(t.TempDir(), "workflow.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+	}); err != nil {
+		t.Fatalf("relationaldb.Configure: %v", err)
+	}
+
+	t.Setenv(proto.EnvProviderSocket, socketPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- gestalt.ServeIndexedDBProvider(ctx, store)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, err := net.DialTimeout("unix", socketPath, 20*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatalf("indexeddb socket did not start: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Cleanup(func() {
+		cancel()
+		err := <-errCh
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("ServeIndexedDBProvider: %v", err)
+		}
+		_ = os.Remove(socketPath)
+	})
+	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
 }

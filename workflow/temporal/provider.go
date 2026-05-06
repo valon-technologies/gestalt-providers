@@ -69,8 +69,13 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	if err != nil {
 		return fmt.Errorf("temporal workflow: %w", err)
 	}
+	state, err := openWorkflowStateStore(ctx, cfg.IndexedDB, cfg.ScopeID)
+	if err != nil {
+		return fmt.Errorf("temporal workflow: open state store: %w", err)
+	}
 	host, err := gestalt.WorkflowHost()
 	if err != nil {
+		_ = state.Close()
 		return fmt.Errorf("temporal workflow: connect workflow host: %w", err)
 	}
 	tc, err := client.Dial(client.Options{
@@ -81,9 +86,10 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	})
 	if err != nil {
 		_ = host.Close()
+		_ = state.Close()
 		return fmt.Errorf("temporal workflow: connect temporal: %w", err)
 	}
-	backend := newTemporalBackend(strings.TrimSpace(name), cfg, tc, host)
+	backend := newTemporalBackend(strings.TrimSpace(name), cfg, tc, host, state)
 	p.mu.Lock()
 	p.name = strings.TrimSpace(name)
 	p.cfg = cfg
@@ -142,17 +148,17 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 }
 
 func (p *Provider) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.GetRun(ctx, req)
 }
 
 func (p *Provider) ListRuns(ctx context.Context, req *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.ListRuns(ctx, req)
 }
@@ -182,121 +188,121 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 }
 
 func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.UpsertSchedule(ctx, req)
 }
 
 func (p *Provider) GetSchedule(ctx context.Context, req *proto.GetWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.GetSchedule(ctx, req)
 }
 
 func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.ListSchedules(ctx, req)
 }
 
 func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) (*emptypb.Empty, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.DeleteSchedule(ctx, req)
 }
 
 func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.PauseSchedule(ctx, req)
 }
 
 func (p *Provider) ResumeSchedule(ctx context.Context, req *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.ResumeSchedule(ctx, req)
 }
 
 func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.UpsertEventTrigger(ctx, req)
 }
 
 func (p *Provider) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.GetEventTrigger(ctx, req)
 }
 
 func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.ListEventTriggers(ctx, req)
 }
 
 func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) (*emptypb.Empty, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.DeleteEventTrigger(ctx, req)
 }
 
 func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.PauseEventTrigger(ctx, req)
 }
 
 func (p *Provider) ResumeEventTrigger(ctx context.Context, req *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.ResumeEventTrigger(ctx, req)
 }
 
 func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.PutExecutionReference(ctx, req)
 }
 
 func (p *Provider) GetExecutionReference(ctx context.Context, req *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.GetExecutionReference(ctx, req)
 }
 
 func (p *Provider) ListExecutionReferences(ctx context.Context, req *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return backend.ListExecutionReferences(ctx, req)
 }

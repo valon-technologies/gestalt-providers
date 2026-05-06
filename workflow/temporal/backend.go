@@ -35,18 +35,20 @@ type temporalBackend struct {
 	cfg          config
 	client       client.Client
 	host         workflowHost
+	state        *workflowStateStore
 
 	mu      sync.Mutex
 	started bool
 	worker  worker.Worker
 }
 
-func newTemporalBackend(providerName string, cfg config, tc client.Client, host workflowHost) *temporalBackend {
+func newTemporalBackend(providerName string, cfg config, tc client.Client, host workflowHost, state *workflowStateStore) *temporalBackend {
 	return &temporalBackend{
 		providerName: strings.TrimSpace(providerName),
 		cfg:          cfg,
 		client:       tc,
 		host:         host,
+		state:        state,
 	}
 }
 
@@ -61,15 +63,12 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	}
 	w := worker.New(b.client, b.cfg.TaskQueue, worker.Options{})
 	w.RegisterWorkflow(gestaltRunWorkflow)
+	w.RegisterWorkflow(gestaltRunWorkflowV2)
 	w.RegisterWorkflow(indexWorkflow)
 	w.RegisterWorkflow(scopeMetadataWorkflow)
-	w.RegisterActivity(&workflowActivities{host: b.host})
+	w.RegisterActivity(&workflowActivities{host: b.host, state: b.state})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
-	}
-	if err := b.ensureScope(ctx); err != nil {
-		w.Stop()
-		return err
 	}
 	b.worker = w
 	b.started = true
@@ -88,6 +87,9 @@ func (b *temporalBackend) Close() error {
 	var errs []error
 	if b.host != nil {
 		errs = append(errs, b.host.Close())
+	}
+	if b.state != nil {
+		errs = append(errs, b.state.Close())
 	}
 	if b.client != nil {
 		b.client.Close()
@@ -152,7 +154,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		RequireSignal:                 false,
 	}
-	run, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, reusePolicy), gestaltRunWorkflow, input, target.Target, newManualTrigger(), cloneActor(req.GetCreatedBy()))
+	run, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, reusePolicy), gestaltRunWorkflowV2, input, target.Target, newManualTrigger(), cloneActor(req.GetCreatedBy()))
 	if err != nil {
 		if key != "" {
 			if existing, found, getErr := b.getIdempotency(ctx, target.OwnerKey, key); getErr == nil && found && existing.GetRun() != nil {
@@ -340,7 +342,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	for attempt := 0; attempt < 3; attempt++ {
 		startOp := b.client.NewWithStartWorkflowOperation(
 			b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE),
-			gestaltRunWorkflow,
+			gestaltRunWorkflowV2,
 			input,
 			target.Target,
 			newManualTrigger(),
@@ -481,7 +483,7 @@ func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteW
 	if id == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
-	if _, found, err := b.getScheduleIndex(ctx, id); err != nil {
+	if _, found, err := b.getScheduleForMutation(ctx, id); err != nil {
 		return nil, err
 	} else if !found {
 		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
@@ -501,7 +503,7 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
-	schedule, found, err := b.getScheduleIndex(ctx, id)
+	schedule, found, err := b.getScheduleForMutation(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -524,7 +526,7 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
-	schedule, found, err := b.getScheduleIndex(ctx, id)
+	schedule, found, err := b.getScheduleForMutation(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -540,6 +542,17 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, err
 	}
 	return schedule, nil
+}
+
+func (b *temporalBackend) getScheduleForMutation(ctx context.Context, id string) (*proto.BoundWorkflowSchedule, bool, error) {
+	schedule, found, err := b.getScheduleIndex(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	if found {
+		return schedule, true, nil
+	}
+	return b.describeTemporalSchedule(ctx, id)
 }
 
 func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
@@ -736,7 +749,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 			ExecutionRef:                  executionRef,
 			ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		}
-		run, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE), gestaltRunWorkflow, input, cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy)
+		run, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE), gestaltRunWorkflowV2, input, cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
 				continue
@@ -789,7 +802,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	}
 	action := &client.ScheduleWorkflowAction{
 		ID:                  workflowID(b.cfg.ScopeID, "schedule-run", schedule.GetId()),
-		Workflow:            gestaltRunWorkflow,
+		Workflow:            gestaltRunWorkflowV2,
 		Args:                []any{actionInput, cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy())},
 		TaskQueue:           b.cfg.TaskQueue,
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,

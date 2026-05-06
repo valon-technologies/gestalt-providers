@@ -242,161 +242,117 @@ func (b *temporalBackend) updateAllIndexes(ctx context.Context, updateName strin
 }
 
 func (b *temporalBackend) putRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
-	var out proto.BoundWorkflowRun
-	return b.updateIndex(ctx, run.GetId(), updatePutRun, []any{run}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.putRun(ctx, run)
 }
 
 func (b *temporalBackend) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
-	var out proto.BoundWorkflowRun
-	if err := b.queryIndex(ctx, id, updateGetRun, []any{id}, &out); err != nil {
-		return nil, false, err
+	if b.state == nil {
+		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return cloneRun(&out), out.GetId() != "", nil
+	return b.state.getRun(ctx, id)
 }
 
 func (b *temporalBackend) listRuns(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
-	var runs []*proto.BoundWorkflowRun
-	seen := map[string]struct{}{}
-	err := b.updateAllIndexes(ctx, updateListRuns, func() any { return &proto.ListWorkflowProviderRunsResponse{} }, func(out any) error {
-		list := out.(*proto.ListWorkflowProviderRunsResponse)
-		for _, run := range list.GetRuns() {
-			if _, ok := seen[run.GetId()]; ok {
-				continue
-			}
-			seen[run.GetId()] = struct{}{}
-			runs = append(runs, cloneRun(run))
-		}
-		return nil
-	})
-	return runs, err
+	if b.state == nil {
+		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.listRuns(ctx)
 }
 
 func (b *temporalBackend) putWorkflowKey(ctx context.Context, workflowKey string, run *proto.BoundWorkflowRun) error {
-	var out proto.BoundWorkflowRun
-	return b.updateIndex(ctx, "workflow-key:"+workflowKey, updatePutWorkflowKey, []any{workflowKey, run}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.putWorkflowKey(ctx, workflowKey, run)
 }
 
 func (b *temporalBackend) getWorkflowKey(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
-	var out proto.BoundWorkflowRun
-	if err := b.queryIndex(ctx, "workflow-key:"+workflowKey, updateGetWorkflowKey, []any{workflowKey}, &out); err != nil {
-		return nil, false, err
+	if b.state == nil {
+		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return cloneRun(&out), out.GetId() != "", nil
+	return b.state.getWorkflowKey(ctx, workflowKey)
 }
 
 func (b *temporalBackend) putIdempotency(ctx context.Context, ownerKey, key string, record *proto.SignalWorkflowRunResponse) error {
-	var out proto.SignalWorkflowRunResponse
-	return b.updateIndex(ctx, "idempotency:"+ownerKey+":"+key, updatePutIdempotency, []any{ownerKey, key, record}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.putIdempotency(ctx, ownerKey, key, record)
 }
 
 func (b *temporalBackend) getIdempotency(ctx context.Context, ownerKey, key string) (*proto.SignalWorkflowRunResponse, bool, error) {
-	var out proto.SignalWorkflowRunResponse
-	if err := b.queryIndex(ctx, "idempotency:"+ownerKey+":"+key, updateGetIdempotency, []any{ownerKey, key}, &out); err != nil {
-		return nil, false, err
+	if b.state == nil {
+		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return cloneSignalResponse(&out), out.GetRun() != nil || out.GetSignal() != nil, nil
+	return b.state.getIdempotency(ctx, ownerKey, key)
 }
 
 func (b *temporalBackend) putScheduleIndex(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
-	var out proto.BoundWorkflowSchedule
-	return b.updateIndex(ctx, "schedule:"+schedule.GetId(), updatePutSchedule, []any{schedule}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.putSchedule(ctx, schedule)
 }
 
 func (b *temporalBackend) getScheduleIndex(ctx context.Context, id string) (*proto.BoundWorkflowSchedule, bool, error) {
-	var out proto.BoundWorkflowSchedule
-	if err := b.queryIndex(ctx, "schedule:"+id, updateGetSchedule, []any{id}, &out); err != nil {
-		return nil, false, err
+	if b.state == nil {
+		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return cloneSchedule(&out), out.GetId() != "", nil
+	return b.state.getSchedule(ctx, id)
 }
 
 func (b *temporalBackend) listSchedulesIndex(ctx context.Context) ([]*proto.BoundWorkflowSchedule, error) {
-	var schedules []*proto.BoundWorkflowSchedule
-	err := b.updateAllIndexes(ctx, updateListSchedules, func() any { return &proto.ListWorkflowProviderSchedulesResponse{} }, func(out any) error {
-		list := out.(*proto.ListWorkflowProviderSchedulesResponse)
-		for _, schedule := range list.GetSchedules() {
-			schedules = append(schedules, cloneSchedule(schedule))
-		}
-		return nil
-	})
-	return schedules, err
+	if b.state == nil {
+		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	// Temporal schedules are the source of truth for firing; this helper only
+	// backs legacy callers that need the local mirror.
+	return nil, nil
 }
 
 func (b *temporalBackend) deleteScheduleIndex(ctx context.Context, id string) error {
-	var out bool
-	return b.updateIndex(ctx, "schedule:"+id, updateDeleteSchedule, []any{id}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.deleteSchedule(ctx, id)
 }
 
 func (b *temporalBackend) putTriggerInIndex(ctx context.Context, key string, trigger *proto.BoundWorkflowEventTrigger) error {
-	var out proto.BoundWorkflowEventTrigger
-	return b.updateIndex(ctx, key, updatePutTrigger, []any{trigger}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.putTrigger(ctx, trigger)
 }
 
 func (b *temporalBackend) putTriggerIndex(ctx context.Context, trigger *proto.BoundWorkflowEventTrigger) error {
-	existing, found, err := b.getTriggerIndex(ctx, trigger.GetId())
-	if err != nil {
-		return err
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	if found {
-		for _, key := range matchKeys(targetOwnerKey(existing.GetTarget()), existing.GetMatch()) {
-			if err := b.deleteTriggerFromIndex(ctx, triggerMatchIndexKey(key), existing.GetId()); err != nil {
-				return err
-			}
-		}
-	}
-	if err := b.putTriggerInIndex(ctx, triggerPrimaryIndexKey(trigger.GetId()), trigger); err != nil {
-		return err
-	}
-	for _, key := range matchKeys(targetOwnerKey(trigger.GetTarget()), trigger.GetMatch()) {
-		if err := b.putTriggerInIndex(ctx, triggerMatchIndexKey(key), trigger); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.state.putTrigger(ctx, trigger)
 }
 
 func (b *temporalBackend) getTriggerIndex(ctx context.Context, id string) (*proto.BoundWorkflowEventTrigger, bool, error) {
-	var out proto.BoundWorkflowEventTrigger
-	if err := b.queryIndex(ctx, triggerPrimaryIndexKey(id), updateGetTrigger, []any{id}, &out); err != nil {
-		return nil, false, err
+	if b.state == nil {
+		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return cloneTrigger(&out), out.GetId() != "", nil
+	return b.state.getTrigger(ctx, id)
 }
 
 func (b *temporalBackend) listTriggersIndex(ctx context.Context) ([]*proto.BoundWorkflowEventTrigger, error) {
-	var triggers []*proto.BoundWorkflowEventTrigger
-	seen := map[string]struct{}{}
-	err := b.updateAllIndexes(ctx, updateListTriggers, func() any { return &proto.ListWorkflowProviderEventTriggersResponse{} }, func(out any) error {
-		list := out.(*proto.ListWorkflowProviderEventTriggersResponse)
-		for _, trigger := range list.GetTriggers() {
-			if _, ok := seen[trigger.GetId()]; ok {
-				continue
-			}
-			seen[trigger.GetId()] = struct{}{}
-			triggers = append(triggers, cloneTrigger(trigger))
-		}
-		return nil
-	})
-	return triggers, err
+	if b.state == nil {
+		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.listTriggers(ctx)
 }
 
 func (b *temporalBackend) matchTriggersIndex(ctx context.Context, ownerKey string, event *proto.WorkflowEvent) ([]*proto.BoundWorkflowEventTrigger, error) {
-	seen := map[string]struct{}{}
-	var triggers []*proto.BoundWorkflowEventTrigger
-	for _, key := range eventLookupKeys(ownerKey, event) {
-		var out proto.ListWorkflowProviderEventTriggersResponse
-		if err := b.queryIndex(ctx, triggerMatchIndexKey(key), updateMatchTriggers, []any{key}, &out); err != nil {
-			return nil, err
-		}
-		for _, trigger := range out.GetTriggers() {
-			if _, ok := seen[trigger.GetId()]; ok {
-				continue
-			}
-			seen[trigger.GetId()] = struct{}{}
-			triggers = append(triggers, cloneTrigger(trigger))
-		}
+	if b.state == nil {
+		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return triggers, nil
+	return b.state.matchTriggers(ctx, ownerKey, event)
 }
 
 func (b *temporalBackend) deleteTriggerFromIndex(ctx context.Context, key, id string) error {
@@ -405,81 +361,38 @@ func (b *temporalBackend) deleteTriggerFromIndex(ctx context.Context, key, id st
 }
 
 func (b *temporalBackend) deleteTriggerIndex(ctx context.Context, id string) (bool, error) {
-	existing, found, err := b.getTriggerIndex(ctx, id)
-	if err != nil || !found {
-		return found, err
+	if b.state == nil {
+		return false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	if err := b.deleteTriggerFromIndex(ctx, triggerPrimaryIndexKey(id), id); err != nil {
-		return false, err
-	}
-	for _, key := range matchKeys(targetOwnerKey(existing.GetTarget()), existing.GetMatch()) {
-		if err := b.deleteTriggerFromIndex(ctx, triggerMatchIndexKey(key), id); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
+	return b.state.deleteTrigger(ctx, id)
 }
 
 func (b *temporalBackend) putExecutionRefInIndex(ctx context.Context, key string, ref *proto.WorkflowExecutionReference) error {
-	var out proto.WorkflowExecutionReference
-	return b.updateIndex(ctx, key, updatePutRef, []any{ref}, &out)
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
+	}
+	return b.state.putExecutionRef(ctx, ref)
 }
 
 func (b *temporalBackend) putExecutionRefIndex(ctx context.Context, ref *proto.WorkflowExecutionReference) error {
-	existing, found, err := b.getExecutionRefIndex(ctx, ref.GetId())
-	if err != nil {
-		return err
+	if b.state == nil {
+		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	if found && existing.GetSubjectId() != ref.GetSubjectId() {
-		if err := b.deleteExecutionRefFromIndex(ctx, executionRefSubjectIndexKey(existing.GetSubjectId()), existing.GetId()); err != nil {
-			return err
-		}
-	}
-	if err := b.putExecutionRefInIndex(ctx, executionRefPrimaryIndexKey(ref.GetId()), ref); err != nil {
-		return err
-	}
-	if ref.GetSubjectId() != "" {
-		if err := b.putExecutionRefInIndex(ctx, executionRefSubjectIndexKey(ref.GetSubjectId()), ref); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.state.putExecutionRef(ctx, ref)
 }
 
 func (b *temporalBackend) getExecutionRefIndex(ctx context.Context, id string) (*proto.WorkflowExecutionReference, bool, error) {
-	var out proto.WorkflowExecutionReference
-	if err := b.queryIndex(ctx, executionRefPrimaryIndexKey(id), updateGetRef, []any{id}, &out); err != nil {
-		return nil, false, err
+	if b.state == nil {
+		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return cloneExecutionReference(&out), out.GetId() != "", nil
+	return b.state.getExecutionRef(ctx, id)
 }
 
 func (b *temporalBackend) listExecutionRefsIndex(ctx context.Context, subjectID string) ([]*proto.WorkflowExecutionReference, error) {
-	if subjectID != "" {
-		var out proto.ListWorkflowExecutionReferencesResponse
-		if err := b.queryIndex(ctx, executionRefSubjectIndexKey(subjectID), updateListRefsBySubject, []any{subjectID}, &out); err != nil {
-			return nil, err
-		}
-		refs := make([]*proto.WorkflowExecutionReference, 0, len(out.GetReferences()))
-		for _, ref := range out.GetReferences() {
-			refs = append(refs, cloneExecutionReference(ref))
-		}
-		return refs, nil
+	if b.state == nil {
+		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	var refs []*proto.WorkflowExecutionReference
-	seen := map[string]struct{}{}
-	err := b.updateAllIndexes(ctx, updateListRefs, func() any { return &proto.ListWorkflowExecutionReferencesResponse{} }, func(out any) error {
-		list := out.(*proto.ListWorkflowExecutionReferencesResponse)
-		for _, ref := range list.GetReferences() {
-			if _, ok := seen[ref.GetId()]; ok {
-				continue
-			}
-			seen[ref.GetId()] = struct{}{}
-			refs = append(refs, cloneExecutionReference(ref))
-		}
-		return nil
-	})
-	return refs, err
+	return b.state.listExecutionRefs(ctx, subjectID)
 }
 
 func (b *temporalBackend) deleteExecutionRefFromIndex(ctx context.Context, key, id string) error {
