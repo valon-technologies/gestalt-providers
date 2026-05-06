@@ -195,6 +195,7 @@ Representative operations include:
 
 - `messages.send`
 - `messages.reply`
+- `messages.forward`
 - `messages.list`
 - `messages.get`
 - `messages.attachments.get`
@@ -203,6 +204,9 @@ Representative operations include:
 - `drafts.list`
 - `drafts.get`
 - `drafts.delete`
+- `drafts.create`
+- `drafts.update`
+- `drafts.send`
 
 - Platform mailbox configuration is for internal ingestion jobs. Regular user calls should use the default OAuth connection.
 
@@ -235,6 +239,20 @@ await invoker.invoke("gmail", "messages.reply", {
   message_id: "18c1234567890abc",
   text_body: "Thanks for the context.",
   reply_all: true,
+});
+```
+
+Create and send a draft when the caller needs review or later delivery:
+
+```ts
+const draft = await invoker.invoke("gmail", "drafts.create", {
+  to: ["recipient@example.com"],
+  subject: "Draft update",
+  text_body: "Please review before sending.",
+});
+
+await invoker.invoke("gmail", "drafts.send", {
+  draft_id: draft.id,
 });
 ```
 

@@ -168,9 +168,10 @@ through the managed `external_identity` authorization relationship.
 
 ## Hidden Helper Operations
 
-`events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
-`events.addReaction`, `events.removeReaction`, the native assistant helpers, the
-streaming helpers, and the interaction helpers are hidden operations.
+`events.handle`, `interactions.handle`, `events.reply`, `events.setStatus`,
+`events.deleteStatus`, `events.addReaction`, `events.removeReaction`, the native
+assistant helpers, the streaming helpers, and the interaction helpers are hidden
+operations.
 
 `events.handle` starts or signals a keyed workflow run and passes an opaque
 `reply_ref` in the signal payload. The workflow runtime invokes `events.reply`
