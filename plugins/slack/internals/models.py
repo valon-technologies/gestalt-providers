@@ -71,6 +71,7 @@ class SlackAgentEvent:
     addressed_to_bot: bool = False
     assistant_context_present: bool = False
     bot_user_id: str = ""
+    context_channel_id: str = ""
     files: tuple[dict[str, Any], ...] = ()
 
 
@@ -85,7 +86,16 @@ class SlackAgentRouteMatch:
     def matches(self, event: SlackAgentEvent) -> bool:
         if self.team_ids and event.team_id not in self.team_ids:
             return False
-        if self.channel_ids and event.channel_id not in self.channel_ids:
+        event_channel_ids = tuple(
+            dict.fromkeys(
+                channel_id
+                for channel_id in (event.channel_id, event.context_channel_id)
+                if channel_id
+            )
+        )
+        if self.channel_ids and not any(
+            channel_id in self.channel_ids for channel_id in event_channel_ids
+        ):
             return False
         if self.channel_types and event.channel_type.lower() not in self.channel_types:
             return False
@@ -110,10 +120,15 @@ class SlackAgentToolRef:
 class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
+    workflow: SlackWorkflowConfig | None = None
+    assistant: SlackAssistantConfig | None = None
+    acknowledgement: SlackAcknowledgementConfig | None = None
+    thread_context: SlackThreadContextConfig | None = None
     agent_provider: str = ""
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] = field(default_factory=dict)
+    agent_tool_set_refs: tuple[str, ...] = ()
     agent_tools: tuple[SlackAgentToolRef, ...] = ()
 
 
@@ -205,6 +220,7 @@ class SlackBotConfig:
 @dataclass(frozen=True, slots=True)
 class SlackAssistantConfig:
     enabled: bool = False
+    enabled_configured: bool = False
     status: str = "thinking..."
     loading_messages: tuple[str, ...] = ()
     icon_emoji: str = ""
@@ -216,6 +232,7 @@ class SlackAssistantConfig:
 
 @dataclass(frozen=True, slots=True)
 class SlackAcknowledgementConfig:
+    enabled: bool = True
     reaction: str = ""
 
 
@@ -228,6 +245,12 @@ class SlackWorkflowConfig:
 class SlackThreadContextConfig:
     enabled: bool = True
     max_messages: int = 200
+    include_user_info: bool = False
+    include_bots: bool = True
+    include_files: bool = True
+    include_file_content: bool = False
+    include_image_data: bool = False
+    max_file_bytes: int = 200_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +270,10 @@ class SlackAgentConfig:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] = field(default_factory=dict)
+    agent_tool_sets: dict[str, tuple[SlackAgentToolRef, ...]] = field(
+        default_factory=dict
+    )
+    agent_tool_set_refs: tuple[str, ...] = ()
     agent_tools: tuple[SlackAgentToolRef, ...] = ()
     routes: tuple[SlackAgentRoute, ...] = ()
 

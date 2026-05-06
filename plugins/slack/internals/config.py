@@ -33,13 +33,25 @@ def agent_config_from_provider_config(
     model_options = _config_dict(
         agent, "modelOptions", "model_options", "agentModelOptions"
     )
-    routes = _agent_routes_from_provider_config(config, agent)
+    agent_tool_sets = _agent_tool_sets_from_config(agent)
+    agent_tool_set_refs = _config_string_tuple(
+        agent, "toolSetRefs", "tool_set_refs"
+    )
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
     thread_context = _thread_context_config_from_provider_config(config, agent)
+    routes = _agent_routes_from_provider_config(
+        config,
+        agent,
+        assistant=assistant,
+        acknowledgement=acknowledgement,
+        thread_context=thread_context,
+    )
+    _validate_agent_route_ids(routes)
+    _validate_agent_tool_set_refs(agent_tool_sets, agent_tool_set_refs, routes)
 
     return SlackAgentConfig(
         plugin_name=plugin_name.strip() or "slack",
@@ -69,6 +81,8 @@ def agent_config_from_provider_config(
         or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
         agent_model_options=model_options
         or _config_dict(config, "agentModelOptions", "agent_model_options"),
+        agent_tool_sets=agent_tool_sets,
+        agent_tool_set_refs=agent_tool_set_refs,
         agent_tools=_agent_tool_refs_from_config(agent, "agent.tools")
         or _agent_tool_refs_from_config(
             config, "agentTools", "agentTools", "agent_tools"
@@ -104,6 +118,10 @@ def _assistant_config_from_provider_config(
         assistant = _config_dict(
             config, "assistant", "slackAssistant", "assistantConfig"
         )
+    return _assistant_config_from_config(assistant)
+
+
+def _assistant_config_from_config(assistant: dict[str, Any]) -> SlackAssistantConfig:
     title, prompts = _assistant_suggested_prompts_from_config(assistant)
     status = _config_string(
         assistant, "status", "initialStatus", "initial_status", "loadingStatus"
@@ -111,6 +129,7 @@ def _assistant_config_from_provider_config(
 
     return SlackAssistantConfig(
         enabled=_config_bool(assistant, "enabled", default=False),
+        enabled_configured=_config_has_bool(assistant, "enabled"),
         status=status or "thinking...",
         loading_messages=_config_string_tuple(
             assistant, "loadingMessages", "loading_messages"
@@ -131,10 +150,10 @@ def _acknowledgement_config_from_provider_config(
         acknowledgement = _config_dict(
             config, "acknowledgement", "acknowledgment", "ack"
         )
-    if not acknowledgement or not _config_bool(
-        acknowledgement, "enabled", default=True
-    ):
-        return SlackAcknowledgementConfig()
+    if not acknowledgement:
+        return SlackAcknowledgementConfig(enabled=False)
+    if not _config_bool(acknowledgement, "enabled", default=True):
+        return SlackAcknowledgementConfig(enabled=False)
     reaction = _config_string(
         acknowledgement,
         "reaction",
@@ -144,7 +163,9 @@ def _acknowledgement_config_from_provider_config(
         "emojiName",
         "emoji_name",
     )
-    return SlackAcknowledgementConfig(reaction=reaction.strip().strip(":"))
+    return SlackAcknowledgementConfig(
+        enabled=True, reaction=reaction.strip().strip(":")
+    )
 
 
 def _assistant_suggested_prompts_from_config(
@@ -182,6 +203,12 @@ def _thread_context_config_from_provider_config(
     thread_context = _config_dict(agent, "threadContext", "thread_context")
     if not thread_context:
         thread_context = _config_dict(config, "threadContext", "thread_context")
+    return _thread_context_config_from_config(thread_context)
+
+
+def _thread_context_config_from_config(
+    thread_context: dict[str, Any],
+) -> SlackThreadContextConfig:
     return SlackThreadContextConfig(
         enabled=_config_bool(thread_context, "enabled", default=True),
         max_messages=_clamp_int(
@@ -196,11 +223,56 @@ def _thread_context_config_from_provider_config(
             minimum=1,
             maximum=1000,
         ),
+        include_user_info=_config_bool(
+            thread_context,
+            "includeUserInfo",
+            "include_user_info",
+            default=False,
+        ),
+        include_bots=_config_bool(
+            thread_context,
+            "includeBots",
+            "include_bots",
+            default=True,
+        ),
+        include_files=_config_bool(
+            thread_context,
+            "includeFiles",
+            "include_files",
+            default=True,
+        ),
+        include_file_content=_config_bool(
+            thread_context,
+            "includeFileContent",
+            "include_file_content",
+            default=False,
+        ),
+        include_image_data=_config_bool(
+            thread_context,
+            "includeImageData",
+            "include_image_data",
+            default=False,
+        ),
+        max_file_bytes=_clamp_int(
+            _config_int(
+                thread_context,
+                "maxFileBytes",
+                "max_file_bytes",
+                default=200_000,
+            ),
+            minimum=0,
+            maximum=25_000_000,
+        ),
     )
 
 
 def _agent_routes_from_provider_config(
-    config: dict[str, Any], agent: dict[str, Any]
+    config: dict[str, Any],
+    agent: dict[str, Any],
+    *,
+    assistant: SlackAssistantConfig,
+    acknowledgement: SlackAcknowledgementConfig,
+    thread_context: SlackThreadContextConfig,
 ) -> tuple[SlackAgentRoute, ...]:
     raw_routes = _config_list(agent, "routes")
     if not raw_routes:
@@ -208,11 +280,26 @@ def _agent_routes_from_provider_config(
     routes: list[SlackAgentRoute] = []
     for index, raw_route in enumerate(raw_routes, start=1):
         if isinstance(raw_route, dict):
-            routes.append(_agent_route_from_config(raw_route, index))
+            routes.append(
+                _agent_route_from_config(
+                    raw_route,
+                    index,
+                    assistant=assistant,
+                    acknowledgement=acknowledgement,
+                    thread_context=thread_context,
+                )
+            )
     return tuple(routes)
 
 
-def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRoute:
+def _agent_route_from_config(
+    config: dict[str, Any],
+    index: int,
+    *,
+    assistant: SlackAssistantConfig,
+    acknowledgement: SlackAcknowledgementConfig,
+    thread_context: SlackThreadContextConfig,
+) -> SlackAgentRoute:
     agent = _config_dict(config, "agent")
     provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
     model = _config_string(agent, "model", "agentModel", "agent_model")
@@ -226,6 +313,14 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
         match=_agent_route_match_from_config(_config_dict(config, "match")),
+        workflow=_route_workflow_config_from_config(config, agent),
+        assistant=_route_assistant_config_from_config(config, agent, assistant),
+        acknowledgement=_route_acknowledgement_config_from_config(
+            config, agent, acknowledgement
+        ),
+        thread_context=_route_thread_context_config_from_config(
+            config, agent, thread_context
+        ),
         agent_provider=provider
         or _config_string(config, "provider", "agentProvider", "agent_provider"),
         agent_model=model
@@ -234,11 +329,205 @@ def _agent_route_from_config(config: dict[str, Any], index: int) -> SlackAgentRo
         or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
         agent_model_options=model_options
         or _config_dict(config, "modelOptions", "agentModelOptions"),
+        agent_tool_set_refs=_config_string_tuple(
+            agent, "toolSetRefs", "tool_set_refs"
+        )
+        or _config_string_tuple(config, "toolSetRefs", "tool_set_refs"),
         agent_tools=_agent_tool_refs_from_config(
             agent, f"agent.routes[{index}].agent.tools"
         )
         or _agent_tool_refs_from_config(config, f"agent.routes[{index}].tools"),
     )
+
+
+def _route_workflow_config_from_config(
+    config: dict[str, Any], agent: dict[str, Any]
+) -> SlackWorkflowConfig | None:
+    workflow = _config_dict_or_none(agent, "workflow")
+    if workflow is None:
+        workflow = _config_dict_or_none(config, "workflow")
+    workflow_data = workflow or {}
+    provider = _config_string(workflow_data, "provider", "providerName", "provider_name")
+    provider = provider or _config_string(
+        agent,
+        "workflowProvider",
+        "workflow_provider",
+        "workflowProviderName",
+        "workflow_provider_name",
+    )
+    provider = provider or _config_string(
+        config,
+        "workflowProvider",
+        "workflow_provider",
+        "workflowProviderName",
+        "workflow_provider_name",
+    )
+    if workflow is None and not provider:
+        return None
+    return SlackWorkflowConfig(provider_name=provider)
+
+
+def _route_assistant_config_from_config(
+    config: dict[str, Any],
+    agent: dict[str, Any],
+    inherited: SlackAssistantConfig,
+) -> SlackAssistantConfig | None:
+    assistant = _config_dict_or_none(agent, "assistant")
+    if assistant is None:
+        assistant = _config_dict_or_none(
+            config, "assistant", "slackAssistant", "assistantConfig"
+        )
+    if assistant is None:
+        return None
+    parsed = _assistant_config_from_config(assistant)
+    return SlackAssistantConfig(
+        enabled=parsed.enabled if parsed.enabled_configured else inherited.enabled,
+        enabled_configured=parsed.enabled_configured,
+        status=parsed.status
+        if _config_has_any(
+            assistant, "status", "initialStatus", "initial_status", "loadingStatus"
+        )
+        else inherited.status,
+        loading_messages=parsed.loading_messages
+        if _config_has_any(assistant, "loadingMessages", "loading_messages")
+        else inherited.loading_messages,
+        icon_emoji=parsed.icon_emoji or inherited.icon_emoji,
+        icon_url=parsed.icon_url or inherited.icon_url,
+        username=parsed.username or inherited.username,
+        suggested_prompts_title=parsed.suggested_prompts_title
+        or inherited.suggested_prompts_title,
+        suggested_prompts=parsed.suggested_prompts
+        if _config_has_any(assistant, "suggestedPrompts", "suggested_prompts", "prompts")
+        else inherited.suggested_prompts,
+    )
+
+
+def _route_acknowledgement_config_from_config(
+    config: dict[str, Any],
+    agent: dict[str, Any],
+    inherited: SlackAcknowledgementConfig,
+) -> SlackAcknowledgementConfig | None:
+    acknowledgement = _config_dict_or_none(
+        agent, "acknowledgement", "acknowledgment", "ack"
+    )
+    if acknowledgement is None:
+        acknowledgement = _config_dict_or_none(
+            config, "acknowledgement", "acknowledgment", "ack"
+        )
+    if acknowledgement is None:
+        return None
+    if not _config_bool(acknowledgement, "enabled", default=True):
+        return SlackAcknowledgementConfig(enabled=False)
+    reaction = _config_string(
+        acknowledgement,
+        "reaction",
+        "reactionName",
+        "reaction_name",
+        "emoji",
+        "emojiName",
+        "emoji_name",
+    )
+    return SlackAcknowledgementConfig(
+        enabled=True, reaction=reaction.strip().strip(":") or inherited.reaction
+    )
+
+
+def _route_thread_context_config_from_config(
+    config: dict[str, Any],
+    agent: dict[str, Any],
+    inherited: SlackThreadContextConfig,
+) -> SlackThreadContextConfig | None:
+    thread_context = _config_dict_or_none(agent, "threadContext", "thread_context")
+    if thread_context is None:
+        thread_context = _config_dict_or_none(config, "threadContext", "thread_context")
+    if thread_context is None:
+        return None
+    parsed = _thread_context_config_from_config(thread_context)
+    return SlackThreadContextConfig(
+        enabled=_config_bool(thread_context, "enabled", default=inherited.enabled),
+        max_messages=parsed.max_messages
+        if _config_has_any(
+            thread_context, "maxMessages", "max_messages", "messageLimit", "message_limit"
+        )
+        else inherited.max_messages,
+        include_user_info=parsed.include_user_info
+        if _config_has_any(thread_context, "includeUserInfo", "include_user_info")
+        else inherited.include_user_info,
+        include_bots=parsed.include_bots
+        if _config_has_any(thread_context, "includeBots", "include_bots")
+        else inherited.include_bots,
+        include_files=parsed.include_files
+        if _config_has_any(thread_context, "includeFiles", "include_files")
+        else inherited.include_files,
+        include_file_content=parsed.include_file_content
+        if _config_has_any(
+            thread_context, "includeFileContent", "include_file_content"
+        )
+        else inherited.include_file_content,
+        include_image_data=parsed.include_image_data
+        if _config_has_any(thread_context, "includeImageData", "include_image_data")
+        else inherited.include_image_data,
+        max_file_bytes=parsed.max_file_bytes
+        if _config_has_any(thread_context, "maxFileBytes", "max_file_bytes")
+        else inherited.max_file_bytes,
+    )
+
+
+def _agent_tool_sets_from_config(
+    agent: dict[str, Any]
+) -> dict[str, tuple[SlackAgentToolRef, ...]]:
+    raw_tool_sets = _config_mapping(agent, "toolSets", "tool_sets")
+    if not raw_tool_sets:
+        return {}
+    tool_sets: dict[str, tuple[SlackAgentToolRef, ...]] = {}
+    for raw_name, raw_tool_set in raw_tool_sets.items():
+        name = str(raw_name or "").strip()
+        if not name:
+            raise ValueError("agent.toolSets contains an empty tool set name")
+        if isinstance(raw_tool_set, list):
+            tool_set_config = {"tools": list(raw_tool_set)}
+        elif isinstance(raw_tool_set, dict):
+            tool_set_config = dict(raw_tool_set)
+        else:
+            raise ValueError(f"agent.toolSets.{name} must be a list or object")
+        tool_sets[name] = _agent_tool_refs_from_config(
+            tool_set_config, f"agent.toolSets.{name}"
+        )
+    return tool_sets
+
+
+def _validate_agent_tool_set_refs(
+    tool_sets: dict[str, tuple[SlackAgentToolRef, ...]],
+    refs: tuple[str, ...],
+    routes: tuple[SlackAgentRoute, ...],
+) -> None:
+    _validate_tool_set_refs(tool_sets, refs, "agent.toolSetRefs")
+    for index, route in enumerate(routes, start=1):
+        _validate_tool_set_refs(
+            tool_sets,
+            route.agent_tool_set_refs,
+            f"agent.routes[{index}].agent.toolSetRefs",
+        )
+
+
+def _validate_agent_route_ids(routes: tuple[SlackAgentRoute, ...]) -> None:
+    seen: set[str] = set()
+    for index, route in enumerate(routes, start=1):
+        if route.id in seen:
+            raise ValueError(
+                f"agent.routes[{index}].id duplicates another agent route: {route.id}"
+            )
+        seen.add(route.id)
+
+
+def _validate_tool_set_refs(
+    tool_sets: dict[str, tuple[SlackAgentToolRef, ...]],
+    refs: tuple[str, ...],
+    path: str,
+) -> None:
+    for index, ref in enumerate(refs, start=1):
+        if ref not in tool_sets:
+            raise ValueError(f"{path}[{index}] references unknown tool set: {ref}")
 
 
 def _agent_tool_refs_from_config(
@@ -257,7 +546,17 @@ def _agent_tool_refs_from_config(
         tool = cast(dict[str, Any], raw_tool)
         unsupported_fields = [
             name
-            for name in ("credentialMode", "credential_mode", "system")
+            for name in (
+                "credentialMode",
+                "credential_mode",
+                "runAs",
+                "run_as",
+                "system",
+                "input",
+                "inputBindings",
+                "input_bindings",
+                "permissions",
+            )
             if name in tool
         ]
         if unsupported_fields:
@@ -423,6 +722,22 @@ def _config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
     return {}
 
 
+def _config_dict_or_none(config: dict[str, Any], *keys: str) -> dict[str, Any] | None:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return None
+
+
+def _config_mapping(config: dict[str, Any], *keys: str) -> dict[str, Any]:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
 def _config_list(config: dict[str, Any], *keys: str) -> list[Any]:
     for key in keys:
         value = config.get(key)
@@ -443,6 +758,22 @@ def _config_bool(config: dict[str, Any], *keys: str, default: bool) -> bool:
             if normalized in {"0", "false", "no", "off"}:
                 return False
     return default
+
+
+def _config_has_bool(config: dict[str, Any], *keys: str) -> bool:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, bool):
+            return True
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+                return True
+    return False
+
+
+def _config_has_any(config: dict[str, Any], *keys: str) -> bool:
+    return any(key in config for key in keys)
 
 
 def _config_int(config: dict[str, Any], *keys: str, default: int) -> int:
