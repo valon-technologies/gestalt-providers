@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -615,6 +616,14 @@ func indexWorkflow(ctx workflow.Context, input indexInput) error {
 }
 
 func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor) (*proto.BoundWorkflowRun, error) {
+	return gestaltRunWorkflowWithPersistence(ctx, input, target, trigger, createdBy, false)
+}
+
+func gestaltRunWorkflowV2(ctx workflow.Context, input runWorkflowOptions, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor) (*proto.BoundWorkflowRun, error) {
+	return gestaltRunWorkflowWithPersistence(ctx, input, target, trigger, createdBy, true)
+}
+
+func gestaltRunWorkflowWithPersistence(ctx workflow.Context, input runWorkflowOptions, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor, useStateStore bool) (*proto.BoundWorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
 	if input.ScheduleID != "" {
@@ -682,7 +691,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *
 		return nil, err
 	}
 
-	if err := signalRunIndex(ctx, input, state); err != nil {
+	if err := persistRunState(ctx, input, state, useStateStore); err != nil {
 		return nil, err
 	}
 	if input.RequireSignal {
@@ -694,7 +703,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *
 		state.StartedAt = timestamppb.New(startedAt)
 		state.CompletedAt = nil
 		state.StatusMessage = ""
-		if err := signalRunIndex(ctx, input, state); err != nil {
+		if err := persistRunState(ctx, input, state, useStateStore); err != nil {
 			return nil, err
 		}
 		batch := pendingSignals
@@ -727,7 +736,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *
 			if state.GetWorkflowKey() != "" && len(pendingSignals) > 0 {
 				state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
 				state.CompletedAt = nil
-				_ = signalRunIndex(ctx, input, state)
+				_ = persistRunState(ctx, input, state, useStateStore)
 				continue
 			}
 			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
@@ -735,7 +744,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *
 		}
 		break
 	}
-	if err := signalRunIndex(ctx, input, state); err != nil {
+	if err := persistRunState(ctx, input, state, useStateStore); err != nil {
 		return nil, err
 	}
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
@@ -743,11 +752,34 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *
 }
 
 type workflowActivities struct {
-	host workflowHost
+	host  workflowHost
+	state *workflowStateStore
 }
 
 func (a *workflowActivities) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
 	return a.host.InvokeOperation(ctx, req)
+}
+
+func (a *workflowActivities) StoreRun(ctx context.Context, run *proto.BoundWorkflowRun) (*emptypb.Empty, error) {
+	if a.state == nil {
+		return nil, fmt.Errorf("workflow state store is not configured")
+	}
+	if err := a.state.putRun(ctx, run); err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func persistRunState(ctx workflow.Context, input runWorkflowOptions, run *proto.BoundWorkflowRun, useStateStore bool) error {
+	if !useStateStore {
+		return signalRunIndex(ctx, input, run)
+	}
+	activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+	})
+	var out emptypb.Empty
+	return workflow.ExecuteActivity(activityCtx, (*workflowActivities).StoreRun, cloneRun(run)).Get(activityCtx, &out)
 }
 
 func signalRunIndex(ctx workflow.Context, input runWorkflowOptions, run *proto.BoundWorkflowRun) error {
