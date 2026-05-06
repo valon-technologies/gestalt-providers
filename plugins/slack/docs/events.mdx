@@ -100,6 +100,7 @@ plugins:
       agent:
         provider: simple
         model: deep
+        timeoutSeconds: 1800
         threadContext:
           enabled: true
           maxMessages: 200
@@ -109,6 +110,8 @@ plugins:
 `provider_name=workflow.provider`, a thread-scoped workflow key, and a
 `slack.event` signal. Later Slack messages in the same thread signal the
 existing keyed run instead of replacing its target or authorization context.
+Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent run
+budget to Gestalt. When omitted, Gestalt's workflow-agent default applies.
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
 reaction to the source Slack message only after the workflow signal-or-start
@@ -215,6 +218,7 @@ plugins:
       agent:
         provider: simple
         model: deep
+        timeoutSeconds: 1800
         toolSets:
           directory:
             - plugin: companyDirectory
@@ -238,6 +242,7 @@ plugins:
             agent:
               acknowledgement:
                 reaction: eyes
+              timeoutSeconds: 900
               systemPrompt: Help with team questions.
           - id: operations-help
             match:
@@ -273,6 +278,8 @@ Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 `agent.threadContext` to explicitly disable an inherited global setting. Route
 `workflow.provider` overrides the global `workflow.provider` for Slack events
 and Slack interaction button callbacks generated from that route.
+Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
+Slack events and signed Slack interaction callbacks generated from that route.
 
 Tool sets are named groups under `agent.toolSets`. Tool references expand in
 this order and deduplicate by exact plugin/operation/connection/instance with

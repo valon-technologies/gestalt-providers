@@ -130,6 +130,7 @@ class SlackAgentRoute:
     agent_model_options: dict[str, Any] = field(default_factory=dict)
     agent_tool_set_refs: tuple[str, ...] = ()
     agent_tools: tuple[SlackAgentToolRef, ...] = ()
+    agent_timeout_seconds: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +277,7 @@ class SlackAgentConfig:
     agent_tool_set_refs: tuple[str, ...] = ()
     agent_tools: tuple[SlackAgentToolRef, ...] = ()
     routes: tuple[SlackAgentRoute, ...] = ()
+    agent_timeout_seconds: int = 0
 
 
 @dataclass(frozen=True, slots=True)

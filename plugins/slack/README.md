@@ -161,6 +161,7 @@ plugins:
       agent:
         provider: simple
         model: deep
+        timeoutSeconds: 1800
         threadContext:
           enabled: true
           maxMessages: 200
@@ -177,7 +178,9 @@ The workflow target is an agent target built from the `agent` and `agent.routes`
 configuration. The Slack event, `reply_ref`, and generated user prompt are
 delivered in the signal payload, so later Slack messages in the same thread
 signal the existing keyed run instead of replacing its target or authorization
-context. The target also sets `output_delivery` so the workflow runtime delivers
+context. Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent
+run budget to Gestalt; when omitted, Gestalt's workflow-agent default applies.
+The target also sets `output_delivery` so the workflow runtime delivers
 the agent's final assistant answer through `events.reply` with `text` sourced
 from the agent output and `reply_ref` sourced from the current signal payload.
 If the workflow handoff fails, `events.handle` returns an error so Slack can
@@ -441,6 +444,7 @@ plugins:
       agent:
         provider: simple
         model: deep
+        timeoutSeconds: 1800
         systemPrompt: Use Slack formatting and keep replies concise.
         toolSets:
           directory:
@@ -464,6 +468,7 @@ plugins:
                 - message
             agent:
               systemPrompt: Help with team questions.
+              timeoutSeconds: 900
               acknowledgement:
                 reaction: eyes
           - id: operations-help
@@ -503,6 +508,8 @@ events and Slack interaction button callbacks generated from that route. Signed
 interaction callbacks include the route ID; if a non-empty signed route ID no
 longer exists in the provider configuration, the provider rejects the callback
 instead of silently falling back to global behavior.
+Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
+Slack events and signed Slack interaction callbacks generated from that route.
 
 Tool sets are named groups under `agent.toolSets`. The workflow agent target
 expands tool references in this order and deduplicates by exact

@@ -20,6 +20,8 @@ from .models import (
     SlackWorkflowConfig,
 )
 
+MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS = 2_147_483_647
+
 
 def agent_config_from_provider_config(
     plugin_name: str, config: dict[str, Any]
@@ -32,6 +34,9 @@ def agent_config_from_provider_config(
     )
     model_options = _config_dict(
         agent, "modelOptions", "model_options", "agentModelOptions"
+    )
+    timeout_seconds = _config_timeout_seconds(
+        agent, "timeoutSeconds", "timeout_seconds"
     )
     agent_tool_sets = _agent_tool_sets_from_config(agent)
     agent_tool_set_refs = _config_string_tuple(
@@ -81,6 +86,7 @@ def agent_config_from_provider_config(
         or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
         agent_model_options=model_options
         or _config_dict(config, "agentModelOptions", "agent_model_options"),
+        agent_timeout_seconds=timeout_seconds,
         agent_tool_sets=agent_tool_sets,
         agent_tool_set_refs=agent_tool_set_refs,
         agent_tools=_agent_tool_refs_from_config(agent, "agent.tools")
@@ -309,6 +315,13 @@ def _agent_route_from_config(
     model_options = _config_dict(
         agent, "modelOptions", "model_options", "agentModelOptions"
     )
+    timeout_seconds = _config_timeout_seconds(
+        agent, "timeoutSeconds", "timeout_seconds"
+    )
+    if timeout_seconds <= 0:
+        timeout_seconds = _config_timeout_seconds(
+            config, "timeoutSeconds", "timeout_seconds"
+        )
 
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
@@ -329,6 +342,7 @@ def _agent_route_from_config(
         or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
         agent_model_options=model_options
         or _config_dict(config, "modelOptions", "agentModelOptions"),
+        agent_timeout_seconds=timeout_seconds,
         agent_tool_set_refs=_config_string_tuple(
             agent, "toolSetRefs", "tool_set_refs"
         )
@@ -789,6 +803,38 @@ def _config_int(config: dict[str, Any], *keys: str, default: int) -> int:
             except ValueError:
                 continue
     return default
+
+
+def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key not in config:
+            continue
+        value = config.get(key)
+        if value is None:
+            return 0
+        if isinstance(value, bool):
+            raise ValueError(f"{key} must be a positive integer number of seconds")
+        if isinstance(value, int):
+            seconds = value
+        elif isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return 0
+            if not normalized.isdecimal():
+                raise ValueError(
+                    f"{key} must be a positive integer number of seconds"
+                )
+            seconds = int(normalized)
+        else:
+            raise ValueError(f"{key} must be a positive integer number of seconds")
+        if seconds <= 0:
+            raise ValueError(f"{key} must be a positive integer number of seconds")
+        if seconds > MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"{key} must be at most {MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS} seconds"
+            )
+        return seconds
+    return 0
 
 
 def _clamp_int(value: int, *, minimum: int, maximum: int) -> int:

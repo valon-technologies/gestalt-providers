@@ -107,6 +107,7 @@ class FakeBoundWorkflowAgentTarget:
         prompt: str = "",
         messages: list[Any] | None = None,
         tool_refs: list[Any] | None = None,
+        timeout_seconds: int = 0,
         output_delivery: Any = None,
         **_kwargs: Any,
     ) -> None:
@@ -115,6 +116,7 @@ class FakeBoundWorkflowAgentTarget:
         self.prompt = prompt
         self.messages = messages or []
         self.tool_refs = tool_refs or []
+        self.timeout_seconds = timeout_seconds
         self.output_delivery = output_delivery
         self.metadata = new_struct()
         self.model_options = new_struct()
@@ -623,6 +625,133 @@ class SlackProviderTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_agent_timeout_seconds_maps_to_workflow_target(self) -> None:
+        def target_for_config(config: dict[str, Any], *, channel: str = "C789") -> Any:
+            provider_module.configure("slack", config)
+            self.addCleanup(provider_module.configure, "slack", {})
+            workflow_manager = FakeWorkflowManager()
+            payload = {
+                "type": "event_callback",
+                "event_id": "EvTimeout",
+                "team_id": "T123",
+                "event": {
+                    "type": "app_mention",
+                    "user": "U456",
+                    "channel": channel,
+                    "channel_type": "channel",
+                    "text": "<@UBOT> hello",
+                    "ts": "1712161829.000300",
+                },
+            }
+            workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+            with (
+                mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+                mock.patch.object(
+                    gestalt.Request,
+                    "workflow_manager",
+                    return_value=workflow_manager,
+                    create=True,
+                ),
+            ):
+                response = provider_module.slack_events_handle(
+                    payload,
+                    gestalt.Request(
+                        subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                    ),
+                )
+            self.assertEqual(response["ok"], True)
+            return workflow_manager.signal_or_start_requests[0].target.agent
+
+        base_config = {
+            "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+            "workflow": {"provider": "local"},
+            "agent": {"provider": "simple", "model": "deep"},
+        }
+
+        with self.subTest("top-level camelCase"):
+            target = target_for_config(
+                {
+                    **base_config,
+                    "agent": {
+                        **base_config["agent"],
+                        "timeoutSeconds": 1800,
+                    },
+                }
+            )
+            self.assertEqual(target.timeout_seconds, 1800)
+
+        with self.subTest("top-level snake_case string"):
+            target = target_for_config(
+                {
+                    **base_config,
+                    "agent": {
+                        **base_config["agent"],
+                        "timeout_seconds": "1200",
+                    },
+                }
+            )
+            self.assertEqual(target.timeout_seconds, 1200)
+
+        with self.subTest("route agent override"):
+            target = target_for_config(
+                {
+                    **base_config,
+                    "agent": {
+                        **base_config["agent"],
+                        "timeoutSeconds": 1800,
+                        "routes": [
+                            {
+                                "id": "short-route",
+                                "match": {"channel": "C_ROUTE"},
+                                "agent": {"timeoutSeconds": 900},
+                            }
+                        ],
+                    },
+                },
+                channel="C_ROUTE",
+            )
+            self.assertEqual(target.timeout_seconds, 900)
+
+        with self.subTest("route-level override"):
+            target = target_for_config(
+                {
+                    **base_config,
+                    "agent": {
+                        **base_config["agent"],
+                        "timeoutSeconds": 1800,
+                        "routes": [
+                            {
+                                "id": "route-level",
+                                "match": {"channel": "C_ROUTE"},
+                                "timeout_seconds": 600,
+                            }
+                        ],
+                    },
+                },
+                channel="C_ROUTE",
+            )
+            self.assertEqual(target.timeout_seconds, 600)
+
+        with self.subTest("omitted timeout"):
+            target = target_for_config(base_config)
+            self.assertEqual(target.timeout_seconds, 0)
+
+    def test_agent_timeout_seconds_rejects_invalid_values(self) -> None:
+        invalid_values = [True, 0, -1, 1.5, "ten minutes", 2_147_483_648]
+        for value in invalid_values:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "timeoutSeconds"):
+                    provider_module.configure(
+                        "slack",
+                        {
+                            "agent": {
+                                "provider": "simple",
+                                "model": "deep",
+                                "timeoutSeconds": value,
+                            }
+                        },
+                    )
 
     def test_route_and_tool_set_tools_reject_runtime_policy_fields(self) -> None:
         invalid_configs = [
@@ -3256,11 +3385,13 @@ class SlackProviderTests(unittest.TestCase):
                 "agent": {
                     "provider": "simple",
                     "model": "deep",
+                    "timeoutSeconds": 1800,
                     "routes": [
                         {
                             "id": "route-local",
                             "match": {"channel": "C_ROUTE"},
                             "workflow": {"provider": "route-provider"},
+                            "agent": {"timeoutSeconds": 900},
                         }
                     ],
                 },
@@ -3305,6 +3436,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             workflow_manager.signal_or_start_requests[0].provider_name,
             "route-provider",
+        )
+        self.assertEqual(
+            workflow_manager.signal_or_start_requests[0].target.agent.timeout_seconds,
+            900,
         )
 
     def test_agent_route_workflow_provider_handles_interactions_without_global_provider(
