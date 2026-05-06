@@ -19,15 +19,6 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from .client import SlackAPIError, SlackClientError
 from .config import agent_config_from_provider_config, normalize_suggested_prompts
 from .helpers import map_field, map_slice, string_field
-from .ledger import (
-    STATUS_DEAD_LETTERED,
-    STATUS_FAILED,
-    STATUS_FAILED_REPLY_PENDING,
-    assistant_request_ledger,
-    event_from_record,
-    request_record_id,
-    reset_assistant_request_ledger,
-)
 from .models import (
     ASSISTANT_THREAD_EVENT_TYPES,
     DIRECT_MESSAGE_CHANNEL_TYPES,
@@ -49,7 +40,6 @@ from .models import (
 )
 from .models import SlackAcknowledgementConfig as SlackAcknowledgementConfig  # noqa: F401
 from .models import SlackAgentRouteMatch as SlackAgentRouteMatch  # noqa: F401
-from .models import SlackAssistantLedgerConfig as SlackAssistantLedgerConfig  # noqa: F401
 from .models import SlackAssistantConfig as SlackAssistantConfig  # noqa: F401
 from .models import SlackBotConfig as SlackBotConfig  # noqa: F401
 from .models import SlackThreadContextConfig as SlackThreadContextConfig  # noqa: F401
@@ -94,7 +84,6 @@ SLACK_ASSISTANT_PROMPTS_OPERATION = "events.setSuggestedPrompts"
 SLACK_STREAM_START_OPERATION = "events.startStream"
 SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
-SLACK_ASSISTANT_RECONCILE_OPERATION = "assistant.reconcileStuckRequests"
 SLACK_MESSAGE_OPERATION = "conversations.getMessage"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
@@ -281,7 +270,6 @@ _agent_config = SlackAgentConfig()
 def configure_agent(name: str, config: dict[str, Any]) -> None:
     global _agent_config
 
-    reset_assistant_request_ledger()
     _agent_config = agent_config_from_provider_config(name, config)
 
 
@@ -367,8 +355,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     acknowledgement_reaction_error = ""
     assistant_status_error = ""
     workflow_provider = _workflow_provider_name(route)
-    ledger = assistant_request_ledger(_agent_config.assistant_ledger)
-    ledger_record_id = request_record_id(event)
     try:
         reply_ref = _sign_reply_ref(event, req.subject.id, route)
         if not workflow_provider:
@@ -394,18 +380,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             message = "Slack event handling requires a Gestalt SDK/runtime with workflow manager support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
-        try:
-            ledger.record_received(
-                event,
-                route=route,
-                subject_id=req.subject.id,
-                reply_ref=reply_ref,
-            )
-        except Exception as err:
-            logger.exception("failed to record Slack assistant request %s", log_context)
-            if publish_response is not None:
-                return publish_response
-            return _server_error(f"failed to record Slack assistant request: {err}")
         with workflow_manager_factory() as workflow_manager:
             workflow_request = _build_workflow_signal_or_start_request(
                 event, route, reply_ref
@@ -413,10 +387,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
         logger.exception("failed to signal Slack event workflow %s", log_context)
-        try:
-            ledger.mark_failed(ledger_record_id, str(err))
-        except Exception:
-            logger.exception("failed to mark Slack assistant request failed %s", log_context)
         if publish_response is not None:
             return publish_response
         return _server_error(f"failed to signal workflow run: {err}")
@@ -433,23 +403,11 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             _workflow_signal_fields_log_context(fields),
         )
         response = {"ok": True, **fields}
-        try:
-            ledger.mark_signaled(ledger_record_id)
-        except Exception:
-            logger.exception(
-                "failed to mark Slack assistant request signaled %s", log_context
-            )
     except Exception:
         logger.exception("failed to ack Slack event workflow %s", log_context)
         if publish_response is not None:
             return publish_response
         response = _workflow_dispatched_ack_fallback()
-        try:
-            ledger.update(ledger_record_id, status="signaled")
-        except Exception:
-            logger.exception(
-                "failed to mark Slack assistant request dispatched %s", log_context
-            )
     try:
         _add_acknowledgement_reaction(event, route)
     except SlackAPIError as err:
@@ -461,12 +419,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 log_context,
                 error,
             )
-            try:
-                ledger.mark_ack_error(ledger_record_id, error)
-            except Exception:
-                logger.exception(
-                    "failed to record Slack acknowledgement error %s", log_context
-                )
     except SlackClientError as err:
         acknowledgement_reaction_error = str(err)
         logger.warning(
@@ -474,12 +426,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             log_context,
             acknowledgement_reaction_error,
         )
-        try:
-            ledger.mark_ack_error(ledger_record_id, acknowledgement_reaction_error)
-        except Exception:
-            logger.exception(
-                "failed to record Slack acknowledgement error %s", log_context
-            )
     assistant = _assistant_config(route)
     if assistant.enabled:
         try:
@@ -491,12 +437,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 log_context,
                 assistant_status_error,
             )
-            try:
-                ledger.mark_assistant_status_error(ledger_record_id, assistant_status_error)
-            except Exception:
-                logger.exception(
-                    "failed to record Slack assistant status error %s", log_context
-                )
         except SlackClientError as err:
             assistant_status_error = str(err)
             logger.warning(
@@ -504,12 +444,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 log_context,
                 assistant_status_error,
             )
-            try:
-                ledger.mark_assistant_status_error(ledger_record_id, assistant_status_error)
-            except Exception:
-                logger.exception(
-                    "failed to record Slack assistant status error %s", log_context
-                )
     if acknowledgement_reaction_error:
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
@@ -519,105 +453,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         response["workflow_event_ids"] = publish_response["workflow_event_ids"]
         response["publish_route_ids"] = publish_response["route_ids"]
     return response
-
-
-def reconcile_stuck_assistant_requests(limit: int, req: gestalt.Request) -> OperationResult:
-    ledger = assistant_request_ledger(_agent_config.assistant_ledger)
-    if not ledger.enabled:
-        return {"ok": True, "enabled": False, "checked": 0, "recovered": 0, "failed": 0}
-    if not _agent_config.bot.token:
-        return gestalt.Response(
-            status=HTTPStatus.PRECONDITION_FAILED,
-            body={"error": "Slack bot token is not configured"},
-        )
-    if not _workflow_manager_contract_available():
-        return _server_error(
-            "Slack assistant reconciliation requires a Gestalt SDK/runtime with workflow signal-or-start support"
-        )
-    workflow_manager_factory = cast(
-        WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
-    )
-    if workflow_manager_factory is None:
-        return _server_error(
-            "Slack assistant reconciliation requires a Gestalt SDK/runtime with workflow manager support"
-        )
-
-    bounded_limit = min(max(limit, 1), 100)
-    checked = 0
-    recovered = 0
-    failed = 0
-    dead_lettered = 0
-    errors: list[dict[str, str]] = []
-
-    for record in ledger.stale_records()[:bounded_limit]:
-        checked += 1
-        record_id = str(record.get("id") or "")
-        status = str(record.get("status") or "")
-        attempts = _int_value(record.get("recovery_attempts"))
-        try:
-            if status == STATUS_FAILED_REPLY_PENDING:
-                _post_fallback_for_record(
-                    record, ledger, terminal_status=STATUS_FAILED
-                )
-                failed += 1
-                continue
-            if attempts >= _agent_config.assistant_ledger.max_recovery_attempts:
-                _post_fallback_for_record(
-                    record, ledger, terminal_status=STATUS_DEAD_LETTERED
-                )
-                dead_lettered += 1
-                continue
-            event = event_from_record(record)
-            if event is None:
-                ledger.mark_dead_lettered(record_id, "stored Slack event is invalid")
-                dead_lettered += 1
-                continue
-            route = _agent_route_by_id(str(record.get("route_id") or ""))
-            if route is None:
-                selected_route, ignored_reason = _select_agent_route(event)
-                if ignored_reason:
-                    ledger.mark_dead_lettered(
-                        record_id, f"stored Slack event no longer routes: {ignored_reason}"
-                    )
-                    dead_lettered += 1
-                    continue
-                route = selected_route
-            reply_ref = _sign_reply_ref(
-                event, str(record.get("subject_id") or ""), route
-            )
-            workflow_request = _build_workflow_signal_or_start_request(
-                event, route, reply_ref
-            )
-            with workflow_manager_factory() as workflow_manager:
-                workflow_manager.signal_or_start_run(workflow_request)
-            ledger.increment_recovery_attempts(record_id)
-            recovered += 1
-            logger.info(
-                "slack_assistant_request_status status=recovered record_id=%s",
-                record_id,
-            )
-        except Exception as err:
-            failed += 1
-            errors.append({"record_id": record_id, "error": str(err)})
-            logger.exception(
-                "failed to reconcile Slack assistant request record_id=%s", record_id
-            )
-            try:
-                ledger.update(record_id, last_error=str(err))
-            except Exception:
-                logger.exception(
-                    "failed to record Slack assistant reconciliation error"
-                )
-
-    return {
-        "ok": True,
-        "enabled": True,
-        "checked": checked,
-        "recovered": recovered,
-        "failed": failed,
-        "dead_lettered": dead_lettered,
-        "errors": errors[:10],
-    }
 
 
 def request_slack_interaction(
@@ -760,7 +595,6 @@ def reply_to_slack_event(
     if not normalized_text:
         return _bad_request("text is required")
 
-    ledger = assistant_request_ledger(_agent_config.assistant_ledger)
     verified_ref: SlackReplyRef | None = None
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
@@ -774,34 +608,9 @@ def reply_to_slack_event(
     except ValueError as err:
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
-        if verified_ref is not None:
-            try:
-                ledger.mark_reply_failed(
-                    verified_ref,
-                    error=str(err.body.get("error") or err.body),
-                    retryable=True,
-                )
-            except Exception:
-                logger.exception("failed to record Slack reply delivery failure")
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
-        if verified_ref is not None:
-            try:
-                ledger.mark_reply_failed(
-                    verified_ref, error=str(err), retryable=True
-                )
-            except Exception:
-                logger.exception("failed to record Slack reply delivery failure")
         return _event_client_error(err)
-
-    try:
-        ledger.mark_reply_posted(
-            verified_ref,
-            reply_ts=str(result.get("ts") or ""),
-            channel_id=str(result.get("channel") or verified_ref.channel_id),
-        )
-    except Exception:
-        logger.exception("failed to record Slack reply delivery success")
 
     return {
         "ok": True,
@@ -3090,66 +2899,6 @@ def _slack_client_msg_id(idempotency_key: str) -> str:
         return ""
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return str(uuid.UUID(hex=digest[:32]))
-
-
-def _post_fallback_for_record(
-    record: dict[str, Any], ledger: Any, *, terminal_status: str
-) -> None:
-    record_id = str(record.get("id") or "")
-    channel_id = str(record.get("channel_id") or "").strip()
-    thread_ts = (
-        str(record.get("reply_thread_ts") or "").strip()
-        or str(record.get("thread_ts") or "").strip()
-        or str(record.get("message_ts") or "").strip()
-    )
-    if not channel_id or not thread_ts:
-        ledger.mark_dead_lettered(record_id, "stored Slack reply target is invalid")
-        return
-    try:
-        result = post_message(
-            _agent_config.bot.token,
-            channel=channel_id,
-            text=_agent_config.assistant_ledger.fallback_message,
-            thread_ts=thread_ts,
-            client_msg_id=_slack_client_msg_id(f"slack:fallback:{record_id}"),
-        )
-    except SlackAPIError as err:
-        error = str(err.body.get("error") or err.body)
-        ledger.update(
-            record_id,
-            status=STATUS_FAILED_REPLY_PENDING,
-            fallback_reply_error=error,
-            last_error=error,
-        )
-        logger.warning(
-            "reply_delivery_failed record_id=%s error=%s", record_id, error
-        )
-        raise
-    except SlackClientError as err:
-        ledger.update(
-            record_id,
-            status=STATUS_FAILED_REPLY_PENDING,
-            fallback_reply_error=str(err),
-            last_error=str(err),
-        )
-        logger.warning(
-            "reply_delivery_failed record_id=%s error=%s", record_id, err
-        )
-        raise
-    ledger.update(
-        record_id,
-        status=terminal_status,
-        fallback_reply_channel_id=str(result.get("channel") or channel_id),
-        fallback_reply_ts=str(result.get("ts") or ""),
-        last_error="fallback reply posted",
-    )
-
-
-def _int_value(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _workflow_run_status_name(status: Any) -> str:

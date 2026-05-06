@@ -10,16 +10,6 @@ operations:
   description: Handle Slack interaction callbacks and signal the matching workflow
     lane
   visible: false
-- id: assistant.reconcileStuckRequests
-  method: POST
-  description: Reconcile stale Slack assistant requests that were durably accepted
-    but never reached a visible terminal state
-  parameters:
-  - name: limit
-    type: integer
-    description: Maximum number of stale assistant requests to reconcile
-    default: 50.0
-  visible: false
 - id: interactions.request
   method: POST
   description: Post a Slack message with signed button actions that signal the workflow
