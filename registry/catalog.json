@@ -3983,7 +3983,15 @@
       },
       "description": "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.",
       "displayName": "QuickBooks Online",
-      "docs": [],
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/quickbooks/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/quickbooks/README.md",
+          "sourcePath": "plugins/quickbooks/README.md",
+          "title": "QuickBooks Online"
+        }
+      ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/quickbooks/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
@@ -3992,7 +4000,7 @@
       "name": "quickbooks",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/quickbooks",
       "packagePath": "plugins/quickbooks",
-      "readmeUrl": null,
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/quickbooks/README.md",
       "registryPath": "/providers/plugin/quickbooks/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/quickbooks",
       "versions": [

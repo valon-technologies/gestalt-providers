@@ -18,13 +18,60 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 
 ## Capabilities
 
-Source-backed provider implemented in Python. Exposes operations for listing
-datasets, tables, and routines, and for retrieving their metadata via the
-BigQuery REST API.
+Provider with Google BigQuery operations. Exposes operations for running
+bounded SQL queries, listing datasets, tables, and routines, and retrieving
+metadata via the BigQuery REST API.
 
 Authenticates with Google OAuth 2.0.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  bigquery:
+    source: github.com/valon-technologies/gestalt-providers/plugins/bigquery
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0.
+  - Requested scopes: `https://www.googleapis.com/auth/bigquery`.
+
+Operation surfaces: REST.
+
+Representative operations include:
+
+- `query`
+
+- The `query` operation returns a bounded result set with `schema`, `rows`, `total_rows`, and `job_complete`. Use `max_results` to keep agent-visible responses small.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: bigquery
+        operation: query
+```
+
+Example `query` call:
+
+```ts
+await invoker.invoke("bigquery", "query", {
+  project_id: "analytics-prod",
+  query: "select name from `dataset.table` limit 10",
+  max_results: 10,
+});
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)

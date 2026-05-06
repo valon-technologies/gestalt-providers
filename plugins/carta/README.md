@@ -42,8 +42,57 @@ The default connection uses Carta's OAuth2 authorization-code flow. An identity
 fallback is also available for pre-minted bearer tokens. In either case, the
 token must carry the scopes required by the endpoints you invoke.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  carta:
+    source: github.com/valon-technologies/gestalt-providers/plugins/carta
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0; mode `user`.
+  - Requested scopes: `read_compensation_benchmarks`, `read_corporation_info`, `read_draftissuers`, `read_investor_capitalizationtables`, `read_investor_cashbalances`, `read_investor_firms`, `read_investor_fundperformance`, `read_investor_funds`, `read_investor_investments`, `read_investor_partners`, `read_investor_securities`, `read_investor_stakeholdercapitalizationtable`, `read_issuer_capitalizationtablesummary`, `read_issuer_draftsecurities`, `read_issuer_info`, `read_issuer_interests`, `read_issuer_securities`, `read_issuer_securitiestemplates`, `read_issuer_shareclasses`, `read_issuer_stakeholdercapitalizationtable`, `read_issuer_stakeholders`, `read_issuer_valuations`, `read_opencaptables`, `read_portfolio_fundinvestmentdocuments`, `read_portfolio_info`, `read_portfolio_issuervaluations`, `read_portfolio_securities`, `read_portfolio_transactions`, `read_user_info`, `readwrite_draftissuers`, `readwrite_file_upload`, `readwrite_issuer_draftsecurities`, `readwrite_issuer_securities`, `readwrite_opencaptables`.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `v1alpha1.corporations.listCorporations`
+- `v1alpha1.corporations.listCorporations`
+- `v1alpha1.compensation.GetCompensationBenchmarkAttributes`
+- `v1alpha1.compensation.GetCompensationBenchmarks`
+- `v1alpha1.draftIssuers.createDraftIssuer`
+- `v1alpha1.draftIssuers.getDraftIssuer`
+- `v1alpha1.files.uploadFile`
+- `v1alpha1.investors.listFirms`
+- `v1alpha1.investors.listFunds`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: carta
+        operation: v1alpha1.corporations.listCorporations
+```
+
+Example `v1alpha1.corporations.listCorporations` call:
+
+```ts
+await invoker.invoke("carta", "v1alpha1.corporations.listCorporations", {});
+```
+
+## Documentation
 - [Carta API Platform Introduction](https://docs.carta.com/api-platform/docs/introduction)
 - [Carta API Platform Scopes](https://docs.carta.com/api-platform/docs/scopes)
 - [Provider Development](https://gestaltd.ai/providers)

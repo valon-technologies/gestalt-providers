@@ -64,8 +64,66 @@ plugins:
 The manifest sets Looker's required lowercase `token ` authorization prefix on
 API requests.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  looker:
+    source: github.com/valon-technologies/gestalt-providers/plugins/looker
+    version: ...
+    connections:
+      default:
+        params:
+          host: "..."
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses manual credentials; mode `user`.
+  - Credential fields: `client_id`, `client_secret`.
+  - `client_id`: Looker API client ID for a user with API access enabled.
+  - `client_secret`: Looker API client secret for the same user.
+  - Connection params:
+    - `host` (required): Looker API host for your instance, without the scheme (for example, `company.cloud.looker.com` or `looker.example.com`).
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `search_dashboards`
+- `create_query_task`
+- `query_task_multi_results`
+- `query_task`
+- `query_task_results`
+- `query`
+- `query_for_slug`
+- `create_query`
+- `run_query`
+- `run_inline_query`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: looker
+        operation: search_dashboards
+```
+
+Example `search_dashboards` call:
+
+```ts
+await invoker.invoke("looker", "search_dashboards", { title: "Revenue" });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
 - [Looker API overview](https://cloud.google.com/looker/docs/api-overview)

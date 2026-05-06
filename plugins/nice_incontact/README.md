@@ -68,8 +68,71 @@ tenant API host, then provide it as `api_host`.
 `sources.lock.json` records the official NICE source documents and checksums
 used to build the committed `openapi.yaml`.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  nice_incontact:
+    source: github.com/valon-technologies/gestalt-providers/plugins/nice_incontact
+    version: ...
+    config:
+      clientId: ${NICE_INCONTACT_CLIENT_ID}
+      clientSecret: ${NICE_INCONTACT_CLIENT_SECRET}
+    connections:
+      oauth:
+        params:
+          api_host: api-na1.niceincontact.com
+```
+
+Provider config fields:
+
+- `clientId` (required): NICE CXone OAuth client ID.
+- `clientSecret` (required): NICE CXone OAuth client secret.
+
+Connections and authentication:
+
+- `oauth` uses OAuth 2.0; mode `user`.
+  - Requested scopes: `openid`.
+  - Connection params:
+    - `api_host` (required): Tenant API host from NICE API discovery, for example api-na1.niceincontact.com. Do not include the scheme.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `admin_admin_agents_api_docs.get_agents`
+- `global_authentication_api.getcxoneconfig`
+- `global_authentication_api.getoidcconfig`
+- `cxone_api_docs.returns_a_list_of_access_keys`
+- `cxone_api_docs.create_an_access_key_for_a_user`
+- `cxone_api_docs.deletes_an_access_key`
+- `cxone_api_docs.returns_an_access_key_config`
+- `cxone_api_docs.updates_an_access_key_for_a_user`
+- `global_authentication_api.getaccountaccessassociations`
+
+- Set `api_host` per tenant; do not include `https://`.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: nice_incontact
+        operation: admin_admin_agents_api_docs.get_agents
+```
+
+Example `admin_admin_agents_api_docs.get_agents` call:
+
+```ts
+await invoker.invoke("nice_incontact", "admin_admin_agents_api_docs.get_agents", { api_host: "api-na1.niceincontact.com" });
+```
+
+## Documentation
 - [NICE CXone API Overview](https://developer.niceincontact.com/API)
 - [NICE CXone Authentication and Discovery](https://developer.niceincontact.com/Documentation/GettingStarted)
 - [Provider Development](https://gestaltd.ai/providers)

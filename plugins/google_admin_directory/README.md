@@ -41,3 +41,60 @@ OAuth 2.0 with the following scopes:
 ## OpenAPI Spec
 
 Remote: `https://api.apis.guru/v2/specs/googleapis.com/admin/directory_v1/openapi.json`
+
+## Configuration Reference
+
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  google_admin_directory:
+    source: github.com/valon-technologies/gestalt-providers/plugins/google_admin_directory
+    version: ...
+    config:
+      clientId: ${GOOGLE_ADMIN_DIRECTORY_CLIENT_ID}
+      clientSecret: ${GOOGLE_ADMIN_DIRECTORY_CLIENT_SECRET}
+```
+
+Provider config fields:
+
+- `clientId` (required): Provider configuration value.
+- `clientSecret` (required): Provider configuration value.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0.
+  - Requested scopes: `https://www.googleapis.com/auth/admin.directory.customer`, `https://www.googleapis.com/auth/admin.directory.device.chromeos`, `https://www.googleapis.com/auth/admin.directory.device.mobile`, `https://www.googleapis.com/auth/admin.directory.device.mobile.action`, `https://www.googleapis.com/auth/admin.directory.domain`, `https://www.googleapis.com/auth/admin.directory.group`, `https://www.googleapis.com/auth/admin.directory.group.member`, `https://www.googleapis.com/auth/admin.directory.orgunit`, `https://www.googleapis.com/auth/admin.directory.resource.calendar`, `https://www.googleapis.com/auth/admin.directory.rolemanagement`, `https://www.googleapis.com/auth/admin.directory.user`, `https://www.googleapis.com/auth/admin.directory.user.alias`, `https://www.googleapis.com/auth/admin.directory.user.security`, `https://www.googleapis.com/auth/admin.directory.userschema`, `https://www.googleapis.com/auth/admin.chrome.printers`.
+
+Operation surfaces: OpenAPI.
+
+Representative operations include:
+
+- `directory.users.list`
+- `admin.channels.stop`
+- `admin.customer.devices.chromeos.commands.get`
+- `admin.customer.devices.chromeos.issueCommand`
+- `admin.customers.chrome.printServers.batchCreatePrintServers`
+- `admin.customers.chrome.printServers.batchDeletePrintServers`
+- `admin.customers.chrome.printServers.create`
+- `admin.customers.chrome.printServers.delete`
+- `admin.customers.chrome.printServers.get`
+- `admin.customers.chrome.printServers.list`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: google_admin_directory
+        operation: directory.users.list
+```
+
+Example `directory.users.list` call:
+
+```ts
+await invoker.invoke("google_admin_directory", "directory.users.list", { customer: "my_customer", maxResults: 10 });
+```

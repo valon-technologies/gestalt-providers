@@ -81,13 +81,14 @@ The full scope set used by this provider's bot behaviors is:
 
 ## Capabilities
 
-This is a source-backed Python provider with both a REST surface and an
+This provider exposes both a REST surface and an
 [MCP](https://modelcontextprotocol.io/) surface.
 
 It exposes operations for listing and creating channels, reading message history
-and threads, sending and scheduling messages, opening or resuming DMs, searching
-messages, managing reactions, setting channel topics, inviting users, creating
-canvases, building thread context, and reading Slack file or image contents.
+and threads, sending, updating, deleting, scheduling, and streaming messages,
+opening or resuming DMs, searching messages, reading user profiles, managing
+reactions, setting channel topics, inviting users, creating canvases, building
+thread context, and reading Slack file or image contents.
 
 User operations authenticate with Slack OAuth 2.0 user scope. Operations with
 fixed bot behavior use the internal deployment-owned `bot` bearer connection.
@@ -98,6 +99,101 @@ public invocation contract.
 The requested scopes cover public channels, private channels, direct messages,
 and multi-person direct messages. That matches the provider's current
 conversation history, thread, search, and message URL lookup behavior.
+
+## Configuration Reference
+
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  slack:
+    source: github.com/valon-technologies/gestalt-providers/plugins/slack
+    version: ...
+```
+
+The default user connection uses Slack OAuth 2.0. Requested user scopes are
+`channels:read`, `channels:history`, `groups:read`, `groups:history`,
+`im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`,
+`mpim:write`, `search:read`, `users:read`, `users:read.email`, `files:read`,
+`chat:write`, `reactions:write`, `channels:write`, `groups:write`, and
+`canvases:write`.
+
+The internal `bot` connection uses a deployment-owned bearer token. Configure it
+only when using bot REST operations, Slack Events API agent replies, native
+assistant helpers, interactions, or streaming helpers.
+
+Representative public operations include:
+
+- `conversations.getMessage`
+- `conversations.getThreadContext`
+- `conversations.findUserMentions`
+- `conversations.getThreadParticipants`
+- `files.get`
+- `chat.postMessage`
+- `chat.update`
+- `chat.delete`
+- `chat.postEphemeral`
+- `chat.startStream`
+- `chat.appendStream`
+- `chat.stopStream`
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke Slack operations before
+calling them:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: slack
+        operation: conversations.getThreadContext
+      - plugin: slack
+        operation: files.get
+```
+
+Fetch a thread by permalink:
+
+```ts
+await invoker.invoke("slack", "conversations.getThreadContext", {
+  url: "https://workspace.slack.com/archives/C0123456789/p1712161829000300",
+  include_user_info: true,
+  include_files: true,
+  include_file_content: false,
+});
+```
+
+Read bounded file content by Slack file ID:
+
+```ts
+await invoker.invoke("slack", "files.get", {
+  file_id: "F0123456789",
+  include_content: true,
+  max_bytes: 200000,
+});
+```
+
+When responding from a Slack event workflow, use the event helper operations with
+the opaque `reply_ref` supplied in the event payload. For native streaming:
+
+```ts
+const started = await invoker.invoke("slack", "events.startStream", {
+  reply_ref: "...",
+  markdown_text: "Working on it...",
+});
+
+await invoker.invoke("slack", "events.appendStream", {
+  reply_ref: "...",
+  stream_ts: started.ts,
+  markdown_text: "Found the relevant context.",
+});
+
+await invoker.invoke("slack", "events.stopStream", {
+  reply_ref: "...",
+  stream_ts: started.ts,
+  markdown_text: "Done.",
+});
+```
 
 ## Events
 

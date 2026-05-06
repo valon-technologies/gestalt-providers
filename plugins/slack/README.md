@@ -55,7 +55,7 @@ enabled behaviors. The full scope set used by this provider's bot behaviors is:
 
 ## Capabilities
 
-Source-backed provider implemented in Python with both a REST surface and an
+Provider with both a REST surface and an
 [MCP](https://modelcontextprotocol.io/) surface. Exposes operations for listing
 and creating channels, reading message history and threads, sending and
 scheduling messages, opening or resuming DMs, searching messages, managing
@@ -534,7 +534,70 @@ extend the top-level agent settings, `prompt` is accepted as an alias for
 precedence. Matching routes still require non-DM `message` events to be
 addressed to the bot; routes do not opt into every plain channel message.
 
-## Documentation
+## Configuration Reference
 
+Use this provider from a Gestalt configuration entry like:
+
+```yaml
+plugins:
+  slack:
+    source: github.com/valon-technologies/gestalt-providers/plugins/slack
+    version: ...
+```
+
+This provider does not define provider-level config fields in its config schema. Configure credentials through the connection described below.
+
+Connections and authentication:
+
+- `default` uses OAuth 2.0.
+  - Requested scopes: `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `search:read`, `users:read`, `users:read.email`, `files:read`, `chat:write`, `reactions:write`, `channels:write`, `groups:write`, `canvases:write`.
+- `bot` uses bearer token; mode `platform`; exposure `internal`.
+
+Operation surfaces: REST.
+
+Representative operations include:
+
+- `conversations.getThreadContext`
+- `events.startStream`
+- `events.handle`
+- `interactions.handle`
+- `interactions.request`
+- `events.reply`
+- `events.setStatus`
+- `events.deleteStatus`
+- `events.addReaction`
+- `events.removeReaction`
+
+- Event helper operations use opaque `reply_ref` values from Slack workflow events; agents should not handle raw Slack bot tokens.
+
+## Usage Examples
+
+Grant another provider or workflow permission to invoke this plugin before calling it:
+
+```yaml
+plugins:
+  example_consumer:
+    invokes:
+      - plugin: slack
+        operation: conversations.getThreadContext
+```
+
+Example `conversations.getThreadContext` call:
+
+```ts
+await invoker.invoke("slack", "conversations.getThreadContext", {
+  url: "https://workspace.slack.com/archives/C0123456789/p1712161829000300",
+  include_user_info: true,
+  include_file_content: false,
+});
+```
+
+Example `events.startStream` call:
+
+```ts
+await invoker.invoke("slack", "events.startStream", { reply_ref: "...", markdown_text: "Working on it..." });
+```
+
+## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
