@@ -5187,7 +5187,7 @@
       ],
       "iconUrl": null,
       "kind": "runtime",
-      "latestInstallableVersion": "0.0.1-alpha.14",
+      "latestInstallableVersion": "0.0.1-alpha.15",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/gkeagentsandbox/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.15",
       "name": "gkeagentsandbox",
@@ -5197,6 +5197,19 @@
       "registryPath": "/providers/runtime/gkeagentsandbox/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/runtime/gkeagentsandbox",
       "versions": [
+        {
+          "kind": "runtime",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.15/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.15"
+        },
         {
           "kind": "runtime",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.14/provider-release.yaml",
