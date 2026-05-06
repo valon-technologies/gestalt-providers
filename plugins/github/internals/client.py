@@ -75,6 +75,16 @@ class GitHubAPIClient(Protocol):
 
     def repository_installation(self, owner: str, repo: str) -> JsonObject: ...
 
+    def current_user_identity(self, access_token: str) -> GitHubUserIdentity: ...
+
+    def app_installations(
+        self, *, per_page: int = 100, page: int = 1
+    ) -> list[JsonObject]: ...
+
+    def installation_repositories(
+        self, access_token: str, *, per_page: int = 100, page: int = 1
+    ) -> list[JsonObject]: ...
+
     def get_branch_ref(
         self, token: str, owner: str, repo: str, branch: str
     ) -> JsonObject | None: ...
@@ -141,6 +151,19 @@ class GitHubAppClient:
     def repository_installation(self, owner: str, repo: str) -> JsonObject:
         return repository_installation(owner, repo)
 
+    def current_user_identity(self, access_token: str) -> GitHubUserIdentity:
+        return current_user_identity(access_token)
+
+    def app_installations(
+        self, *, per_page: int = 100, page: int = 1
+    ) -> list[JsonObject]:
+        return app_installations(per_page=per_page, page=page)
+
+    def installation_repositories(
+        self, access_token: str, *, per_page: int = 100, page: int = 1
+    ) -> list[JsonObject]:
+        return installation_repositories(access_token, per_page=per_page, page=page)
+
     def get_branch_ref(
         self, token: str, owner: str, repo: str, branch: str
     ) -> JsonObject | None:
@@ -171,20 +194,61 @@ def user_external_identity_metadata(access_token: str) -> dict[str, str]:
     if not access_token:
         raise RuntimeError("GitHub post-connect requires an access token")
 
+    identity = current_user_identity(access_token)
+
+    metadata = {
+        EXTERNAL_IDENTITY_TYPE_METADATA_KEY: GITHUB_EXTERNAL_IDENTITY_TYPE,
+        EXTERNAL_IDENTITY_ID_METADATA_KEY: f"user:{identity.user_id}",
+        "github.user_id": identity.user_id,
+    }
+    if identity.login:
+        metadata["github.login"] = identity.login
+    return metadata
+
+
+def current_user_identity(access_token: str) -> GitHubUserIdentity:
+    if not access_token:
+        raise RuntimeError("GitHub user identity lookup requires an access token")
     user = github_json("GET", "/user", access_token)
     user_id = int_field(user, "id")
     if user_id <= 0:
         raise GitHubAPIError(502, "GitHub user response did not include id")
-
-    metadata = {
-        EXTERNAL_IDENTITY_TYPE_METADATA_KEY: GITHUB_EXTERNAL_IDENTITY_TYPE,
-        EXTERNAL_IDENTITY_ID_METADATA_KEY: f"user:{user_id}",
-        "github.user_id": str(user_id),
-    }
     login = str_field(user, "login")
-    if login:
-        metadata["github.login"] = login
-    return metadata
+    name = str_field(user, "name")
+    email = str_field(user, "email")
+    return GitHubUserIdentity(
+        name=name,
+        login=login,
+        user_id=str(user_id),
+        email=email,
+    )
+
+
+def app_installations(*, per_page: int = 100, page: int = 1) -> list[JsonObject]:
+    decoded = github_json_value(
+        "GET",
+        f"/app/installations?per_page={max(1, min(per_page, 100))}&page={max(1, page)}",
+        create_app_jwt(),
+    )
+    if not isinstance(decoded, list):
+        raise GitHubAPIError(502, "GitHub installations response was not a list")
+    return [item for item in decoded if isinstance(item, dict)]
+
+
+def installation_repositories(
+    access_token: str, *, per_page: int = 100, page: int = 1
+) -> list[JsonObject]:
+    response = github_json(
+        "GET",
+        f"/installation/repositories?per_page={max(1, min(per_page, 100))}&page={max(1, page)}",
+        access_token,
+    )
+    repositories = response.get("repositories")
+    if not isinstance(repositories, list):
+        raise GitHubAPIError(
+            502, "GitHub installation repositories response was not a list"
+        )
+    return [item for item in repositories if isinstance(item, dict)]
 
 
 def installation_token(
@@ -445,7 +509,7 @@ def object_sha(ref: Mapping[str, Any], name: str) -> str:
 def bot_identity_or_none() -> GitHubBotIdentity | None:
     try:
         return bot_identity()
-    except (GitHubAPIError, GitHubConfigError):
+    except GitHubAPIError, GitHubConfigError:
         return None
 
 

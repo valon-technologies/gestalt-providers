@@ -17,6 +17,7 @@ import {
   type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
 import Button from "./Button";
+import GitHubActionPreferencesPanel from "./GitHubActionPreferencesPanel";
 import { CheckCircleIcon, CloseIcon } from "./icons";
 
 type ModalView = "default" | "disconnect" | "instance" | "token";
@@ -576,6 +577,12 @@ export default function IntegrationSettingsModal({
             <div className="mt-5 space-y-3">
               {normalizedStatus.connections.map(renderConnectionRow)}
             </div>
+            {integration.name === "github" &&
+            normalizedStatus.connected &&
+            connectionContext === "current_user" &&
+            !readOnly ? (
+              <GitHubActionPreferencesPanel />
+            ) : null}
           </>
         )}
       </div>

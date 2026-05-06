@@ -7,9 +7,20 @@ from typing import Any, TypeAlias
 import gestalt
 
 from internals.agent import build_workflow_signal_or_start_request
-from internals.client import DEFAULT_GITHUB_CLIENT, user_external_identity_metadata
-from internals.config import configure_from_mapping, get_github_config
+from internals.client import (
+    DEFAULT_GITHUB_CLIENT,
+    repo_path,
+    user_external_identity_metadata,
+)
+from internals.config import (
+    GitHubActionPreferencesConfig,
+    GitHubWebhookPolicy,
+    configure_from_mapping,
+    effective_policy_operations,
+    get_github_config,
+)
 from internals.constants import (
+    ACTION_PREFERENCES_LIST_TARGETS_OPERATION,
     BOT_ADD_LABELS_OPERATION,
     BOT_ADD_REACTION_OPERATION,
     BOT_CLOSE_PULL_REQUEST_OPERATION,
@@ -38,6 +49,7 @@ from internals.constants import (
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.identity import (
     GitHubPullRequestContext,
+    GitHubPreferenceIdentity,
     caller_preference_identity,
     needs_pull_request_context_for_preferences,
     preference_identity_from_webhook,
@@ -119,6 +131,24 @@ from internals.webhook import (
 
 plugin = gestalt.Plugin("github")
 logger = logging.getLogger(__name__)
+
+_ACTION_PREFERENCE_CONTROL_LABELS = {
+    "allow_code_review_comments": "Automatic PR code review",
+    "allow_self_fix": "Self-fix from PR comments",
+}
+_ACTION_PREFERENCE_CONTROL_DESCRIPTIONS = {
+    "allow_code_review_comments": (
+        "Allow the GitHub bot to post provider-owned inline review comments on your PRs."
+    ),
+    "allow_self_fix": (
+        "Allow the GitHub bot to push commits or open pull requests to fix issues it finds."
+    ),
+}
+_SELF_FIX_OPERATIONS = {
+    BOT_COMMIT_FILES_OPERATION,
+    BOT_OPEN_PULL_REQUEST_OPERATION,
+    BOT_CREATE_PULL_REQUEST_OPERATION,
+}
 
 OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, Any]]
 PostConnectMetadata: TypeAlias = dict[str, str]
@@ -748,6 +778,14 @@ class SetActionPreferenceInput(ActionPreferenceInput):
     )
 
 
+class ActionPreferenceTargetsInput(gestalt.Model):
+    identity_kind: str = gestalt.field(
+        description="Preference identity kind: external_subject_id or subject_id. Defaults to the caller's linked GitHub identity when present.",
+        default="",
+        required=False,
+    )
+
+
 @plugin.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     reset_action_preference_store()
@@ -1063,6 +1101,58 @@ def github_review_pull_request(
 
 
 @plugin.operation(
+    id=ACTION_PREFERENCES_LIST_TARGETS_OPERATION,
+    method="GET",
+    description=(
+        "List repositories and GitHub webhook action controls this caller can configure"
+    ),
+)
+def github_action_preferences_list_targets(
+    input: ActionPreferenceTargetsInput, req: gestalt.Request
+) -> OperationResult:
+    app_config = get_github_config()
+    config = app_config.action_preferences
+    if not config.enabled:
+        return _failed_precondition("GitHub action preferences are not configured")
+    token = str(getattr(req, "token", "") or "").strip()
+    if not token:
+        return _failed_precondition(
+            "A connected GitHub OAuth token is required to list configurable repositories"
+        )
+
+    try:
+        identity = caller_preference_identity(req, input.identity_kind)
+        identity_kind = normalize_identity_kind(input.identity_kind, identity)
+        repositories = _action_preference_target_repositories(
+            app_config.webhook_policies,
+            token=token,
+            identity=identity,
+            identity_kind=identity_kind,
+            fallback_identity_kind=(
+                "subject_id" if not input.identity_kind.strip() else ""
+            ),
+            preferences_config=config,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _action_preferences_github_error(err)
+    except RuntimeError as err:
+        return _failed_precondition(str(err))
+    except Exception as err:
+        return _service_unavailable(str(err))
+
+    return {
+        "data": {
+            "identity": _preference_identity_summary(identity, identity_kind),
+            "repositories": repositories,
+        }
+    }
+
+
+@plugin.operation(
     id="actionPreferences.get",
     method="GET",
     description="Get this caller's GitHub webhook action preferences for a policy",
@@ -1085,6 +1175,8 @@ def github_action_preferences_get(
         )
     except ValueError as err:
         return _bad_request(str(err))
+    except GitHubAPIError as err:
+        return _action_preferences_github_error(err)
     except RuntimeError as err:
         return _failed_precondition(str(err))
     except Exception as err:
@@ -1123,6 +1215,8 @@ def github_action_preferences_set(
         )
     except ValueError as err:
         return _bad_request(str(err))
+    except GitHubAPIError as err:
+        return _action_preferences_github_error(err)
     except RuntimeError as err:
         return _failed_precondition(str(err))
     except Exception as err:
@@ -1153,6 +1247,8 @@ def github_action_preferences_delete(
         )
     except ValueError as err:
         return _bad_request(str(err))
+    except GitHubAPIError as err:
+        return _action_preferences_github_error(err)
     except RuntimeError as err:
         return _failed_precondition(str(err))
     except Exception as err:
@@ -1946,6 +2042,268 @@ def _pull_request_review_comments_from_input(
     )
 
 
+def _action_preference_target_repositories(
+    policies: tuple[GitHubWebhookPolicy, ...],
+    *,
+    token: str,
+    identity: GitHubPreferenceIdentity,
+    identity_kind: str,
+    fallback_identity_kind: str,
+    preferences_config: GitHubActionPreferencesConfig,
+) -> list[dict[str, Any]]:
+    installed_repositories = _installed_app_repositories()
+    repositories: list[dict[str, Any]] = []
+    for repository in installed_repositories:
+        accessible = _accessible_repository_summary(repository, token)
+        if accessible is None:
+            continue
+        controls = _action_preference_controls_for_repository(
+            policies,
+            accessible["repository"],
+            identity=identity,
+            identity_kind=identity_kind,
+            fallback_identity_kind=fallback_identity_kind,
+            preferences_config=preferences_config,
+        )
+        if controls:
+            accessible["controls"] = controls
+            repositories.append(accessible)
+    repositories.sort(key=lambda item: str(item.get("repository", "")).lower())
+    return repositories
+
+
+def _installed_app_repositories() -> list[dict[str, Any]]:
+    repositories: dict[str, dict[str, Any]] = {}
+    page = 1
+    while True:
+        installations = DEFAULT_GITHUB_CLIENT.app_installations(per_page=100, page=page)
+        for installation in installations:
+            installation_id = _positive_int(installation.get("id"))
+            if installation_id <= 0:
+                continue
+            try:
+                installation_token = DEFAULT_GITHUB_CLIENT.installation_token(
+                    installation_id
+                )
+            except GitHubAPIError as err:
+                logger.warning(
+                    "GitHub action preference target installation skipped: "
+                    "installation_id=%s status=%s error=%s",
+                    installation_id,
+                    err.status,
+                    err.message,
+                )
+                continue
+            repo_page = 1
+            while True:
+                try:
+                    page_repositories = DEFAULT_GITHUB_CLIENT.installation_repositories(
+                        installation_token,
+                        per_page=100,
+                        page=repo_page,
+                    )
+                except GitHubAPIError as err:
+                    logger.warning(
+                        "GitHub action preference target repositories skipped: "
+                        "installation_id=%s page=%s status=%s error=%s",
+                        installation_id,
+                        repo_page,
+                        err.status,
+                        err.message,
+                    )
+                    break
+                for repository in page_repositories:
+                    full_name = _repository_full_name(repository)
+                    if full_name and full_name not in repositories:
+                        repositories[full_name] = {
+                            "repository": full_name,
+                            "html_url": _text(repository.get("html_url")),
+                            "installation_id": installation_id,
+                        }
+                if len(page_repositories) < 100:
+                    break
+                repo_page += 1
+        if len(installations) < 100:
+            break
+        page += 1
+    return list(repositories.values())
+
+
+def _accessible_repository_summary(
+    repository: dict[str, Any], token: str
+) -> dict[str, Any] | None:
+    full_name = _text(repository.get("repository"))
+    owner, separator, repo = full_name.partition("/")
+    if not owner or not separator or not repo:
+        return None
+    try:
+        response = DEFAULT_GITHUB_CLIENT.github_json(
+            "GET", repo_path(owner, repo), token
+        )
+    except GitHubAPIError as err:
+        if err.status in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+            return None
+        raise
+    accessible_full_name = _repository_full_name(response) or full_name
+    return {
+        "repository": accessible_full_name,
+        "html_url": _text(response.get("html_url"))
+        or _text(repository.get("html_url")),
+        "installation_id": repository.get("installation_id"),
+    }
+
+
+def _action_preference_controls_for_repository(
+    policies: tuple[GitHubWebhookPolicy, ...],
+    repository: str,
+    *,
+    identity: GitHubPreferenceIdentity,
+    identity_kind: str,
+    fallback_identity_kind: str,
+    preferences_config: GitHubActionPreferencesConfig,
+) -> list[dict[str, Any]]:
+    controls: list[dict[str, Any]] = []
+    for policy in policies:
+        if not _policy_matches_repository(policy, repository):
+            continue
+        fields = _policy_action_preference_fields(policy)
+        if not fields:
+            continue
+        preference, preference_identity_kind = _action_preference_record_for_policy(
+            preferences_config,
+            repository=repository,
+            policy_id=policy.id,
+            identity=identity,
+            identity_kind=identity_kind,
+            fallback_identity_kind=fallback_identity_kind,
+        )
+        for field in fields:
+            controls.append(
+                _action_preference_control_summary(
+                    policy,
+                    field,
+                    preference,
+                    identity_kind=preference_identity_kind,
+                    multiple_controls=len(fields) > 1,
+                )
+            )
+    return controls
+
+
+def _action_preference_record_for_policy(
+    preferences_config: GitHubActionPreferencesConfig,
+    *,
+    repository: str,
+    policy_id: str,
+    identity: GitHubPreferenceIdentity,
+    identity_kind: str,
+    fallback_identity_kind: str,
+) -> tuple[dict[str, Any] | None, str]:
+    candidates = [identity_kind]
+    if fallback_identity_kind and fallback_identity_kind not in candidates:
+        candidates.append(fallback_identity_kind)
+    for candidate in candidates:
+        try:
+            preference = get_action_preference(
+                preferences_config,
+                repository=repository,
+                policy_id=policy_id,
+                identity=identity,
+                identity_kind=candidate,
+            )
+        except ValueError:
+            continue
+        if preference is not None:
+            return preference, candidate
+    return None, identity_kind
+
+
+def _policy_matches_repository(policy: GitHubWebhookPolicy, repository: str) -> bool:
+    repositories = tuple(item.strip() for item in policy.match.repositories if item)
+    return not repositories or repository in repositories
+
+
+def _policy_action_preference_fields(
+    policy: GitHubWebhookPolicy,
+) -> tuple[str, ...]:
+    operations = set(effective_policy_operations(policy))
+    fields: list[str] = []
+    workflow_target = policy.workflow_target
+    is_review_workflow = (
+        workflow_target is not None
+        and workflow_target.plugin_name == "github"
+        and workflow_target.operation == REVIEW_PULL_REQUEST_OPERATION
+    )
+    if BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations or is_review_workflow:
+        fields.append("allow_code_review_comments")
+    if operations.intersection(_SELF_FIX_OPERATIONS):
+        fields.append("allow_self_fix")
+    return tuple(fields)
+
+
+def _action_preference_control_summary(
+    policy: GitHubWebhookPolicy,
+    field: str,
+    preference: dict[str, Any] | None,
+    *,
+    identity_kind: str,
+    multiple_controls: bool,
+) -> dict[str, Any]:
+    raw_stored = preference.get(field) if preference is not None else None
+    stored = raw_stored if isinstance(raw_stored, bool) else None
+    default_label = _ACTION_PREFERENCE_CONTROL_LABELS[field]
+    if policy.display_name and not multiple_controls:
+        label = policy.display_name
+    elif policy.display_name:
+        label = f"{policy.display_name}: {default_label}"
+    else:
+        label = default_label
+    return {
+        "id": f"{policy.id}:{field}",
+        "policy_id": policy.id,
+        "identity_kind": identity_kind,
+        "field": field,
+        "label": label,
+        "description": policy.description
+        or _ACTION_PREFERENCE_CONTROL_DESCRIPTIONS[field],
+        "config_default": True,
+        "stored": stored,
+        "effective": True if stored is None else stored,
+    }
+
+
+def _preference_identity_summary(
+    identity: GitHubPreferenceIdentity, identity_kind: str
+) -> dict[str, Any]:
+    return {
+        "identity_kind": identity_kind,
+        "external_identity_type": getattr(identity, "external_identity_type", ""),
+        "external_subject_id": getattr(identity, "external_subject_id", ""),
+        "subject_id": getattr(identity, "subject_id", ""),
+    }
+
+
+def _repository_full_name(repository: dict[str, Any]) -> str:
+    full_name = _text(repository.get("full_name"))
+    if full_name:
+        return full_name
+    owner = repository.get("owner")
+    owner_login = _text(owner.get("login")) if isinstance(owner, dict) else ""
+    name = _text(repository.get("name"))
+    return f"{owner_login}/{name}" if owner_login and name else ""
+
+
+def _positive_int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    result = int(value)
+    return result if result > 0 else 0
+
+
+def _text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
 def _preference_summary(preference: dict[str, Any]) -> dict[str, Any]:
     return {
         key: preference[key]
@@ -1998,3 +2356,13 @@ def _github_error(err: GitHubAPIError) -> gestalt.Response[dict[str, Any]]:
     if err.details:
         body["details"] = err.details
     return gestalt.Response(status=err.status, body=body)
+
+
+def _action_preferences_github_error(
+    err: GitHubAPIError,
+) -> gestalt.Response[dict[str, Any]]:
+    if err.status == HTTPStatus.UNAUTHORIZED:
+        return _failed_precondition(
+            "GitHub rejected the connected OAuth token; reconnect GitHub"
+        )
+    return _github_error(err)

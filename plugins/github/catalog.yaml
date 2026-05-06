@@ -74,6 +74,16 @@ operations:
       Preference identity kind: external_subject_id or subject_id. Defaults to
       the caller's linked GitHub identity when present.
     default: ''
+- id: actionPreferences.listTargets
+  method: GET
+  description: List repositories and GitHub webhook action controls this caller can configure
+  parameters:
+  - name: identity_kind
+    type: string
+    description: >-
+      Preference identity kind: external_subject_id or subject_id. Defaults to
+      the caller's linked GitHub identity when present.
+    default: ''
 - id: actionPreferences.set
   method: POST
   description: Set this caller's GitHub webhook action preferences for a policy

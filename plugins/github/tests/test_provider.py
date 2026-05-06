@@ -122,7 +122,9 @@ class FakeIndexedDB:
 
 
 class FakeAuthorization:
-    def __init__(self, subjects: list[Any] | None = None, *, fail: bool = False) -> None:
+    def __init__(
+        self, subjects: list[Any] | None = None, *, fail: bool = False
+    ) -> None:
         self.subjects = subjects if subjects is not None else []
         self.fail = fail
         self.requests: list[Any] = []
@@ -298,6 +300,26 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
         self.requests.append(("GET", f"/repos/{owner}/{repo}/installation", None, {}))
         return {"id": 99}
 
+    def current_user_identity(self, access_token: str) -> GitHubUserIdentity:
+        if access_token != "user-token":
+            raise AssertionError(f"unexpected user token {access_token}")
+        return GitHubUserIdentity(
+            name="Ada Lovelace",
+            login="ada",
+            user_id="101",
+            email="",
+        )
+
+    def app_installations(
+        self, *, per_page: int = 100, page: int = 1
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def installation_repositories(
+        self, access_token: str, *, per_page: int = 100, page: int = 1
+    ) -> list[dict[str, Any]]:
+        return []
+
     def get_branch_ref(
         self, token: str, owner: str, repo: str, branch: str
     ) -> dict[str, Any] | None:
@@ -421,6 +443,9 @@ class GitHubProviderTests(unittest.TestCase):
 
         event = operations[provider_module.GITHUB_EVENT_OPERATION]
         review = operations[provider_module.REVIEW_PULL_REQUEST_OPERATION]
+        preference_targets = operations[
+            provider_module.ACTION_PREFERENCES_LIST_TARGETS_OPERATION
+        ]
         installation = operations[provider_module.BOT_RESOLVE_INSTALLATION_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
@@ -445,6 +470,7 @@ class GitHubProviderTests(unittest.TestCase):
         ]
         self.assertIn("workflow targets", event["description"])
         self.assertIn("pull_request workflow signal", review["description"])
+        self.assertIn("repositories", preference_targets["description"])
         self.assertIn("installation", installation["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
@@ -477,6 +503,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(
             "autoResolveStaleFindings",
             [parameter["name"] for parameter in review["parameters"]],
+        )
+        self.assertIn(
+            "identity_kind",
+            [parameter["name"] for parameter in preference_targets["parameters"]],
         )
         self.assertIn(
             "comments_first",
@@ -558,6 +588,8 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(plugin_target_schema["properties"]["input"]["type"], "object")
         self.assertNotIn("pluginName", plugin_target_schema["properties"])
         policy_schema = schema["properties"]["webhookPolicies"]["items"]["properties"]
+        self.assertEqual(policy_schema["displayName"]["type"], "string")
+        self.assertEqual(policy_schema["description"]["type"], "string")
         self.assertEqual(
             policy_schema["trigger"]["properties"]["frequency"]["enum"],
             [
@@ -603,7 +635,9 @@ class GitHubProviderTests(unittest.TestCase):
             ["config_default"],
         )
         self.assertEqual(
-            schema["properties"]["actionPreferences"]["properties"]["indexeddb"]["type"],
+            schema["properties"]["actionPreferences"]["properties"]["indexeddb"][
+                "type"
+            ],
             "string",
         )
 
@@ -1649,9 +1683,7 @@ class GitHubProviderTests(unittest.TestCase):
         preferences = data["webhook_policy"]["action_preferences"]
         self.assertEqual(preferences["source"], "external_subject_id")
         self.assertEqual(preferences["record_id"], record_id)
-        self.assertEqual(
-            preferences["effective"]["allow_code_review_comments"], False
-        )
+        self.assertEqual(preferences["effective"]["allow_code_review_comments"], False)
         self.assertIn(
             "action_preferences_source: external_subject_id",
             data["agent_request"]["user_prompt"],
@@ -1707,9 +1739,7 @@ class GitHubProviderTests(unittest.TestCase):
         operations = [tool.operation for tool in request.target.agent.tool_refs]
         self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
-        self.assertNotIn(
-            provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations
-        )
+        self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
         data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
         self.assertEqual(
             data["webhook_policy"]["action_preferences"]["source"], "subject_id"
@@ -2038,6 +2068,235 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(get_result["data"]["preference"]["id"], preference["id"])
         self.assertEqual(delete_result["data"]["deleted"], True)
         self.assertEqual(get_after_delete["data"]["found"], False)
+
+    def test_action_preference_targets_list_oauth_accessible_effective_controls(
+        self,
+    ) -> None:
+        outer_self = self
+
+        class FakePreferenceTargetsClient:
+            def __init__(self) -> None:
+                self.repository_access_checks: list[tuple[str, str | None]] = []
+
+            def current_user_identity(self, access_token: str) -> GitHubUserIdentity:
+                outer_self.assertEqual(access_token, "user-token")
+                return GitHubUserIdentity(
+                    name="Ada Lovelace",
+                    login="ada",
+                    user_id="101",
+                    email="",
+                )
+
+            def app_installations(
+                self, *, per_page: int = 100, page: int = 1
+            ) -> list[dict[str, Any]]:
+                outer_self.assertEqual(per_page, 100)
+                return [{"id": 99}, {"id": 100}] if page == 1 else []
+
+            def installation_token(
+                self,
+                installation_id: int,
+                *,
+                repositories: Sequence[str] | None = None,
+                permissions: Mapping[str, str] | None = None,
+            ) -> str:
+                if installation_id == 99:
+                    return "installation-token-99"
+                if installation_id == 100:
+                    raise GitHubAPIError(HTTPStatus.FORBIDDEN, "installation suspended")
+                raise AssertionError(f"unexpected installation {installation_id}")
+
+            def installation_repositories(
+                self, access_token: str, *, per_page: int = 100, page: int = 1
+            ) -> list[dict[str, Any]]:
+                outer_self.assertEqual(access_token, "installation-token-99")
+                outer_self.assertEqual(per_page, 100)
+                if page == 1:
+                    return [
+                        {
+                            "full_name": "acme/widgets",
+                            "html_url": "https://github.com/acme/widgets",
+                        },
+                        {
+                            "full_name": "acme/private",
+                            "html_url": "https://github.com/acme/private",
+                        },
+                    ]
+                return []
+
+            def github_json(
+                self,
+                method: str,
+                path: str,
+                token: str | None,
+                payload: Mapping[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                outer_self.assertEqual(method, "GET")
+                self.repository_access_checks.append((path, token))
+                if path == "/repos/acme/widgets":
+                    return {
+                        "full_name": "acme/widgets",
+                        "html_url": "https://github.com/acme/widgets",
+                    }
+                if path == "/repos/acme/private":
+                    raise GitHubAPIError(HTTPStatus.NOT_FOUND, "Not Found")
+                raise AssertionError(f"unexpected GitHub request {path}")
+
+        config = self._action_preferences_config()
+        config["webhookPolicies"] = [
+            {
+                "id": "review-policy",
+                "displayName": "PR review",
+                "description": "Controls inline review comments.",
+                "match": {"repositories": ["acme/widgets"]},
+                "action": {"mode": "comment"},
+            },
+            {
+                "id": "self-fix-policy",
+                "match": {},
+                "action": {
+                    "mode": "pull_request",
+                    "allowCodeReviewComments": False,
+                },
+            },
+            {
+                "id": "subject-policy",
+                "match": {"repositories": ["acme/widgets"]},
+                "action": {"mode": "comment"},
+            },
+            {
+                "id": "observe-policy",
+                "match": {},
+                "action": {"mode": "observe"},
+            },
+            {
+                "id": "other-repo-policy",
+                "match": {"repositories": ["acme/other"]},
+                "action": {"mode": "comment"},
+            },
+        ]
+        provider_module.configure("github", config)
+        fake_db = FakeIndexedDB()
+        fake_client = FakePreferenceTargetsClient()
+        req = SimpleNamespace(
+            token="user-token",
+            subject=gestalt.Subject(id="user:ada", kind="human"),
+        )
+
+        with (
+            mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
+            mock.patch.object(provider_module, "DEFAULT_GITHUB_CLIENT", fake_client),
+            mock.patch.object(identity_module, "DEFAULT_GITHUB_CLIENT", fake_client),
+        ):
+            provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="review-policy",
+                    allow_code_review_comments=False,
+                ),
+                req,
+            )
+            provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="self-fix-policy",
+                    allow_self_fix=True,
+                ),
+                req,
+            )
+            provider_module.github_action_preferences_set(
+                provider_module.SetActionPreferenceInput(
+                    repository="acme/widgets",
+                    policy_id="subject-policy",
+                    identity_kind="subject_id",
+                    allow_code_review_comments=False,
+                ),
+                req,
+            )
+            for record in fake_db.records.values():
+                if record.get("policy_id") == "self-fix-policy":
+                    record["allow_self_fix"] = "invalid"
+            result = provider_module.github_action_preferences_list_targets(
+                provider_module.ActionPreferenceTargetsInput(),
+                req,
+            )
+
+        self.assertEqual(
+            fake_client.repository_access_checks,
+            [
+                ("/repos/acme/widgets", "user-token"),
+                ("/repos/acme/private", "user-token"),
+            ],
+        )
+        data = result["data"]
+        self.assertEqual(data["identity"]["identity_kind"], "external_subject_id")
+        self.assertEqual(data["identity"]["external_subject_id"], "user:101")
+        self.assertEqual(len(data["repositories"]), 1)
+        repository = data["repositories"][0]
+        self.assertEqual(repository["repository"], "acme/widgets")
+        self.assertEqual(repository["installation_id"], 99)
+        controls = {
+            (control["policy_id"], control["field"]): control
+            for control in repository["controls"]
+        }
+        self.assertEqual(
+            controls[("review-policy", "allow_code_review_comments")]["label"],
+            "PR review",
+        )
+        self.assertEqual(
+            controls[("review-policy", "allow_code_review_comments")]["stored"],
+            False,
+        )
+        self.assertEqual(
+            controls[("review-policy", "allow_code_review_comments")]["effective"],
+            False,
+        )
+        self.assertEqual(
+            controls[("review-policy", "allow_code_review_comments")]["identity_kind"],
+            "external_subject_id",
+        )
+        self.assertEqual(
+            controls[("self-fix-policy", "allow_self_fix")]["stored"], None
+        )
+        self.assertEqual(
+            controls[("self-fix-policy", "allow_self_fix")]["effective"], True
+        )
+        self.assertEqual(
+            controls[("subject-policy", "allow_code_review_comments")]["stored"],
+            False,
+        )
+        self.assertEqual(
+            controls[("subject-policy", "allow_code_review_comments")]["identity_kind"],
+            "subject_id",
+        )
+        self.assertNotIn(("observe-policy", "allow_code_review_comments"), controls)
+        self.assertNotIn(("other-repo-policy", "allow_code_review_comments"), controls)
+
+    def test_action_preference_targets_do_not_return_session_unauthorized_for_github_oauth(
+        self,
+    ) -> None:
+        class RejectedOAuthClient:
+            def current_user_identity(self, _access_token: str) -> GitHubUserIdentity:
+                raise GitHubAPIError(HTTPStatus.UNAUTHORIZED, "Bad credentials")
+
+        provider_module.configure(
+            "github",
+            self._action_preferences_config(action={"mode": "comment"}),
+        )
+
+        with mock.patch.object(
+            identity_module, "DEFAULT_GITHUB_CLIENT", RejectedOAuthClient()
+        ):
+            result = provider_module.github_action_preferences_list_targets(
+                provider_module.ActionPreferenceTargetsInput(),
+                SimpleNamespace(
+                    token="revoked-token",
+                    subject=gestalt.Subject(id="user:ada", kind="human"),
+                ),
+            )
+
+        self.assertEqual(result.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertIn("reconnect GitHub", result.body["error"])
 
     def test_action_preference_operations_reject_missing_store_or_identity(
         self,
@@ -2439,9 +2698,7 @@ class GitHubProviderTests(unittest.TestCase):
                 return FakeHTTPResponse({"token": "pull-token"})
             if path == "/repos/acme/widgets/pulls/7":
                 self.assertEqual(auth_header(request), "Bearer pull-token")
-                return FakeHTTPResponse(
-                    {"number": 7, "head": {"sha": "current-sha"}}
-                )
+                return FakeHTTPResponse({"number": 7, "head": {"sha": "current-sha"}})
             self.fail(f"unexpected request {method} {path}")
 
         workflow_manager = FakeWorkflowManager()

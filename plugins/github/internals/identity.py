@@ -7,6 +7,7 @@ from typing import Any
 
 import gestalt
 
+from .client import DEFAULT_GITHUB_CLIENT
 from .config import (
     GitHubWebhookPolicy,
     WEBHOOK_PREFERENCE_SUBJECT_COMMENT_AUTHOR,
@@ -126,15 +127,34 @@ def preference_identity_from_webhook(
     )
 
 
-def caller_preference_identity(req: Any, identity_kind: str) -> GitHubPreferenceIdentity:
+def caller_preference_identity(
+    req: Any, identity_kind: str
+) -> GitHubPreferenceIdentity:
     normalized = identity_kind.strip()
     external_identity = getattr(req, "agent_external_identity", None)
     external_identity_type = str(getattr(external_identity, "type", "") or "").strip()
     external_subject_id = str(getattr(external_identity, "id", "") or "").strip()
-    agent_subject = getattr(req, "agent_subject", None)
-    subject_id = _human_subject_id(agent_subject)
+    subject_id = _human_subject_id(getattr(req, "agent_subject", None))
+    if not subject_id:
+        subject_id = _human_subject_id(getattr(req, "subject", None))
+    token = str(getattr(req, "token", "") or "").strip()
+    needs_external_identity = normalized in {"", "external_subject_id"}
+    if (
+        needs_external_identity
+        and (
+            external_identity_type != GITHUB_EXTERNAL_IDENTITY_TYPE
+            or not external_subject_id
+        )
+        and token
+    ):
+        token_identity = DEFAULT_GITHUB_CLIENT.current_user_identity(token)
+        external_identity_type = GITHUB_EXTERNAL_IDENTITY_TYPE
+        external_subject_id = f"user:{token_identity.user_id}"
     if not normalized:
-        if external_identity_type == GITHUB_EXTERNAL_IDENTITY_TYPE and external_subject_id:
+        if (
+            external_identity_type == GITHUB_EXTERNAL_IDENTITY_TYPE
+            and external_subject_id
+        ):
             normalized = "external_subject_id"
         elif subject_id:
             normalized = "subject_id"
@@ -142,9 +162,12 @@ def caller_preference_identity(req: Any, identity_kind: str) -> GitHubPreference
             raise ValueError("a GitHub external identity or human subject is required")
 
     if normalized == "external_subject_id":
-        if external_identity_type != GITHUB_EXTERNAL_IDENTITY_TYPE or not external_subject_id:
+        if (
+            external_identity_type != GITHUB_EXTERNAL_IDENTITY_TYPE
+            or not external_subject_id
+        ):
             raise ValueError(
-                "identityKind external_subject_id requires a linked GitHub agent external identity"
+                "identityKind external_subject_id requires a linked GitHub OAuth connection or agent external identity"
             )
         return GitHubPreferenceIdentity(
             preference_subject="caller",
@@ -155,7 +178,7 @@ def caller_preference_identity(req: Any, identity_kind: str) -> GitHubPreference
         )
     if normalized == "subject_id":
         if not subject_id:
-            raise ValueError("identityKind subject_id requires a human agent subject")
+            raise ValueError("identityKind subject_id requires a human subject")
         return GitHubPreferenceIdentity(
             preference_subject="caller",
             repository="",
@@ -211,11 +234,15 @@ def external_identity_resource_id(identity_type: str, identity_id: str) -> str:
 
 
 def _pull_request_author_identity(payload: dict[str, Any]) -> str:
-    return _github_user_external_id(map_field(map_field(payload, "pull_request"), "user"))
+    return _github_user_external_id(
+        map_field(map_field(payload, "pull_request"), "user")
+    )
 
 
 def _comment_author_identity(payload: dict[str, Any]) -> str:
-    comment_identity = _github_user_external_id(map_field(map_field(payload, "comment"), "user"))
+    comment_identity = _github_user_external_id(
+        map_field(map_field(payload, "comment"), "user")
+    )
     if comment_identity:
         return comment_identity
     return _github_user_external_id(map_field(map_field(payload, "review"), "user"))
