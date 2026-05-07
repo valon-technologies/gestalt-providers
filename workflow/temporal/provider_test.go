@@ -345,6 +345,12 @@ func TestIndexWorkflowStoresProviderIndexes(t *testing.T) {
 		Target:       pluginTarget("slack", "postMessage"),
 		SubjectId:    "user-1",
 		CreatedAt:    createdAt,
+		RunAs: &proto.WorkflowRunAsSubject{
+			SubjectId:   "service_account:slack-sync",
+			SubjectKind: "service_account",
+			DisplayName: "Slack sync",
+			AuthSource:  "config",
+		},
 	}
 
 	var checkedRun, checkedTrigger, checkedRef bool
@@ -375,6 +381,9 @@ func TestIndexWorkflowStoresProviderIndexes(t *testing.T) {
 			got := value.(*proto.ListWorkflowExecutionReferencesResponse)
 			if len(got.GetReferences()) != 1 || got.GetReferences()[0].GetId() != ref.GetId() {
 				t.Fatalf("refs = %#v", got.GetReferences())
+			}
+			if got.GetReferences()[0].GetRunAs().GetSubjectId() != "service_account:slack-sync" {
+				t.Fatalf("ref run_as = %#v, want slack sync service account", got.GetReferences()[0].GetRunAs())
 			}
 			checkedRef = true
 		}), "user-1")
@@ -644,6 +653,12 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		Target:       pluginTarget("slack", "postMessage"),
 		SubjectId:    "user-1",
 		CreatedAt:    timestamppb.Now(),
+		RunAs: &proto.WorkflowRunAsSubject{
+			SubjectId:   "service_account:slack-sync",
+			SubjectKind: "service_account",
+			DisplayName: "Slack sync",
+			AuthSource:  "config",
+		},
 	}
 	if err := backend.putExecutionRefIndex(context.Background(), ref); err != nil {
 		t.Fatalf("putExecutionRefIndex: %v", err)
@@ -657,6 +672,9 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	}
 	if len(refs) != 1 || refs[0].GetId() != ref.GetId() {
 		t.Fatalf("refs = %#v, want %q", refs, ref.GetId())
+	}
+	if refs[0].GetRunAs().GetSubjectId() != "service_account:slack-sync" {
+		t.Fatalf("ref run_as = %#v, want slack sync service account", refs[0].GetRunAs())
 	}
 	if len(tc.queries) != 0 {
 		t.Fatalf("listExecutionRefsIndex touched temporal index queries=%#v", tc.queries)
@@ -749,7 +767,19 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = scopeB.Close() })
 
-	refA := &proto.WorkflowExecutionReference{Id: "ref-1", ProviderName: "temporal", Target: pluginTarget("slack", "postMessage"), SubjectId: "user-1", CreatedAt: timestamppb.Now()}
+	refA := &proto.WorkflowExecutionReference{
+		Id:           "ref-1",
+		ProviderName: "temporal",
+		Target:       pluginTarget("slack", "postMessage"),
+		SubjectId:    "user-1",
+		CreatedAt:    timestamppb.Now(),
+		RunAs: &proto.WorkflowRunAsSubject{
+			SubjectId:   "service_account:slack-sync",
+			SubjectKind: "service_account",
+			DisplayName: "Slack sync",
+			AuthSource:  "config",
+		},
+	}
 	refB := cloneExecutionReference(refA)
 	refB.SubjectId = "user-2"
 	if err := scopeA.putExecutionRef(ctx, refA); err != nil {
@@ -768,6 +798,9 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	}
 	if gotA.GetSubjectId() != "user-1" || gotB.GetSubjectId() != "user-2" {
 		t.Fatalf("scoped refs leaked: scopeA=%q scopeB=%q", gotA.GetSubjectId(), gotB.GetSubjectId())
+	}
+	if gotA.GetRunAs().GetSubjectId() != "service_account:slack-sync" || gotB.GetRunAs().GetSubjectId() != "service_account:slack-sync" {
+		t.Fatalf("scoped ref run_as lost: scopeA=%#v scopeB=%#v", gotA.GetRunAs(), gotB.GetRunAs())
 	}
 
 	trigger := &proto.BoundWorkflowEventTrigger{Id: "trigger-1", Match: &proto.WorkflowEventMatch{Type: "message.created"}, Target: pluginTarget("slack", "postMessage"), CreatedAt: timestamppb.Now(), UpdatedAt: timestamppb.Now()}

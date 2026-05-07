@@ -224,6 +224,7 @@ type workflowExecutionReferenceRecord struct {
 	DisplayName         string
 	AuthSource          string
 	CredentialSubjectID string
+	RunAsJSON           string
 	PermissionsJSON     string
 	CreatedAt           time.Time
 	RevokedAt           *time.Time
@@ -5149,10 +5150,15 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 	if record.SubjectID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("subject_id is required")
 	}
+	runAsJSON, err := executionReferenceRunAsJSON(ref.GetRunAs())
+	if err != nil {
+		return workflowExecutionReferenceRecord{}, fmt.Errorf("run_as: %w", err)
+	}
 	permissionsJSON, err := executionReferencePermissionsJSON(ref.GetPermissions())
 	if err != nil {
 		return workflowExecutionReferenceRecord{}, fmt.Errorf("permissions: %w", err)
 	}
+	record.RunAsJSON = runAsJSON
 	record.PermissionsJSON = permissionsJSON
 	if ts := ref.GetCreatedAt(); ts != nil && ts.IsValid() {
 		record.CreatedAt = ts.AsTime().UTC()
@@ -5179,6 +5185,7 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		DisplayName:         stringField(value, "display_name"),
 		AuthSource:          stringField(value, "auth_source"),
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
+		RunAsJSON:           stringField(value, "run_as_json"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
 		CallerPluginName:    stringField(value, "caller_plugin_name"),
 	}
@@ -5199,6 +5206,7 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"display_name":          r.DisplayName,
 		"auth_source":           r.AuthSource,
 		"credential_subject_id": r.CredentialSubjectID,
+		"run_as_json":           r.RunAsJSON,
 		"permissions_json":      r.PermissionsJSON,
 		"caller_plugin_name":    r.CallerPluginName,
 		"created_at":            r.CreatedAt.UTC(),
@@ -5212,6 +5220,10 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 }
 
 func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionReference, error) {
+	runAs, err := executionReferenceRunAsFromJSON(r.RunAsJSON)
+	if err != nil {
+		return nil, err
+	}
 	permissions, err := executionReferencePermissionsFromJSON(r.PermissionsJSON)
 	if err != nil {
 		return nil, err
@@ -5225,6 +5237,7 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		DisplayName:         r.DisplayName,
 		AuthSource:          r.AuthSource,
 		CredentialSubjectId: r.CredentialSubjectID,
+		RunAs:               runAs,
 		Permissions:         permissions,
 		CallerPluginName:    r.CallerPluginName,
 		CreatedAt:           timestamppb.New(r.CreatedAt),
@@ -5241,6 +5254,7 @@ func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord
 		left.DisplayName != right.DisplayName ||
 		left.AuthSource != right.AuthSource ||
 		left.CredentialSubjectID != right.CredentialSubjectID ||
+		left.RunAsJSON != right.RunAsJSON ||
 		left.PermissionsJSON != right.PermissionsJSON ||
 		left.CallerPluginName != right.CallerPluginName ||
 		!left.CreatedAt.Equal(right.CreatedAt) {
@@ -5250,6 +5264,41 @@ func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord
 		return false
 	}
 	return left.RevokedAt == nil || left.RevokedAt.Equal(*right.RevokedAt)
+}
+
+func executionReferenceRunAsJSON(value *proto.WorkflowRunAsSubject) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	normalized := &proto.WorkflowRunAsSubject{
+		SubjectId:   strings.TrimSpace(value.GetSubjectId()),
+		SubjectKind: strings.TrimSpace(value.GetSubjectKind()),
+		DisplayName: strings.TrimSpace(value.GetDisplayName()),
+		AuthSource:  strings.TrimSpace(value.GetAuthSource()),
+	}
+	if normalized.GetSubjectId() == "" {
+		return "", nil
+	}
+	data, err := protojson.Marshal(normalized)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func executionReferenceRunAsFromJSON(raw string) (*proto.WorkflowRunAsSubject, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	out := &proto.WorkflowRunAsSubject{}
+	if err := protojson.Unmarshal([]byte(raw), out); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out.GetSubjectId()) == "" {
+		return nil, nil
+	}
+	return out, nil
 }
 
 func executionReferencePermissionsJSON(values []*proto.WorkflowAccessPermission) (string, error) {
@@ -5316,6 +5365,7 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		DisplayName:         ref.GetDisplayName(),
 		AuthSource:          ref.GetAuthSource(),
 		CredentialSubjectId: ref.GetCredentialSubjectId(),
+		RunAs:               cloneRunAsSubject(ref.GetRunAs()),
 		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
 		CallerPluginName:    ref.GetCallerPluginName(),
 		CreatedAt:           cloneTimestamp(ref.GetCreatedAt()),
@@ -5349,6 +5399,13 @@ func pluginTargetProto(pluginName, operation, connection, instance string, input
 			},
 		},
 	}
+}
+
+func cloneRunAsSubject(value *proto.WorkflowRunAsSubject) *proto.WorkflowRunAsSubject {
+	if value == nil {
+		return nil
+	}
+	return gproto.Clone(value).(*proto.WorkflowRunAsSubject)
 }
 
 func cloneAccessPermissions(values []*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
