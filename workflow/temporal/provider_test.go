@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +17,10 @@ import (
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
@@ -753,6 +758,89 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	}
 }
 
+func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	state, err := openWorkflowStateStore(context.Background(), "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() {
+		otel.SetMeterProvider(prev)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, state)
+	for _, trigger := range []*proto.BoundWorkflowEventTrigger{
+		{
+			Id:        "trigger-plugin-1",
+			Match:     &proto.WorkflowEventMatch{Type: "message.created"},
+			Target:    pluginTarget("slack", "postMessage"),
+			CreatedAt: timestamppb.Now(),
+			UpdatedAt: timestamppb.Now(),
+		},
+		{
+			Id:        "trigger-plugin-2",
+			Match:     &proto.WorkflowEventMatch{Type: "message.created"},
+			Target:    pluginTarget("slack", "sendMessage"),
+			CreatedAt: timestamppb.Now(),
+			UpdatedAt: timestamppb.Now(),
+		},
+		{
+			Id:        "trigger-paused",
+			Match:     &proto.WorkflowEventMatch{Type: "message.created"},
+			Target:    pluginTarget("slack", "archiveMessage"),
+			Paused:    true,
+			CreatedAt: timestamppb.Now(),
+			UpdatedAt: timestamppb.Now(),
+		},
+	} {
+		if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
+			t.Fatalf("putTriggerIndex(%s): %v", trigger.GetId(), err)
+		}
+	}
+
+	_, err = backend.PublishEvent(context.Background(), &proto.PublishWorkflowProviderEventRequest{
+		PluginName: "slack",
+		Event:      &proto.WorkflowEvent{Id: "event-1", Source: "slack", Type: "message.created"},
+	})
+	if err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+	if len(tc.executions) != 2 {
+		t.Fatalf("executions = %d, want 2", len(tc.executions))
+	}
+
+	rm := collectTemporalWorkflowMetrics(t, reader)
+	metrictestAttrs := temporalWorkflowMetricAttrs(
+		gestalt.WorkflowOperationPublishEvent,
+		gestalt.WorkflowTriggerKindEvent,
+		gestalt.WorkflowTargetKindPlugin,
+		gestalt.WorkflowRunStatusUnknown,
+	)
+	requireTemporalInt64Sum(t, rm, "gestaltd.workflows.events.matched_triggers.count", 2, metrictestAttrs)
+	requireTemporalInt64Sum(t, rm, "gestaltd.workflows.runs.started.count", 2, temporalWorkflowMetricAttrs(
+		gestalt.WorkflowOperationPublishEvent,
+		gestalt.WorkflowTriggerKindEvent,
+		gestalt.WorkflowTargetKindPlugin,
+		gestalt.WorkflowRunStatusPending,
+	))
+}
+
 func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -982,15 +1070,34 @@ type recordedQuery struct {
 	Args       []any
 }
 
+type recordedExecution struct {
+	WorkflowID string
+	Args       []any
+}
+
 type recordingTemporalClient struct {
 	client.Client
 	mu                 sync.Mutex
 	pendingWorkflowIDs []string
+	executions         []recordedExecution
 	updates            []recordedUpdate
 	queries            []recordedQuery
 	queryStarted       chan<- recordedQuery
 	releaseQueries     <-chan struct{}
 	scheduleClient     client.ScheduleClient
+}
+
+func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.executions = append(c.executions, recordedExecution{
+		WorkflowID: options.ID,
+		Args:       args,
+	})
+	return recordingWorkflowRun{
+		id:    options.ID,
+		runID: fmt.Sprintf("run-%d", len(c.executions)),
+	}, nil
 }
 
 func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, _ interface{}, _ ...interface{}) client.WithStartWorkflowOperation {
@@ -1078,6 +1185,21 @@ func (c *recordingTemporalClient) queryCount(name string) int {
 		}
 	}
 	return count
+}
+
+type recordingWorkflowRun struct {
+	id    string
+	runID string
+}
+
+func (r recordingWorkflowRun) GetID() string { return r.id }
+
+func (r recordingWorkflowRun) GetRunID() string { return r.runID }
+
+func (r recordingWorkflowRun) Get(context.Context, interface{}) error { return nil }
+
+func (r recordingWorkflowRun) GetWithOptions(context.Context, interface{}, client.WorkflowRunGetOptions) error {
+	return nil
 }
 
 type recordingUpdateHandle struct {
@@ -1327,6 +1449,63 @@ func (f *fakeBackend) ListExecutionReferences(context.Context, *proto.ListWorkfl
 }
 func (f *fakeBackend) PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func collectTemporalWorkflowMetrics(t *testing.T, reader *sdkmetric.ManualReader) metricdata.ResourceMetrics {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("collect metrics: %v", err)
+	}
+	return rm
+}
+
+func temporalWorkflowMetricAttrs(operation, triggerKind, targetKind, runStatus string) map[string]string {
+	return map[string]string{
+		"gestaltd.workflow.provider.name":    "temporal",
+		"gestaltd.workflow.operation.name":   operation,
+		"gestaltd.workflow.trigger.kind":     triggerKind,
+		"gestaltd.workflow.target.kind":      targetKind,
+		"gestaltd.workflow.run.status":       runStatus,
+		"gestaltd.workflow.telemetry.source": "provider",
+	}
+}
+
+func requireTemporalInt64Sum(t *testing.T, rm metricdata.ResourceMetrics, name string, want int64, attrs map[string]string) {
+	t.Helper()
+
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != name {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric %q is %T, want Sum[int64]", name, metric.Data)
+			}
+			for _, point := range sum.DataPoints {
+				if temporalMetricAttrsMatch(point.Attributes, attrs) {
+					if point.Value != want {
+						t.Fatalf("metric %q attrs %v = %d, want %d", name, attrs, point.Value, want)
+					}
+					return
+				}
+			}
+		}
+	}
+
+	t.Fatalf("metric %q with attrs %v not found", name, attrs)
+}
+
+func temporalMetricAttrsMatch(set attribute.Set, want map[string]string) bool {
+	for key, expected := range want {
+		value, ok := set.Value(attribute.Key(key))
+		if !ok || value.AsString() != expected {
+			return false
+		}
+	}
+	return true
 }
 
 func startTestIndexedDBBackend(t *testing.T) {
