@@ -26,6 +26,8 @@ export interface TranscriptItem {
   format?: string;
   language?: string;
   event?: AgentTurnEvent;
+  toolKey?: string;
+  optimistic?: boolean;
 }
 
 export interface TranscriptState {
@@ -91,6 +93,12 @@ export function appendTurnMessages(
     const text = messageText(message);
     if (!text) continue;
     const kind = messageKind(message.role);
+    const optimisticIdx = next.items.findIndex(
+      (item) => item.optimistic && item.kind === kind && item.text === text,
+    );
+    if (optimisticIdx >= 0) {
+      next.items.splice(optimisticIdx, 1);
+    }
     next.items.push({
       id: `${turn.id}:message:${index}`,
       kind,
@@ -98,6 +106,23 @@ export function appendTurnMessages(
       text,
     });
   }
+  return next;
+}
+
+export function appendOptimisticUserMessage(
+  state: TranscriptState,
+  text: string,
+): TranscriptState {
+  const trimmed = text.trim();
+  if (!trimmed) return state;
+  const next = cloneTranscriptState(state);
+  next.items.push({
+    id: `optimistic:${Date.now()}:${next.items.length}`,
+    kind: "user",
+    title: "You",
+    text: trimmed,
+    optimistic: true,
+  });
   return next;
 }
 
@@ -214,7 +239,7 @@ export function applyTurnEvent(
     case "tool.started":
     case "tool.completed":
     case "tool.failed":
-      pushItem(next, event.id, "tool", toolTitle(event), toolSummary(event), event);
+      upsertToolItem(next, event, toolTitle(event), toolSummary(event));
       return next;
     case "interaction.requested": {
       const id =
@@ -263,7 +288,7 @@ function applyDisplayEvent(state: TranscriptState, event: AgentTurnEvent) {
       return true;
     }
     case "tool":
-      pushItem(state, event.id, "tool", displayToolTitle(display), displayToolText(display), event);
+      upsertToolItem(state, event, displayToolTitle(display), displayToolText(display));
       return true;
     case "interaction": {
       const title = display.label || "Interaction";
@@ -321,6 +346,50 @@ function pushItem(
     format: display?.format,
     language: display?.language,
   });
+}
+
+function upsertToolItem(
+  state: TranscriptState,
+  event: AgentTurnEvent,
+  title: string,
+  text: string,
+) {
+  const key = toolEventKey(event);
+  if (key) {
+    const existing = state.items.find(
+      (item) => item.kind === "tool" && item.toolKey === key,
+    );
+    if (existing) {
+      existing.title = title || existing.title;
+      existing.text = text || existing.text;
+      existing.event = event;
+      existing.format = event.display?.format || existing.format;
+      existing.language = event.display?.language || existing.language;
+      return;
+    }
+  }
+  state.items.push({
+    id: `${event.id}:${state.items.length}`,
+    kind: "tool",
+    title,
+    text,
+    event,
+    toolKey: key,
+    format: event.display?.format,
+    language: event.display?.language,
+  });
+}
+
+function toolEventKey(event: AgentTurnEvent): string | undefined {
+  const ref = event.display?.ref?.trim();
+  if (ref) return ref;
+  const data = event.data;
+  if (!data || typeof data !== "object") return undefined;
+  for (const field of ["tool_call_id", "toolCallId", "call_id", "callId", "id"]) {
+    const value = (data as Record<string, unknown>)[field];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function pushAssistantDelta(
