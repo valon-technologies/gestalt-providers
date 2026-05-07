@@ -796,6 +796,68 @@ func TestWorkflowStateStorePutRunIsIdempotentForExistingWorkflowKey(t *testing.T
 	}
 }
 
+func TestWorkflowStateStorePutRunIgnoresInitialPendingAfterRunStarted(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	startedAt := timestamppb.Now()
+	run := &proto.BoundWorkflowRun{
+		Id:          "run-1",
+		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING,
+		Target:      pluginTarget("slack", "postMessage"),
+		CreatedAt:   timestamppb.Now(),
+		StartedAt:   startedAt,
+		WorkflowKey: "thread-1",
+	}
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("put running run: %v", err)
+	}
+
+	staleInitialPending := cloneRun(run)
+	staleInitialPending.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+	staleInitialPending.StartedAt = nil
+	if err := state.putRun(ctx, staleInitialPending); err != nil {
+		t.Fatalf("put stale initial pending run: %v", err)
+	}
+	stored, found, err := state.getRun(ctx, run.GetId())
+	if err != nil || !found {
+		t.Fatalf("get stored run found=%v err=%v", found, err)
+	}
+	if stored.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING || stored.GetStartedAt() == nil {
+		t.Fatalf("stored run regressed to %#v, want running with started_at", stored)
+	}
+
+	nextBatchPending := cloneRun(run)
+	nextBatchPending.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+	if err := state.putRun(ctx, nextBatchPending); err != nil {
+		t.Fatalf("put next-batch pending run: %v", err)
+	}
+	stored, found, err = state.getRun(ctx, run.GetId())
+	if err != nil || !found {
+		t.Fatalf("get next-batch run found=%v err=%v", found, err)
+	}
+	if stored.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING || stored.GetStartedAt() == nil {
+		t.Fatalf("stored next-batch run = %#v, want pending with started_at", stored)
+	}
+}
+
+func TestWorkflowStateStoreRetriesConcurrentWriteErrors(t *testing.T) {
+	if !shouldRetryWorkflowStateWrite(gestalt.ErrAlreadyExists) {
+		t.Fatalf("ErrAlreadyExists should be retryable")
+	}
+	if !shouldRetryWorkflowStateWrite(errors.New("insert index row: Error 1213 (40001): Deadlock found when trying to get lock; try restarting transaction")) {
+		t.Fatalf("deadlock should be retryable")
+	}
+	if shouldRetryWorkflowStateWrite(errors.New("invalid workflow target")) {
+		t.Fatalf("unrelated error should not be retryable")
+	}
+}
+
 func TestProviderSurfaceRequiresConfiguredBackend(t *testing.T) {
 	provider := New()
 	_, err := provider.ListRuns(context.Background(), &proto.ListWorkflowProviderRunsRequest{})

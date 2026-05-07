@@ -174,14 +174,6 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 		WorkflowKey:  workflowKey,
 	}
-	if err := b.putRun(ctx, resp); err != nil {
-		return nil, err
-	}
-	if workflowKey != "" {
-		if err := b.putWorkflowKey(ctx, workflowKey, resp); err != nil {
-			return nil, err
-		}
-	}
 	if key != "" {
 		if err := b.putIdempotency(ctx, target.OwnerKey, key, &proto.SignalWorkflowRunResponse{Run: resp}); err != nil {
 			return nil, err
@@ -373,12 +365,6 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	}
 	if resp.GetRun() == nil {
 		return nil, status.Error(codes.Internal, "signal-or-start returned no run")
-	}
-	if err := b.putRun(ctx, resp.GetRun()); err != nil {
-		return nil, err
-	}
-	if err := b.putWorkflowKey(ctx, workflowKey, resp.GetRun()); err != nil {
-		return nil, err
 	}
 	if signal.GetIdempotencyKey() != "" {
 		if err := b.putIdempotency(ctx, ownerKey, signal.GetIdempotencyKey(), &resp); err != nil {
@@ -749,24 +735,12 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 			ExecutionRef:                  executionRef,
 			ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		}
-		run, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE), gestaltRunWorkflowV2, input, cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy)
+		_, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE), gestaltRunWorkflowV2, input, cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
 				continue
 			}
 			return nil, status.Errorf(codes.Internal, "start event workflow: %v", err)
-		}
-		publicID := publicRunID(run.GetID(), run.GetRunID())
-		if err := b.putRun(ctx, &proto.BoundWorkflowRun{
-			Id:           publicID,
-			Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-			Target:       cloneTarget(trigger.GetTarget()),
-			Trigger:      eventTrigger(trigger.GetId(), event),
-			CreatedAt:    timestamppb.New(now),
-			CreatedBy:    createdBy,
-			ExecutionRef: executionRef,
-		}); err != nil {
-			return nil, err
 		}
 	}
 	return &emptypb.Empty{}, nil
