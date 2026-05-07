@@ -1152,6 +1152,14 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(agent_target.provider_name, "simple")
         self.assertEqual(agent_target.model, "deep")
         self.assertIn("final workflow signal batch", agent_target.prompt)
+        self.assertIn("agent_request", agent_target.prompt)
+        self.assertIn("current_message", agent_target.prompt)
+        self.assertIn("payload.user_prompt", agent_target.prompt)
+        self.assertIn("Background thread context", agent_target.prompt)
+        self.assertNotIn(
+            "Use the payload's user_prompt as the current Slack request",
+            agent_target.prompt,
+        )
         self.assertEqual(len(agent_target.messages), 1)
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
@@ -1217,6 +1225,20 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal.name, "slack.event")
         self.assertEqual(signal.idempotency_key, expected_idempotency_key)
         signal_payload = json_format.MessageToDict(signal.payload)
+        agent_request = signal_payload["agent_request"]
+        self.assertEqual(
+            set(agent_request.keys()), {"kind", "user_prompt", "current_message"}
+        )
+        self.assertEqual(agent_request["kind"], "slack.event")
+        self.assertEqual(agent_request["user_prompt"], signal_payload["user_prompt"])
+        current_message = agent_request["current_message"]
+        self.assertEqual(
+            set(current_message.keys()),
+            {"text", "user_id", "message_ts", "file_ids"},
+        )
+        self.assertEqual(current_message["user_id"], "U456")
+        self.assertEqual(current_message["message_ts"], "1712161829.000300")
+        self.assertEqual(current_message["file_ids"], ["F123"])
         self.assertEqual(signal_payload["slack"]["event_id"], "Ev123")
         self.assertEqual(signal_payload["slack"]["file_ids"], ["F123"])
         self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
@@ -1226,6 +1248,7 @@ class SlackProviderTests(unittest.TestCase):
             "<@UBOT> summarize deploy status"
             " https://example.slack.com/archives/C123/p1712161800000100",
         )
+        self.assertEqual(current_message["text"], signal_payload["slack"]["text"])
         self.assertIn(
             "operation: slack.conversations.getThreadContext",
             signal_payload["user_prompt"],
@@ -1373,7 +1396,12 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(thread_context["messages"][2]["bot_id"], "B123")
         self.assertEqual(thread_context["files"][0]["id"], "F123")
         self.assertNotIn("thread_context_error", signal_payload["slack"])
-        self.assertIn("Prefetched thread context:", signal_payload["user_prompt"])
+        self.assertIn("Background thread context:", signal_payload["user_prompt"])
+        self.assertNotIn("Prefetched thread context:", signal_payload["user_prompt"])
+        self.assertLess(
+            signal_payload["user_prompt"].index("Message text:"),
+            signal_payload["user_prompt"].index("Background thread context:"),
+        )
         self.assertIn('"text": "Root request"', signal_payload["user_prompt"])
         self.assertIn('"bot_id": "B123"', signal_payload["user_prompt"])
         self.assertIn(
@@ -1436,6 +1464,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("thread_context", signal_payload["slack"])
         self.assertNotIn("thread_context_error", signal_payload["slack"])
         self.assertNotIn("Prefetched thread context:", signal_payload["user_prompt"])
+        self.assertNotIn("Background thread context:", signal_payload["user_prompt"])
         self.assertIn(
             "operation: slack.conversations.getThreadContext",
             signal_payload["user_prompt"],
@@ -1510,7 +1539,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(error["status"], HTTPStatus.BAD_GATEWAY)
         self.assertEqual(error["error"], "channel_not_found")
         self.assertNotIn("thread_context", signal_payload["slack"])
-        self.assertIn("Prefetched thread context error:", signal_payload["user_prompt"])
+        self.assertIn("Background thread context error:", signal_payload["user_prompt"])
+        self.assertNotIn(
+            "Prefetched thread context error:", signal_payload["user_prompt"]
+        )
 
     def test_thread_context_prefetch_clamps_oversized_max_messages(self) -> None:
         provider_module.configure(
