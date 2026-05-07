@@ -39,6 +39,8 @@ providers:
         workingDirectory: /path/to/trusted/workspace
         timeoutSeconds: 300
         permissionMode: dontAsk
+        settingSources: []
+        disableAutoMemory: true
         anthropicApiKey:
           secret: ANTHROPIC_API_KEY
 ```
@@ -73,6 +75,72 @@ catalog tools can be discovered without a Gestalt-specific search wrapper.
 `cliPath` can be set when the Claude CLI executable is not on `PATH`. The SDK
 still uses the Claude Code transport internally, but this provider integrates
 through the SDK API rather than launching `claude` directly.
+
+## Claude Code Plugins
+
+Claude Code plugins and built-in tool permissions are configured explicitly
+in the provider `config`. By default the provider loads no Claude Code plugins,
+does not enable skill discovery, passes `setting_sources=[]`, and only allows
+the provider-owned Gestalt MCP bridge (`mcp__gestalt__*`). The runner also uses
+an isolated per-turn `CLAUDE_CONFIG_DIR`; `disableAutoMemory: true` sets
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
+
+Local plugin paths must be trusted provider configuration. Session-start hooks
+cannot provide plugin paths.
+
+```yaml
+providers:
+  agent:
+    claude:
+      config:
+        settingSources: []
+        disableAutoMemory: true
+        skillDiscovery: all
+        plugins:
+          - /opt/company/claude-plugins/docs
+          - /opt/company/claude-plugins/workflows
+        allowedTools:
+          - Skill
+          - Read
+          - Bash(git status:*)
+```
+
+### Claude Code Config Reference
+
+`settingSources` controls which Claude Code filesystem settings sources are
+passed to the SDK. Supported values are `user`, `project`, and `local`.
+Omitting the field and setting it to `[]` both mean no user, project, or local
+Claude settings are loaded by this provider.
+
+`disableAutoMemory` defaults to `true`. When enabled, the provider sets
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` for the Claude SDK turn. This is separate
+from `settingSources`; the provider still uses an isolated per-turn
+`CLAUDE_CONFIG_DIR`.
+
+`skillDiscovery` controls the SDK `skills` option. Supported values are `none`
+and `all`; the default is `none`. `all` asks Claude Code to discover skills, but
+the provider only passes `skills: "all"` to the SDK when the resolved turn also
+has an active `Skill` permission. Setting `skillDiscovery: all` alone does not
+grant the `Skill` tool.
+
+`plugins` is the ordered list of trusted local Claude Code plugin directories to
+load on every turn. Each entry must be an absolute path to an existing local
+plugin directory containing `.claude-plugin/plugin.json`. Only local skill
+plugins are supported. The provider validates the manifest, rejects executable
+plugin components such as MCP servers, hooks, commands, agents, shell
+entrypoints, and local settings, and passes the canonical plugin path to the
+Claude SDK. Skills can be declared in the manifest or in the plugin's default
+`skills/` directory.
+
+`allowedTools` controls Claude Code built-in tools in addition to the
+provider-owned Gestalt MCP bridge. If omitted, no Claude built-ins are exposed.
+It accepts exact built-in names (`Skill`, `Read`, `Write`, `Bash`), specific
+skill specifiers such as `Skill(docs:search)`, and conservative Bash prefix
+specifiers such as `Bash(git status:*)`. A Bash prefix grants the exact command
+or that command followed by a space; shell metacharacters, control characters,
+chaining, pipes, redirection, and command substitution are rejected.
+`permissionMode: bypassPermissions` cannot be combined with configured
+`allowedTools`.
 
 Linux release artifacts are built on the same Alpine/musl Python base as
 `agent/simple`, and only for `linux/amd64` and `linux/arm64`. The Claude Agent

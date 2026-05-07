@@ -13,11 +13,11 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
 from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
+from internals.claude_code_config import ClaudeCodeTurnOptions
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
 from internals.session_start import (
     prepend_session_start_context,
     run_session_start_hooks,
-    session_start_metadata_paths,
     validate_session_start_user_metadata,
 )
 from internals.store import StoreConflictError, StoreUnavailableError, StoredSession, StoredTurn, StoredTurnEvent
@@ -53,7 +53,7 @@ class ClaudeCodeAgentProvider(
             name=self._name,
             display_name="Claude Agent SDK",
             description="Runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.",
-            version="0.0.1-alpha.22",
+            version="0.0.1-alpha.23",
         )
 
     def warnings(self) -> list[str]:
@@ -198,12 +198,12 @@ class ClaudeCodeAgentProvider(
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
-        plugin_paths = session_start_metadata_paths(
-            session.metadata,
-            "claudePluginPaths",
-            allowed_basenames={"analytics", "deployment-strategy", "mortgage", "prod-ops", "vds", "tools", "rnb"},
-        )
         cwd = _prepared_workspace_cwd(session.prepared_workspace)
+        try:
+            claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
+        except ValueError as exc:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise RuntimeError("unreachable after context.abort") from exc
         try:
             turn, created = self._store_call(
                 context,
@@ -235,7 +235,7 @@ class ClaudeCodeAgentProvider(
                     "model": model,
                     "messages": list(turn.messages),
                     "run_grant": str(request.run_grant or "").strip(),
-                    "plugin_paths": plugin_paths,
+                    "claude_code_options": claude_code_options,
                     "cwd": cwd,
                 },
                 daemon=True,
@@ -359,16 +359,16 @@ class ClaudeCodeAgentProvider(
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
-        plugin_paths: list[str],
+        claude_code_options: ClaudeCodeTurnOptions,
         cwd: str,
     ) -> None:
         try:
-            if plugin_paths:
+            if claude_code_options.plugins:
                 logger.info(
-                    "starting Claude Agent SDK turn with session-start plugins",
+                    "starting Claude Agent SDK turn with configured Claude Code plugins",
                     extra={
-                        "plugin_basenames": [os.path.basename(path) for path in plugin_paths],
-                        "plugin_count": len(plugin_paths),
+                        "plugin_names": claude_code_options.plugin_names,
+                        "plugin_count": len(claude_code_options.plugins),
                     },
                 )
             output = runner.run_turn(
@@ -377,7 +377,7 @@ class ClaudeCodeAgentProvider(
                 model=model,
                 messages=messages,
                 run_grant=run_grant,
-                plugin_paths=plugin_paths,
+                claude_code_options=claude_code_options,
                 cwd=cwd,
             )
         except ClaudeExecutionCanceled as exc:
