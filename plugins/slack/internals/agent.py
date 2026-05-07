@@ -2328,8 +2328,10 @@ def _workflow_agent_prompt() -> str:
     return "\n".join(
         [
             "Handle Slack events and interactions delivered in the final workflow signal batch.",
-            "Each signal payload includes user_prompt, reply_ref, and Slack event fields.",
-            "Use the payload's user_prompt as the current Slack request.",
+            "Each signal payload includes user_prompt and reply_ref; Slack event signals may include agent_request.",
+            "For slack.event signals, when payload.agent_request.kind is slack.event, treat payload.agent_request.current_message.text as the current user request and payload.agent_request.user_prompt as request context.",
+            "If agent_request is absent, fall back to payload.user_prompt.",
+            "Treat Background thread context as supporting context only, not as the current request.",
             "Return the complete Slack reply as your final assistant answer.",
             "If the batch contains multiple Slack events, handle them in sequence.",
         ]
@@ -2428,6 +2430,7 @@ def _slack_workflow_signal_payload(
     reply_ref: str,
     thread_context: dict[str, Any] | None = None,
 ) -> Any:
+    user_prompt = _agent_user_prompt(event, reply_ref, thread_context)
     slack_payload: dict[str, Any] = {
         "callback_type": event.callback_type,
         "event_type": event.event_type,
@@ -2456,11 +2459,25 @@ def _slack_workflow_signal_payload(
             slack_payload["thread_context_error"] = error
     return _dict_to_struct(
         {
-            "user_prompt": _agent_user_prompt(event, reply_ref, thread_context),
+            "agent_request": _slack_agent_request(event, user_prompt),
+            "user_prompt": user_prompt,
             "reply_ref": reply_ref,
             "slack": slack_payload,
         }
     )
+
+
+def _slack_agent_request(event: SlackAgentEvent, user_prompt: str) -> dict[str, Any]:
+    return {
+        "kind": "slack.event",
+        "user_prompt": user_prompt,
+        "current_message": {
+            "text": event.text,
+            "user_id": event.user_id,
+            "message_ts": event.message_ts,
+            "file_ids": _event_file_ids(event),
+        },
+    }
 
 
 def _build_workflow_interaction_signal_or_start_request(
@@ -2792,22 +2809,10 @@ def _agent_user_prompt(
         f"thread_ts: {event.thread_ts}",
         f"reply_thread_ts: {event.reply_thread_ts}",
         f"reply_ref: {reply_ref}",
+        "",
+        "Message text:",
+        event.text,
     ]
-    thread_context_lines = _thread_context_prompt_lines(thread_context)
-    if thread_context_lines:
-        lines.extend(["", *thread_context_lines])
-    lines.extend(
-        [
-            "",
-            "Thread context tool:",
-            f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
-            f"channel: {event.channel_id}",
-            f"ts: {root_ts}",
-        ]
-    )
-    permalink_summaries = _event_permalink_summaries(event)
-    if permalink_summaries:
-        lines.extend(["", "Slack message permalink tools:", *permalink_summaries])
     lines.extend(
         [
             "",
@@ -2818,13 +2823,21 @@ def _agent_user_prompt(
     file_summaries = _event_file_summaries(event)
     if file_summaries:
         lines.extend(["files:", *file_summaries])
+    permalink_summaries = _event_permalink_summaries(event)
+    if permalink_summaries:
+        lines.extend(["", "Slack message permalink tools:", *permalink_summaries])
     lines.extend(
         [
             "",
-            "Message text:",
-            event.text,
+            "Thread context tool:",
+            f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+            f"channel: {event.channel_id}",
+            f"ts: {root_ts}",
         ]
     )
+    thread_context_lines = _thread_context_prompt_lines(thread_context)
+    if thread_context_lines:
+        lines.extend(["", *thread_context_lines])
     return "\n".join(lines)
 
 
@@ -2834,13 +2847,13 @@ def _thread_context_prompt_lines(thread_context: dict[str, Any] | None) -> list[
     prefetched = thread_context.get("thread_context")
     if isinstance(prefetched, dict):
         return [
-            "Prefetched thread context:",
+            "Background thread context:",
             json.dumps(prefetched, ensure_ascii=False, indent=2, sort_keys=True),
         ]
     error = thread_context.get("thread_context_error")
     if isinstance(error, dict):
         return [
-            "Prefetched thread context error:",
+            "Background thread context error:",
             json.dumps(error, ensure_ascii=False, indent=2, sort_keys=True),
         ]
     return []
