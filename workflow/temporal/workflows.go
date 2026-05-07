@@ -3,16 +3,11 @@ package temporal
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
 
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -24,10 +19,7 @@ const (
 	updatePutRun            = "gestalt.index.put_run"
 	updateGetRun            = "gestalt.index.get_run"
 	updateListRuns          = "gestalt.index.list_runs"
-	updatePutWorkflowKey    = "gestalt.index.put_workflow_key"
-	updateGetWorkflowKey    = "gestalt.index.get_workflow_key"
-	updatePutIdempotency    = "gestalt.index.put_idempotency"
-	updateGetIdempotency    = "gestalt.index.get_idempotency"
+	updatePruneRuns         = "gestalt.index.prune_runs"
 	updatePutSchedule       = "gestalt.index.put_schedule"
 	updateGetSchedule       = "gestalt.index.get_schedule"
 	updateListSchedules     = "gestalt.index.list_schedules"
@@ -58,49 +50,32 @@ type indexInput struct {
 	Snapshot *indexSnapshot `json:"snapshot,omitempty"`
 }
 
-type runWorkflowOptions struct {
-	ProviderName                  string
-	ScopeID                       string
-	IndexShardCount               int
-	ExecutionRef                  string
-	WorkflowKey                   string
-	ActivityStartToCloseTimeoutNS time.Duration
-	RequireSignal                 bool
-	ScheduleID                    string
-}
-
 type indexState struct {
-	Runs         map[string]*proto.BoundWorkflowRun
-	WorkflowKeys map[string]string
-	Idempotency  map[string]*proto.SignalWorkflowRunResponse
-	Schedules    map[string]*proto.BoundWorkflowSchedule
-	Triggers     map[string]*proto.BoundWorkflowEventTrigger
-	TriggerKeys  map[string][]string
-	Refs         map[string]*proto.WorkflowExecutionReference
-	SubjectRefs  map[string][]string
+	Runs        map[string]*proto.BoundWorkflowRun
+	Schedules   map[string]*proto.BoundWorkflowSchedule
+	Triggers    map[string]*proto.BoundWorkflowEventTrigger
+	TriggerKeys map[string][]string
+	Refs        map[string]*proto.WorkflowExecutionReference
+	SubjectRefs map[string][]string
 }
 
 type indexSnapshot struct {
-	Runs         map[string][]byte   `json:"runs,omitempty"`
-	WorkflowKeys map[string]string   `json:"workflow_keys,omitempty"`
-	Idempotency  map[string][]byte   `json:"idempotency,omitempty"`
-	Schedules    map[string][]byte   `json:"schedules,omitempty"`
-	Triggers     map[string][]byte   `json:"triggers,omitempty"`
-	TriggerKeys  map[string][]string `json:"trigger_keys,omitempty"`
-	Refs         map[string][]byte   `json:"refs,omitempty"`
-	SubjectRefs  map[string][]string `json:"subject_refs,omitempty"`
+	Runs        map[string][]byte   `json:"runs,omitempty"`
+	Schedules   map[string][]byte   `json:"schedules,omitempty"`
+	Triggers    map[string][]byte   `json:"triggers,omitempty"`
+	TriggerKeys map[string][]string `json:"trigger_keys,omitempty"`
+	Refs        map[string][]byte   `json:"refs,omitempty"`
+	SubjectRefs map[string][]string `json:"subject_refs,omitempty"`
 }
 
 func newIndexState() *indexState {
 	return &indexState{
-		Runs:         map[string]*proto.BoundWorkflowRun{},
-		WorkflowKeys: map[string]string{},
-		Idempotency:  map[string]*proto.SignalWorkflowRunResponse{},
-		Schedules:    map[string]*proto.BoundWorkflowSchedule{},
-		Triggers:     map[string]*proto.BoundWorkflowEventTrigger{},
-		TriggerKeys:  map[string][]string{},
-		Refs:         map[string]*proto.WorkflowExecutionReference{},
-		SubjectRefs:  map[string][]string{},
+		Runs:        map[string]*proto.BoundWorkflowRun{},
+		Schedules:   map[string]*proto.BoundWorkflowSchedule{},
+		Triggers:    map[string]*proto.BoundWorkflowEventTrigger{},
+		TriggerKeys: map[string][]string{},
+		Refs:        map[string]*proto.WorkflowExecutionReference{},
+		SubjectRefs: map[string][]string{},
 	}
 }
 
@@ -111,12 +86,6 @@ func indexStateFromInput(input indexInput) (*indexState, error) {
 	state := newIndexState()
 	var err error
 	if state.Runs, err = unmarshalRunMap(input.Snapshot.Runs); err != nil {
-		return nil, err
-	}
-	if input.Snapshot.WorkflowKeys != nil {
-		state.WorkflowKeys = input.Snapshot.WorkflowKeys
-	}
-	if state.Idempotency, err = unmarshalSignalResponseMap(input.Snapshot.Idempotency); err != nil {
 		return nil, err
 	}
 	if state.Schedules, err = unmarshalScheduleMap(input.Snapshot.Schedules); err != nil {
@@ -145,10 +114,6 @@ func indexSnapshotFromState(state *indexState) (*indexSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	idempotency, err := marshalProtoMap(state.Idempotency)
-	if err != nil {
-		return nil, err
-	}
 	schedules, err := marshalProtoMap(state.Schedules)
 	if err != nil {
 		return nil, err
@@ -162,14 +127,12 @@ func indexSnapshotFromState(state *indexState) (*indexSnapshot, error) {
 		return nil, err
 	}
 	return &indexSnapshot{
-		Runs:         runs,
-		WorkflowKeys: cloneStringMap(state.WorkflowKeys),
-		Idempotency:  idempotency,
-		Schedules:    schedules,
-		Triggers:     triggers,
-		TriggerKeys:  cloneStringSliceMap(state.TriggerKeys),
-		Refs:         refs,
-		SubjectRefs:  cloneStringSliceMap(state.SubjectRefs),
+		Runs:        runs,
+		Schedules:   schedules,
+		Triggers:    triggers,
+		TriggerKeys: cloneStringSliceMap(state.TriggerKeys),
+		Refs:        refs,
+		SubjectRefs: cloneStringSliceMap(state.SubjectRefs),
 	}, nil
 }
 
@@ -179,12 +142,6 @@ func ensureIndexStateMaps(state *indexState) *indexState {
 	}
 	if state.Runs == nil {
 		state.Runs = map[string]*proto.BoundWorkflowRun{}
-	}
-	if state.WorkflowKeys == nil {
-		state.WorkflowKeys = map[string]string{}
-	}
-	if state.Idempotency == nil {
-		state.Idempotency = map[string]*proto.SignalWorkflowRunResponse{}
 	}
 	if state.Schedules == nil {
 		state.Schedules = map[string]*proto.BoundWorkflowSchedule{}
@@ -232,18 +189,6 @@ func unmarshalRunMap(items map[string][]byte) (map[string]*proto.BoundWorkflowRu
 	return out, nil
 }
 
-func unmarshalSignalResponseMap(items map[string][]byte) (map[string]*proto.SignalWorkflowRunResponse, error) {
-	out := make(map[string]*proto.SignalWorkflowRunResponse, len(items))
-	for key, data := range items {
-		var value proto.SignalWorkflowRunResponse
-		if err := gproto.Unmarshal(data, &value); err != nil {
-			return nil, err
-		}
-		out[key] = &value
-	}
-	return out, nil
-}
-
 func unmarshalScheduleMap(items map[string][]byte) (map[string]*proto.BoundWorkflowSchedule, error) {
 	out := make(map[string]*proto.BoundWorkflowSchedule, len(items))
 	for key, data := range items {
@@ -278,14 +223,6 @@ func unmarshalExecutionReferenceMap(items map[string][]byte) (map[string]*proto.
 		out[key] = &value
 	}
 	return out, nil
-}
-
-func cloneStringMap(items map[string]string) map[string]string {
-	out := make(map[string]string, len(items))
-	for key, value := range items {
-		out[key] = value
-	}
-	return out
 }
 
 func cloneStringSliceMap(items map[string][]string) map[string][]string {
@@ -329,11 +266,6 @@ func indexWorkflow(ctx workflow.Context, input indexInput) error {
 			return cloneRun(existing)
 		}
 		state.Runs[run.GetId()] = run
-		if key := strings.TrimSpace(run.GetWorkflowKey()); key != "" && !workflowRunTerminal(run.GetStatus()) {
-			state.WorkflowKeys[key] = run.GetId()
-		} else if key := strings.TrimSpace(run.GetWorkflowKey()); key != "" && state.WorkflowKeys[key] == run.GetId() {
-			delete(state.WorkflowKeys, key)
-		}
 		return cloneRun(run)
 	}
 	putTrigger := func(trigger *proto.BoundWorkflowEventTrigger) *proto.BoundWorkflowEventTrigger {
@@ -390,48 +322,18 @@ func indexWorkflow(ctx workflow.Context, input indexInput) error {
 		}
 		return &proto.ListWorkflowProviderRunsResponse{Runs: out}, nil
 	})
-	_ = workflow.SetUpdateHandler(ctx, updatePutWorkflowKey, func(ctx workflow.Context, key string, run *proto.BoundWorkflowRun) (*proto.BoundWorkflowRun, error) {
-		key = strings.TrimSpace(key)
-		if key != "" && run != nil {
-			run = cloneRun(run)
-			run.WorkflowKey = key
+	_ = workflow.SetUpdateHandler(ctx, updatePruneRuns, func(ctx workflow.Context, shardCount int) (int, error) {
+		if shardCount <= 0 {
+			return 0, nil
 		}
-		return putRun(run), nil
-	})
-	_ = workflow.SetUpdateHandler(ctx, updateGetWorkflowKey, func(ctx workflow.Context, key string) (*proto.BoundWorkflowRun, error) {
-		id := state.WorkflowKeys[strings.TrimSpace(key)]
-		run := state.Runs[id]
-		if run == nil {
-			return &proto.BoundWorkflowRun{}, nil
+		removed := 0
+		for id := range state.Runs {
+			if shardFor(id, shardCount) != input.Shard {
+				delete(state.Runs, id)
+				removed++
+			}
 		}
-		return cloneRun(run), nil
-	})
-	_ = workflow.SetQueryHandler(ctx, updateGetWorkflowKey, func(key string) (*proto.BoundWorkflowRun, error) {
-		id := state.WorkflowKeys[strings.TrimSpace(key)]
-		run := state.Runs[id]
-		if run == nil {
-			return &proto.BoundWorkflowRun{}, nil
-		}
-		return cloneRun(run), nil
-	})
-	_ = workflow.SetUpdateHandler(ctx, updatePutIdempotency, func(ctx workflow.Context, ownerKey, key string, record *proto.SignalWorkflowRunResponse) (*proto.SignalWorkflowRunResponse, error) {
-		id := ownerKey + "\x00" + key
-		state.Idempotency[id] = cloneSignalResponse(record)
-		return cloneSignalResponse(record), nil
-	})
-	_ = workflow.SetUpdateHandler(ctx, updateGetIdempotency, func(ctx workflow.Context, ownerKey, key string) (*proto.SignalWorkflowRunResponse, error) {
-		record := state.Idempotency[ownerKey+"\x00"+key]
-		if record == nil {
-			return &proto.SignalWorkflowRunResponse{}, nil
-		}
-		return cloneSignalResponse(record), nil
-	})
-	_ = workflow.SetQueryHandler(ctx, updateGetIdempotency, func(ownerKey, key string) (*proto.SignalWorkflowRunResponse, error) {
-		record := state.Idempotency[ownerKey+"\x00"+key]
-		if record == nil {
-			return &proto.SignalWorkflowRunResponse{}, nil
-		}
-		return cloneSignalResponse(record), nil
+		return removed, nil
 	})
 	_ = workflow.SetUpdateHandler(ctx, updatePutSchedule, func(ctx workflow.Context, schedule *proto.BoundWorkflowSchedule) (*proto.BoundWorkflowSchedule, error) {
 		schedule = cloneSchedule(schedule)
@@ -615,190 +517,17 @@ func indexWorkflow(ctx workflow.Context, input indexInput) error {
 	}
 }
 
-func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowOptions, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor) (*proto.BoundWorkflowRun, error) {
-	return gestaltRunWorkflowWithPersistence(ctx, input, target, trigger, createdBy, false)
-}
-
-func gestaltRunWorkflowV2(ctx workflow.Context, input runWorkflowOptions, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor) (*proto.BoundWorkflowRun, error) {
-	return gestaltRunWorkflowWithPersistence(ctx, input, target, trigger, createdBy, true)
-}
-
-func gestaltRunWorkflowWithPersistence(ctx workflow.Context, input runWorkflowOptions, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor, useStateStore bool) (*proto.BoundWorkflowRun, error) {
-	info := workflow.GetInfo(ctx)
-	now := workflow.Now(ctx).UTC()
-	if input.ScheduleID != "" {
-		trigger = scheduleTrigger(input.ScheduleID, now)
-	}
-	publicID := publicRunID(info.WorkflowExecution.ID, info.WorkflowExecution.RunID)
-	state := &proto.BoundWorkflowRun{
-		Id:           publicID,
-		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:       cloneTarget(target),
-		Trigger:      cloneRunTrigger(trigger),
-		CreatedAt:    timestamppb.New(now),
-		CreatedBy:    cloneActor(createdBy),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
-		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
-	}
-	pendingSignals := make([]*proto.WorkflowSignal, 0)
-	nextSignalSequence := int64(1)
-	signalCount := 0
-
-	if err := workflow.SetQueryHandler(ctx, queryRunState, func() (*proto.BoundWorkflowRun, error) {
-		return cloneRun(state), nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := workflow.SetUpdateHandler(ctx, updateAddSignal, func(ctx workflow.Context, signal *proto.WorkflowSignal) (*proto.SignalWorkflowRunResponse, error) {
-		if workflowRunTerminal(state.GetStatus()) {
-			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())
-		}
-		signal = cloneSignal(signal)
-		if strings.TrimSpace(signal.GetId()) == "" {
-			signal.Id = "signal:" + hashID(state.GetId(), signal.GetName(), fmt.Sprintf("%d", nextSignalSequence), signal.GetIdempotencyKey())
-		}
-		if signal.GetSequence() <= 0 {
-			signal.Sequence = nextSignalSequence
-		}
-		if signal.GetSequence() >= nextSignalSequence {
-			nextSignalSequence = signal.GetSequence() + 1
-		}
-		pendingSignals = append(pendingSignals, signal)
-		signalCount++
-		resp := &proto.SignalWorkflowRunResponse{
-			Run:         cloneRun(state),
-			Signal:      cloneSignal(signal),
-			StartedRun:  signalCount == 1 && state.GetStartedAt() == nil,
-			WorkflowKey: strings.TrimSpace(state.GetWorkflowKey()),
-		}
-		return resp, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := workflow.SetUpdateHandler(ctx, updateCancelRun, func(ctx workflow.Context, reason string) (*proto.BoundWorkflowRun, error) {
-		if state.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
-			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s; only pending runs can be canceled", state.GetId(), state.GetStatus().String())
-		}
-		completedAt := workflow.Now(ctx).UTC()
-		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		state.CompletedAt = timestamppb.New(completedAt)
-		state.StatusMessage = strings.TrimSpace(reason)
-		if state.GetStatusMessage() == "" {
-			state.StatusMessage = "canceled"
-		}
-		return cloneRun(state), nil
-	}); err != nil {
-		return nil, err
-	}
-
-	if err := persistRunState(ctx, input, state, useStateStore); err != nil {
-		return nil, err
-	}
-	if input.RequireSignal {
-		_ = workflow.Await(ctx, func() bool { return len(pendingSignals) > 0 || workflowRunTerminal(state.GetStatus()) })
-	}
-	for !workflowRunTerminal(state.GetStatus()) {
-		startedAt := workflow.Now(ctx).UTC()
-		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-		state.StartedAt = timestamppb.New(startedAt)
-		state.CompletedAt = nil
-		state.StatusMessage = ""
-		if err := persistRunState(ctx, input, state, useStateStore); err != nil {
-			return nil, err
-		}
-		batch := pendingSignals
-		pendingSignals = nil
-		activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
-			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-		})
-		invokeReq := &proto.InvokeWorkflowOperationRequest{
-			Target:       cloneTarget(state.GetTarget()),
-			RunId:        state.GetId(),
-			Trigger:      cloneRunTrigger(state.GetTrigger()),
-			CreatedBy:    cloneActor(state.GetCreatedBy()),
-			ExecutionRef: strings.TrimSpace(state.GetExecutionRef()),
-			Signals:      cloneSignals(batch),
-		}
-		var resp proto.InvokeWorkflowOperationResponse
-		invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeOperation, invokeReq).Get(activityCtx, &resp)
-		completedAt := workflow.Now(ctx).UTC()
-		state.CompletedAt = timestamppb.New(completedAt)
-		if invokeErr != nil {
-			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
-			state.StatusMessage = invokeErr.Error()
-		} else if resp.GetStatus() >= http.StatusBadRequest {
-			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
-			state.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.GetStatus())
-			state.ResultBody = resp.GetBody()
-		} else {
-			state.ResultBody = resp.GetBody()
-			if state.GetWorkflowKey() != "" && len(pendingSignals) > 0 {
-				state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
-				state.CompletedAt = nil
-				_ = persistRunState(ctx, input, state, useStateStore)
-				continue
-			}
-			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
-			state.StatusMessage = ""
-		}
-		break
-	}
-	if err := persistRunState(ctx, input, state, useStateStore); err != nil {
-		return nil, err
-	}
-	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
-	return cloneRun(state), nil
-}
-
 type workflowActivities struct {
-	host  workflowHost
-	state *workflowStateStore
+	host workflowHost
 }
 
 func (a *workflowActivities) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
 	return a.host.InvokeOperation(ctx, req)
 }
 
-func (a *workflowActivities) StoreRun(ctx context.Context, run *proto.BoundWorkflowRun) (*emptypb.Empty, error) {
-	if a.state == nil {
-		return nil, fmt.Errorf("workflow state store is not configured")
-	}
-	if err := a.state.putRun(ctx, run); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
-}
-
-func persistRunState(ctx workflow.Context, input runWorkflowOptions, run *proto.BoundWorkflowRun, useStateStore bool) error {
-	if !useStateStore {
-		return signalRunIndex(ctx, input, run)
-	}
-	activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
-		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
-	})
-	var out emptypb.Empty
-	return workflow.ExecuteActivity(activityCtx, (*workflowActivities).StoreRun, cloneRun(run)).Get(activityCtx, &out)
-}
-
-func signalRunIndex(ctx workflow.Context, input runWorkflowOptions, run *proto.BoundWorkflowRun) error {
-	keys := []string{run.GetId()}
-	if workflowKey := strings.TrimSpace(run.GetWorkflowKey()); workflowKey != "" {
-		keys = append(keys, "workflow-key:"+workflowKey)
-	}
-	seen := map[int]struct{}{}
-	for _, key := range keys {
-		shard := shardFor(key, input.IndexShardCount)
-		if _, ok := seen[shard]; ok {
-			continue
-		}
-		seen[shard] = struct{}{}
-		if err := workflow.SignalExternalWorkflow(ctx, indexWorkflowID(input.ScopeID, shard), "", signalIndexPutRun, cloneRun(run)).Get(ctx, nil); err != nil {
-			return err
-		}
-	}
-	return nil
+func signalRunIndex(ctx workflow.Context, scopeID string, indexShardCount int, run *proto.BoundWorkflowRun) error {
+	shard := shardFor(run.GetId(), indexShardCount)
+	return workflow.SignalExternalWorkflow(ctx, indexWorkflowID(scopeID, shard), "", signalIndexPutRun, cloneRun(run)).Get(ctx, nil)
 }
 
 func appendUnique(values []string, value string) []string {

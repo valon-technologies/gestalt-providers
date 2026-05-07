@@ -62,13 +62,18 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 		return nil
 	}
 	w := worker.New(b.client, b.cfg.TaskQueue, worker.Options{})
-	w.RegisterWorkflow(gestaltRunWorkflow)
-	w.RegisterWorkflow(gestaltRunWorkflowV2)
+	w.RegisterWorkflow(gestaltRunWorkflowV3)
+	w.RegisterWorkflow(gestaltWorkflowKeyLaneV1)
+	w.RegisterWorkflow(gestaltOwnerLedgerWorkflow)
 	w.RegisterWorkflow(indexWorkflow)
 	w.RegisterWorkflow(scopeMetadataWorkflow)
-	w.RegisterActivity(&workflowActivities{host: b.host, state: b.state})
+	w.RegisterActivity(&workflowActivities{host: b.host})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
+	}
+	if err := b.deleteDeprecatedTemporalIndexState(ctx); err != nil {
+		w.Stop()
+		return err
 	}
 	b.worker = w
 	b.started = true
@@ -118,68 +123,64 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 	}
 	key := strings.TrimSpace(req.GetIdempotencyKey())
 	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
+	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.GetExecutionRef(), target.Target, req.GetCreatedBy())
+	ledgerKey := startLedgerKey(target.OwnerKey, key)
 	if key != "" {
-		if existing, found, err := b.getIdempotency(ctx, target.OwnerKey, key); err != nil {
-			return nil, err
-		} else if found && existing.GetRun() != nil {
-			return cloneRun(existing.GetRun()), nil
-		}
-	}
-	if workflowKey != "" {
-		active, found, err := b.getWorkflowKey(ctx, workflowKey)
+		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
+			Operation:   "start",
+			Fingerprint: fingerprint,
+			OwnerKey:    target.OwnerKey,
+			WorkflowKey: workflowKey,
+		})
 		if err != nil {
 			return nil, err
 		}
-		if found && !workflowRunTerminal(active.GetStatus()) {
-			return nil, status.Errorf(codes.FailedPrecondition, "workflow key %q already has an active run", workflowKey)
-		}
-	}
-	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run", uuid.NewString())
-	if key != "" {
-		temporalWorkflowID = workflowID(b.cfg.ScopeID, "manual", target.OwnerKey, key)
-	}
-	if workflowKey != "" {
-		temporalWorkflowID = workflowID(b.cfg.ScopeID, "key", workflowKey)
-	}
-	reusePolicy := enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
-	if workflowKey != "" {
-		reusePolicy = enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
-	}
-	input := runWorkflowOptions{
-		ProviderName:                  b.providerName,
-		ScopeID:                       b.cfg.ScopeID,
-		IndexShardCount:               b.cfg.IndexShardCount,
-		ExecutionRef:                  strings.TrimSpace(req.GetExecutionRef()),
-		WorkflowKey:                   workflowKey,
-		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
-		RequireSignal:                 false,
-	}
-	run, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, reusePolicy), gestaltRunWorkflowV2, input, target.Target, newManualTrigger(), cloneActor(req.GetCreatedBy()))
-	if err != nil {
-		if key != "" {
-			if existing, found, getErr := b.getIdempotency(ctx, target.OwnerKey, key); getErr == nil && found && existing.GetRun() != nil {
-				return cloneRun(existing.GetRun()), nil
+		if entry != nil && entry.Status == "completed" {
+			if run := runFromPayload(entry.RunPayload); run != nil {
+				return run, nil
 			}
 		}
-		return nil, status.Errorf(codes.Internal, "start temporal workflow: %v", err)
 	}
-	now := time.Now().UTC()
-	resp := &proto.BoundWorkflowRun{
-		Id:           publicRunID(run.GetID(), run.GetRunID()),
-		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:       cloneTarget(target.Target),
-		Trigger:      newManualTrigger(),
-		CreatedAt:    timestamppb.New(now),
-		CreatedBy:    cloneActor(req.GetCreatedBy()),
-		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-		WorkflowKey:  workflowKey,
+	if workflowKey != "" {
+		updateID := "start:" + uuid.NewString()
+		if key != "" {
+			updateID = "start:" + hashID(target.OwnerKey, key, workflowKey)
+		}
+		run, err := b.startKeyedRunInLane(ctx, workflowKey, updateID, laneStartRequest{
+			OwnerKey:         target.OwnerKey,
+			TargetPayload:    protoPayload(target.Target),
+			ExecutionRef:     strings.TrimSpace(req.GetExecutionRef()),
+			CreatedByPayload: protoPayload(req.GetCreatedBy()),
+			RequestID:        updateID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if key != "" {
+			if err := b.completeLedger(ctx, ledgerKey, fingerprint, &proto.SignalWorkflowRunResponse{Run: run}, run); err != nil {
+				return nil, err
+			}
+		}
+		return run, nil
+	}
+	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v3", uuid.NewString())
+	if key != "" {
+		temporalWorkflowID = workflowID(b.cfg.ScopeID, "manual-v3", target.OwnerKey, key)
+	}
+	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
+	if key != "" {
+		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+	}
+	run, err := b.executeRunV3(ctx, temporalWorkflowID, b.runV3Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	if err != nil {
+		return nil, err
 	}
 	if key != "" {
-		if err := b.putIdempotency(ctx, target.OwnerKey, key, &proto.SignalWorkflowRunResponse{Run: resp}); err != nil {
+		if err := b.completeLedger(ctx, ledgerKey, fingerprint, &proto.SignalWorkflowRunResponse{Run: run}, run); err != nil {
 			return nil, err
 		}
 	}
-	return resp, nil
+	return run, nil
 }
 
 func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
@@ -190,18 +191,15 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	run, found, err := b.getRun(ctx, runID)
+	handle, err := decodeV3RunHandle(runID)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow run %q not found", runID)
-	}
-	return run, nil
+	return b.queryOrGetV3Run(ctx, handle)
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	runs, err := b.listRuns(ctx)
+	runs, err := b.listRunsFromTemporalIndex(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +211,7 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	handle, err := decodeRunHandle(req.GetRunId())
+	handle, err := decodeV3RunHandle(req.GetRunId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -221,10 +219,13 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	if reason == "" {
 		reason = "canceled"
 	}
+	if handle.LaneWorkflowID != "" {
+		return b.cancelLaneRun(ctx, handle, reason)
+	}
 	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-		WorkflowID:   handle.WorkflowID,
-		RunID:        handle.RunID,
-		UpdateID:     "cancel:" + hashID(handle.WorkflowID, handle.RunID, reason),
+		WorkflowID:   handle.RunWorkflowID,
+		RunID:        handle.RunTemporalRunID,
+		UpdateID:     "cancel:" + hashID(handle.RunWorkflowID, handle.RunTemporalRunID, reason),
 		UpdateName:   updateCancelRun,
 		Args:         []any{reason},
 		WaitForStage: client.WorkflowUpdateStageCompleted,
@@ -236,9 +237,6 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	if err := update.Get(ctx, &run); err != nil {
 		return nil, mapWorkflowUpdateError(err)
 	}
-	if err := b.putRun(ctx, &run); err != nil {
-		return nil, err
-	}
 	return &run, nil
 }
 
@@ -246,7 +244,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	handle, err := decodeRunHandle(req.GetRunId())
+	handle, err := decodeV3RunHandle(req.GetRunId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -254,46 +252,81 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	run, found, err := b.getRun(ctx, req.GetRunId())
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow run %q not found", req.GetRunId())
-	}
-	ownerKey := targetOwnerKey(run.GetTarget())
-	if signal.GetIdempotencyKey() != "" {
-		if existing, found, err := b.getIdempotency(ctx, ownerKey, signal.GetIdempotencyKey()); err != nil {
-			return nil, err
-		} else if found && existing.GetSignal() != nil {
-			return cloneSignalResponse(existing), nil
-		}
-	}
+	ownerKey := handle.OwnerKey
 	updateID := signalUpdateID(signal)
-	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-		WorkflowID:   handle.WorkflowID,
-		RunID:        handle.RunID,
-		UpdateID:     updateID,
-		UpdateName:   updateAddSignal,
-		Args:         []any{signal},
-		WaitForStage: client.WorkflowUpdateStageCompleted,
-	})
+	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
+	fingerprint := signalFingerprint(ownerKey, handle.WorkflowKey+"\x00"+req.GetRunId(), signal)
+	if ledgerKey != "" {
+		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
+			Operation:      "signal",
+			Fingerprint:    fingerprint,
+			OwnerKey:       ownerKey,
+			WorkflowKey:    handle.WorkflowKey,
+			RunID:          req.GetRunId(),
+			SignalID:       signal.GetId(),
+			LaneWorkflowID: handle.LaneWorkflowID,
+			LaneUpdateID:   updateID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if entry != nil && entry.Status == "completed" {
+			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+				return resp, nil
+			}
+		}
+	}
+	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
+		if entry, _, err := b.reserveLedger(ctx, sigKey, ownerLedgerReserveRequest{
+			Operation:   "signal-id",
+			Fingerprint: fingerprint,
+			OwnerKey:    ownerKey,
+			WorkflowKey: handle.WorkflowKey,
+			RunID:       req.GetRunId(),
+			SignalID:    signal.GetId(),
+		}); err != nil {
+			return nil, err
+		} else if entry != nil && entry.Status == "completed" {
+			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+				return resp, nil
+			}
+		}
+	}
+	var resp *proto.SignalWorkflowRunResponse
+	if handle.LaneWorkflowID != "" {
+		resp, err = b.updateLaneSignalRun(ctx, handle, signal, updateID)
+	} else {
+		update, updateErr := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+			WorkflowID:   handle.RunWorkflowID,
+			RunID:        handle.RunTemporalRunID,
+			UpdateID:     updateID,
+			UpdateName:   updateAddSignal,
+			Args:         []any{signal},
+			WaitForStage: client.WorkflowUpdateStageCompleted,
+		})
+		if updateErr != nil {
+			return nil, status.Errorf(codes.Internal, "signal temporal workflow: %v", updateErr)
+		}
+		var out proto.SignalWorkflowRunResponse
+		if updateErr := update.Get(ctx, &out); updateErr != nil {
+			return nil, mapWorkflowUpdateError(updateErr)
+		}
+		resp = &out
+	}
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "signal temporal workflow: %v", err)
-	}
-	var resp proto.SignalWorkflowRunResponse
-	if err := update.Get(ctx, &resp); err != nil {
-		return nil, mapWorkflowUpdateError(err)
-	}
-	if err := b.putRun(ctx, resp.GetRun()); err != nil {
 		return nil, err
 	}
-	if signal.GetIdempotencyKey() != "" {
-		if err := b.putIdempotency(ctx, ownerKey, signal.GetIdempotencyKey(), &resp); err != nil {
+	if ledgerKey != "" {
+		if err := b.completeLedger(ctx, ledgerKey, fingerprint, resp, resp.GetRun()); err != nil {
 			return nil, err
 		}
 	}
-	return &resp, nil
+	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
+		if err := b.completeLedger(ctx, sigKey, fingerprint, resp, resp.GetRun()); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
 }
 
 func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStartWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
@@ -313,65 +346,71 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	ownerKey := target.OwnerKey
-	if signal.GetIdempotencyKey() != "" {
-		if existing, found, err := b.getIdempotency(ctx, ownerKey, signal.GetIdempotencyKey()); err != nil {
-			return nil, err
-		} else if found && existing.GetSignal() != nil {
-			return cloneSignalResponse(existing), nil
-		}
-	}
-	temporalWorkflowID := workflowID(b.cfg.ScopeID, "key", workflowKey)
-	input := runWorkflowOptions{
-		ProviderName:                  b.providerName,
-		ScopeID:                       b.cfg.ScopeID,
-		IndexShardCount:               b.cfg.IndexShardCount,
-		ExecutionRef:                  strings.TrimSpace(req.GetExecutionRef()),
-		WorkflowKey:                   workflowKey,
-		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
-		RequireSignal:                 true,
-	}
-	var resp proto.SignalWorkflowRunResponse
-	for attempt := 0; attempt < 3; attempt++ {
-		startOp := b.client.NewWithStartWorkflowOperation(
-			b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE),
-			gestaltRunWorkflowV2,
-			input,
-			target.Target,
-			newManualTrigger(),
-			cloneActor(req.GetCreatedBy()),
-		)
-		update, err := b.client.UpdateWithStartWorkflow(ctx, client.UpdateWithStartWorkflowOptions{
-			StartWorkflowOperation: startOp,
-			UpdateOptions: client.UpdateWorkflowOptions{
-				UpdateID:     signalUpdateID(signal),
-				UpdateName:   updateAddSignal,
-				Args:         []any{signal},
-				WaitForStage: client.WorkflowUpdateStageCompleted,
-			},
+	updateID := signalUpdateID(signal)
+	fingerprint := signalFingerprint(ownerKey, workflowKey, signal)
+	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
+	if ledgerKey != "" {
+		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
+			Operation:      "signal_or_start",
+			Fingerprint:    fingerprint,
+			OwnerKey:       ownerKey,
+			WorkflowKey:    workflowKey,
+			SignalID:       signal.GetId(),
+			LaneWorkflowID: b.laneWorkflowID(workflowKey),
+			LaneUpdateID:   updateID,
 		})
 		if err != nil {
-			if attempt < 2 {
-				continue
-			}
-			return nil, status.Errorf(codes.Internal, "signal-or-start temporal workflow: %v", err)
+			return nil, err
 		}
-		if err := update.Get(ctx, &resp); err != nil {
-			if attempt < 2 && retrySignalOrStart(ctx, err) {
-				continue
+		if entry != nil && entry.Status == "completed" {
+			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+				return resp, nil
 			}
-			return nil, mapWorkflowUpdateError(err)
 		}
-		break
+	}
+	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
+		if entry, _, err := b.reserveLedger(ctx, sigKey, ownerLedgerReserveRequest{
+			Operation:      "signal-id",
+			Fingerprint:    fingerprint,
+			OwnerKey:       ownerKey,
+			WorkflowKey:    workflowKey,
+			SignalID:       signal.GetId(),
+			LaneWorkflowID: b.laneWorkflowID(workflowKey),
+			LaneUpdateID:   updateID,
+		}); err != nil {
+			return nil, err
+		} else if entry != nil && entry.Status == "completed" {
+			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+				return resp, nil
+			}
+		}
+	}
+	resp, err := b.signalOrStartLane(ctx, workflowKey, updateID, laneSignalRequest{
+		OwnerKey:         ownerKey,
+		TargetPayload:    protoPayload(target.Target),
+		ExecutionRef:     strings.TrimSpace(req.GetExecutionRef()),
+		CreatedByPayload: protoPayload(req.GetCreatedBy()),
+		SignalPayload:    protoPayload(signal),
+		RequestID:        updateID,
+		IdempotencyKey:   strings.TrimSpace(signal.GetIdempotencyKey()),
+	})
+	if err != nil {
+		return nil, err
 	}
 	if resp.GetRun() == nil {
 		return nil, status.Error(codes.Internal, "signal-or-start returned no run")
 	}
-	if signal.GetIdempotencyKey() != "" {
-		if err := b.putIdempotency(ctx, ownerKey, signal.GetIdempotencyKey(), &resp); err != nil {
+	if ledgerKey != "" {
+		if err := b.completeLedger(ctx, ledgerKey, fingerprint, resp, resp.GetRun()); err != nil {
 			return nil, err
 		}
 	}
-	return &resp, nil
+	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
+		if err := b.completeLedger(ctx, sigKey, fingerprint, resp, resp.GetRun()); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
 }
 
 func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
@@ -713,10 +752,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 		if actorHasSubject(publishedBy) {
 			createdBy = cloneActor(publishedBy)
 		}
-		temporalWorkflowID := workflowID(b.cfg.ScopeID, "event", trigger.GetId(), event.GetSource(), uuid.NewString())
-		if event.GetId() != "" {
-			temporalWorkflowID = workflowID(b.cfg.ScopeID, "event", trigger.GetId(), event.GetSource(), event.GetId())
-		}
+		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.GetId(), event)
 		if actorHasSubject(publishedBy) {
 			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, trigger, publishedBy, now)
 			if err != nil {
@@ -728,14 +764,8 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 				}
 			}
 		}
-		input := runWorkflowOptions{
-			ProviderName:                  b.providerName,
-			ScopeID:                       b.cfg.ScopeID,
-			IndexShardCount:               b.cfg.IndexShardCount,
-			ExecutionRef:                  executionRef,
-			ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
-		}
-		_, err := b.client.ExecuteWorkflow(ctx, b.runStartOptions(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE), gestaltRunWorkflowV2, input, cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy)
+		input := b.runV3Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, false)
+		_, err := b.executeRunV3(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
 				continue
@@ -763,21 +793,17 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
+	if err := b.ensureTemporalRunIndexes(ctx); err != nil {
+		return err
+	}
 	scheduleMemo := map[string]interface{}{
 		workflowScheduleMemoKey: cloneSchedule(schedule),
 	}
-	actionInput := runWorkflowOptions{
-		ProviderName:                  b.providerName,
-		ScopeID:                       b.cfg.ScopeID,
-		IndexShardCount:               b.cfg.IndexShardCount,
-		ExecutionRef:                  strings.TrimSpace(schedule.GetExecutionRef()),
-		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
-		ScheduleID:                    schedule.GetId(),
-	}
+	actionInput := b.runV3Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), false)
+	actionInput.ScheduleID = schedule.GetId()
 	action := &client.ScheduleWorkflowAction{
-		ID:                  workflowID(b.cfg.ScopeID, "schedule-run", schedule.GetId()),
-		Workflow:            gestaltRunWorkflowV2,
-		Args:                []any{actionInput, cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy())},
+		Workflow:            gestaltRunWorkflowV3,
+		Args:                []any{actionInput},
 		TaskQueue:           b.cfg.TaskQueue,
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout: b.cfg.WorkflowTaskTimeout,
@@ -921,35 +947,18 @@ func scheduleFromTemporalActionArgs(fallbackScheduleID string, action *client.Sc
 	if action == nil {
 		return nil, false, nil
 	}
-	dc := converter.GetDefaultDataConverter()
-	var opts runWorkflowOptions
-	if payload, ok := temporalActionArg(action, 0); ok {
-		if err := dc.FromPayload(payload, &opts); err != nil {
-			return nil, false, err
-		}
+	if len(action.Args) != 1 {
+		return nil, false, nil
 	}
-	var target proto.BoundWorkflowTarget
-	if payload, ok := temporalActionArg(action, 1); ok {
-		if err := dc.FromPayload(payload, &target); err != nil {
-			return nil, false, err
-		}
+	payload, ok := temporalActionArg(action, 0)
+	if !ok {
+		return nil, false, nil
 	}
-	var trigger proto.WorkflowRunTrigger
-	if payload, ok := temporalActionArg(action, 2); ok {
-		if err := dc.FromPayload(payload, &trigger); err != nil {
-			return nil, false, err
-		}
+	var input runWorkflowV3Input
+	if err := converter.GetDefaultDataConverter().FromPayload(payload, &input); err != nil {
+		return nil, false, err
 	}
-	var createdBy proto.WorkflowActor
-	if payload, ok := temporalActionArg(action, 3); ok {
-		if err := dc.FromPayload(payload, &createdBy); err != nil {
-			return nil, false, err
-		}
-	}
-	scheduleID := strings.TrimSpace(opts.ScheduleID)
-	if scheduleID == "" {
-		scheduleID = strings.TrimSpace(trigger.GetSchedule().GetScheduleId())
-	}
+	scheduleID := strings.TrimSpace(input.ScheduleID)
 	if scheduleID == "" {
 		scheduleID = strings.TrimSpace(fallbackScheduleID)
 	}
@@ -958,9 +967,9 @@ func scheduleFromTemporalActionArgs(fallbackScheduleID string, action *client.Sc
 	}
 	return &proto.BoundWorkflowSchedule{
 		Id:           scheduleID,
-		Target:       cloneTarget(&target),
-		CreatedBy:    cloneActor(&createdBy),
-		ExecutionRef: strings.TrimSpace(opts.ExecutionRef),
+		Target:       targetFromPayload(input.TargetPayload),
+		CreatedBy:    actorFromPayload(input.CreatedByPayload),
+		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 	}, true, nil
 }
 

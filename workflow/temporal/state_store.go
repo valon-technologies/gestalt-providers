@@ -14,9 +14,6 @@ import (
 )
 
 const (
-	storeTemporalRuns             = "workflow_temporal_runs"
-	storeTemporalWorkflowKeys     = "workflow_temporal_workflow_keys"
-	storeTemporalIdempotency      = "workflow_temporal_idempotency"
 	storeTemporalSchedules        = "workflow_temporal_schedules"
 	storeTemporalEventTriggers    = "workflow_temporal_event_triggers"
 	storeTemporalEventTriggerKeys = "workflow_temporal_event_trigger_keys"
@@ -27,13 +24,16 @@ const (
 	indexByTriggerID = "by_trigger_id"
 )
 
+var deprecatedWorkflowStateStores = []string{
+	"workflow_temporal_runs",
+	"workflow_temporal_workflow_keys",
+	"workflow_temporal_idempotency",
+}
+
 type workflowStateStore struct {
 	db      *gestalt.IndexedDBClient
 	scopeID string
 
-	runs             *gestalt.ObjectStoreClient
-	workflowKeys     *gestalt.ObjectStoreClient
-	idempotency      *gestalt.ObjectStoreClient
 	schedules        *gestalt.ObjectStoreClient
 	eventTriggers    *gestalt.ObjectStoreClient
 	eventTriggerKeys *gestalt.ObjectStoreClient
@@ -58,12 +58,13 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
+	if err := deleteDeprecatedWorkflowStateStores(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	store := &workflowStateStore{
 		scopeID:          scopeID,
 		db:               db,
-		runs:             db.ObjectStore(storeTemporalRuns),
-		workflowKeys:     db.ObjectStore(storeTemporalWorkflowKeys),
-		idempotency:      db.ObjectStore(storeTemporalIdempotency),
 		schedules:        db.ObjectStore(storeTemporalSchedules),
 		eventTriggers:    db.ObjectStore(storeTemporalEventTriggers),
 		eventTriggerKeys: db.ObjectStore(storeTemporalEventTriggerKeys),
@@ -72,276 +73,23 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 	return store, nil
 }
 
-func (s *workflowStateStore) Close() error {
-	if s == nil || s.db == nil {
+func deleteDeprecatedWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
+	if db == nil {
 		return nil
 	}
-	return s.db.Close()
-}
-
-func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
-	run = cloneRun(run)
-	if run == nil || strings.TrimSpace(run.GetId()) == "" {
-		return nil
-	}
-	var err error
-	for attempt := 0; attempt < 5; attempt++ {
-		err = s.putRunOnce(ctx, run)
-		if err == nil {
-			return nil
-		}
-		if !shouldRetryWorkflowStateWrite(err) {
-			return err
-		}
-		timer := time.NewTimer(time.Duration(25*(1<<attempt)) * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return err
-}
-
-func (s *workflowStateStore) putRunOnce(ctx context.Context, run *proto.BoundWorkflowRun) error {
-	existing, runFound, err := s.getRun(ctx, run.GetId())
-	if err != nil {
-		return err
-	}
-	if runFound && shouldIgnoreStaleRunState(existing, run) {
-		return nil
-	}
-	now := time.Now().UTC()
-	workflowKey := strings.TrimSpace(run.GetWorkflowKey())
-	keyFound := false
-	if workflowKey != "" && !workflowRunTerminal(run.GetStatus()) {
-		if _, err := s.workflowKeys.Get(ctx, s.scopedID(workflowKey)); err == nil {
-			keyFound = true
-		} else if !errors.Is(err, gestalt.ErrNotFound) {
-			return err
-		}
-	}
-	tx, err := s.db.Transaction(ctx, []string{storeTemporalRuns, storeTemporalWorkflowKeys}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
-	if err != nil {
-		return err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Abort(ctx)
-		}
-	}()
-	runStore := tx.ObjectStore(storeTemporalRuns)
-	keyStore := tx.ObjectStore(storeTemporalWorkflowKeys)
-	if runFound {
-		if err := runStore.Delete(ctx, s.scopedID(run.GetId())); err != nil {
-			return err
-		}
-	}
-	if err := runStore.Put(ctx, s.runRecord(run, now)); err != nil {
-		return err
-	}
-	if workflowKey != "" && !workflowRunTerminal(run.GetStatus()) {
-		if keyFound {
-			if err := keyStore.Delete(ctx, s.scopedID(workflowKey)); err != nil {
-				return err
-			}
-		}
-		if err := keyStore.Put(ctx, gestalt.Record{
-			"id":         s.scopedID(workflowKey),
-			"scope_id":   s.scopeID,
-			"run_id":     run.GetId(),
-			"created_at": timeFromProtoOrNow(run.GetCreatedAt(), now),
-			"updated_at": now,
-		}); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	committed = true
-	if workflowKey != "" && workflowRunTerminal(run.GetStatus()) {
-		if record, err := s.workflowKeys.Get(ctx, s.scopedID(workflowKey)); err == nil && recordString(record, "run_id") == run.GetId() {
-			if err := s.workflowKeys.Delete(ctx, s.scopedID(workflowKey)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-				return err
-			}
-		} else if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			return err
+	for _, name := range deprecatedWorkflowStateStores {
+		if err := db.DeleteObjectStore(ctx, name); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+			return fmt.Errorf("delete deprecated indexeddb object store %s: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func shouldIgnoreStaleRunState(existing, next *proto.BoundWorkflowRun) bool {
-	if existing == nil || next == nil || existing.GetId() != next.GetId() {
-		return false
-	}
-	if workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(next.GetStatus()) {
-		return true
-	}
-	return existing.GetStartedAt() != nil &&
-		next.GetStartedAt() == nil &&
-		next.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
-}
-
-func shouldRetryWorkflowStateWrite(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, gestalt.ErrAlreadyExists) {
-		return true
-	}
-	text := strings.ToLower(err.Error())
-	for _, marker := range []string{
-		"already exists",
-		"deadlock",
-		"try restarting transaction",
-		"sqlstate 40001",
-		"error 1213",
-		"lock wait timeout",
-		"error 1205",
-		"database is locked",
-		"database table is locked",
-	} {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *workflowStateStore) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return nil, false, nil
-	}
-	record, err := s.runs.Get(ctx, s.scopedID(id))
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	run, err := runFromRecord(record)
-	return run, err == nil && run.GetId() != "", err
-}
-
-func (s *workflowStateStore) listRuns(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
-	records, err := s.runs.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	runs := make([]*proto.BoundWorkflowRun, 0, len(records))
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		run, err := runFromRecord(record)
-		if err != nil {
-			return nil, err
-		}
-		runs = append(runs, run)
-	}
-	return runs, nil
-}
-
-func (s *workflowStateStore) putWorkflowKey(ctx context.Context, workflowKey string, run *proto.BoundWorkflowRun) error {
-	workflowKey = strings.TrimSpace(workflowKey)
-	if workflowKey == "" || run == nil || strings.TrimSpace(run.GetId()) == "" {
+func (s *workflowStateStore) Close() error {
+	if s == nil || s.db == nil {
 		return nil
 	}
-	storedRun, found, err := s.getRun(ctx, run.GetId())
-	if err != nil {
-		return err
-	}
-	if found && workflowRunTerminal(storedRun.GetStatus()) {
-		if err := s.workflowKeys.Delete(ctx, s.scopedID(workflowKey)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			return err
-		}
-		return nil
-	}
-	if workflowRunTerminal(run.GetStatus()) {
-		if record, err := s.workflowKeys.Get(ctx, s.scopedID(workflowKey)); err == nil && recordString(record, "run_id") == run.GetId() {
-			if err := s.workflowKeys.Delete(ctx, s.scopedID(workflowKey)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-				return err
-			}
-		} else if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			return err
-		}
-		return nil
-	}
-	now := time.Now().UTC()
-	return s.workflowKeys.Put(ctx, gestalt.Record{
-		"id":         s.scopedID(workflowKey),
-		"scope_id":   s.scopeID,
-		"run_id":     run.GetId(),
-		"created_at": timeFromProtoOrNow(run.GetCreatedAt(), now),
-		"updated_at": now,
-	})
-}
-
-func (s *workflowStateStore) getWorkflowKey(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
-	workflowKey = strings.TrimSpace(workflowKey)
-	if workflowKey == "" {
-		return nil, false, nil
-	}
-	record, err := s.workflowKeys.Get(ctx, s.scopedID(workflowKey))
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	runID := recordString(record, "run_id")
-	run, found, err := s.getRun(ctx, runID)
-	if err != nil || !found {
-		return nil, found, err
-	}
-	if workflowRunTerminal(run.GetStatus()) {
-		_ = s.workflowKeys.Delete(ctx, s.scopedID(workflowKey))
-		return nil, false, nil
-	}
-	return run, true, nil
-}
-
-func (s *workflowStateStore) putIdempotency(ctx context.Context, ownerKey, key string, resp *proto.SignalWorkflowRunResponse) error {
-	ownerKey = strings.TrimSpace(ownerKey)
-	key = strings.TrimSpace(key)
-	if ownerKey == "" || key == "" || resp == nil {
-		return nil
-	}
-	payload, err := marshalProto(resp)
-	if err != nil {
-		return err
-	}
-	return s.idempotency.Put(ctx, gestalt.Record{
-		"id":              s.scopedID(ownerKey, key),
-		"scope_id":        s.scopeID,
-		"owner_key":       ownerKey,
-		"idempotency_key": key,
-		"created_at":      time.Now().UTC(),
-		"payload":         payload,
-	})
-}
-
-func (s *workflowStateStore) getIdempotency(ctx context.Context, ownerKey, key string) (*proto.SignalWorkflowRunResponse, bool, error) {
-	record, err := s.idempotency.Get(ctx, s.scopedID(ownerKey, key))
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	var resp proto.SignalWorkflowRunResponse
-	if err := unmarshalRecordPayload(record, &resp); err != nil {
-		return nil, false, err
-	}
-	return cloneSignalResponse(&resp), true, nil
+	return s.db.Close()
 }
 
 func (s *workflowStateStore) putSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
@@ -572,28 +320,6 @@ func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID st
 		}
 	}
 	return refs, nil
-}
-
-func (s *workflowStateStore) runRecord(run *proto.BoundWorkflowRun, now time.Time) gestalt.Record {
-	payload, _ := marshalProto(run)
-	return gestalt.Record{
-		"id":           s.scopedID(run.GetId()),
-		"scope_id":     s.scopeID,
-		"owner_key":    targetOwnerKey(run.GetTarget()),
-		"workflow_key": strings.TrimSpace(run.GetWorkflowKey()),
-		"status":       run.GetStatus().String(),
-		"created_at":   timeFromProtoOrNow(run.GetCreatedAt(), now),
-		"updated_at":   now,
-		"payload":      payload,
-	}
-}
-
-func runFromRecord(record gestalt.Record) (*proto.BoundWorkflowRun, error) {
-	var run proto.BoundWorkflowRun
-	if err := unmarshalRecordPayload(record, &run); err != nil {
-		return nil, err
-	}
-	return cloneRun(&run), nil
 }
 
 func (s *workflowStateStore) scheduleRecord(schedule *proto.BoundWorkflowSchedule) gestalt.Record {
