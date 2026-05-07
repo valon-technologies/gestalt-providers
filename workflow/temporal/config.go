@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,28 +12,55 @@ import (
 const (
 	providerVersion = "0.0.1-alpha.8"
 
-	defaultWorkflowRunTimeout          = 5 * time.Minute
-	defaultWorkflowTaskTimeout         = 10 * time.Second
-	defaultActivityStartToCloseTimeout = 5 * time.Minute
-	defaultScheduleCatchupWindow       = time.Minute
-	defaultIndexShardCount             = 64
-	defaultIdempotencyRetention        = 7 * 24 * time.Hour
+	defaultWorkflowRunTimeout               = 5 * time.Minute
+	defaultWorkflowTaskTimeout              = 10 * time.Second
+	defaultActivityStartToCloseTimeout      = 5 * time.Minute
+	defaultScheduleCatchupWindow            = time.Minute
+	defaultIndexShardCount                  = 64
+	defaultIdempotencyRetention             = 7 * 24 * time.Hour
+	defaultWorkerDeploymentPromotionTimeout = 30 * time.Second
+)
+
+const (
+	versioningBehaviorAutoUpgrade = "autoUpgrade"
+
+	promotionModeNone    = "none"
+	promotionModeCurrent = "current"
+	promotionModeRamping = "ramping"
 )
 
 type config struct {
-	IndexedDB                   string        `yaml:"indexeddb"`
-	HostPort                    string        `yaml:"hostPort"`
-	Namespace                   string        `yaml:"namespace"`
-	APIKey                      string        `yaml:"apiKey"`
-	TaskQueue                   string        `yaml:"taskQueue"`
-	ScopeID                     string        `yaml:"scopeID"`
-	Identity                    string        `yaml:"identity"`
-	WorkflowRunTimeout          time.Duration `yaml:"workflowRunTimeout"`
-	WorkflowTaskTimeout         time.Duration `yaml:"workflowTaskTimeout"`
-	ActivityStartToCloseTimeout time.Duration `yaml:"activityStartToCloseTimeout"`
-	ScheduleCatchupWindow       time.Duration `yaml:"scheduleCatchupWindow"`
-	IndexShardCount             int           `yaml:"indexShardCount"`
-	IdempotencyRetention        time.Duration `yaml:"idempotencyRetention"`
+	IndexedDB                   string           `yaml:"indexeddb"`
+	HostPort                    string           `yaml:"hostPort"`
+	Namespace                   string           `yaml:"namespace"`
+	APIKey                      string           `yaml:"apiKey"`
+	TaskQueue                   string           `yaml:"taskQueue"`
+	ScopeID                     string           `yaml:"scopeID"`
+	Identity                    string           `yaml:"identity"`
+	WorkflowRunTimeout          time.Duration    `yaml:"workflowRunTimeout"`
+	WorkflowTaskTimeout         time.Duration    `yaml:"workflowTaskTimeout"`
+	ActivityStartToCloseTimeout time.Duration    `yaml:"activityStartToCloseTimeout"`
+	ScheduleCatchupWindow       time.Duration    `yaml:"scheduleCatchupWindow"`
+	IndexShardCount             int              `yaml:"indexShardCount"`
+	IdempotencyRetention        time.Duration    `yaml:"idempotencyRetention"`
+	Versioning                  versioningConfig `yaml:"versioning"`
+}
+
+type versioningConfig struct {
+	Enabled                   bool            `yaml:"enabled"`
+	DeploymentName            string          `yaml:"deploymentName"`
+	BuildID                   string          `yaml:"buildID"`
+	BuildIDEnv                string          `yaml:"buildIDEnv"`
+	DefaultVersioningBehavior string          `yaml:"defaultVersioningBehavior"`
+	Promotion                 promotionConfig `yaml:"promotion"`
+	ResolvedBuildID           string          `yaml:"-"`
+}
+
+type promotionConfig struct {
+	Mode                string        `yaml:"mode"`
+	Timeout             time.Duration `yaml:"timeout"`
+	RampPercentage      *float32      `yaml:"rampPercentage"`
+	AllowReplaceCurrent bool          `yaml:"allowReplaceCurrent"`
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
@@ -43,6 +71,12 @@ func decodeConfig(raw map[string]any) (config, error) {
 		ScheduleCatchupWindow:       defaultScheduleCatchupWindow,
 		IndexShardCount:             defaultIndexShardCount,
 		IdempotencyRetention:        defaultIdempotencyRetention,
+		Versioning: versioningConfig{
+			Promotion: promotionConfig{
+				Mode:    promotionModeNone,
+				Timeout: defaultWorkerDeploymentPromotionTimeout,
+			},
+		},
 	}
 	if len(raw) > 0 {
 		data, err := yaml.Marshal(raw)
@@ -60,6 +94,7 @@ func decodeConfig(raw map[string]any) (config, error) {
 	cfg.TaskQueue = strings.TrimSpace(cfg.TaskQueue)
 	cfg.ScopeID = strings.TrimSpace(cfg.ScopeID)
 	cfg.Identity = strings.TrimSpace(cfg.Identity)
+	cfg.Versioning = normalizeVersioningConfig(cfg.Versioning)
 
 	if cfg.HostPort == "" {
 		return config{}, fmt.Errorf("hostPort is required")
@@ -94,5 +129,77 @@ func decodeConfig(raw map[string]any) (config, error) {
 	if cfg.IdempotencyRetention <= 0 {
 		return config{}, fmt.Errorf("idempotencyRetention must be positive")
 	}
+	if err := validateVersioningConfig(&cfg.Versioning); err != nil {
+		return config{}, err
+	}
 	return cfg, nil
+}
+
+func normalizeVersioningConfig(cfg versioningConfig) versioningConfig {
+	cfg.DeploymentName = strings.TrimSpace(cfg.DeploymentName)
+	cfg.BuildID = strings.TrimSpace(cfg.BuildID)
+	cfg.BuildIDEnv = strings.TrimSpace(cfg.BuildIDEnv)
+	cfg.DefaultVersioningBehavior = strings.TrimSpace(cfg.DefaultVersioningBehavior)
+	cfg.Promotion.Mode = strings.TrimSpace(cfg.Promotion.Mode)
+	if cfg.Promotion.Mode == "" {
+		cfg.Promotion.Mode = promotionModeNone
+	}
+	if cfg.Promotion.Timeout == 0 {
+		cfg.Promotion.Timeout = defaultWorkerDeploymentPromotionTimeout
+	}
+	return cfg
+}
+
+func validateVersioningConfig(cfg *versioningConfig) error {
+	if cfg == nil || !cfg.Enabled {
+		return nil
+	}
+	if cfg.DeploymentName == "" {
+		return fmt.Errorf("versioning.deploymentName is required when versioning is enabled")
+	}
+	if strings.Contains(cfg.DeploymentName, ".") {
+		return fmt.Errorf("versioning.deploymentName cannot contain %q", ".")
+	}
+	hasBuildID := cfg.BuildID != ""
+	hasBuildIDEnv := cfg.BuildIDEnv != ""
+	if hasBuildID == hasBuildIDEnv {
+		return fmt.Errorf("exactly one of versioning.buildID or versioning.buildIDEnv is required when versioning is enabled")
+	}
+	if hasBuildIDEnv {
+		cfg.ResolvedBuildID = strings.TrimSpace(os.Getenv(cfg.BuildIDEnv))
+		if cfg.ResolvedBuildID == "" {
+			return fmt.Errorf("versioning.buildIDEnv %q is not set or is empty", cfg.BuildIDEnv)
+		}
+	} else {
+		cfg.ResolvedBuildID = cfg.BuildID
+	}
+	if cfg.ResolvedBuildID == "" {
+		return fmt.Errorf("versioning build ID resolved to an empty value")
+	}
+	if cfg.DefaultVersioningBehavior != versioningBehaviorAutoUpgrade {
+		return fmt.Errorf("versioning.defaultVersioningBehavior must be %q", versioningBehaviorAutoUpgrade)
+	}
+	switch cfg.Promotion.Mode {
+	case promotionModeNone:
+		if cfg.Promotion.RampPercentage != nil {
+			return fmt.Errorf("versioning.promotion.rampPercentage is only valid when mode is %q", promotionModeRamping)
+		}
+	case promotionModeCurrent:
+		if cfg.Promotion.RampPercentage != nil {
+			return fmt.Errorf("versioning.promotion.rampPercentage is only valid when mode is %q", promotionModeRamping)
+		}
+	case promotionModeRamping:
+		if cfg.Promotion.RampPercentage == nil {
+			return fmt.Errorf("versioning.promotion.rampPercentage is required when mode is %q", promotionModeRamping)
+		}
+		if *cfg.Promotion.RampPercentage <= 0 || *cfg.Promotion.RampPercentage > 100 {
+			return fmt.Errorf("versioning.promotion.rampPercentage must be greater than 0 and no more than 100")
+		}
+	default:
+		return fmt.Errorf("versioning.promotion.mode must be one of %q, %q, or %q", promotionModeNone, promotionModeCurrent, promotionModeRamping)
+	}
+	if cfg.Promotion.Timeout <= 0 {
+		return fmt.Errorf("versioning.promotion.timeout must be positive")
+	}
+	return nil
 }

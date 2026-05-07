@@ -21,9 +21,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -610,6 +612,360 @@ func TestIndexInputStateDataConverterRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTemporalBackendStartKeepsLegacyWorkerUnversionedWhenConfigOmitted(t *testing.T) {
+	order := []string{}
+	fw := &fakeTemporalWorker{order: &order}
+	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             1,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, nil)
+	backend.newWorker = func(_ client.Client, taskQueue string, options worker.Options) temporalWorker {
+		if taskQueue != "gestalt-workflow" {
+			t.Fatalf("task queue = %q, want gestalt-workflow", taskQueue)
+		}
+		if options.DeploymentOptions.UseVersioning {
+			t.Fatalf("legacy config set deployment options: %#v", options.DeploymentOptions)
+		}
+		return fw
+	}
+	backend.startupCleanup = func(context.Context) error {
+		order = append(order, "cleanup")
+		return nil
+	}
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got := strings.Join(order, ","); got != "start,cleanup" {
+		t.Fatalf("startup order = %s, want start,cleanup", got)
+	}
+	if len(tc.deploymentClient.handle.describeCalls) != 0 || len(tc.deploymentClient.handle.setCurrentCalls) != 0 {
+		t.Fatalf("legacy config touched worker deployments: %#v", tc.deploymentClient.handle)
+	}
+	if !backend.started {
+		t.Fatalf("backend not marked started")
+	}
+}
+
+func TestTemporalBackendStartPromotesCurrentBeforeStartupCleanup(t *testing.T) {
+	t.Setenv("TEMPORAL_BUILD_ID", "revision-1")
+	raw := baseTemporalConfigRaw()
+	raw["versioning"] = map[string]any{
+		"enabled":                   true,
+		"deploymentName":            "valon-tools-prod",
+		"buildIDEnv":                "TEMPORAL_BUILD_ID",
+		"defaultVersioningBehavior": "autoUpgrade",
+		"promotion": map[string]any{
+			"mode": "current",
+		},
+	}
+	cfg, err := decodeConfig(raw)
+	if err != nil {
+		t.Fatalf("decodeConfig: %v", err)
+	}
+
+	order := []string{}
+	fw := &fakeTemporalWorker{order: &order}
+	handle := &fakeWorkerDeploymentHandle{
+		describeResponse: client.WorkerDeploymentDescribeResponse{
+			ConflictToken: []byte("token-1"),
+		},
+		order: &order,
+	}
+	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: handle}}
+	backend := newTemporalBackend("temporal", cfg, tc, nil, nil)
+	backend.newWorker = func(_ client.Client, _ string, options worker.Options) temporalWorker {
+		deployment := options.DeploymentOptions
+		if !deployment.UseVersioning {
+			t.Fatalf("DeploymentOptions.UseVersioning = false, want true")
+		}
+		if deployment.Version.DeploymentName != "valon-tools-prod" || deployment.Version.BuildID != "revision-1" {
+			t.Fatalf("deployment version = %#v", deployment.Version)
+		}
+		if deployment.DefaultVersioningBehavior != sdkworkflow.VersioningBehaviorAutoUpgrade {
+			t.Fatalf("default versioning behavior = %v, want auto-upgrade", deployment.DefaultVersioningBehavior)
+		}
+		return fw
+	}
+	backend.startupCleanup = func(context.Context) error {
+		order = append(order, "cleanup")
+		return nil
+	}
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got := strings.Join(order, ","); got != "start,describe,set-current,cleanup" {
+		t.Fatalf("startup order = %s, want start,describe,set-current,cleanup", got)
+	}
+	if len(handle.setCurrentCalls) != 1 {
+		t.Fatalf("SetCurrent calls = %d, want 1", len(handle.setCurrentCalls))
+	}
+	call := handle.setCurrentCalls[0]
+	if call.BuildID != "revision-1" || call.Identity != "gestalt-test" || string(call.ConflictToken) != "token-1" {
+		t.Fatalf("SetCurrent call = %#v", call)
+	}
+	if call.AllowNoPollers || call.IgnoreMissingTaskQueues {
+		t.Fatalf("SetCurrent bypassed worker deployment guardrails: %#v", call)
+	}
+}
+
+func TestTemporalBackendStartRampingPromotion(t *testing.T) {
+	ramp := float32(10)
+	cfg := baseTemporalConfig()
+	cfg.Versioning = versioningConfig{
+		Enabled:                   true,
+		DeploymentName:            "valon-tools-prod",
+		BuildID:                   "revision-2",
+		ResolvedBuildID:           "revision-2",
+		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
+		Promotion: promotionConfig{
+			Mode:           promotionModeRamping,
+			Timeout:        time.Second,
+			RampPercentage: &ramp,
+		},
+	}
+	handle := &fakeWorkerDeploymentHandle{describeResponse: client.WorkerDeploymentDescribeResponse{}}
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(handle.setRampingCalls) != 1 {
+		t.Fatalf("SetRamping calls = %d, want 1", len(handle.setRampingCalls))
+	}
+	call := handle.setRampingCalls[0]
+	if call.BuildID != "revision-2" || call.Percentage != 10 {
+		t.Fatalf("SetRamping call = %#v", call)
+	}
+	if call.AllowNoPollers || call.IgnoreMissingTaskQueues {
+		t.Fatalf("SetRamping bypassed worker deployment guardrails: %#v", call)
+	}
+}
+
+func TestTemporalBackendStartPromotionFailureStopsWorker(t *testing.T) {
+	cfg := baseTemporalConfig()
+	cfg.Versioning = versioningConfig{
+		Enabled:                   true,
+		DeploymentName:            "valon-tools-prod",
+		BuildID:                   "revision-1",
+		ResolvedBuildID:           "revision-1",
+		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
+		Promotion: promotionConfig{
+			Mode:    promotionModeCurrent,
+			Timeout: time.Second,
+		},
+	}
+	fw := &fakeTemporalWorker{}
+	handle := &fakeWorkerDeploymentHandle{
+		describeResponse: client.WorkerDeploymentDescribeResponse{},
+		setCurrentErrs:   []error{errors.New("permission denied")},
+	}
+	backend := newTestTemporalBackendForStart(cfg, handle, fw, func(context.Context) error {
+		t.Fatalf("startup cleanup should not run after promotion failure")
+		return nil
+	})
+
+	err := backend.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("Start error = %v, want promotion failure", err)
+	}
+	if fw.stopCount != 1 {
+		t.Fatalf("worker Stop calls = %d, want 1", fw.stopCount)
+	}
+	if backend.started {
+		t.Fatalf("backend marked started after promotion failure")
+	}
+}
+
+func TestTemporalBackendStartRetriesPromotionConflict(t *testing.T) {
+	cfg := baseTemporalConfig()
+	cfg.Versioning = versioningConfig{
+		Enabled:                   true,
+		DeploymentName:            "valon-tools-prod",
+		BuildID:                   "revision-1",
+		ResolvedBuildID:           "revision-1",
+		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
+		Promotion: promotionConfig{
+			Mode:    promotionModeCurrent,
+			Timeout: time.Second,
+		},
+	}
+	handle := &fakeWorkerDeploymentHandle{
+		describeResponse: client.WorkerDeploymentDescribeResponse{},
+		setCurrentErrs:   []error{serviceerror.NewFailedPrecondition("conflict token mismatch"), nil},
+	}
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(handle.describeCalls) != 2 || len(handle.setCurrentCalls) != 2 {
+		t.Fatalf("promotion calls describe=%d setCurrent=%d, want 2/2", len(handle.describeCalls), len(handle.setCurrentCalls))
+	}
+}
+
+func TestTemporalBackendStartRetriesPromotionDescribeNotFound(t *testing.T) {
+	cfg := baseTemporalConfig()
+	cfg.Versioning = versioningConfig{
+		Enabled:                   true,
+		DeploymentName:            "valon-tools-prod",
+		BuildID:                   "revision-1",
+		ResolvedBuildID:           "revision-1",
+		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
+		Promotion: promotionConfig{
+			Mode:    promotionModeCurrent,
+			Timeout: time.Second,
+		},
+	}
+	handle := &fakeWorkerDeploymentHandle{
+		describeResponse: client.WorkerDeploymentDescribeResponse{},
+		describeErrs:     []error{serviceerror.NewNotFound("worker deployment not found"), nil},
+	}
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(handle.describeCalls) != 2 || len(handle.setCurrentCalls) != 1 {
+		t.Fatalf("promotion calls describe=%d setCurrent=%d, want 2/1", len(handle.describeCalls), len(handle.setCurrentCalls))
+	}
+}
+
+func TestTemporalBackendStartTreatsRampingTargetAlreadyCurrentAsSuccess(t *testing.T) {
+	ramp := float32(10)
+	cfg := baseTemporalConfig()
+	cfg.Versioning = versioningConfig{
+		Enabled:                   true,
+		DeploymentName:            "valon-tools-prod",
+		BuildID:                   "revision-2",
+		ResolvedBuildID:           "revision-2",
+		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
+		Promotion: promotionConfig{
+			Mode:           promotionModeRamping,
+			Timeout:        time.Second,
+			RampPercentage: &ramp,
+		},
+	}
+	handle := &fakeWorkerDeploymentHandle{
+		describeResponse: client.WorkerDeploymentDescribeResponse{
+			Info: client.WorkerDeploymentInfo{RoutingConfig: client.WorkerDeploymentRoutingConfig{
+				CurrentVersion: &worker.WorkerDeploymentVersion{DeploymentName: "valon-tools-prod", BuildID: "revision-2"},
+			}},
+		},
+	}
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(handle.setRampingCalls) != 0 {
+		t.Fatalf("SetRamping calls = %d, want 0", len(handle.setRampingCalls))
+	}
+}
+
+func TestTemporalBackendStartDoesNotReplaceDifferentCurrentByDefault(t *testing.T) {
+	cfg := baseTemporalConfig()
+	cfg.Versioning = versioningConfig{
+		Enabled:                   true,
+		DeploymentName:            "valon-tools-prod",
+		BuildID:                   "revision-2",
+		ResolvedBuildID:           "revision-2",
+		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
+		Promotion: promotionConfig{
+			Mode:    promotionModeCurrent,
+			Timeout: time.Second,
+		},
+	}
+	fw := &fakeTemporalWorker{}
+	handle := &fakeWorkerDeploymentHandle{
+		describeResponse: client.WorkerDeploymentDescribeResponse{
+			Info: client.WorkerDeploymentInfo{RoutingConfig: client.WorkerDeploymentRoutingConfig{
+				CurrentVersion: &worker.WorkerDeploymentVersion{DeploymentName: "valon-tools-prod", BuildID: "revision-1"},
+			}},
+		},
+	}
+	backend := newTestTemporalBackendForStart(cfg, handle, fw, nil)
+
+	err := backend.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "allowReplaceCurrent") {
+		t.Fatalf("Start error = %v, want replace-current guard", err)
+	}
+	if len(handle.setCurrentCalls) != 0 {
+		t.Fatalf("SetCurrent calls = %d, want 0", len(handle.setCurrentCalls))
+	}
+	if fw.stopCount != 1 {
+		t.Fatalf("worker Stop calls = %d, want 1", fw.stopCount)
+	}
+}
+
+func TestTemporalVersioningConfigValidation(t *testing.T) {
+	t.Setenv("BUILD_ID", "revision-1")
+	validVersioning := map[string]any{
+		"enabled":                   true,
+		"deploymentName":            "valon-tools-prod",
+		"buildIDEnv":                "BUILD_ID",
+		"defaultVersioningBehavior": "autoUpgrade",
+	}
+	tests := []struct {
+		name       string
+		versioning map[string]any
+		want       string
+	}{
+		{
+			name:       "both build id sources",
+			versioning: withMap(validVersioning, "buildID", "revision-direct"),
+			want:       "exactly one of versioning.buildID or versioning.buildIDEnv",
+		},
+		{
+			name:       "missing default behavior",
+			versioning: withoutMapKey(validVersioning, "defaultVersioningBehavior"),
+			want:       "versioning.defaultVersioningBehavior",
+		},
+		{
+			name:       "pinned unsupported",
+			versioning: withMap(validVersioning, "defaultVersioningBehavior", "pinned"),
+			want:       "versioning.defaultVersioningBehavior",
+		},
+		{
+			name:       "deployment separator",
+			versioning: withMap(validVersioning, "deploymentName", "valon.tools"),
+			want:       "versioning.deploymentName cannot contain",
+		},
+		{
+			name:       "missing build env",
+			versioning: withMap(validVersioning, "buildIDEnv", "MISSING_BUILD_ID"),
+			want:       "versioning.buildIDEnv",
+		},
+		{
+			name:       "ramping missing percentage",
+			versioning: withMap(validVersioning, "promotion", map[string]any{"mode": "ramping"}),
+			want:       "versioning.promotion.rampPercentage is required",
+		},
+		{
+			name:       "ramping invalid percentage",
+			versioning: withMap(validVersioning, "promotion", map[string]any{"mode": "ramping", "rampPercentage": float32(0)}),
+			want:       "versioning.promotion.rampPercentage must be greater than 0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := baseTemporalConfigRaw()
+			raw["versioning"] = tt.versioning
+			_, err := decodeConfig(raw)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("decodeConfig error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	state, err := openWorkflowStateStore(context.Background(), "", "scope")
@@ -1058,6 +1414,80 @@ func updateCallback(t *testing.T, onComplete func(interface{})) *testsuite.TestU
 	}
 }
 
+func baseTemporalConfigRaw() map[string]any {
+	return map[string]any{
+		"hostPort":                    "localhost:7233",
+		"namespace":                   "default",
+		"apiKey":                      "test-api-key",
+		"taskQueue":                   "gestalt-workflow",
+		"scopeID":                     "scope",
+		"identity":                    "gestalt-test",
+		"workflowRunTimeout":          time.Minute,
+		"workflowTaskTimeout":         time.Second,
+		"activityStartToCloseTimeout": time.Minute,
+		"scheduleCatchupWindow":       time.Minute,
+		"indexShardCount":             1,
+	}
+}
+
+func baseTemporalConfig() config {
+	return config{
+		HostPort:                    "localhost:7233",
+		Namespace:                   "default",
+		APIKey:                      "test-api-key",
+		TaskQueue:                   "gestalt-workflow",
+		ScopeID:                     "scope",
+		Identity:                    "gestalt-test",
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IndexShardCount:             1,
+		IdempotencyRetention:        time.Hour,
+	}
+}
+
+func withMap(in map[string]any, key string, value any) map[string]any {
+	out := make(map[string]any, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	out[key] = value
+	return out
+}
+
+func withoutMapKey(in map[string]any, key string) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		if k != key {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHandle, fw *fakeTemporalWorker, cleanup func(context.Context) error) *temporalBackend {
+	if handle == nil {
+		handle = &fakeWorkerDeploymentHandle{}
+	}
+	if fw == nil {
+		fw = &fakeTemporalWorker{}
+	}
+	backend := newTemporalBackend(
+		"temporal",
+		cfg,
+		&recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: handle}},
+		nil,
+		nil,
+	)
+	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
+	if cleanup == nil {
+		cleanup = func(context.Context) error { return nil }
+	}
+	backend.startupCleanup = cleanup
+	return backend
+}
+
 type recordedUpdate struct {
 	WorkflowID string
 	Name       string
@@ -1085,6 +1515,7 @@ type recordingTemporalClient struct {
 	queryStarted       chan<- recordedQuery
 	releaseQueries     <-chan struct{}
 	scheduleClient     client.ScheduleClient
+	deploymentClient   *fakeWorkerDeploymentClient
 }
 
 func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
@@ -1153,6 +1584,13 @@ func (c *recordingTemporalClient) ScheduleClient() client.ScheduleClient {
 	return c.Client.ScheduleClient()
 }
 
+func (c *recordingTemporalClient) WorkerDeploymentClient() client.WorkerDeploymentClient {
+	if c.deploymentClient != nil {
+		return c.deploymentClient
+	}
+	return c.Client.WorkerDeploymentClient()
+}
+
 func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1185,6 +1623,138 @@ func (c *recordingTemporalClient) queryCount(name string) int {
 		}
 	}
 	return count
+}
+
+type fakeTemporalWorker struct {
+	order                *[]string
+	startErr             error
+	startCount           int
+	stopCount            int
+	registeredWorkflows  int
+	registeredActivities int
+}
+
+func (w *fakeTemporalWorker) RegisterWorkflow(interface{}) {
+	w.registeredWorkflows++
+}
+
+func (w *fakeTemporalWorker) RegisterActivity(interface{}) {
+	w.registeredActivities++
+}
+
+func (w *fakeTemporalWorker) Start() error {
+	w.startCount++
+	if w.order != nil {
+		*w.order = append(*w.order, "start")
+	}
+	return w.startErr
+}
+
+func (w *fakeTemporalWorker) Stop() {
+	w.stopCount++
+	if w.order != nil {
+		*w.order = append(*w.order, "stop")
+	}
+}
+
+type fakeWorkerDeploymentClient struct {
+	handle *fakeWorkerDeploymentHandle
+}
+
+func (c *fakeWorkerDeploymentClient) List(context.Context, client.WorkerDeploymentListOptions) (client.WorkerDeploymentListIterator, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (c *fakeWorkerDeploymentClient) GetHandle(string) client.WorkerDeploymentHandle {
+	if c.handle == nil {
+		c.handle = &fakeWorkerDeploymentHandle{}
+	}
+	return c.handle
+}
+
+func (c *fakeWorkerDeploymentClient) Delete(context.Context, client.WorkerDeploymentDeleteOptions) (client.WorkerDeploymentDeleteResponse, error) {
+	return client.WorkerDeploymentDeleteResponse{}, status.Error(codes.Unimplemented, "not implemented")
+}
+
+type fakeWorkerDeploymentHandle struct {
+	order            *[]string
+	describeResponse client.WorkerDeploymentDescribeResponse
+	describeErrs     []error
+	setCurrentErrs   []error
+	setRampingErrs   []error
+	describeCalls    []client.WorkerDeploymentDescribeOptions
+	setCurrentCalls  []client.WorkerDeploymentSetCurrentVersionOptions
+	setRampingCalls  []client.WorkerDeploymentSetRampingVersionOptions
+}
+
+func (h *fakeWorkerDeploymentHandle) Describe(_ context.Context, options client.WorkerDeploymentDescribeOptions) (client.WorkerDeploymentDescribeResponse, error) {
+	h.describeCalls = append(h.describeCalls, options)
+	if h.order != nil {
+		*h.order = append(*h.order, "describe")
+	}
+	if len(h.describeErrs) > 0 {
+		err := h.describeErrs[0]
+		h.describeErrs = h.describeErrs[1:]
+		if err != nil {
+			return client.WorkerDeploymentDescribeResponse{}, err
+		}
+	}
+	return h.describeResponse, nil
+}
+
+func (h *fakeWorkerDeploymentHandle) SetCurrentVersion(_ context.Context, options client.WorkerDeploymentSetCurrentVersionOptions) (client.WorkerDeploymentSetCurrentVersionResponse, error) {
+	h.setCurrentCalls = append(h.setCurrentCalls, options)
+	if h.order != nil {
+		*h.order = append(*h.order, "set-current")
+	}
+	if len(h.setCurrentErrs) > 0 {
+		err := h.setCurrentErrs[0]
+		h.setCurrentErrs = h.setCurrentErrs[1:]
+		if err != nil {
+			return client.WorkerDeploymentSetCurrentVersionResponse{}, err
+		}
+	}
+	h.describeResponse.Info.RoutingConfig.CurrentVersion = &worker.WorkerDeploymentVersion{
+		DeploymentName: "valon-tools-prod",
+		BuildID:        options.BuildID,
+	}
+	return client.WorkerDeploymentSetCurrentVersionResponse{}, nil
+}
+
+func (h *fakeWorkerDeploymentHandle) SetRampingVersion(_ context.Context, options client.WorkerDeploymentSetRampingVersionOptions) (client.WorkerDeploymentSetRampingVersionResponse, error) {
+	h.setRampingCalls = append(h.setRampingCalls, options)
+	if h.order != nil {
+		*h.order = append(*h.order, "set-ramping")
+	}
+	if len(h.setRampingErrs) > 0 {
+		err := h.setRampingErrs[0]
+		h.setRampingErrs = h.setRampingErrs[1:]
+		if err != nil {
+			return client.WorkerDeploymentSetRampingVersionResponse{}, err
+		}
+	}
+	h.describeResponse.Info.RoutingConfig.RampingVersion = &worker.WorkerDeploymentVersion{
+		DeploymentName: "valon-tools-prod",
+		BuildID:        options.BuildID,
+	}
+	h.describeResponse.Info.RoutingConfig.RampingVersionPercentage = options.Percentage
+	return client.WorkerDeploymentSetRampingVersionResponse{}, nil
+}
+
+func (h *fakeWorkerDeploymentHandle) SetManagerIdentity(context.Context, client.WorkerDeploymentSetManagerIdentityOptions) (client.WorkerDeploymentSetManagerIdentityResponse, error) {
+	return client.WorkerDeploymentSetManagerIdentityResponse{}, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (h *fakeWorkerDeploymentHandle) DescribeVersion(context.Context, client.WorkerDeploymentDescribeVersionOptions) (client.WorkerDeploymentVersionDescription, error) {
+	return client.WorkerDeploymentVersionDescription{}, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (h *fakeWorkerDeploymentHandle) DeleteVersion(context.Context, client.WorkerDeploymentDeleteVersionOptions) (client.WorkerDeploymentDeleteVersionResponse, error) {
+	return client.WorkerDeploymentDeleteVersionResponse{}, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (h *fakeWorkerDeploymentHandle) UpdateVersionMetadata(context.Context, client.WorkerDeploymentUpdateVersionMetadataOptions) (client.WorkerDeploymentUpdateVersionMetadataResponse, error) {
+	return client.WorkerDeploymentUpdateVersionMetadataResponse{}, status.Error(codes.Unimplemented, "not implemented")
 }
 
 type recordingWorkflowRun struct {
