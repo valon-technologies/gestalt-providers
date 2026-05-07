@@ -6201,7 +6201,7 @@
       "kind": "ui",
       "latestInstallableVersion": "0.0.1-alpha.31",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/default/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.31",
+      "manifestVersion": "0.0.1-alpha.32",
       "name": "default",
       "package": "github.com/valon-technologies/gestalt-providers/ui/default",
       "packagePath": "ui/default",
