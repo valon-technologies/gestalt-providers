@@ -3481,6 +3481,16 @@ packages:
     displayName: "IndexedDB Workflow"
     description: "IndexedDB-backed workflow provider with durable keyed signal dispatch."
     versions:
+      "0.0.1-alpha.48":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.48/provider-release.yaml"
+        kind: "workflow"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
       "0.0.1-alpha.47":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.47/provider-release.yaml"
         kind: "workflow"
