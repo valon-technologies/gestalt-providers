@@ -7140,7 +7140,7 @@
       ],
       "iconUrl": null,
       "kind": "workflow",
-      "latestInstallableVersion": "0.0.1-alpha.13",
+      "latestInstallableVersion": "0.0.1-alpha.14",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/temporal/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.14",
       "name": "temporal",
@@ -7150,6 +7150,19 @@
       "registryPath": "/providers/workflow/temporal/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/workflow/temporal",
       "versions": [
+        {
+          "kind": "workflow",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.14/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.14"
+        },
         {
           "kind": "workflow",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.13/provider-release.yaml",
