@@ -489,6 +489,7 @@ class GitHubProviderTests(unittest.TestCase):
         pr_comment = operations[
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION
         ]
+        user_pr = operations[provider_module.USER_CREATE_PULL_REQUEST_OPERATION]
         issue_comment = operations[provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION]
         reaction = operations[provider_module.BOT_ADD_REACTION_OPERATION]
         add_labels = operations[provider_module.BOT_ADD_LABELS_OPERATION]
@@ -508,6 +509,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("review threads", pr_threads["description"])
         self.assertIn("Resolve", resolve_thread["description"])
         self.assertIn("pull request conversation", pr_comment["description"])
+        self.assertIn("OAuth token", user_pr["description"])
         self.assertIn("issue comment", issue_comment["description"])
         self.assertIn("reaction", reaction["description"])
         self.assertIn("labels", add_labels["description"])
@@ -580,6 +582,14 @@ class GitHubProviderTests(unittest.TestCase):
             "check_suite_id",
             [parameter["name"] for parameter in suite_check_runs["parameters"]],
         )
+        user_pr_parameters = [parameter["name"] for parameter in user_pr["parameters"]]
+        self.assertIn("files", user_pr_parameters)
+        self.assertIn("include_bot_coauthor", user_pr_parameters)
+        self.assertNotIn("installation_id", user_pr_parameters)
+        self.assertNotIn("author_name", user_pr_parameters)
+        self.assertNotIn("author_email", user_pr_parameters)
+        self.assertNotIn("committer_name", user_pr_parameters)
+        self.assertNotIn("committer_email", user_pr_parameters)
 
         schema = yaml.safe_load(
             (plugin_root / "schemas" / "config.schema.yaml").read_text()
@@ -610,6 +620,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_CREATE_CHECK_RUN_OPERATION, enum)
         self.assertIn(provider_module.BOT_UPDATE_CHECK_RUN_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION, enum)
+        self.assertNotIn(provider_module.USER_CREATE_PULL_REQUEST_OPERATION, enum)
         workflow_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
         ]["workflow"]["properties"]
@@ -5084,6 +5095,310 @@ class GitHubProviderTests(unittest.TestCase):
             data["pull_request"]["html_url"],
             "https://github.com/acme/widgets/pull/42",
         )
+
+    def test_user_create_pull_request_uses_user_token_and_noreply_author(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/user":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                return FakeHTTPResponse(
+                    {"id": 222, "login": "ghopper", "name": "Grace Hopper"}
+                )
+            if path == "/app":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                return FakeHTTPResponse(
+                    {"name": "Example App Bot", "slug": "example-app"}
+                )
+            if path == "/users/example-app%5Bbot%5D":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "")
+                return FakeHTTPResponse({"id": 12345678, "login": "example-app[bot]"})
+            if "/access_tokens" in path:
+                self.fail(f"user-auth operation must not mint installation token {path}")
+            if path == "/repos/acme/widgets/git/ref/heads/feature":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
+            if path == "/repos/acme/widgets/git/ref/heads/main":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                return FakeHTTPResponse({"object": {"sha": "base-commit"}})
+            if path == "/repos/acme/widgets/git/commits/base-commit":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                return FakeHTTPResponse({"tree": {"sha": "base-tree"}})
+            if path == "/repos/acme/widgets/git/trees":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                self.assertEqual(
+                    body["tree"],
+                    [
+                        {
+                            "path": "README.md",
+                            "mode": "100644",
+                            "type": "blob",
+                            "content": "hello",
+                        }
+                    ],
+                )
+                return FakeHTTPResponse({"sha": "new-tree"})
+            if path == "/repos/acme/widgets/git/commits":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                self.assertEqual(
+                    body["author"],
+                    {
+                        "name": "Grace Hopper",
+                        "email": "222+ghopper@users.noreply.github.com",
+                    },
+                )
+                self.assertEqual(body["author"], body["committer"])
+                self.assertIn(
+                    "Co-authored-by: Example App Bot "
+                    "<12345678+example-app[bot]@users.noreply.github.com>",
+                    body["message"],
+                )
+                return FakeHTTPResponse({"sha": "new-commit"})
+            if path == "/repos/acme/widgets/git/refs":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                self.assertEqual(
+                    body, {"ref": "refs/heads/feature", "sha": "new-commit"}
+                )
+                return FakeHTTPResponse({})
+            if path == "/repos/acme/widgets/pulls":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                self.assertEqual(body["title"], "Update README")
+                self.assertEqual(body["head"], "feature")
+                self.assertEqual(body["base"], "main")
+                return FakeHTTPResponse(
+                    {
+                        "number": 42,
+                        "title": "Update README",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/pull/42",
+                        "url": "https://api.github.com/repos/acme/widgets/pulls/42",
+                        "head": {"ref": "feature"},
+                        "base": {"ref": "main"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.user_create_pull_request(
+                provider_module.UserCreatePullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base="main",
+                ),
+                gestalt.Request(
+                    token="user-token",
+                    agent_external_identity=gestalt.ExternalIdentity(
+                        type=provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                        id="user:999",
+                    ),
+                ),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["commit"]["sha"], "new-commit")
+        self.assertEqual(data["commit"]["installation_id"], 0)
+        self.assertEqual(data["pull_request"]["number"], 42)
+        self.assertFalse(any("/access_tokens" in call[1] for call in calls))
+
+    def test_user_create_pull_request_uses_public_email_when_available(self) -> None:
+        commit_payloads: list[dict[str, Any]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+
+            if path == "/user":
+                return FakeHTTPResponse(
+                    {
+                        "id": 222,
+                        "login": "ghopper",
+                        "name": "Grace Hopper",
+                        "email": "grace@example.com",
+                    }
+                )
+            if path == "/app":
+                self.fail("bot identity should not be loaded when bot coauthor is disabled")
+            if "/access_tokens" in path:
+                self.fail(f"user-auth operation must not mint installation token {path}")
+            if path == "/repos/acme/widgets/git/ref/heads/feature":
+                raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
+            if path == "/repos/acme/widgets/git/ref/heads/main":
+                return FakeHTTPResponse({"object": {"sha": "base-commit"}})
+            if path == "/repos/acme/widgets/git/commits/base-commit":
+                return FakeHTTPResponse({"tree": {"sha": "base-tree"}})
+            if path == "/repos/acme/widgets/git/trees":
+                return FakeHTTPResponse({"sha": "new-tree"})
+            if path == "/repos/acme/widgets/git/commits":
+                commit_payloads.append(body)
+                return FakeHTTPResponse({"sha": "new-commit"})
+            if path == "/repos/acme/widgets/git/refs":
+                return FakeHTTPResponse({})
+            if path == "/repos/acme/widgets/pulls":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                return FakeHTTPResponse(
+                    {
+                        "number": 42,
+                        "title": "Update README",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/pull/42",
+                        "url": "https://api.github.com/repos/acme/widgets/pulls/42",
+                        "head": {"ref": "feature"},
+                        "base": {"ref": "main"},
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.user_create_pull_request(
+                provider_module.UserCreatePullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base="main",
+                    include_bot_coauthor=False,
+                ),
+                gestalt.Request(token="user-token"),
+            )
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(
+            commit_payloads[0]["author"],
+            {"name": "Grace Hopper", "email": "grace@example.com"},
+        )
+        self.assertEqual(commit_payloads[0]["author"], commit_payloads[0]["committer"])
+
+    def test_user_create_pull_request_rejects_missing_token(self) -> None:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.user_create_pull_request(
+                provider_module.UserCreatePullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base="main",
+                ),
+                gestalt.Request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(response.body["error"], "token is required")
+        urlopen.assert_not_called()
+
+    def test_user_create_pull_request_rejects_blank_title_before_writes(self) -> None:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.user_create_pull_request(
+                provider_module.UserCreatePullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="  ",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base="main",
+                ),
+                gestalt.Request(token="user-token"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(response.body["error"], "title is required")
+        urlopen.assert_not_called()
+
+    def test_user_create_pull_request_rejects_missing_github_login_before_writes(
+        self,
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            calls.append(path)
+            if path == "/user":
+                self.assertEqual(auth_header(request), "Bearer user-token")
+                return FakeHTTPResponse({"id": 222, "name": "Grace Hopper"})
+            self.fail(f"unexpected request {path}")
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.user_create_pull_request(
+                provider_module.UserCreatePullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base="main",
+                ),
+                gestalt.Request(token="user-token"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+        self.assertIn("login", response.body["error"])
+        self.assertEqual(calls, ["/user"])
 
     def test_open_pull_request_uses_contents_read_for_ref_visibility(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []

@@ -49,6 +49,7 @@ from internals.constants import (
     GITHUB_EVENT_OPERATION,
     GITHUB_EXTERNAL_IDENTITY_TYPE,
     REVIEW_PULL_REQUEST_OPERATION,
+    USER_CREATE_PULL_REQUEST_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.identity import (
@@ -70,6 +71,7 @@ from internals.operations import (
     GitHubCreatePullRequestConversationCommentRequest,
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
+    GitHubUserCreatePullRequestRequest,
     GitHubFileChange,
     GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
@@ -95,6 +97,7 @@ from internals.operations import (
     create_issue_comment,
     create_pull_request_conversation_comment,
     create_pull_request_review,
+    create_pull_request_with_user_files,
     create_pull_request_with_files,
     get_check_run,
     get_pull_request,
@@ -351,6 +354,53 @@ class CreatePullRequestInput(gestalt.Model):
     )
     committer_email: str = gestalt.field(
         description="Optional Git commit committer email", default="", required=False
+    )
+    force: bool = gestalt.field(
+        description="Force-update the head branch ref", default=False, required=False
+    )
+    draft: bool = gestalt.field(
+        description="Create the pull request as a draft", default=False, required=False
+    )
+    maintainer_can_modify: bool = gestalt.field(
+        description="Allow maintainers to modify the pull request branch",
+        default=True,
+        required=False,
+    )
+
+
+class UserCreatePullRequestInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    title: str = gestalt.field(description="Pull request title")
+    message: str = gestalt.field(description="Commit message")
+    files: list[FileChangeInput] = gestalt.field(
+        description=(
+            "Files to create, update, or delete. Each item accepts path, content, "
+            "content_base64, delete, and executable."
+        )
+    )
+    body: str = gestalt.field(
+        description="Pull request body", default="", required=False
+    )
+    branch: str = gestalt.field(
+        description="Head branch to create or update. Defaults to a generated branch.",
+        default="",
+        required=False,
+    )
+    base: str = gestalt.field(
+        description="Base branch. Defaults to the repository default branch.",
+        default="",
+        required=False,
+    )
+    coauthors: list[CoAuthorInput] = gestalt.field(
+        description="Co-authors to append as commit trailers. Each item accepts name and email.",
+        default_factory=list,
+        required=False,
+    )
+    include_bot_coauthor: bool = gestalt.field(
+        description="Append the GitHub App bot as a co-author when its no-reply identity can be derived",
+        default=True,
+        required=False,
     )
     force: bool = gestalt.field(
         description="Force-update the head branch ref", default=False, required=False
@@ -1512,6 +1562,53 @@ def bot_create_pull_request(
         return _bad_request(str(err))
     except GitHubAuthorizationError as err:
         return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "commit": commit_result_dict(result.commit),
+            "pull_request": pull_request_summary(result.pull_request),
+        }
+    }
+
+
+@plugin.operation(
+    id=USER_CREATE_PULL_REQUEST_OPERATION,
+    method="POST",
+    description="Commit file changes and open a pull request using the caller's GitHub OAuth token",
+    tags=["pr", "prs"],
+)
+def user_create_pull_request(
+    input: UserCreatePullRequestInput, req: gestalt.Request
+) -> OperationResult:
+    token = str(getattr(req, "token", "") or "").strip()
+    if not token:
+        return gestalt.Response(
+            status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"}
+        )
+    try:
+        result = create_pull_request_with_user_files(
+            GitHubUserCreatePullRequestRequest(
+                owner=input.owner,
+                repo=input.repo,
+                title=input.title,
+                message=input.message,
+                files=_file_changes_from_input(input.files),
+                body=input.body,
+                branch=input.branch,
+                base=input.base,
+                coauthors=_coauthors_from_input(input.coauthors),
+                include_bot_coauthor=input.include_bot_coauthor,
+                force=input.force,
+                draft=input.draft,
+                maintainer_can_modify=input.maintainer_can_modify,
+            ),
+            access_token=token,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
     except GitHubConfigError as err:
         return _server_error(str(err))
     except GitHubAPIError as err:

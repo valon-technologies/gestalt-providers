@@ -24,6 +24,9 @@ issues, pull requests, workflows, and code search. The GraphQL surface provides
 access to GitHub's GraphQL API.
 
 The OpenAPI and GraphQL surfaces authenticate with GitHub OAuth 2.0.
+`user.createPullRequest` also uses the caller's GitHub OAuth connection, but
+keeps the file-change-to-pull-request protocol inside the provider so agents do
+not need to compose low-level Git REST operations themselves.
 
 The GitHub App bot operations use a configured GitHub App instead of a user
 connection:
@@ -592,6 +595,32 @@ Commit files and open the pull request in one call with
 }
 ```
 
+Commit files and open the pull request as the connected GitHub user with
+`user.createPullRequest`. The provider resolves the commit author and committer
+from `/user`, falls back to GitHub's no-reply email format when the account has
+no public email, and appends the configured GitHub App bot as a co-author by
+default:
+
+```json
+{
+  "owner": "acme",
+  "repo": "widgets",
+  "title": "Update README",
+  "message": "Update README",
+  "branch": "gestalt/update-readme",
+  "base": "main",
+  "body": "Updates the README from the connected GitHub user.",
+  "draft": true,
+  "files": [
+    {
+      "path": "README.md",
+      "content": "hello\n"
+    }
+  ],
+  "include_bot_coauthor": true
+}
+```
+
 Create a pull request review with inline file/line comments using
 `bot.createPullRequestReview`:
 
@@ -787,8 +816,10 @@ Representative operations include:
 - `actionPreferences.delete`
 - `bot.commitFiles`
 - `bot.openPullRequest`
+- `user.createPullRequest`
 
 - Bot operations run as the configured GitHub App installation and are scoped to the repository that produced or resolved the installation subject.
+- `user.createPullRequest` runs as the connected GitHub OAuth user and should not be exposed through `credentialMode: none` run-as service accounts or GitHub App webhook self-fix policies.
 
 ## Usage Examples
 

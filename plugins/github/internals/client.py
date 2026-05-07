@@ -219,12 +219,17 @@ def current_user_identity(access_token: str) -> GitHubUserIdentity:
     if user_id <= 0:
         raise GitHubAPIError(502, "GitHub user response did not include id")
     login = str_field(user, "login")
-    name = str_field(user, "name")
-    email = str_field(user, "email")
+    if not login:
+        raise GitHubAPIError(502, "GitHub user response did not include login")
+    normalized_user_id = str(user_id)
+    name = str_field(user, "name") or login
+    email = str_field(user, "email") or (
+        f"{normalized_user_id}+{login}@users.noreply.github.com"
+    )
     return GitHubUserIdentity(
         name=name,
         login=login,
-        user_id=str(user_id),
+        user_id=normalized_user_id,
         email=email,
     )
 
