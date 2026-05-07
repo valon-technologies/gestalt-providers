@@ -40,6 +40,7 @@ import {
 } from "@/lib/api";
 import {
   appendInteraction,
+  appendOptimisticUserMessage,
   appendTurnMessages,
   applyTurnEvent,
   createTranscriptState,
@@ -516,6 +517,11 @@ export default function AgentsPage() {
       return;
     }
 
+    const userText = composer.userPrompt.trim();
+    if (userText && selectedSession) {
+      setTranscript((current) => appendOptimisticUserMessage(current, userText));
+    }
+
     setSubmitting(true);
     try {
       let session = selectedSession;
@@ -599,7 +605,10 @@ export default function AgentsPage() {
     ? selectedSession.id.slice(0, 8)
     : "—";
   const turnShortID = selectedTurn?.id ? selectedTurn.id.slice(0, 8) : "—";
-  const footerStatus = selectedTurn?.status || (selectedSession ? "idle" : "no session");
+  const turnLive = Boolean(selectedTurn && isTurnLive(selectedTurn.status));
+  const footerStatus = turnLive
+    ? liveActivityLabel(transcript.items)
+    : selectedTurn?.status || (selectedSession ? "idle" : "no session");
 
   return (
     <AuthGuard>
@@ -695,6 +704,9 @@ export default function AgentsPage() {
                   <TranscriptView
                     loading={!transcriptReady}
                     items={transcript.items}
+                    turnLive={Boolean(
+                      selectedTurn && isTurnLive(selectedTurn.status),
+                    )}
                     emptyMessage={
                       selectedSession
                         ? "No transcript events captured yet."
@@ -743,8 +755,16 @@ export default function AgentsPage() {
 
           <div className="flex items-center justify-between border-t border-alpha px-5 py-2 font-mono text-[11px] text-muted">
             <div className="flex items-center gap-3">
-              <span className={`tui-glyph ${footerStatusColor(footerStatus)}`}>●</span>
-              <span className="uppercase tracking-[0.18em]">state {footerStatus}</span>
+              <span
+                className={`tui-glyph ${footerStatusColor(footerStatus)}${turnLive ? " tui-pulse" : ""}`}
+              >
+                ●
+              </span>
+              <span
+                className={`uppercase tracking-[0.18em]${turnLive ? " tui-pulse" : ""}`}
+              >
+                {footerStatus}
+              </span>
               <span className="text-faint">│</span>
               <span>{selectedSession?.provider || "default"}</span>
               <span className="text-faint">·</span>
@@ -769,21 +789,38 @@ export default function AgentsPage() {
 }
 
 function footerStatusColor(status?: string): string {
-  switch (status) {
-    case "succeeded":
-      return "text-grove-600 dark:text-grove-200";
-    case "failed":
-      return "text-ember-500";
-    case "running":
-    case "pending":
-      return "text-sky-500";
-    case "waiting_for_input":
-      return "text-amber-500";
-    case "canceled":
-      return "text-faint";
-    default:
-      return "text-faint";
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "succeeded") return "text-grove-600 dark:text-grove-200";
+  if (normalized === "failed") return "text-ember-500";
+  if (
+    normalized === "running" ||
+    normalized === "pending" ||
+    normalized === "thinking" ||
+    normalized === "writing" ||
+    normalized.startsWith("running ")
+  ) {
+    return "text-sky-500";
   }
+  if (normalized === "waiting_for_input") return "text-amber-500";
+  if (normalized === "canceled") return "text-faint";
+  return "text-faint";
+}
+
+function liveActivityLabel(items: TranscriptItem[]): string {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind === "tool") {
+      const phase = item.event ? eventPhase(item.event).toLowerCase() : "";
+      if (phase.includes("started") || phase.includes("running")) {
+        const name = item.title || item.event?.display?.label || "tool";
+        return `running ${name}`;
+      }
+    }
+    if (item.kind === "assistant" && item.streaming) {
+      return "writing";
+    }
+  }
+  return "thinking";
 }
 
 function SessionSidebar({
@@ -957,7 +994,13 @@ function ConsoleHeader({
                     : "border-alpha text-muted hover:border-alpha-strong hover:text-primary"
                 }`}
               >
-                <span className={`tui-glyph text-[10px] ${turnDotColor(item.status)}`}>●</span>
+                <span
+                  className={`tui-glyph text-[10px] ${turnDotColor(item.status)}${
+                    isTurnLive(item.status) ? " tui-pulse" : ""
+                  }`}
+                >
+                  ●
+                </span>
                 <span className="block max-w-40 truncate">{turnLabel(item)}</span>
                 <span className="block text-faint">{formatDate(item.createdAt)}</span>
               </button>
@@ -991,18 +1034,21 @@ function TranscriptView({
   loading,
   items,
   emptyMessage,
+  turnLive,
 }: {
   loading: boolean;
   items: TranscriptItem[];
   emptyMessage: string;
+  turnLive: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const showThinking = turnLive && !hasInFlightActivity(items);
   const itemKey = useMemo(
     () =>
       items
         .map((item) => `${item.id}:${item.text.length}:${item.streaming}`)
-        .join("|"),
-    [items],
+        .join("|") + `|${showThinking ? "thinking" : ""}`,
+    [items, showThinking],
   );
 
   useEffect(() => {
@@ -1019,7 +1065,7 @@ function TranscriptView({
       </p>
     );
   }
-  if (items.length === 0) {
+  if (items.length === 0 && !showThinking) {
     return (
       <div className="border border-dashed border-alpha bg-background/40 px-5 py-6 font-mono text-xs text-faint">
         <span className="tui-glyph mr-2">·</span>
@@ -1033,8 +1079,39 @@ function TranscriptView({
       {items.map((item) => (
         <TranscriptBubble key={item.id} item={item} />
       ))}
+      {showThinking ? <ThinkingRow /> : null}
       <div ref={bottomRef} />
     </div>
+  );
+}
+
+function hasInFlightActivity(items: TranscriptItem[]): boolean {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind === "assistant" && item.streaming) return true;
+    if (item.kind === "tool") {
+      const phase = item.event ? eventPhase(item.event).toLowerCase() : "";
+      if (phase.includes("started") || phase.includes("running")) return true;
+    }
+  }
+  return false;
+}
+
+function ThinkingRow() {
+  return (
+    <article className="flex gap-3 px-1 py-1" aria-live="polite">
+      <span className="tui-glyph mt-1 text-sky-500 tui-pulse">●</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="tui-section-label">thinking</span>
+        </div>
+        <p className="mt-1 tui-thinking-dots font-mono text-sm text-muted">
+          <span>●</span>
+          <span>●</span>
+          <span>●</span>
+        </p>
+      </div>
+    </article>
   );
 }
 
@@ -1083,18 +1160,24 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
         ? "text-muted"
         : "text-primary";
 
+  const isStreamingAssistant = item.kind === "assistant" && Boolean(item.streaming);
+
   return (
     <article className="flex gap-3 px-1 py-1">
-      <span className={`tui-glyph mt-1 ${glyphClass}`}>{glyph}</span>
+      <span
+        className={`tui-glyph mt-1 ${glyphClass}${isStreamingAssistant ? " tui-pulse" : ""}`}
+      >
+        {glyph}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="tui-section-label">{item.title}</span>
-          {item.streaming ? (
-            <span className="tui-status-line text-sky-500">streaming</span>
-          ) : null}
         </div>
         <pre className={`mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 ${textClass}`}>
           {item.text}
+          {isStreamingAssistant ? (
+            <span className="tui-caret text-sky-500">▍</span>
+          ) : null}
         </pre>
       </div>
     </article>
@@ -1104,6 +1187,9 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
 function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
   const event = item.event;
   const phase = event ? eventPhase(event) : item.text;
+  const normalizedPhase = phase?.toLowerCase() ?? "";
+  const isRunning =
+    normalizedPhase.includes("started") || normalizedPhase.includes("running");
   const input = event ? eventInput(event) : null;
   const detail = event ? eventDetail(event) : item.text;
   const raw = event ? JSON.stringify(event, null, 2) : null;
@@ -1112,7 +1198,11 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
 
   return (
     <article className="flex gap-3 px-1 py-1">
-      <span className={`tui-glyph mt-1 ${phaseClass}`}>●</span>
+      <span
+        className={`tui-glyph mt-1 ${phaseClass}${isRunning ? " tui-pulse" : ""}`}
+      >
+        ●
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-primary">{item.title}</span>
@@ -1133,10 +1223,24 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
 
         <div className="mt-1.5 tui-tree">
           {input ? <TranscriptDetail glyph="├─" label="Input" value={input} /> : null}
-          {detail ? (
-            <TranscriptDetail glyph={raw ? "├─" : "└─"} label="Output" value={detail} />
-          ) : null}
-          {raw ? <TranscriptDetail glyph="└─" label="Event JSON" value={raw} muted /> : null}
+          {isRunning ? (
+            <p className="font-mono text-[11px] text-faint">
+              <span className="tui-glyph mr-1">└─</span>running…
+            </p>
+          ) : (
+            <>
+              {detail ? (
+                <TranscriptDetail
+                  glyph={raw ? "├─" : "└─"}
+                  label="Output"
+                  value={detail}
+                />
+              ) : null}
+              {raw ? (
+                <TranscriptDetail glyph="└─" label="Event JSON" value={raw} muted />
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </article>
@@ -1918,7 +2022,7 @@ function statusClassName(status?: string): string {
       return `${base} border-amber-500/40 text-amber-600 dark:text-amber-200`;
     case "pending":
     case "running":
-      return `${base} border-sky-500/40 text-sky-600 dark:text-sky-200`;
+      return `${base} border-sky-500/40 text-sky-600 dark:text-sky-200 tui-pulse`;
     default:
       return `${base} border-alpha text-faint`;
   }
