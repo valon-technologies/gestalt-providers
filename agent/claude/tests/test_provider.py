@@ -347,92 +347,99 @@ class ClaudeProviderTests(unittest.TestCase):
         _wait_for_turn(provider_client, "turn-session-start-context", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertIn("session context from provider", _FakeClaudeSDKClient.instances[-1].prompt)
 
-    def test_provider_passes_session_start_plugins_to_claude_sdk(self) -> None:
-        _, provider_client = _configure_provider()
-        with tempfile.TemporaryDirectory() as marketplace:
-            bundle_paths = {}
-            for bundle in (
-                "analytics",
-                "deployment-strategy",
-                "mortgage",
-                "prod-ops",
-                "vds",
-                "tools",
-                "rnb",
-                "gestalt",
-            ):
-                path = os.path.join(marketplace, bundle)
-                os.makedirs(path)
-                bundle_paths[bundle] = path
-            payload = {
-                "metadata": {
-                    "claudePluginPaths": [
-                        bundle_paths["analytics"],
-                        bundle_paths["deployment-strategy"],
-                        bundle_paths["mortgage"],
-                        bundle_paths["prod-ops"],
-                        bundle_paths["vds"],
-                        bundle_paths["tools"],
-                        bundle_paths["rnb"],
-                        bundle_paths["gestalt"],
-                    ]
-                },
-                "additionalContext": (
-                    "Loaded Toolshed marketplace bundles: "
-                    "analytics, deployment-strategy, mortgage, prod-ops, vds, tools, rnb."
-                ),
-            }
-            session_start = agent_pb2.AgentSessionStartConfig()
-            hook = session_start.hooks.add()
-            hook.id = "load-marketplace"
-            hook.type = "command"
-            hook.command.extend([sys.executable, "-c", "import sys; print(sys.argv[1])", json.dumps(payload)])
-            hook.timeout = "5s"
-            hook.output.additional_context = True
-            hook.output.metadata = True
-
-            provider_client.CreateSession(
-                agent_pb2.CreateAgentProviderSessionRequest(
-                    session_id="session-start-plugins", session_start=session_start
-                )
+    def test_provider_passes_plugins_and_allowed_tools_to_claude_sdk(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            docs_real = _make_claude_plugin(root, "docs")
+            docs_link = os.path.join(root, "docs-link")
+            os.symlink(docs_real, docs_link)
+            workflows = _make_claude_plugin(root, "workflows")
+            _, provider_client = _configure_provider(
+                {
+                    "skillDiscovery": "all",
+                    "plugins": [docs_link, workflows],
+                    "allowedTools": ["Skill", "Read", "Bash(git status:*)"],
+                }
             )
+            provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-plugins"))
             provider_client.CreateTurn(
                 _turn_request(
-                    turn_id="turn-session-start-plugins",
-                    session_id="session-start-plugins",
+                    turn_id="turn-plugins",
+                    session_id="session-plugins",
                     messages=[agent_pb2.AgentMessage(role="user", text="hello")],
                 )
             )
-            _wait_for_turn(provider_client, "turn-session-start-plugins", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+            _wait_for_turn(provider_client, "turn-plugins", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
             options = _FakeClaudeSDKClient.instances[-1].options
-            expected_tools = ["mcp__gestalt__*", "Skill", "Read", "Write", "Bash"]
-            self.assertEqual(getattr(options, "tools"), expected_tools)
-            self.assertEqual(getattr(options, "allowed_tools"), expected_tools)
+            self.assertEqual(getattr(options, "tools"), ["mcp__gestalt__*", "Skill", "Read", "Bash"])
+            self.assertEqual(
+                getattr(options, "allowed_tools"), ["mcp__gestalt__*", "Skill", "Read", "Bash(git status:*)"]
+            )
             self.assertEqual(getattr(options, "setting_sources"), [])
             self.assertEqual(getattr(options, "skills"), "all")
             self.assertEqual(
                 getattr(options, "plugins"),
                 [
-                    {"type": "local", "path": bundle_paths["analytics"]},
-                    {"type": "local", "path": bundle_paths["deployment-strategy"]},
-                    {"type": "local", "path": bundle_paths["mortgage"]},
-                    {"type": "local", "path": bundle_paths["prod-ops"]},
-                    {"type": "local", "path": bundle_paths["vds"]},
-                    {"type": "local", "path": bundle_paths["tools"]},
-                    {"type": "local", "path": bundle_paths["rnb"]},
+                    {"type": "local", "path": os.path.realpath(docs_real)},
+                    {"type": "local", "path": os.path.realpath(workflows)},
                 ],
             )
+            self.assertEqual(getattr(options.env, "get")("CLAUDE_CODE_DISABLE_AUTO_MEMORY"), "1")
             self.assertTrue(callable(getattr(options, "stderr")))
             self.assertEqual(getattr(asyncio.run(options.can_use_tool("Skill", {}, None)), "behavior", ""), "allow")
             self.assertEqual(
-                getattr(asyncio.run(options.can_use_tool("Skill(mortgage:foo)", {}, None)), "behavior", ""), "allow"
+                getattr(asyncio.run(options.can_use_tool("Skill(docs:search)", {}, None)), "behavior", ""), "allow"
             )
             self.assertEqual(getattr(asyncio.run(options.can_use_tool("Read", {}, None)), "behavior", ""), "allow")
-            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Write", {}, None)), "behavior", ""), "allow")
-            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Bash", {}, None)), "behavior", ""), "allow")
+            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Write", {}, None)), "behavior", ""), "deny")
+            self.assertEqual(
+                getattr(
+                    asyncio.run(options.can_use_tool("Bash", {"command": "git status --short"}, None)), "behavior", ""
+                ),
+                "allow",
+            )
+            self.assertEqual(
+                getattr(asyncio.run(options.can_use_tool("Bash", {"command": "git statusx"}, None)), "behavior", ""),
+                "deny",
+            )
+            self.assertEqual(
+                getattr(
+                    asyncio.run(options.can_use_tool("Bash", {"command": "git status --short && rm -rf /"}, None)),
+                    "behavior",
+                    "",
+                ),
+                "deny",
+            )
             self.assertEqual(getattr(asyncio.run(options.can_use_tool("WebFetch", {}, None)), "behavior", ""), "deny")
-            self.assertIn("Loaded Toolshed marketplace bundles", _FakeClaudeSDKClient.instances[-1].prompt)
+
+    def test_skill_discovery_all_without_allowed_tool_does_not_enable_skill_tool(self) -> None:
+        _, provider_client = _configure_provider({"skillDiscovery": "all"})
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-skill-denied"))
+        provider_client.CreateTurn(_turn_request(turn_id="turn-skill-denied", session_id="session-skill-denied"))
+        _wait_for_turn(provider_client, "turn-skill-denied", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        options = _FakeClaudeSDKClient.instances[-1].options
+        self.assertEqual(options.skills, [])
+        self.assertEqual(options.setting_sources, [])
+        self.assertEqual(options.tools, ["mcp__gestalt__*"])
+        self.assertEqual(options.allowed_tools, ["mcp__gestalt__*"])
+        self.assertEqual(
+            getattr(asyncio.run(options.can_use_tool("Skill(docs:search)", {}, None)), "behavior", ""), "deny"
+        )
+
+    def test_allowed_tools_can_enable_skill_without_plugins(self) -> None:
+        _, provider_client = _configure_provider({"skillDiscovery": "all", "allowedTools": ["Skill"]})
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-skill-allowed"))
+        provider_client.CreateTurn(_turn_request(turn_id="turn-skill-allowed", session_id="session-skill-allowed"))
+        _wait_for_turn(provider_client, "turn-skill-allowed", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+        options = _FakeClaudeSDKClient.instances[-1].options
+        self.assertEqual(options.skills, "all")
+        self.assertEqual(options.tools, ["mcp__gestalt__*", "Skill"])
+        self.assertEqual(options.allowed_tools, ["mcp__gestalt__*", "Skill"])
+        self.assertEqual(
+            getattr(asyncio.run(options.can_use_tool("Skill(docs:search)", {}, None)), "behavior", ""), "allow"
+        )
 
     def test_provider_rejects_reserved_session_start_metadata(self) -> None:
         _, provider_client = _configure_provider()
@@ -453,6 +460,105 @@ class ClaudeProviderTests(unittest.TestCase):
                 agent_pb2.UpdateAgentProviderSessionRequest(session_id="reserved-session-start", metadata=metadata)
             )
         self.assertEqual(cast(Any, update_error.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
+
+    def test_config_validation_rejects_unsafe_claude_code_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            valid = _make_claude_plugin(root, "docs")
+            missing_manifest = os.path.join(root, "missing-manifest")
+            os.makedirs(missing_manifest)
+            missing_name_manifest = _make_claude_plugin(root, "missing-name", extra_manifest={"name": ""})
+            manifest_executable_component = _make_claude_plugin(root, "with-mcp", extra_manifest={"mcpServers": {}})
+            root_executable_component = _make_claude_plugin(root, "with-hooks")
+            os.makedirs(os.path.join(root_executable_component, "hooks"))
+            with open(os.path.join(root_executable_component, "hooks", "hooks.json"), "w", encoding="utf-8") as handle:
+                json.dump({}, handle)
+            metadata_manifest = _make_claude_plugin(
+                root,
+                "metadata",
+                extra_manifest={
+                    "version": "1.0.0",
+                    "author": "Test Author",
+                    "homepage": "https://example.test",
+                    "repository": "https://example.test/repo",
+                    "license": "MIT",
+                },
+            )
+            default_skills_dir_manifest = _make_claude_plugin(root, "default-skills", include_manifest_skills=False)
+            duplicate_docs = _make_claude_plugin(root, "duplicate-docs", manifest_name="docs")
+
+            cases = [
+                (
+                    {"plugins": ["relative"]},
+                    "path must be absolute",
+                ),
+                (
+                    {"plugins": [{"path": valid}]},
+                    r"plugins\[1\] must be a local plugin path",
+                ),
+                (
+                    {"plugins": [valid, valid]},
+                    "resolve to the same path",
+                ),
+                (
+                    {"plugins": [valid, duplicate_docs]},
+                    "use the same manifest name",
+                ),
+                (
+                    {"plugins": [missing_manifest]},
+                    "must include .claude-plugin/plugin.json",
+                ),
+                (
+                    {"plugins": [missing_name_manifest]},
+                    "manifest name is required",
+                ),
+                (
+                    {"plugins": [manifest_executable_component]},
+                    "unsupported components",
+                ),
+                (
+                    {"plugins": [root_executable_component]},
+                    "unsupported root components",
+                ),
+                ({"settingSources": ["workspace"]}, "settingSources entries must be one of"),
+                ({"skillDiscovery": "named"}, "skillDiscovery must be one of"),
+                (
+                    {"allowedTools": ["WebFetch"]},
+                    "unsupported Claude Code tool specifier",
+                ),
+                (
+                    {"allowedTools": "Read"},
+                    "allowedTools must be a list",
+                ),
+                (
+                    {"pluginRegistry": {"docs": {"path": valid}}},
+                    "unsupported Claude Code config fields: pluginRegistry",
+                ),
+                (
+                    {"pluginSources": [{"type": "configured", "names": ["docs"]}]},
+                    "unsupported Claude Code config fields: pluginSources",
+                ),
+                (
+                    {"toolPermissions": {"allowedTools": ["Read"]}},
+                    "unsupported Claude Code config fields: toolPermissions",
+                ),
+                (
+                    {
+                        "permissionMode": "bypassPermissions",
+                        "allowedTools": ["Read"],
+                    },
+                    "bypassPermissions cannot be used",
+                ),
+            ]
+            for config, message in cases:
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        provider_module.ClaudeCodeAgentProvider().configure("claude", _base_config(config))
+            provider_module.ClaudeCodeAgentProvider().configure(
+                "claude",
+                _base_config(
+                    {"plugins": [metadata_manifest, default_skills_dir_manifest]}
+                ),
+            )
 
     def test_provider_completes_turn_through_agent_sdk_with_catalog_tools(self) -> None:
         host = _host_servicer
@@ -1208,27 +1314,32 @@ def tearDownModule() -> None:
     _restore_env(indexeddb_socket_env(), _previous_indexeddb_socket)
 
 
-def _configure_provider() -> tuple[Any, Any]:
+def _configure_provider(config: dict[str, Any] | None = None) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
-    _configure_lifecycle(lifecycle, provider_module.provider)
+    _configure_lifecycle(lifecycle, provider_module.provider, config)
     return lifecycle, provider_client
 
 
-def _configure_lifecycle(lifecycle: Any, provider_obj: Any) -> None:
+def _configure_lifecycle(lifecycle: Any, provider_obj: Any, config: dict[str, Any] | None = None) -> None:
     request = runtime_pb2.ConfigureProviderRequest(name="claude", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
-    request.config.update(
-        {
-            "defaultModel": "sonnet-config",
-            "timeoutSeconds": 5,
-            "permissionMode": "dontAsk",
-            "anthropicApiKey": "test-anthropic-key",
-        }
-    )
+    request.config.update(_base_config(config))
     lifecycle.ConfigureProvider(request)
     assert provider_obj._runner is not None
     provider_obj._runner._client_factory = _FakeClaudeSDKClient
+
+
+def _base_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "defaultModel": "sonnet-config",
+        "timeoutSeconds": 5,
+        "permissionMode": "dontAsk",
+        "anthropicApiKey": "test-anthropic-key",
+    }
+    if overrides:
+        config.update(overrides)
+    return config
 
 
 def _start_provider_runtime(provider_obj: Any) -> tuple[Any, str, Any, Any, Any]:
@@ -1252,6 +1363,27 @@ def _stop_runtime(provider_obj: Any, server: Any, runtime_socket: str, channel: 
         os.unlink(runtime_socket)
     except OSError:
         pass
+
+
+def _make_claude_plugin(
+    root: str,
+    name: str,
+    *,
+    manifest_name: str | None = None,
+    extra_manifest: dict[str, Any] | None = None,
+    include_manifest_skills: bool = True,
+) -> str:
+    path = os.path.join(root, name)
+    os.makedirs(os.path.join(path, ".claude-plugin"))
+    os.makedirs(os.path.join(path, "skills"))
+    manifest = {"name": manifest_name or name, "description": f"{name} test plugin"}
+    if include_manifest_skills:
+        manifest["skills"] = "./skills"
+    if extra_manifest:
+        manifest.update(extra_manifest)
+    with open(os.path.join(path, ".claude-plugin", "plugin.json"), "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle)
+    return path
 
 
 def _turn_request(

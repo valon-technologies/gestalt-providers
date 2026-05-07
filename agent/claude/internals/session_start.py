@@ -49,48 +49,6 @@ def prepend_session_start_context(messages: list[dict[str, Any]], metadata: dict
     ]
 
 
-def session_start_metadata_paths(
-    metadata: dict[str, Any], key: str, *, allowed_basenames: set[str] | None = None
-) -> list[str]:
-    paths: list[str] = []
-    seen: set[str] = set()
-    for hook_metadata in session_start_result_metadata(metadata):
-        raw_paths = hook_metadata.get(key)
-        if not isinstance(raw_paths, list):
-            continue
-        for raw_path in raw_paths:
-            path = str(raw_path or "").strip()
-            if not path:
-                continue
-            if allowed_basenames is not None and os.path.basename(path) not in allowed_basenames:
-                continue
-            if not os.path.isdir(path):
-                continue
-            if path in seen:
-                continue
-            seen.add(path)
-            paths.append(path)
-    return paths
-
-
-def session_start_result_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
-    values: list[dict[str, Any]] = []
-    for key, value in metadata.items():
-        if not str(key).startswith(f"{RESULTS_PREFIX}.") or not isinstance(value, dict):
-            continue
-        parsed = value.get("metadata")
-        if isinstance(parsed, dict):
-            values.append(parsed)
-            continue
-        stdout = value.get("stdout")
-        if isinstance(stdout, str):
-            stdout_payload = _json_stdout_payload(stdout)
-            payload_metadata = stdout_payload.get("metadata")
-            if isinstance(payload_metadata, dict):
-                values.append(payload_metadata)
-    return values
-
-
 def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
     hook_id = str(getattr(hook, "id", "") or "").strip()
     hook_type = str(getattr(hook, "type", "") or "command").strip() or "command"

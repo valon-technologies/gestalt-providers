@@ -14,19 +14,18 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
-    SdkPluginConfig,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
 
+from .claude_code_config import ClaudeCodeTurnOptions
 from .config import ClaudeAgentConfig
 from .mcp_bridge import (
     MCP_SERVER_NAME,
-    allow_gestalt_mcp_or_plugin_tool,
-    allow_gestalt_mcp_tool,
     allowed_gestalt_mcp_tools,
     create_gestalt_sdk_mcp_server,
+    create_tool_permission_callback,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +34,7 @@ MAX_ERROR_TEXT = 4000
 GESTALT_MCP_CATALOG_PROMPT = (
     "Gestalt MCP catalog tools are available through the `gestalt` MCP server for connected apps such as "
     "Linear, GitHub, Slack, Gmail, Google Drive, Google Calendar, Google Docs, Google Sheets, BigQuery, Datadog, "
-    "PagerDuty, Notion, Figma, Ramp, Ashby, and other Valon integrations. When a user asks for data or actions "
+    "PagerDuty, Notion, Figma, Ramp, Ashby, and other configured integrations. When a user asks for data or actions "
     "in an external service, use Claude Code native tool search over the `gestalt` MCP server before concluding "
     "the tool is unavailable. Do not infer tool availability from Claude Code built-in tools only."
 )
@@ -75,7 +74,7 @@ class ClaudeSDKRunner:
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
-        plugin_paths: list[str] | None = None,
+        claude_code_options: ClaudeCodeTurnOptions | None = None,
         cwd: str = "",
     ) -> str:
         try:
@@ -87,7 +86,7 @@ class ClaudeSDKRunner:
                         model=model,
                         messages=messages,
                         run_grant=run_grant,
-                        plugin_paths=plugin_paths or [],
+                        claude_code_options=claude_code_options,
                         cwd=cwd,
                     ),
                     timeout=self._config.timeout_seconds,
@@ -124,7 +123,7 @@ class ClaudeSDKRunner:
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
-        plugin_paths: list[str],
+        claude_code_options: ClaudeCodeTurnOptions | None,
         cwd: str,
     ) -> str:
         loop = asyncio.get_running_loop()
@@ -141,7 +140,7 @@ class ClaudeSDKRunner:
                     session_id=session_id,
                     turn_id=turn_id,
                     run_grant=run_grant,
-                    plugin_paths=plugin_paths,
+                    claude_code_options=claude_code_options,
                     cwd=cwd,
                 )
                 _set_config_dir(options, config_dir)
@@ -222,18 +221,21 @@ class ClaudeSDKRunner:
         session_id: str,
         turn_id: str,
         run_grant: str,
-        plugin_paths: list[str] | None = None,
+        claude_code_options: ClaudeCodeTurnOptions | None = None,
         cwd: str = "",
     ) -> Any:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
-        plugins: list[SdkPluginConfig] = [{"type": "local", "path": path} for path in plugin_paths or []]
-        plugin_tools_enabled = bool(plugins)
-        gestalt_tools = allowed_gestalt_mcp_tools(include_plugin_tools=plugin_tools_enabled)
+        if claude_code_options is None:
+            claude_code_options = self._config.claude_code.resolve_turn_options({})
+        if claude_code_options.disable_auto_memory:
+            env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+        tools = allowed_gestalt_mcp_tools() + claude_code_options.base_tools
+        allowed_tools = allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools
         return ClaudeAgentOptions(
-            tools=gestalt_tools,
-            allowed_tools=gestalt_tools,
+            tools=tools,
+            allowed_tools=allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
                     session_id=session_id, turn_id=turn_id, run_grant=run_grant
@@ -245,11 +247,11 @@ class ClaudeSDKRunner:
             permission_mode=cast(PermissionMode, self._config.permission_mode),
             cli_path=self._config.cli_path or None,
             env=env,
-            setting_sources=[],
-            skills="all" if plugin_tools_enabled else [],
-            plugins=plugins,
+            setting_sources=list(claude_code_options.setting_sources),
+            skills=claude_code_options.sdk_skills,
+            plugins=claude_code_options.sdk_plugins,
             agents=None,
-            can_use_tool=allow_gestalt_mcp_or_plugin_tool if plugin_tools_enabled else allow_gestalt_mcp_tool,
+            can_use_tool=create_tool_permission_callback(claude_code_options.tool_permissions),
             stderr=_log_claude_stderr,
         )
 

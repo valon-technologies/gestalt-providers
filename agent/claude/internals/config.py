@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import os
 import hashlib
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from .claude_code_config import ClaudeCodeConfig
 
 DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 DEFAULT_TIMEOUT_SECONDS = 300.0
@@ -24,12 +26,16 @@ class ClaudeAgentConfig:
     system_prompt: str = ""
     permission_mode: str = DEFAULT_PERMISSION_MODE
     anthropic_api_key: str = ""
+    claude_code: ClaudeCodeConfig = field(default_factory=ClaudeCodeConfig)
 
     @classmethod
     def from_dict(cls, *, name: str, raw_config: dict[str, Any]) -> "ClaudeAgentConfig":
         permission_mode = _trimmed_text(raw_config.get("permissionMode")) or DEFAULT_PERMISSION_MODE
         if permission_mode not in SUPPORTED_PERMISSION_MODES:
             raise ValueError(f"permissionMode must be one of {', '.join(sorted(SUPPORTED_PERMISSION_MODES))}")
+        claude_code = ClaudeCodeConfig.from_raw(raw_config)
+        if permission_mode == "bypassPermissions" and claude_code.has_tool_permissions:
+            raise ValueError("permissionMode bypassPermissions cannot be used with allowedTools")
 
         working_directory = _trimmed_text(raw_config.get("workingDirectory"))
         if working_directory and not os.path.isdir(working_directory):
@@ -51,6 +57,7 @@ class ClaudeAgentConfig:
             system_prompt=_trimmed_text(raw_config.get("systemPrompt")),
             permission_mode=permission_mode,
             anthropic_api_key=_trimmed_text(raw_config.get("anthropicApiKey")),
+            claude_code=claude_code,
         )
 
     def resolve_model(self, requested_model: str) -> str:
