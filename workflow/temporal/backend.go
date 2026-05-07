@@ -743,10 +743,23 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 	}
 	now := time.Now().UTC()
 	publishedBy := cloneActor(req.GetPublishedBy())
+	matchedTriggers := make([]*proto.BoundWorkflowEventTrigger, 0, len(triggers))
+	matchedTriggerCounts := map[string]int64{}
 	for _, trigger := range triggers {
-		if !eventMatchesTrigger(event, trigger) {
-			continue
+		if eventMatchesTrigger(event, trigger) {
+			matchedTriggers = append(matchedTriggers, trigger)
+			matchedTriggerCounts[workflowTelemetryTargetKind(trigger.GetTarget())]++
 		}
+	}
+	for targetKind, count := range matchedTriggerCounts {
+		gestalt.RecordWorkflowEventMatchedTriggers(ctx, count, b.workflowTelemetryOptions(
+			gestalt.WorkflowOperationPublishEvent,
+			gestalt.WorkflowTriggerKindEvent,
+			targetKind,
+			gestalt.WorkflowRunStatusUnknown,
+		))
+	}
+	for _, trigger := range matchedTriggers {
 		createdBy := cloneActor(trigger.GetCreatedBy())
 		executionRef := strings.TrimSpace(trigger.GetExecutionRef())
 		if actorHasSubject(publishedBy) {
@@ -765,15 +778,66 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 			}
 		}
 		input := b.runV3Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, false)
-		_, err := b.executeRunV3(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+		run, err := b.executeRunV3(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
 				continue
 			}
 			return nil, status.Errorf(codes.Internal, "start event workflow: %v", err)
 		}
+		gestalt.RecordWorkflowRunStarted(ctx, b.workflowTelemetryOptions(
+			gestalt.WorkflowOperationPublishEvent,
+			gestalt.WorkflowTriggerKindEvent,
+			workflowTelemetryTargetKind(trigger.GetTarget()),
+			workflowTelemetryRunStatus(run),
+		))
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (b *temporalBackend) workflowTelemetryOptions(operationName, triggerKind, targetKind, runStatus string) gestalt.WorkflowOperationOptions {
+	providerName := ""
+	if b != nil {
+		providerName = b.providerName
+	}
+	return gestalt.WorkflowOperationOptions{
+		ProviderName:  providerName,
+		OperationName: operationName,
+		TriggerKind:   triggerKind,
+		TargetKind:    targetKind,
+		RunStatus:     runStatus,
+	}
+}
+
+func workflowTelemetryTargetKind(target *proto.BoundWorkflowTarget) string {
+	switch {
+	case target.GetPlugin() != nil:
+		return gestalt.WorkflowTargetKindPlugin
+	case target.GetAgent() != nil:
+		return gestalt.WorkflowTargetKindAgent
+	default:
+		return gestalt.WorkflowTargetKindUnknown
+	}
+}
+
+func workflowTelemetryRunStatus(run *proto.BoundWorkflowRun) string {
+	if run == nil {
+		return gestalt.WorkflowRunStatusUnknown
+	}
+	switch run.GetStatus() {
+	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING:
+		return gestalt.WorkflowRunStatusPending
+	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING:
+		return gestalt.WorkflowRunStatusRunning
+	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED:
+		return gestalt.WorkflowRunStatusSucceeded
+	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED:
+		return gestalt.WorkflowRunStatusFailed
+	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED:
+		return gestalt.WorkflowRunStatusCanceled
+	default:
+		return gestalt.WorkflowRunStatusUnknown
+	}
 }
 
 func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, paused bool) (*proto.BoundWorkflowEventTrigger, error) {
