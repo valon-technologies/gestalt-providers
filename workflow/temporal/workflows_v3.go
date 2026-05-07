@@ -685,16 +685,16 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 	cancelCh := workflow.GetSignalChannel(ctx, signalRunCancelV3)
 	runMutex := workflow.NewMutex(ctx)
 
-	project := func() {
+	project := func(ctx workflow.Context) {
 		_ = signalRunIndex(ctx, input.ScopeID, input.IndexShardCount, state)
 	}
-	ack := func(msg laneAckMessage) {
+	ack := func(ctx workflow.Context, msg laneAckMessage) {
 		if strings.TrimSpace(input.LaneWorkflowID) == "" || strings.TrimSpace(msg.AckID) == "" {
 			return
 		}
 		_ = workflow.SignalExternalWorkflow(ctx, input.LaneWorkflowID, input.LaneTemporalRunID, signalLaneAck, msg).Get(ctx, nil)
 	}
-	sendDone := func() {
+	sendDone := func(ctx workflow.Context) {
 		if strings.TrimSpace(input.LaneWorkflowID) == "" || strings.TrimSpace(input.LogicalRunKey) == "" {
 			return
 		}
@@ -717,16 +717,16 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 	}
 	handleSignalMessage := func(ctx workflow.Context, msg runSignalMessage) {
 		if err := runMutex.Lock(ctx); err != nil {
-			ack(laneAckMessage{AckID: msg.AckID, Error: err.Error()})
+			ack(ctx, laneAckMessage{AckID: msg.AckID, Error: err.Error()})
 			return
 		}
 		defer runMutex.Unlock()
 		if workflowRunTerminal(state.GetStatus()) {
-			ack(laneAckMessage{AckID: msg.AckID, Error: fmt.Sprintf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())})
+			ack(ctx, laneAckMessage{AckID: msg.AckID, Error: fmt.Sprintf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())})
 			return
 		}
 		signal := appendSignal(signalFromPayload(msg.SignalPayload))
-		ack(laneAckMessage{AckID: msg.AckID, ResponsePayload: protoPayload(&proto.SignalWorkflowRunResponse{
+		ack(ctx, laneAckMessage{AckID: msg.AckID, ResponsePayload: protoPayload(&proto.SignalWorkflowRunResponse{
 			Run:         cloneRun(state),
 			Signal:      cloneSignal(signal),
 			StartedRun:  signalCount == 1 && state.GetStartedAt() == nil,
@@ -735,12 +735,12 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 	}
 	handleCancelMessage := func(ctx workflow.Context, msg runCancelMessage) {
 		if err := runMutex.Lock(ctx); err != nil {
-			ack(laneAckMessage{AckID: msg.AckID, Error: err.Error()})
+			ack(ctx, laneAckMessage{AckID: msg.AckID, Error: err.Error()})
 			return
 		}
 		defer runMutex.Unlock()
 		if state.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
-			ack(laneAckMessage{AckID: msg.AckID, Error: fmt.Sprintf("failed_precondition: workflow run %q is %s; only pending runs can be canceled", state.GetId(), state.GetStatus().String())})
+			ack(ctx, laneAckMessage{AckID: msg.AckID, Error: fmt.Sprintf("failed_precondition: workflow run %q is %s; only pending runs can be canceled", state.GetId(), state.GetStatus().String())})
 			return
 		}
 		completedAt := workflow.Now(ctx).UTC()
@@ -750,23 +750,31 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
 		}
-		project()
-		ack(laneAckMessage{AckID: msg.AckID, RunPayload: protoPayload(state)})
+		project(ctx)
+		ack(ctx, laneAckMessage{AckID: msg.AckID, RunPayload: protoPayload(state)})
 	}
 	workflow.Go(ctx, func(ctx workflow.Context) {
 		for {
+			var signalMsg runSignalMessage
+			var cancelMsg runCancelMessage
+			var gotSignal bool
+			var gotCancel bool
 			selector := workflow.NewSelector(ctx)
 			selector.AddReceive(signalCh, func(c workflow.ReceiveChannel, more bool) {
-				var msg runSignalMessage
-				c.Receive(ctx, &msg)
-				handleSignalMessage(ctx, msg)
+				c.Receive(ctx, &signalMsg)
+				gotSignal = true
 			})
 			selector.AddReceive(cancelCh, func(c workflow.ReceiveChannel, more bool) {
-				var msg runCancelMessage
-				c.Receive(ctx, &msg)
-				handleCancelMessage(ctx, msg)
+				c.Receive(ctx, &cancelMsg)
+				gotCancel = true
 			})
 			selector.Select(ctx)
+			if gotSignal {
+				handleSignalMessage(ctx, signalMsg)
+			}
+			if gotCancel {
+				handleCancelMessage(ctx, cancelMsg)
+			}
 			if workflowRunTerminal(state.GetStatus()) {
 				return
 			}
@@ -811,13 +819,13 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
 		}
-		project()
+		project(ctx)
 		return cloneRun(state), nil
 	}); err != nil {
 		return nil, err
 	}
 
-	project()
+	project(ctx)
 	if input.RequireSignal {
 		_ = workflow.Await(ctx, func() bool {
 			return len(pendingSignals) > 0 || workflowRunTerminal(state.GetStatus())
@@ -840,7 +848,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		state.StartedAt = timestamppb.New(startedAt)
 		state.CompletedAt = nil
 		state.StatusMessage = ""
-		project()
+		project(ctx)
 		batch := pendingSignals
 		pendingSignals = nil
 		runMutex.Unlock()
@@ -875,7 +883,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 			if len(pendingSignals) > 0 {
 				state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
 				state.CompletedAt = nil
-				project()
+				project(ctx)
 				runMutex.Unlock()
 				continue
 			}
@@ -885,8 +893,8 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		runMutex.Unlock()
 		break
 	}
-	project()
-	sendDone()
+	project(ctx)
+	sendDone(ctx)
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
 	return cloneRun(state), nil
 }
