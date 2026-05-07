@@ -1354,10 +1354,6 @@ func seedTemporalWorkflowStores(t *testing.T, store *relationaldb.Provider) {
 
 func temporalRunSchema() gestalt.ObjectStoreSchema {
 	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: indexByOwner, KeyPath: []string{"owner_key"}},
-			{Name: indexByWorkflow, KeyPath: []string{"workflow_key"}},
-		},
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -1385,7 +1381,6 @@ func temporalWorkflowKeySchema() gestalt.ObjectStoreSchema {
 
 func temporalIdempotencySchema() gestalt.ObjectStoreSchema {
 	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{{Name: indexByOwner, KeyPath: []string{"owner_key"}}},
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -1399,7 +1394,6 @@ func temporalIdempotencySchema() gestalt.ObjectStoreSchema {
 
 func temporalScheduleSchema() gestalt.ObjectStoreSchema {
 	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{{Name: indexByOwner, KeyPath: []string{"owner_key"}}},
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -1413,7 +1407,6 @@ func temporalScheduleSchema() gestalt.ObjectStoreSchema {
 
 func temporalEventTriggerSchema() gestalt.ObjectStoreSchema {
 	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{{Name: indexByOwner, KeyPath: []string{"owner_key"}}},
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
