@@ -229,6 +229,9 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 		if err := normalizeAgentOutputDelivery(agent.GetOutputDelivery()); err != nil {
 			return scopedTarget{}, err
 		}
+		if err := normalizeAgentSessionReadyDelivery(agent.GetSessionReadyDelivery()); err != nil {
+			return scopedTarget{}, err
+		}
 		return scopedTarget{
 			OwnerKey: "agent:" + agent.GetProviderName(),
 			Target:   &proto.BoundWorkflowTarget{Kind: &proto.BoundWorkflowTarget_Agent{Agent: agent}},
@@ -267,12 +270,20 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 }
 
 func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error {
+	return normalizeAgentDelivery(delivery, "output_delivery", false)
+}
+
+func normalizeAgentSessionReadyDelivery(delivery *proto.WorkflowOutputDelivery) error {
+	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
+}
+
+func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
 	if delivery == nil {
 		return nil
 	}
 	target := delivery.GetTarget()
 	if target == nil {
-		return errors.New("target.agent.output_delivery.target.plugin_name is required")
+		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
 	target.PluginName = strings.TrimSpace(target.GetPluginName())
 	target.Operation = strings.TrimSpace(target.GetOperation())
@@ -280,28 +291,59 @@ func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error 
 	target.Instance = strings.TrimSpace(target.GetInstance())
 	target.CredentialMode = strings.ToLower(strings.TrimSpace(target.GetCredentialMode()))
 	if target.GetPluginName() == "" {
-		return errors.New("target.agent.output_delivery.target.plugin_name is required")
+		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
 	if target.GetOperation() == "" {
-		return errors.New("target.agent.output_delivery.target.operation is required")
+		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
 	}
 	if target.GetCredentialMode() != "" {
-		return fmt.Errorf("target.agent.output_delivery.target.credential_mode %q is not supported", target.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, target.GetCredentialMode())
 	}
 	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
 	switch credentialMode {
 	case "", "none", "user":
 		delivery.CredentialMode = credentialMode
 	default:
-		return fmt.Errorf("target.agent.output_delivery.credential_mode %q is not supported", delivery.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.GetCredentialMode())
 	}
 	for _, binding := range delivery.GetInputBindings() {
 		if binding == nil || binding.GetValue() == nil || binding.GetValue().GetKind() == nil {
-			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
 		binding.InputField = strings.TrimSpace(binding.GetInputField())
 		if binding.GetInputField() == "" {
-			return errors.New("target.agent.output_delivery.input_bindings.input_field is required")
+			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
+		}
+		switch kind := binding.GetValue().GetKind().(type) {
+		case *proto.WorkflowOutputValueSource_AgentOutput:
+			if beforeTurn {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
+			}
+			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
+			if kind.AgentOutput == "" {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is required", fieldName)
+			}
+		case *proto.WorkflowOutputValueSource_SignalPayload:
+			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
+			if kind.SignalPayload == "" {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_payload is required", fieldName)
+			}
+		case *proto.WorkflowOutputValueSource_SignalMetadata:
+			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
+			if kind.SignalMetadata == "" {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_metadata is required", fieldName)
+			}
+		case *proto.WorkflowOutputValueSource_AgentSession:
+			kind.AgentSession = strings.TrimSpace(kind.AgentSession)
+			if kind.AgentSession == "" {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_session is required", fieldName)
+			}
+		case *proto.WorkflowOutputValueSource_Literal:
+			if kind.Literal == nil {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.literal is required", fieldName)
+			}
+		default:
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
 	}
 	return nil

@@ -3005,34 +3005,45 @@ func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName s
 	if err := normalizeAgentOutputDelivery(target.GetOutputDelivery()); err != nil {
 		return err
 	}
+	if err := normalizeAgentSessionReadyDelivery(target.GetSessionReadyDelivery()); err != nil {
+		return err
+	}
 	return nil
 }
 
 func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error {
+	return normalizeAgentDelivery(delivery, "output_delivery", false)
+}
+
+func normalizeAgentSessionReadyDelivery(delivery *proto.WorkflowOutputDelivery) error {
+	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
+}
+
+func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
 	if delivery == nil {
 		return nil
 	}
 	deliveryTarget := delivery.GetTarget()
 	if deliveryTarget == nil {
-		return errors.New("target.agent.output_delivery.target.plugin_name is required")
+		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
 	pluginName := strings.TrimSpace(deliveryTarget.GetPluginName())
 	operation := strings.TrimSpace(deliveryTarget.GetOperation())
 	if pluginName == "" {
-		return errors.New("target.agent.output_delivery.target.plugin_name is required")
+		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
 	if operation == "" {
-		return errors.New("target.agent.output_delivery.target.operation is required")
+		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
 	}
 	targetCredentialMode := strings.ToLower(strings.TrimSpace(deliveryTarget.GetCredentialMode()))
 	if targetCredentialMode != "" {
-		return fmt.Errorf("target.agent.output_delivery.target.credential_mode %q is not supported", deliveryTarget.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, deliveryTarget.GetCredentialMode())
 	}
 	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
 	switch credentialMode {
 	case "", "none", "user":
 	default:
-		return fmt.Errorf("target.agent.output_delivery.credential_mode %q is not supported", delivery.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.GetCredentialMode())
 	}
 	delivery.Target = &proto.BoundWorkflowPluginTarget{
 		PluginName: pluginName,
@@ -3044,38 +3055,46 @@ func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error 
 	delivery.CredentialMode = credentialMode
 	for _, binding := range delivery.GetInputBindings() {
 		if binding == nil {
-			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
 		binding.InputField = strings.TrimSpace(binding.GetInputField())
 		if binding.GetInputField() == "" {
-			return errors.New("target.agent.output_delivery.input_bindings.input_field is required")
+			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
 		}
 		value := binding.GetValue()
 		if value == nil || value.GetKind() == nil {
-			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
 		switch kind := value.GetKind().(type) {
 		case *proto.WorkflowOutputValueSource_AgentOutput:
+			if beforeTurn {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
+			}
 			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
 			if kind.AgentOutput == "" {
-				return errors.New("target.agent.output_delivery.input_bindings.value.agent_output is required")
+				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is required", fieldName)
 			}
 		case *proto.WorkflowOutputValueSource_SignalPayload:
 			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
 			if kind.SignalPayload == "" {
-				return errors.New("target.agent.output_delivery.input_bindings.value.signal_payload is required")
+				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_payload is required", fieldName)
 			}
 		case *proto.WorkflowOutputValueSource_SignalMetadata:
 			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
 			if kind.SignalMetadata == "" {
-				return errors.New("target.agent.output_delivery.input_bindings.value.signal_metadata is required")
+				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_metadata is required", fieldName)
+			}
+		case *proto.WorkflowOutputValueSource_AgentSession:
+			kind.AgentSession = strings.TrimSpace(kind.AgentSession)
+			if kind.AgentSession == "" {
+				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_session is required", fieldName)
 			}
 		case *proto.WorkflowOutputValueSource_Literal:
 			if kind.Literal == nil {
-				return errors.New("target.agent.output_delivery.input_bindings.value.literal is required")
+				return fmt.Errorf("target.agent.%s.input_bindings.value.literal is required", fieldName)
 			}
 		default:
-			return errors.New("target.agent.output_delivery.input_bindings.value is required")
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
 	}
 	return nil
@@ -4224,17 +4243,10 @@ func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) [
 			ops[operation] = struct{}{}
 		}
 		if delivery := agent.GetOutputDelivery(); delivery != nil {
-			deliveryTarget := delivery.GetTarget()
-			pluginName := strings.TrimSpace(deliveryTarget.GetPluginName())
-			operation := strings.TrimSpace(deliveryTarget.GetOperation())
-			if pluginName != "" && operation != "" {
-				ops := permissionsByPlugin[pluginName]
-				if ops == nil {
-					ops = map[string]struct{}{}
-					permissionsByPlugin[pluginName] = ops
-				}
-				ops[operation] = struct{}{}
-			}
+			addWorkflowDeliveryPermission(permissionsByPlugin, delivery)
+		}
+		if delivery := agent.GetSessionReadyDelivery(); delivery != nil {
+			addWorkflowDeliveryPermission(permissionsByPlugin, delivery)
 		}
 		return accessPermissionsFromSet(permissionsByPlugin)
 	}
@@ -4251,6 +4263,24 @@ func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) [
 		permission.Operations = []string{operation}
 	}
 	return []*proto.WorkflowAccessPermission{permission}
+}
+
+func addWorkflowDeliveryPermission(permissionsByPlugin map[string]map[string]struct{}, delivery *proto.WorkflowOutputDelivery) {
+	if delivery == nil {
+		return
+	}
+	deliveryTarget := delivery.GetTarget()
+	pluginName := strings.TrimSpace(deliveryTarget.GetPluginName())
+	operation := strings.TrimSpace(deliveryTarget.GetOperation())
+	if pluginName == "" || operation == "" {
+		return
+	}
+	ops := permissionsByPlugin[pluginName]
+	if ops == nil {
+		ops = map[string]struct{}{}
+		permissionsByPlugin[pluginName] = ops
+	}
+	ops[operation] = struct{}{}
 }
 
 func configuredEventRunPermissions(input map[string]any) ([]*proto.WorkflowAccessPermission, error) {

@@ -1592,6 +1592,28 @@ func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) 
 	}
 }
 
+func TestNormalizeTargetRejectsSessionReadyDeliveryInvalidSources(t *testing.T) {
+	target := protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
+	target.GetAgent().SessionReadyDelivery = protoSessionReadyDelivery()
+	target.GetAgent().GetSessionReadyDelivery().GetTarget().CredentialMode = "none"
+
+	_, err := normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), `target.agent.session_ready_delivery.target.credential_mode "none" is not supported`) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery target mode", err)
+	}
+
+	target = protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
+	target.GetAgent().SessionReadyDelivery = protoSessionReadyDelivery()
+	target.GetAgent().GetSessionReadyDelivery().InputBindings[0].Value = &proto.WorkflowOutputValueSource{
+		Kind: &proto.WorkflowOutputValueSource_AgentOutput{AgentOutput: "text"},
+	}
+
+	_, err = normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
+		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery agent output", err)
+	}
+}
+
 func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
@@ -1607,7 +1629,7 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
 		Reference: &proto.WorkflowExecutionReference{
 			Id:        "agent-ref",
-			Target:    protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder"),
+			Target:    protoAgentTargetWithDeliveries("managed", "gpt-5.4", "send a Slack reminder"),
 			SubjectId: "user:123",
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
@@ -1640,6 +1662,20 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 		delivery.GetInputBindings()[1].GetInputField() != "reply_ref" ||
 		delivery.GetInputBindings()[1].GetValue().GetSignalPayload() != "reply_ref" {
 		t.Fatalf("output delivery bindings = %#v", delivery.GetInputBindings())
+	}
+	sessionReadyDelivery := ref.GetTarget().GetAgent().GetSessionReadyDelivery()
+	if sessionReadyDelivery.GetTarget().GetPluginName() != "slack" || sessionReadyDelivery.GetTarget().GetOperation() != "events.replySessionStarted" {
+		t.Fatalf("session ready delivery target = %#v", sessionReadyDelivery.GetTarget())
+	}
+	if sessionReadyDelivery.GetCredentialMode() != "none" {
+		t.Fatalf("session ready delivery credential mode = %q, want none", sessionReadyDelivery.GetCredentialMode())
+	}
+	if len(sessionReadyDelivery.GetInputBindings()) != 2 ||
+		sessionReadyDelivery.GetInputBindings()[0].GetInputField() != "session_id" ||
+		sessionReadyDelivery.GetInputBindings()[0].GetValue().GetAgentSession() != "id" ||
+		sessionReadyDelivery.GetInputBindings()[1].GetInputField() != "reply_ref" ||
+		sessionReadyDelivery.GetInputBindings()[1].GetValue().GetSignalPayload() != "reply_ref" {
+		t.Fatalf("session ready delivery bindings = %#v", sessionReadyDelivery.GetInputBindings())
 	}
 
 	got, err := provider.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: "agent-ref"})
@@ -2102,7 +2138,7 @@ func TestProviderPublishEventAgentTargetExecutionReferenceIncludesOutputDelivery
 	if _, err := provider.UpsertEventTrigger(ctx, &proto.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerId: "github-agent-webhook",
 		Match:     &proto.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
-		Target:    protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "respond to the GitHub event"),
+		Target:    protoAgentTargetWithDeliveries("managed", "gpt-5.4", "respond to the GitHub event"),
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger(agent): %v", err)
 	}
@@ -2145,6 +2181,9 @@ func TestProviderPublishEventAgentTargetExecutionReferenceIncludesOutputDelivery
 	}
 	if !got["slack"]["events.reply"] {
 		t.Fatalf("permissions = %#v, missing slack/events.reply output delivery permission", ref.GetPermissions())
+	}
+	if !got["slack"]["events.replySessionStarted"] {
+		t.Fatalf("permissions = %#v, missing slack/events.replySessionStarted session ready delivery permission", ref.GetPermissions())
 	}
 	if !got["slack"]["chat.postMessage"] {
 		t.Fatalf("permissions = %#v, missing slack/chat.postMessage tool permission", ref.GetPermissions())
@@ -4008,6 +4047,36 @@ func protoAgentTargetWithOutputDelivery(providerName, model, prompt string) *pro
 		},
 	}
 	return target
+}
+
+func protoAgentTargetWithDeliveries(providerName, model, prompt string) *proto.BoundWorkflowTarget {
+	target := protoAgentTargetWithOutputDelivery(providerName, model, prompt)
+	target.GetAgent().SessionReadyDelivery = protoSessionReadyDelivery()
+	return target
+}
+
+func protoSessionReadyDelivery() *proto.WorkflowOutputDelivery {
+	return &proto.WorkflowOutputDelivery{
+		Target: &proto.BoundWorkflowPluginTarget{
+			PluginName: "slack",
+			Operation:  "events.replySessionStarted",
+		},
+		CredentialMode: "none",
+		InputBindings: []*proto.WorkflowOutputBinding{
+			{
+				InputField: "session_id",
+				Value: &proto.WorkflowOutputValueSource{
+					Kind: &proto.WorkflowOutputValueSource_AgentSession{AgentSession: "id"},
+				},
+			},
+			{
+				InputField: "reply_ref",
+				Value: &proto.WorkflowOutputValueSource{
+					Kind: &proto.WorkflowOutputValueSource_SignalPayload{SignalPayload: "reply_ref"},
+				},
+			},
+		},
+	}
 }
 
 func protoAgentTargetFromMessage(agent *proto.BoundWorkflowAgentTarget) *proto.BoundWorkflowTarget {

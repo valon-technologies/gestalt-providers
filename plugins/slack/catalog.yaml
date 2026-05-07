@@ -47,6 +47,20 @@ operations:
     description: Required complete Slack message body to post in the event thread
     required: true
   visible: false
+- id: events.replySessionStarted
+  method: POST
+  description: Reply to the Slack event thread with a link to the started Gestalt
+    agent session; requires reply_ref and session_id
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference from the current Slack signal
+    required: true
+  - name: session_id
+    type: string
+    description: Gestalt agent session ID to include in the session link
+    required: true
+  visible: false
 - id: events.setStatus
   method: POST
   description: Create or update a Slack status message in the event thread
