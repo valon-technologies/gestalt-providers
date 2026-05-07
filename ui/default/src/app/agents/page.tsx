@@ -600,6 +600,7 @@ export default function AgentsPage() {
       <div className="min-h-screen bg-background">
         <Nav />
         <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden">
+          <h1 className="sr-only">Agent Sessions</h1>
           <div className="flex items-center justify-between border-b border-alpha px-5 py-2.5">
             <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
               <span className="tui-glyph text-grove-600 dark:text-grove-200">●</span>
@@ -838,7 +839,7 @@ function SessionSidebar({
       ) : sessions.length === 0 ? (
         <p className="px-4 py-3 font-mono text-xs text-faint">
           <span className="tui-glyph mr-2">·</span>
-          no sessions
+          No agent sessions yet.
         </p>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -911,9 +912,9 @@ function ConsoleHeader({
       <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
         <span className="tui-section-label">session</span>
         <span className="tui-glyph text-faint">›</span>
-        <span className="truncate text-sm text-primary">
+        <h2 className="truncate text-sm font-normal text-primary">
           {session?.clientRef || session?.id?.slice(0, 8) || "new"}
-        </span>
+        </h2>
         <span className="text-faint">·</span>
         <span className="text-muted">
           {session ? `${session.provider || "default"} / ${session.model || "—"}` : "first message creates a cloud session"}
@@ -923,6 +924,7 @@ function ConsoleHeader({
           {turn && isTurnLive(turn.status) ? (
             <button
               type="button"
+              aria-label="Cancel turn"
               onClick={() => void onCancelTurn(turn)}
               disabled={cancelingTurnID === turn.id}
               className="border border-ember-500 bg-transparent px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-ember-500 transition-colors duration-150 hover:bg-ember-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
@@ -1109,8 +1111,7 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-primary">{item.title}</span>
           <span className="tui-status-line">
-            {event?.seq ? `#${event.seq}` : ""}
-            {event?.seq && phase ? " · " : ""}
+            {event?.seq ? `#${event.seq} ` : ""}
             {phase || "tool"}
           </span>
           <span className="ml-auto tui-status-line">
@@ -1125,11 +1126,11 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
         ) : null}
 
         <div className="mt-1.5 tui-tree">
-          {input ? <TranscriptDetail glyph="├─" label="input" value={input} /> : null}
+          {input ? <TranscriptDetail glyph="├─" label="Input" value={input} /> : null}
           {detail ? (
-            <TranscriptDetail glyph={raw ? "├─" : "└─"} label="output" value={detail} />
+            <TranscriptDetail glyph={raw ? "├─" : "└─"} label="Output" value={detail} />
           ) : null}
-          {raw ? <TranscriptDetail glyph="└─" label="event.json" value={raw} muted /> : null}
+          {raw ? <TranscriptDetail glyph="└─" label="Event JSON" value={raw} muted /> : null}
         </div>
       </div>
     </article>
@@ -1885,10 +1886,13 @@ function EventInspector({
   return (
     <aside className="flex min-h-[16rem] flex-col overflow-hidden bg-background/30 lg:min-h-0">
       <div className="border-b border-alpha px-4 py-3">
-        <div className="tui-section-label flex items-center gap-2">
+        <h2 className="tui-section-label flex items-center gap-2 font-normal">
           <span className="tui-glyph text-faint">◇</span>
-          <span>Inspector</span>
-        </div>
+          Activity
+          <span className="ml-auto text-faint normal-case tracking-normal">
+            {activityEvents.length}
+          </span>
+        </h2>
         <dl className="mt-3 space-y-1 font-mono text-[11px]">
           <InspectorRow label="session" value={sessionShort} />
           <InspectorRow label="turn" value={turnShort} />
@@ -1901,13 +1905,10 @@ function EventInspector({
         </dl>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <div className="tui-section-label mb-2 flex items-center gap-2">
+        <h3 className="tui-section-label mb-2 flex items-center gap-2 font-normal">
           <span className="tui-glyph text-faint">◇</span>
-          <span>Activity</span>
-          <span className="ml-auto text-faint normal-case tracking-normal">
-            {activityEvents.length}
-          </span>
-        </div>
+          Public Activity
+        </h3>
         {activityEvents.length === 0 ? (
           <p className="font-mono text-xs text-faint">
             <span className="tui-glyph mr-2">·</span>
@@ -1943,40 +1944,25 @@ function ActivityEvent({ event }: { event: AgentTurnEvent }) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-primary">{title}</p>
             <p className="tui-status-line">
-              #{event.seq} · {phase || event.display?.kind || event.source || "event"}
+              #{event.seq} {phase || event.display?.kind || event.source || "event"}
             </p>
           </div>
         </div>
       </summary>
       <div className="ml-4 mt-1 space-y-1 tui-tree">
         {input ? (
-          <details>
-            <summary className="cursor-pointer list-none text-faint hover:text-muted">
-              <span className="tui-glyph mr-1">├─</span>input
-            </summary>
-            <pre className="ml-4 mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
-              {input}
-            </pre>
-          </details>
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+            {input}
+          </pre>
         ) : null}
         {detail ? (
-          <details>
-            <summary className="cursor-pointer list-none text-faint hover:text-muted">
-              <span className="tui-glyph mr-1">├─</span>output
-            </summary>
-            <pre className="ml-4 mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
-              {detail}
-            </pre>
-          </details>
-        ) : null}
-        <details>
-          <summary className="cursor-pointer list-none text-faint hover:text-muted">
-            <span className="tui-glyph mr-1">└─</span>event.json
-          </summary>
-          <pre className="ml-4 mt-1 max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-muted">
-            {JSON.stringify(event, null, 2)}
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+            {detail}
           </pre>
-        </details>
+        ) : null}
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-muted">
+          {JSON.stringify(event, null, 2)}
+        </pre>
       </div>
     </details>
   );
