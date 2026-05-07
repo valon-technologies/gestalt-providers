@@ -375,6 +375,66 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
+- id: user.createPullRequest
+  method: POST
+  description: Commit file changes and open a pull request using the caller's GitHub
+    OAuth token
+  tags: [pr, prs]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: title
+    type: string
+    description: Pull request title
+    required: true
+  - name: message
+    type: string
+    description: Commit message
+    required: true
+  - name: files
+    type: array
+    description: Files to create, update, or delete. Each item accepts path, content,
+      content_base64, delete, and executable.
+    required: true
+  - name: body
+    type: string
+    description: Pull request body
+    default: ''
+  - name: branch
+    type: string
+    description: Head branch to create or update. Defaults to a generated branch.
+    default: ''
+  - name: base
+    type: string
+    description: Base branch. Defaults to the repository default branch.
+    default: ''
+  - name: coauthors
+    type: array
+    description: Co-authors to append as commit trailers. Each item accepts name and
+      email.
+  - name: include_bot_coauthor
+    type: boolean
+    description: Append the GitHub App bot as a co-author when its no-reply identity
+      can be derived
+    default: true
+  - name: force
+    type: boolean
+    description: Force-update the head branch ref
+    default: false
+  - name: draft
+    type: boolean
+    description: Create the pull request as a draft
+    default: false
+  - name: maintainer_can_modify
+    type: boolean
+    description: Allow maintainers to modify the pull request branch
+    default: true
 - id: bot.getPullRequest
   method: GET
   description: Get pull request metadata using a GitHub App installation token

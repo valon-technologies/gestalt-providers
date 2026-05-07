@@ -16,6 +16,7 @@ from .client import (
     JsonObject,
     repo_path,
 )
+from .config import GitHubUserIdentity
 from .constants import (
     GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE,
     GITHUB_INSTALLATION_SUBJECT_PREFIX,
@@ -100,6 +101,23 @@ class GitHubCreatePullRequestRequest:
     author_email: str = ""
     committer_name: str = ""
     committer_email: str = ""
+    force: bool = False
+    draft: bool = False
+    maintainer_can_modify: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubUserCreatePullRequestRequest:
+    owner: str
+    repo: str
+    title: str
+    message: str
+    files: tuple[GitHubFileChange, ...]
+    body: str = ""
+    branch: str = ""
+    base: str = ""
+    coauthors: tuple[GitHubCoAuthor, ...] = ()
+    include_bot_coauthor: bool = True
     force: bool = False
     draft: bool = False
     maintainer_can_modify: bool = True
@@ -458,6 +476,16 @@ class GitHubInstallationResolution:
     installation_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class _ValidatedCommitRequest:
+    owner: str
+    repo: str
+    message_text: str
+    files: tuple[GitHubFileChange, ...]
+    base_branch: str
+    branch: str
+
+
 def commit_files(
     request: GitHubCommitRequest,
     *,
@@ -467,6 +495,64 @@ def commit_files(
     client: GitHubAPIClient | None = None,
 ) -> CommitResult:
     github = github_client(client)
+    validated = _validate_commit_request(request)
+
+    installation_id = scoped_installation_id(
+        subject,
+        owner=validated.owner,
+        repo=validated.repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
+    )
+    message = commit_message_with_coauthors(
+        validated.message_text,
+        coauthors=request.coauthors,
+        include_bot=request.include_bot_coauthor,
+        client=github,
+    )
+    permissions = {"contents": "write"}
+    if pull_request_permissions:
+        permissions["pull_requests"] = "write"
+    token = github.installation_token(
+        installation_id, repositories=[validated.repo], permissions=permissions
+    )
+
+    return _write_commit(
+        validated,
+        request,
+        token=token,
+        installation_id=installation_id,
+        message=message,
+        client=github,
+    )
+
+
+def _commit_files_with_token(
+    request: GitHubCommitRequest,
+    *,
+    token: str,
+    installation_id: int,
+    client: GitHubAPIClient,
+) -> CommitResult:
+    validated = _validate_commit_request(request)
+    message = commit_message_with_coauthors(
+        validated.message_text,
+        coauthors=request.coauthors,
+        include_bot=request.include_bot_coauthor,
+        client=client,
+    )
+    return _write_commit(
+        validated,
+        request,
+        token=token,
+        installation_id=installation_id,
+        message=message,
+        client=client,
+    )
+
+
+def _validate_commit_request(request: GitHubCommitRequest) -> _ValidatedCommitRequest:
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     message_text = require_text(request.message, "message")
@@ -484,42 +570,44 @@ def commit_files(
         if request.branch.strip()
         else generated_branch_name(request.message)
     )
-
-    installation_id = scoped_installation_id(
-        subject,
+    return _ValidatedCommitRequest(
         owner=owner,
         repo=repo,
-        explicit=request.installation_id,
-        external_identity=external_identity,
-        client=github,
-    )
-    message = commit_message_with_coauthors(
-        message_text,
-        coauthors=request.coauthors,
-        include_bot=request.include_bot_coauthor,
-        client=github,
-    )
-    permissions = {"contents": "write"}
-    if pull_request_permissions:
-        permissions["pull_requests"] = "write"
-    token = github.installation_token(
-        installation_id, repositories=[repo], permissions=permissions
+        message_text=message_text,
+        files=files,
+        base_branch=base_branch,
+        branch=branch,
     )
 
+
+def _write_commit(
+    validated: _ValidatedCommitRequest,
+    request: GitHubCommitRequest,
+    *,
+    token: str,
+    installation_id: int,
+    message: str,
+    client: GitHubAPIClient,
+) -> CommitResult:
+    owner = validated.owner
+    repo = validated.repo
+    base_branch = validated.base_branch
+    branch = validated.branch
+
     if not base_branch:
-        base_branch = github.repository_default_branch(token, owner, repo)
+        base_branch = client.repository_default_branch(token, owner, repo)
     if branch == base_branch and not request.allow_base_update:
         raise ValueError(
             "branch must differ from base_branch unless allow_base_update is true"
         )
 
-    branch_ref = github.get_branch_ref(token, owner, repo, branch)
+    branch_ref = client.get_branch_ref(token, owner, repo, branch)
     branch_created = branch_ref is None
-    parent_ref = branch_ref or github.require_branch_ref(
+    parent_ref = branch_ref or client.require_branch_ref(
         token, owner, repo, base_branch, "base_branch"
     )
-    parent_sha = github.object_sha(parent_ref, "parent ref")
-    parent_commit = github.github_json(
+    parent_sha = client.object_sha(parent_ref, "parent ref")
+    parent_commit = client.github_json(
         "GET",
         repo_path(owner, repo, "git", "commits", parent_sha),
         token,
@@ -529,10 +617,10 @@ def commit_files(
         raise GitHubAPIError(502, "GitHub commit response did not include tree.sha")
 
     tree_entries = [
-        tree_entry_for_file(token, owner=owner, repo=repo, change=change, client=github)
-        for change in files
+        tree_entry_for_file(token, owner=owner, repo=repo, change=change, client=client)
+        for change in validated.files
     ]
-    tree = github.github_json(
+    tree = client.github_json(
         "POST",
         repo_path(owner, repo, "git", "trees"),
         token,
@@ -557,7 +645,7 @@ def commit_files(
     if committer:
         commit_payload["committer"] = committer
 
-    commit = github.github_json(
+    commit = client.github_json(
         "POST",
         repo_path(owner, repo, "git", "commits"),
         token,
@@ -568,14 +656,14 @@ def commit_files(
         raise GitHubAPIError(502, "GitHub commit response did not include sha")
 
     if branch_created:
-        github.github_json(
+        client.github_json(
             "POST",
             repo_path(owner, repo, "git", "refs"),
             token,
             {"ref": f"refs/heads/{branch}", "sha": commit_sha},
         )
     else:
-        github.github_json(
+        client.github_json(
             "PATCH",
             repo_path(owner, repo, "git", "refs", "heads", branch, safe_last="/"),
             token,
@@ -589,10 +677,10 @@ def commit_files(
         base_branch=base_branch,
         installation_id=installation_id,
         commit_sha=commit_sha,
-        commit_url=github.commit_url(owner, repo, commit_sha),
+        commit_url=client.commit_url(owner, repo, commit_sha),
         tree_sha=tree_sha,
         branch_created=branch_created,
-        files_changed=len(files),
+        files_changed=len(validated.files),
     )
 
 
@@ -678,6 +766,7 @@ def create_pull_request_with_files(
     client: GitHubAPIClient | None = None,
 ) -> CreatePullRequestResult:
     github = github_client(client)
+    title = require_text(request.title, "title")
     commit = commit_files(
         GitHubCommitRequest(
             owner=request.owner,
@@ -710,7 +799,55 @@ def create_pull_request_with_files(
         token,
         owner=commit.owner,
         repo=commit.repo,
-        title=require_text(request.title, "title"),
+        title=title,
+        head=commit.branch,
+        base=commit.base_branch,
+        body=request.body,
+        head_owner="",
+        draft=request.draft,
+        maintainer_can_modify=request.maintainer_can_modify,
+        client=github,
+    )
+    return CreatePullRequestResult(commit=commit, pull_request=pull)
+
+
+def create_pull_request_with_user_files(
+    request: GitHubUserCreatePullRequestRequest,
+    *,
+    access_token: str,
+    client: GitHubAPIClient | None = None,
+) -> CreatePullRequestResult:
+    github = github_client(client)
+    token = require_text(access_token, "token")
+    title = require_text(request.title, "title")
+    user = github.current_user_identity(token)
+    author_name, author_email = user_git_identity(user)
+    commit = _commit_files_with_token(
+        GitHubCommitRequest(
+            owner=request.owner,
+            repo=request.repo,
+            message=request.message,
+            files=request.files,
+            branch=request.branch,
+            base_branch=request.base,
+            coauthors=request.coauthors,
+            include_bot_coauthor=request.include_bot_coauthor,
+            author_name=author_name,
+            author_email=author_email,
+            committer_name=author_name,
+            committer_email=author_email,
+            force=request.force,
+            allow_base_update=False,
+        ),
+        token=token,
+        installation_id=0,
+        client=github,
+    )
+    pull = create_pull_request_on_github(
+        token,
+        owner=commit.owner,
+        repo=commit.repo,
+        title=title,
         head=commit.branch,
         base=commit.base_branch,
         body=request.body,
@@ -1939,6 +2076,18 @@ def git_identity(name: str, email: str) -> dict[str, str] | None:
             "git author/committer name and email must be provided together"
         )
     return {"name": name, "email": email}
+
+
+def user_git_identity(identity: GitHubUserIdentity) -> tuple[str, str]:
+    login = identity.login.strip()
+    user_id = identity.user_id.strip()
+    if not login:
+        raise GitHubAPIError(502, "GitHub user response did not include login")
+    if not user_id:
+        raise GitHubAPIError(502, "GitHub user response did not include id")
+    name = identity.name.strip() or login
+    email = identity.email.strip() or f"{user_id}+{login}@users.noreply.github.com"
+    return name, email
 
 
 def commit_result_dict(commit: CommitResult) -> dict[str, Any]:
