@@ -339,7 +339,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         if publish_response is not None:
             return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
-        _notify_unlinked_slack_user_for_event(event, req)
+        if _should_notify_unlinked_slack_user_for_event(event):
+            _notify_unlinked_slack_user_for_event(event, req)
         return {"ok": True, "unlinked": True}
     if not _agent_config.bot.token:
         if publish_response is not None:
@@ -1413,6 +1414,7 @@ def _slack_agent_event_from_payload(
 
     event_type = str(event.get("type") or "").strip()
     channel_type = str(event.get("channel_type") or "").strip()
+    subtype = str(event.get("subtype") or "").strip()
     if event_type not in SUPPORTED_EVENT_TYPES:
         return None, "unsupported_event_type"
 
@@ -1449,6 +1451,7 @@ def _slack_agent_event_from_payload(
                 message_ts=thread_ts,
                 thread_ts=thread_ts,
                 reply_thread_ts=thread_ts,
+                subtype="",
                 addressed_to_bot=True,
                 assistant_context_present=True,
                 bot_user_id=bot_user_id,
@@ -1478,7 +1481,6 @@ def _slack_agent_event_from_payload(
         channel_type=channel_type,
         message_ts=message_ts,
         thread_ts=thread_ts,
-        addressed_to_bot=addressed_to_bot,
     )
 
     if not user_id:
@@ -1501,6 +1503,7 @@ def _slack_agent_event_from_payload(
             message_ts=message_ts,
             thread_ts=thread_ts,
             reply_thread_ts=reply_thread_ts,
+            subtype=subtype,
             client_msg_id=str(event.get("client_msg_id") or "").strip(),
             addressed_to_bot=addressed_to_bot,
             assistant_context_present=assistant_context_present,
@@ -1906,7 +1909,6 @@ def _slack_reply_thread_ts(
     channel_type: str,
     message_ts: str,
     thread_ts: str,
-    addressed_to_bot: bool,
 ) -> str:
     if thread_ts:
         return thread_ts
@@ -1915,10 +1917,15 @@ def _slack_reply_thread_ts(
     if (
         event_type == SlackEventType.MESSAGE
         and channel_type not in DIRECT_MESSAGE_CHANNEL_TYPES
-        and addressed_to_bot
     ):
         return message_ts
     return ""
+
+
+def _should_notify_unlinked_slack_user_for_event(event: SlackAgentEvent) -> bool:
+    if event.event_type != SlackEventType.MESSAGE:
+        return True
+    return event.addressed_to_bot or event.assistant_context_present
 
 
 def _resolve_slack_subject(
@@ -2225,13 +2232,16 @@ def _reply_ref_signing_key() -> bytes:
 
 def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None, str]:
     if _agent_config.routes:
+        matched_route = False
         for route in _agent_config.routes:
             if route.match.matches(event):
-                if _agent_event_can_start_agent(event):
+                matched_route = True
+                if _agent_event_can_start_agent(event, route):
                     return route, ""
-                return None, "unsupported_event_type"
+        if matched_route:
+            return None, "unsupported_event_type"
         return None, "no_matching_agent_route"
-    if _agent_event_can_start_agent(event):
+    if _agent_event_can_start_agent(event, None):
         return None, ""
     return None, "unsupported_event_type"
 
@@ -2256,7 +2266,9 @@ def _agent_route_from_signed_id(route_id: str) -> SlackAgentRoute | None:
     return route
 
 
-def _agent_event_can_start_agent(event: SlackAgentEvent) -> bool:
+def _agent_event_can_start_agent(
+    event: SlackAgentEvent, route: SlackAgentRoute | None
+) -> bool:
     if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
         return True
     if event.event_type == SlackEventType.APP_MENTION:
@@ -2265,7 +2277,11 @@ def _agent_event_can_start_agent(event: SlackAgentEvent) -> bool:
         return False
     if event.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES:
         return True
-    return event.addressed_to_bot or event.assistant_context_present
+    if event.addressed_to_bot or event.assistant_context_present:
+        return True
+    return bool(
+        route is not None and route.match.explicitly_matches_slack_message_event(event)
+    )
 
 
 def _build_workflow_signal_or_start_request(
@@ -2434,6 +2450,7 @@ def _slack_workflow_signal_payload(
     slack_payload: dict[str, Any] = {
         "callback_type": event.callback_type,
         "event_type": event.event_type,
+        "subtype": event.subtype,
         "event_id": event.event_id,
         "team_id": event.team_id,
         "user_id": event.user_id,
@@ -2699,6 +2716,7 @@ def _agent_metadata(
             "slack": {
                 "callback_type": event.callback_type,
                 "event_type": event.event_type,
+                "subtype": event.subtype,
                 "event_id": event.event_id,
                 "team_id": event.team_id,
                 "user_id": event.user_id,

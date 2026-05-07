@@ -18,6 +18,7 @@ from .models import (
     SlackSuggestedPrompt,
     SlackThreadContextConfig,
     SlackWorkflowConfig,
+    SUPPORTED_AGENT_ROUTE_EVENT_TYPES,
 )
 
 MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS = 2_147_483_647
@@ -618,10 +619,16 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
                 config, "channelType", "channelTypes", "channel_type", "channel_types"
             )
         ),
-        event_types=_lower_tuple(
-            _config_string_tuple(
-                config, "eventType", "eventTypes", "event_type", "event_types"
-            )
+        event_types=_config_choice_tuple(
+            config,
+            SUPPORTED_AGENT_ROUTE_EVENT_TYPES,
+            "eventType",
+            "eventTypes",
+            "event_type",
+            "event_types",
+        ),
+        subtypes=_config_optional_lower_string_tuple(
+            config, "subtype", "subtypes", "sub_type", "sub_types"
         ),
         user_ids=_config_string_tuple(
             config, "user", "users", "userId", "userIds", "user_id", "user_ids"
@@ -870,6 +877,42 @@ def _config_optional_lower_string_tuple(
         if key in config:
             return _lower_tuple(_config_string_tuple(config, key))
     return None
+
+
+def _config_choice_tuple(
+    config: dict[str, Any],
+    allowed_values: frozenset[str],
+    *keys: str,
+) -> tuple[str, ...]:
+    for key in keys:
+        if key not in config:
+            continue
+        value = config.get(key)
+        raw_values: list[str]
+        if isinstance(value, str):
+            raw_values = [value]
+        elif isinstance(value, list):
+            raw_values = []
+            for index, item in enumerate(value, start=1):
+                if not isinstance(item, str):
+                    raise ValueError(f"{key}[{index}] must be a string")
+                raw_values.append(item)
+        else:
+            raise ValueError(f"{key} must be a string or list of strings")
+
+        values: list[str] = []
+        for index, raw_value in enumerate(raw_values, start=1):
+            normalized = raw_value.strip()
+            if not normalized:
+                raise ValueError(f"{key}[{index}] must not be empty")
+            if normalized not in allowed_values:
+                allowed = ", ".join(sorted(allowed_values))
+                raise ValueError(
+                    f"{key}[{index}] must be one of: {allowed}; got {normalized!r}"
+                )
+            values.append(normalized)
+        return tuple(dict.fromkeys(values))
+    return ()
 
 
 def _lower_tuple(values: tuple[str, ...]) -> tuple[str, ...]:

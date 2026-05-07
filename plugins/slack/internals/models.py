@@ -19,13 +19,37 @@ class SlackEventType(StrEnum):
 
 
 class SlackChannelType(StrEnum):
+    CHANNEL = "channel"
+    GROUP = "group"
     IM = "im"
     MPIM = "mpim"
+    APP_HOME = "app_home"
 
 
 SUPPORTED_EVENT_TYPES = frozenset(event.value for event in SlackEventType)
+SLACK_MESSAGE_EVENT_TYPE_BY_CHANNEL_TYPE = {
+    SlackChannelType.CHANNEL.value: "message.channels",
+    SlackChannelType.GROUP.value: "message.groups",
+    SlackChannelType.IM.value: "message.im",
+    SlackChannelType.MPIM.value: "message.mpim",
+    SlackChannelType.APP_HOME.value: "message.app_home",
+}
+SUPPORTED_SLACK_EVENT_TYPES = frozenset(
+    {
+        SlackEventType.APP_MENTION.value,
+        SlackEventType.ASSISTANT_THREAD_STARTED.value,
+        SlackEventType.ASSISTANT_THREAD_CONTEXT_CHANGED.value,
+        *SLACK_MESSAGE_EVENT_TYPE_BY_CHANNEL_TYPE.values(),
+    }
+)
+SUPPORTED_AGENT_ROUTE_EVENT_TYPES = SUPPORTED_EVENT_TYPES | SUPPORTED_SLACK_EVENT_TYPES
 DIRECT_MESSAGE_CHANNEL_TYPES = frozenset(
-    channel.value for channel in (SlackChannelType.IM, SlackChannelType.MPIM)
+    channel.value
+    for channel in (
+        SlackChannelType.IM,
+        SlackChannelType.MPIM,
+        SlackChannelType.APP_HOME,
+    )
 )
 ASSISTANT_THREAD_EVENT_TYPES = frozenset(
     {
@@ -35,6 +59,17 @@ ASSISTANT_THREAD_EVENT_TYPES = frozenset(
 )
 
 SlackInteractionActionStyle: TypeAlias = Literal["", "primary", "danger"]
+
+
+def event_type_for_event(event_type: str, channel_type: str) -> str:
+    normalized_event_type = event_type.strip().lower()
+    if normalized_event_type == SlackEventType.MESSAGE:
+        return SLACK_MESSAGE_EVENT_TYPE_BY_CHANNEL_TYPE.get(
+            channel_type.strip().lower(), ""
+        )
+    if normalized_event_type in SUPPORTED_SLACK_EVENT_TYPES:
+        return normalized_event_type
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +108,7 @@ class SlackAgentEvent:
     bot_user_id: str = ""
     context_channel_id: str = ""
     files: tuple[dict[str, Any], ...] = ()
+    subtype: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +118,7 @@ class SlackAgentRouteMatch:
     channel_types: tuple[str, ...] = ()
     event_types: tuple[str, ...] = ()
     user_ids: tuple[str, ...] = ()
+    subtypes: tuple[str, ...] | None = None
 
     def matches(self, event: SlackAgentEvent) -> bool:
         if self.team_ids and event.team_id not in self.team_ids:
@@ -99,11 +136,37 @@ class SlackAgentRouteMatch:
             return False
         if self.channel_types and event.channel_type.lower() not in self.channel_types:
             return False
-        if self.event_types and event.event_type.lower() not in self.event_types:
-            return False
+        if self.event_types:
+            event_types = frozenset(value.strip().lower() for value in self.event_types)
+            slack_event_type = event_type_for_event(
+                event.event_type, event.channel_type
+            )
+            if (
+                event.event_type.lower() not in event_types
+                and slack_event_type not in event_types
+            ):
+                return False
+        if self.subtypes is not None:
+            subtype = event.subtype.lower()
+            if not self.subtypes:
+                if subtype:
+                    return False
+            elif subtype not in self.subtypes:
+                return False
         if self.user_ids and event.user_id not in self.user_ids:
             return False
         return True
+
+    def explicitly_matches_slack_message_event(self, event: SlackAgentEvent) -> bool:
+        if event.event_type != SlackEventType.MESSAGE:
+            return False
+        if not self.event_types:
+            return False
+        event_type = event_type_for_event(
+            event.event_type, event.channel_type
+        )
+        event_types = frozenset(value.strip().lower() for value in self.event_types)
+        return bool(event_type and event_type in event_types)
 
 
 @dataclass(frozen=True, slots=True)

@@ -238,7 +238,8 @@ plugins:
                 - C0123456789
               eventTypes:
                 - app_mention
-                - message
+                - message.channels
+              subtypes: []
             agent:
               acknowledgement:
                 reaction: eyes
@@ -296,6 +297,20 @@ channel internally. Signed interaction callbacks include the route ID; if a
 non-empty signed route ID no longer exists in the provider configuration, the
 provider rejects the callback instead of silently falling back to global
 behavior.
+
+`match.eventTypes` accepts Slack Events API subscription literals:
+`app_mention`, `message.channels`, `message.groups`, `message.im`,
+`message.mpim`, `message.app_home`, `assistant_thread_started`, and
+`assistant_thread_context_changed`. Values must match Slack's literals exactly.
+Slack delivers `message.*` subscriptions as payloads whose inner event type is
+`message`, so `match.eventTypes` remains the payload-type matcher.
+`eventTypes: [message]` does not opt a non-DM route into all plain channel
+messages. To make every public-channel message trigger an agent reply for a
+channel, use `eventTypes: [message.channels]` on that route. Message routes can
+set `subtypes`: omitted means all non-ignored subtypes can match,
+`subtypes: []` means only normal messages with no subtype match, and a non-empty
+list matches those Slack message subtypes. Bot, edit, delete, and thread-reply
+notification message events remain ignored before route matching.
 
 ## Event Publishing
 
