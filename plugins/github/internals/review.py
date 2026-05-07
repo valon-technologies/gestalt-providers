@@ -30,6 +30,7 @@ from .operations import (
     get_pull_request,
     list_pull_request_review_threads,
     list_pull_request_files,
+    non_empty_external_identity,
     pull_request_file_summary,
     pull_request_review_summary,
     pull_request_summary,
@@ -415,7 +416,9 @@ def input_value(input: Any, key: str) -> Any:
 
 
 def request_external_identity_kwargs(req: gestalt.Request) -> dict[str, Any]:
-    external_identity = getattr(req, "external_identity", None)
+    external_identity = non_empty_external_identity(
+        getattr(req, "external_identity", None)
+    )
     return (
         {"external_identity": external_identity}
         if external_identity is not None
