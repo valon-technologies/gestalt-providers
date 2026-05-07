@@ -4309,7 +4309,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.52",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/slack/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.52",
+      "manifestVersion": "0.0.1-alpha.53",
       "name": "slack",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/slack",
       "packagePath": "plugins/slack",
