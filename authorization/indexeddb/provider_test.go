@@ -407,6 +407,7 @@ func newProviderSession(t *testing.T) *providerSession {
 
 	t.Setenv(proto.EnvProviderSocket, idbSocket)
 	idbProvider := newTestIndexedDBProvider()
+	seedAuthorizationStores(t, idbProvider)
 	idbCtx, idbCancel := context.WithCancel(context.Background())
 	idbErrCh := make(chan error, 1)
 	go func() {
@@ -459,6 +460,32 @@ func (s *providerSession) configure(t *testing.T, config map[string]any) {
 	})
 	if err != nil {
 		t.Fatalf("ConfigureProvider: %v", err)
+	}
+}
+
+func seedAuthorizationStores(t *testing.T, provider *testIndexedDBProvider) {
+	t.Helper()
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreSchema
+	}{
+		{name: stateStoreName, schema: gestalt.ObjectStoreSchema{}},
+		{name: modelsStoreName, schema: gestalt.ObjectStoreSchema{}},
+		{name: relationsStoreName, schema: authorizationRelationshipsSchema()},
+	} {
+		if err := provider.CreateObjectStore(context.Background(), def.name, def.schema); err != nil {
+			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
+		}
+	}
+}
+
+func authorizationRelationshipsSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: relationshipsBySubj, KeyPath: []string{"subject_type", "subject_id"}},
+			{Name: relationshipsByRes, KeyPath: []string{"resource_type", "resource_id"}},
+			{Name: relationshipsByPair, KeyPath: []string{"subject_type", "subject_id", "resource_type", "resource_id"}},
+		},
 	}
 }
 

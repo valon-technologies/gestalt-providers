@@ -1299,6 +1299,7 @@ func startTestIndexedDBBackend(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
+	seedTemporalWorkflowStores(t, store)
 
 	t.Setenv(proto.EnvProviderSocket, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1329,4 +1330,128 @@ func startTestIndexedDBBackend(t *testing.T) {
 		_ = os.Remove(socketPath)
 	})
 	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
+}
+
+func seedTemporalWorkflowStores(t *testing.T, store *relationaldb.Provider) {
+	t.Helper()
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreSchema
+	}{
+		{name: storeTemporalRuns, schema: temporalRunSchema()},
+		{name: storeTemporalWorkflowKeys, schema: temporalWorkflowKeySchema()},
+		{name: storeTemporalIdempotency, schema: temporalIdempotencySchema()},
+		{name: storeTemporalSchedules, schema: temporalScheduleSchema()},
+		{name: storeTemporalEventTriggers, schema: temporalEventTriggerSchema()},
+		{name: storeTemporalEventTriggerKeys, schema: temporalEventTriggerKeySchema()},
+		{name: storeTemporalExecutionRefs, schema: temporalExecutionRefSchema()},
+	} {
+		if err := store.CreateObjectStore(context.Background(), def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
+		}
+	}
+}
+
+func temporalRunSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: indexByOwner, KeyPath: []string{"owner_key"}},
+			{Name: indexByWorkflow, KeyPath: []string{"workflow_key"}},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_key", Type: gestalt.TypeString},
+			{Name: "workflow_key", Type: gestalt.TypeString},
+			{Name: "status", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
+}
+
+func temporalWorkflowKeySchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "run_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+		},
+	}
+}
+
+func temporalIdempotencySchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{{Name: indexByOwner, KeyPath: []string{"owner_key"}}},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_key", Type: gestalt.TypeString},
+			{Name: "idempotency_key", Type: gestalt.TypeString, NotNull: true},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
+}
+
+func temporalScheduleSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{{Name: indexByOwner, KeyPath: []string{"owner_key"}}},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_key", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
+}
+
+func temporalEventTriggerSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{{Name: indexByOwner, KeyPath: []string{"owner_key"}}},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_key", Type: gestalt.TypeString},
+			{Name: "paused", Type: gestalt.TypeBool},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
+}
+
+func temporalEventTriggerKeySchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: indexByMatchKey, KeyPath: []string{"match_key"}},
+			{Name: indexByTriggerID, KeyPath: []string{"trigger_id"}},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "match_key", Type: gestalt.TypeString, NotNull: true},
+			{Name: "trigger_id", Type: gestalt.TypeString, NotNull: true},
+		},
+	}
+}
+
+func temporalExecutionRefSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{{Name: indexBySubject, KeyPath: []string{"subject_id"}}},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "provider_name", Type: gestalt.TypeString, NotNull: true},
+			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "revoked_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
 }

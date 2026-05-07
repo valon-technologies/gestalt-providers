@@ -3756,6 +3756,7 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(proto.IndexedD
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
+	seedWorkflowObjectStores(t, store)
 	lis, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("Listen(indexeddb): %v", err)
@@ -3774,6 +3775,87 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(proto.IndexedD
 		_ = store.Close()
 	})
 	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
+}
+
+func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
+	t.Helper()
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreSchema
+	}{
+		{name: storeSchedules, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeEventTriggers, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeIdempotency, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeRuns, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeRunClaims, schema: workflowRunClaimSchema()},
+		{name: storeExecutionRefs, schema: workflowExecutionReferenceSchema()},
+		{name: storeSignals, schema: workflowSignalSchema()},
+	} {
+		if err := store.CreateObjectStore(context.Background(), def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
+		}
+	}
+}
+
+func workflowRunClaimSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: columnTypeString, PrimaryKey: true},
+			{Name: "run_id", Type: columnTypeString, NotNull: true},
+			{Name: "owner_id", Type: columnTypeString, NotNull: true},
+			{Name: "claimed_at", Type: columnTypeTime},
+			{Name: "expires_at", Type: columnTypeTime},
+		},
+	}
+}
+
+func workflowSignalSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_run", KeyPath: []string{"run_id"}},
+			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},
+			{Name: "by_run_sequence", KeyPath: []string{"run_id", "sequence"}, Unique: true},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: columnTypeString, PrimaryKey: true},
+			{Name: "run_id", Type: columnTypeString, NotNull: true},
+			{Name: "workflow_key", Type: columnTypeString},
+			{Name: "state", Type: columnTypeString, NotNull: true},
+			{Name: "signal_json", Type: columnTypeString},
+			{Name: "idempotency_key", Type: columnTypeString},
+			{Name: "sequence", Type: columnTypeInt},
+			{Name: "started_run", Type: columnTypeBool},
+			{Name: "batch_id", Type: columnTypeString},
+			{Name: "created_at", Type: columnTypeTime},
+			{Name: "claimed_at", Type: columnTypeTime},
+			{Name: "delivered_at", Type: columnTypeTime},
+			{Name: "failed_at", Type: columnTypeTime},
+			{Name: "status_message", Type: columnTypeString},
+		},
+	}
+}
+
+func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_subject", KeyPath: []string{"subject_id"}},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: columnTypeString, PrimaryKey: true},
+			{Name: "provider_name", Type: columnTypeString, NotNull: true},
+			{Name: "target_json", Type: columnTypeString},
+			{Name: "subject_id", Type: columnTypeString, NotNull: true},
+			{Name: "subject_kind", Type: columnTypeString},
+			{Name: "display_name", Type: columnTypeString},
+			{Name: "auth_source", Type: columnTypeString},
+			{Name: "credential_subject_id", Type: columnTypeString},
+			{Name: "permissions_json", Type: columnTypeString},
+			{Name: "caller_plugin_name", Type: columnTypeString},
+			{Name: "created_at", Type: columnTypeTime},
+			{Name: "revoked_at", Type: columnTypeTime},
+		},
+	}
 }
 
 type indexedDBServerSpy struct {

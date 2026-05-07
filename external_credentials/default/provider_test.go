@@ -1403,6 +1403,7 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
+	seedExternalCredentialStore(t, store)
 
 	t.Setenv(proto.EnvProviderSocket, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1419,6 +1420,38 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 	})
 
 	t.Setenv(envName, socketPath)
+}
+
+func seedExternalCredentialStore(t *testing.T, store *relationaldb.Provider) {
+	t.Helper()
+	if err := store.CreateObjectStore(context.Background(), storeName, externalCredentialTestSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		t.Fatalf("CreateObjectStore(%s): %v", storeName, err)
+	}
+}
+
+func externalCredentialTestSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: indexBySubject, KeyPath: []string{"subject_id"}},
+			{Name: indexBySubjectConnection, KeyPath: []string{"subject_id", "connection_id"}},
+			{Name: indexByLookup, KeyPath: []string{"subject_id", "connection_id", "instance"}, Unique: true},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "connection_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "instance", Type: gestalt.TypeString},
+			{Name: "access_token_encrypted", Type: gestalt.TypeString},
+			{Name: "refresh_token_encrypted", Type: gestalt.TypeString},
+			{Name: "scopes", Type: gestalt.TypeString},
+			{Name: "expires_at", Type: gestalt.TypeTime},
+			{Name: "last_refreshed_at", Type: gestalt.TypeTime},
+			{Name: "refresh_error_count", Type: gestalt.TypeInt},
+			{Name: "metadata_json", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+		},
+	}
 }
 
 func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc.ClientConn) {
