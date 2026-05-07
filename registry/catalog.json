@@ -1053,7 +1053,7 @@
       ],
       "iconUrl": null,
       "kind": "authorization",
-      "latestInstallableVersion": "0.0.1-alpha.3",
+      "latestInstallableVersion": "0.0.1-alpha.4",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.4",
       "name": "indexeddb",
@@ -1063,6 +1063,19 @@
       "registryPath": "/providers/authorization/indexeddb/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/authorization/indexeddb",
       "versions": [
+        {
+          "kind": "authorization",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.4/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.4"
+        },
         {
           "kind": "authorization",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.3/provider-release.yaml",
