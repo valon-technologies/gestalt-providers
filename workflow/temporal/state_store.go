@@ -84,11 +84,32 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflo
 	if run == nil || strings.TrimSpace(run.GetId()) == "" {
 		return nil
 	}
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = s.putRunOnce(ctx, run)
+		if err == nil {
+			return nil
+		}
+		if !shouldRetryWorkflowStateWrite(err) {
+			return err
+		}
+		timer := time.NewTimer(time.Duration(25*(1<<attempt)) * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return err
+}
+
+func (s *workflowStateStore) putRunOnce(ctx context.Context, run *proto.BoundWorkflowRun) error {
 	existing, runFound, err := s.getRun(ctx, run.GetId())
 	if err != nil {
 		return err
 	}
-	if runFound && workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(run.GetStatus()) {
+	if runFound && shouldIgnoreStaleRunState(existing, run) {
 		return nil
 	}
 	now := time.Now().UTC()
@@ -151,6 +172,44 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflo
 		}
 	}
 	return nil
+}
+
+func shouldIgnoreStaleRunState(existing, next *proto.BoundWorkflowRun) bool {
+	if existing == nil || next == nil || existing.GetId() != next.GetId() {
+		return false
+	}
+	if workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(next.GetStatus()) {
+		return true
+	}
+	return existing.GetStartedAt() != nil &&
+		next.GetStartedAt() == nil &&
+		next.GetStatus() == proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+}
+
+func shouldRetryWorkflowStateWrite(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gestalt.ErrAlreadyExists) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"already exists",
+		"deadlock",
+		"try restarting transaction",
+		"sqlstate 40001",
+		"error 1213",
+		"lock wait timeout",
+		"error 1205",
+		"database is locked",
+		"database table is locked",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *workflowStateStore) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
