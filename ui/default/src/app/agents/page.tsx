@@ -763,7 +763,7 @@ export default function AgentsPage() {
               <span
                 className={`uppercase tracking-[0.18em]${turnLive ? " tui-pulse" : ""}`}
               >
-                {footerStatus}
+                {turnLive ? footerStatus : `state ${footerStatus}`}
               </span>
               <span className="text-faint">│</span>
               <span>{selectedSession?.provider || "default"}</span>
