@@ -65,6 +65,59 @@ func TestGestaltRunWorkflowV3InvokesHostWhenProjectionUnavailable(t *testing.T) 
 	}
 }
 
+func TestGestaltRunWorkflowV3AcksLaneSignalWithoutSelectorBlocking(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	env.RegisterWorkflow(gestaltRunWorkflowV3)
+	env.RegisterActivity(&workflowActivities{host: host})
+	env.OnSignalExternalWorkflow(mock.Anything, indexWorkflowID("scope", 0), "", signalIndexPutRun, mock.Anything).Return(nil)
+	env.OnSignalExternalWorkflow(mock.Anything, "lane-workflow", "lane-run", signalLaneAck, mock.Anything).Return(nil)
+	env.OnSignalExternalWorkflow(mock.Anything, "lane-workflow", "lane-run", signalLaneRunDone, mock.Anything).Return(nil)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalRunAddV3, runSignalMessage{
+			AckID:         "ack-1",
+			SignalPayload: protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "evt-1", CreatedAt: timestamppb.Now()}),
+		})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV3, runWorkflowV3Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		IndexShardCount:               1,
+		ExecutionRef:                  "ref-1",
+		WorkflowKey:                   "slack:T:C:1778164397.804829",
+		LaneWorkflowID:                "lane-workflow",
+		LaneTemporalRunID:             "lane-run",
+		LogicalRunKey:                 "logical-1",
+		OwnerKey:                      "slack",
+		RequireSignal:                 true,
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var run proto.BoundWorkflowRun
+	if err := env.GetWorkflowResult(&run); err != nil {
+		t.Fatalf("workflow result: %v", err)
+	}
+	if run.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("run status = %s, want succeeded", run.GetStatus())
+	}
+	if len(host.calls) != 1 {
+		t.Fatalf("host calls = %d, want 1", len(host.calls))
+	}
+	signals := host.calls[0].GetSignals()
+	if len(signals) != 1 || signals[0].GetIdempotencyKey() != "evt-1" {
+		t.Fatalf("host signals = %#v, want evt-1", signals)
+	}
+}
+
 func TestGestaltWorkflowKeyLaneV1DedupesDuplicateSignalOrStart(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
