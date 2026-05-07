@@ -6855,6 +6855,62 @@ class GitHubProviderTests(unittest.TestCase):
             ],
         )
 
+    def test_bot_operations_read_external_identity_from_sdk_request(self) -> None:
+        calls: list[str] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            path = request_path(request)
+            calls.append(path)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                return FakeHTTPResponse({"token": "pr-token"})
+            if path == "/repos/acme/widgets/pulls":
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "title": "Update README",
+                        "state": "open",
+                        "html_url": "https://github.example/acme/widgets/pull/7",
+                        "url": "https://api.github.example/repos/acme/widgets/pulls/7",
+                        "head": {"ref": "feature", "sha": "head-sha"},
+                        "base": {"ref": "main", "sha": "base-sha"},
+                    }
+                )
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_open_pull_request(
+                provider_module.OpenPullRequestInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Update README",
+                    head="feature",
+                    base="main",
+                ),
+                gestalt.Request(
+                    subject=github_request(
+                        installation_id=123, repo="acme/other"
+                    ).subject,
+                    external_identity=gestalt.ExternalIdentity(
+                        type="github_app_installation",
+                        id="repo:acme/widgets",
+                    ),
+                ),
+            )
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(calls[0], "/repos/acme/widgets/installation")
+        self.assertIn("/repos/acme/widgets/pulls", calls)
+
     def test_bot_operations_treat_empty_external_identity_as_absent(self) -> None:
         calls: list[str] = []
 

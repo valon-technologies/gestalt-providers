@@ -107,6 +107,7 @@ from internals.operations import (
     list_pull_request_files,
     list_pull_request_review_threads,
     list_workflow_run_jobs,
+    non_empty_external_identity,
     open_pull_request,
     pull_request_file_summary,
     pull_request_review_summary,
@@ -2200,7 +2201,7 @@ def _request_external_identity(req: gestalt.Request) -> Any:
     # This is the delegated GitHub App installation identity authorized by the
     # host. Do not fall back to agent_external_identity; that field identifies
     # the original agent caller's GitHub user.
-    return getattr(req, "external_identity", None)
+    return non_empty_external_identity(getattr(req, "external_identity", None))
 
 
 def _file_changes_from_input(
