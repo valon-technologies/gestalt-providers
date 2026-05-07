@@ -17,6 +17,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
+	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -30,6 +31,15 @@ type workflowHost interface {
 	Close() error
 }
 
+type temporalWorker interface {
+	RegisterWorkflow(interface{})
+	RegisterActivity(interface{})
+	Start() error
+	Stop()
+}
+
+type temporalWorkerFactory func(client.Client, string, worker.Options) temporalWorker
+
 type temporalBackend struct {
 	providerName string
 	cfg          config
@@ -37,9 +47,12 @@ type temporalBackend struct {
 	host         workflowHost
 	state        *workflowStateStore
 
+	newWorker      temporalWorkerFactory
+	startupCleanup func(context.Context) error
+
 	mu      sync.Mutex
 	started bool
-	worker  worker.Worker
+	worker  temporalWorker
 }
 
 func newTemporalBackend(providerName string, cfg config, tc client.Client, host workflowHost, state *workflowStateStore) *temporalBackend {
@@ -49,7 +62,12 @@ func newTemporalBackend(providerName string, cfg config, tc client.Client, host 
 		client:       tc,
 		host:         host,
 		state:        state,
+		newWorker:    defaultTemporalWorkerFactory,
 	}
+}
+
+func defaultTemporalWorkerFactory(tc client.Client, taskQueue string, options worker.Options) temporalWorker {
+	return worker.New(tc, taskQueue, options)
 }
 
 func (b *temporalBackend) Start(ctx context.Context) error {
@@ -61,7 +79,7 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	if b.started {
 		return nil
 	}
-	w := worker.New(b.client, b.cfg.TaskQueue, worker.Options{})
+	w := b.newWorker(b.client, b.cfg.TaskQueue, b.workerOptions())
 	w.RegisterWorkflow(gestaltRunWorkflowV3)
 	w.RegisterWorkflow(gestaltWorkflowKeyLaneV1)
 	w.RegisterWorkflow(gestaltOwnerLedgerWorkflow)
@@ -71,13 +89,140 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
-	if err := b.deleteDeprecatedTemporalIndexState(ctx); err != nil {
+	if err := b.promoteWorkerDeployment(ctx); err != nil {
+		w.Stop()
+		return err
+	}
+	if err := b.runStartupCleanup(ctx); err != nil {
 		w.Stop()
 		return err
 	}
 	b.worker = w
 	b.started = true
 	return nil
+}
+
+func (b *temporalBackend) runStartupCleanup(ctx context.Context) error {
+	if b.startupCleanup != nil {
+		return b.startupCleanup(ctx)
+	}
+	return b.deleteDeprecatedTemporalIndexState(ctx)
+}
+
+func (b *temporalBackend) workerOptions() worker.Options {
+	if !b.cfg.Versioning.Enabled {
+		return worker.Options{}
+	}
+	return worker.Options{
+		DeploymentOptions: worker.DeploymentOptions{
+			UseVersioning: true,
+			Version: worker.WorkerDeploymentVersion{
+				DeploymentName: b.cfg.Versioning.DeploymentName,
+				BuildID:        b.cfg.Versioning.ResolvedBuildID,
+			},
+			DefaultVersioningBehavior: sdkworkflow.VersioningBehaviorAutoUpgrade,
+		},
+	}
+}
+
+func (b *temporalBackend) promoteWorkerDeployment(ctx context.Context) error {
+	cfg := b.cfg.Versioning
+	if !cfg.Enabled || cfg.Promotion.Mode == promotionModeNone {
+		return nil
+	}
+	if b.client == nil {
+		return errors.New("temporal workflow: client is not configured")
+	}
+	promoteCtx, cancel := context.WithTimeout(ctx, cfg.Promotion.Timeout)
+	defer cancel()
+	handle := b.client.WorkerDeploymentClient().GetHandle(cfg.DeploymentName)
+	for {
+		err := b.promoteWorkerDeploymentOnce(promoteCtx, handle, cfg)
+		if err == nil {
+			return nil
+		}
+		if !retryWorkerDeploymentPromotion(promoteCtx, err) {
+			return fmt.Errorf("promote temporal worker deployment: %w", err)
+		}
+		select {
+		case <-promoteCtx.Done():
+			return fmt.Errorf("promote temporal worker deployment: %w", promoteCtx.Err())
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func (b *temporalBackend) promoteWorkerDeploymentOnce(ctx context.Context, handle client.WorkerDeploymentHandle, cfg versioningConfig) error {
+	desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
+	if err != nil {
+		return err
+	}
+	switch cfg.Promotion.Mode {
+	case promotionModeCurrent:
+		current := desc.Info.RoutingConfig.CurrentVersion
+		if sameWorkerDeploymentVersion(current, cfg.DeploymentName, cfg.ResolvedBuildID) {
+			return nil
+		}
+		if current != nil && !cfg.Promotion.AllowReplaceCurrent {
+			return fmt.Errorf("current worker deployment version is %s/%s; set versioning.promotion.allowReplaceCurrent to replace it", current.DeploymentName, current.BuildID)
+		}
+		_, err := handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
+			BuildID:                 cfg.ResolvedBuildID,
+			ConflictToken:           desc.ConflictToken,
+			Identity:                b.cfg.Identity,
+			IgnoreMissingTaskQueues: false,
+			AllowNoPollers:          false,
+		})
+		return err
+	case promotionModeRamping:
+		if cfg.Promotion.RampPercentage == nil {
+			return errors.New("versioning.promotion.rampPercentage is required when mode is ramping")
+		}
+		current := desc.Info.RoutingConfig.CurrentVersion
+		if sameWorkerDeploymentVersion(current, cfg.DeploymentName, cfg.ResolvedBuildID) {
+			return nil
+		}
+		ramping := desc.Info.RoutingConfig.RampingVersion
+		if sameWorkerDeploymentVersion(ramping, cfg.DeploymentName, cfg.ResolvedBuildID) &&
+			desc.Info.RoutingConfig.RampingVersionPercentage == *cfg.Promotion.RampPercentage {
+			return nil
+		}
+		_, err := handle.SetRampingVersion(ctx, client.WorkerDeploymentSetRampingVersionOptions{
+			BuildID:                 cfg.ResolvedBuildID,
+			Percentage:              *cfg.Promotion.RampPercentage,
+			ConflictToken:           desc.ConflictToken,
+			Identity:                b.cfg.Identity,
+			IgnoreMissingTaskQueues: false,
+			AllowNoPollers:          false,
+		})
+		return err
+	default:
+		return fmt.Errorf("unsupported worker deployment promotion mode %q", cfg.Promotion.Mode)
+	}
+}
+
+func sameWorkerDeploymentVersion(version *worker.WorkerDeploymentVersion, deploymentName, buildID string) bool {
+	return version != nil && version.DeploymentName == deploymentName && version.BuildID == buildID
+}
+
+func retryWorkerDeploymentPromotion(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || err == nil {
+		return false
+	}
+	var failedPrecondition *serviceerror.FailedPrecondition
+	if errors.As(err, &failedPrecondition) {
+		return true
+	}
+	var unavailable *serviceerror.Unavailable
+	if errors.As(err, &unavailable) {
+		return true
+	}
+	var resourceExhausted *serviceerror.ResourceExhausted
+	if errors.As(err, &resourceExhausted) {
+		return true
+	}
+	var notFound *serviceerror.NotFound
+	return errors.As(err, &notFound)
 }
 
 func (b *temporalBackend) Close() error {
