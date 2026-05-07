@@ -15,6 +15,7 @@ from .models import (
     SlackEventPublishRoute,
     SlackEventPublishRouteMatch,
     SlackEventsConfig,
+    SlackSessionLinkConfig,
     SlackSuggestedPrompt,
     SlackThreadContextConfig,
     SlackWorkflowConfig,
@@ -39,14 +40,13 @@ def agent_config_from_provider_config(
         agent, "timeoutSeconds", "timeout_seconds"
     )
     agent_tool_sets = _agent_tool_sets_from_config(agent)
-    agent_tool_set_refs = _config_string_tuple(
-        agent, "toolSetRefs", "tool_set_refs"
-    )
+    agent_tool_set_refs = _config_string_tuple(agent, "toolSetRefs", "tool_set_refs")
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
+    session_link = _session_link_config_from_provider_config(config, agent)
     thread_context = _thread_context_config_from_provider_config(config, agent)
     routes = _agent_routes_from_provider_config(
         config,
@@ -78,6 +78,7 @@ def agent_config_from_provider_config(
         assistant=assistant,
         acknowledgement=acknowledgement,
         workflow=workflow,
+        session_link=session_link,
         thread_context=thread_context,
         agent_provider=provider
         or _config_string(config, "agentProvider", "agent_provider"),
@@ -200,6 +201,57 @@ def _workflow_config_from_provider_config(
             workflow, "provider", "providerName", "provider_name"
         )
         or _config_string(config, "workflowProvider", "workflow_provider"),
+    )
+
+
+def _session_link_config_from_provider_config(
+    config: dict[str, Any], agent: dict[str, Any]
+) -> SlackSessionLinkConfig:
+    session_link = _config_dict(
+        agent,
+        "sessionLink",
+        "session_link",
+        "agentSessionLink",
+        "agent_session_link",
+    )
+    if not session_link:
+        session_link = _config_dict(
+            config,
+            "sessionLink",
+            "session_link",
+            "agentSessionLink",
+            "agent_session_link",
+        )
+    if not session_link:
+        return SlackSessionLinkConfig()
+    if not _config_bool(session_link, "enabled", default=True):
+        return SlackSessionLinkConfig(enabled=False)
+    raw_query = _config_mapping(session_link, "query", "queryParams", "query_params")
+    query: list[tuple[str, str]] = []
+    for key, value in raw_query.items():
+        name = str(key or "").strip()
+        if not name:
+            continue
+        query.append((name, str(value)))
+    if not query:
+        query.append(("session", "{session_id}"))
+    path = _config_string(session_link, "path") or "/agents"
+    text = (
+        _config_string(session_link, "text", "message", "messageText", "message_text")
+        or "Agent session: {session_url}"
+    )
+    return SlackSessionLinkConfig(
+        enabled=True,
+        base_url=_config_string(session_link, "baseUrl", "base_url", "urlBase"),
+        path=path,
+        query=tuple(query),
+        text=text,
+        unfurl_links=_config_bool(
+            session_link, "unfurlLinks", "unfurl_links", default=False
+        ),
+        unfurl_media=_config_bool(
+            session_link, "unfurlMedia", "unfurl_media", default=False
+        ),
     )
 
 
@@ -343,9 +395,7 @@ def _agent_route_from_config(
         agent_model_options=model_options
         or _config_dict(config, "modelOptions", "agentModelOptions"),
         agent_timeout_seconds=timeout_seconds,
-        agent_tool_set_refs=_config_string_tuple(
-            agent, "toolSetRefs", "tool_set_refs"
-        )
+        agent_tool_set_refs=_config_string_tuple(agent, "toolSetRefs", "tool_set_refs")
         or _config_string_tuple(config, "toolSetRefs", "tool_set_refs"),
         agent_tools=_agent_tool_refs_from_config(
             agent, f"agent.routes[{index}].agent.tools"
@@ -361,7 +411,9 @@ def _route_workflow_config_from_config(
     if workflow is None:
         workflow = _config_dict_or_none(config, "workflow")
     workflow_data = workflow or {}
-    provider = _config_string(workflow_data, "provider", "providerName", "provider_name")
+    provider = _config_string(
+        workflow_data, "provider", "providerName", "provider_name"
+    )
     provider = provider or _config_string(
         agent,
         "workflowProvider",
@@ -411,7 +463,9 @@ def _route_assistant_config_from_config(
         suggested_prompts_title=parsed.suggested_prompts_title
         or inherited.suggested_prompts_title,
         suggested_prompts=parsed.suggested_prompts
-        if _config_has_any(assistant, "suggestedPrompts", "suggested_prompts", "prompts")
+        if _config_has_any(
+            assistant, "suggestedPrompts", "suggested_prompts", "prompts"
+        )
         else inherited.suggested_prompts,
     )
 
@@ -461,7 +515,11 @@ def _route_thread_context_config_from_config(
         enabled=_config_bool(thread_context, "enabled", default=inherited.enabled),
         max_messages=parsed.max_messages
         if _config_has_any(
-            thread_context, "maxMessages", "max_messages", "messageLimit", "message_limit"
+            thread_context,
+            "maxMessages",
+            "max_messages",
+            "messageLimit",
+            "message_limit",
         )
         else inherited.max_messages,
         include_user_info=parsed.include_user_info
@@ -474,9 +532,7 @@ def _route_thread_context_config_from_config(
         if _config_has_any(thread_context, "includeFiles", "include_files")
         else inherited.include_files,
         include_file_content=parsed.include_file_content
-        if _config_has_any(
-            thread_context, "includeFileContent", "include_file_content"
-        )
+        if _config_has_any(thread_context, "includeFileContent", "include_file_content")
         else inherited.include_file_content,
         include_image_data=parsed.include_image_data
         if _config_has_any(thread_context, "includeImageData", "include_image_data")
@@ -488,7 +544,7 @@ def _route_thread_context_config_from_config(
 
 
 def _agent_tool_sets_from_config(
-    agent: dict[str, Any]
+    agent: dict[str, Any],
 ) -> dict[str, tuple[SlackAgentToolRef, ...]]:
     raw_tool_sets = _config_mapping(agent, "toolSets", "tool_sets")
     if not raw_tool_sets:
@@ -823,9 +879,7 @@ def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
             if not normalized:
                 return 0
             if not normalized.isdecimal():
-                raise ValueError(
-                    f"{key} must be a positive integer number of seconds"
-                )
+                raise ValueError(f"{key} must be a positive integer number of seconds")
             seconds = int(normalized)
         else:
             raise ValueError(f"{key} must be a positive integer number of seconds")

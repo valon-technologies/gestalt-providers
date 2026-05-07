@@ -73,6 +73,7 @@ SLACK_EVENT_OPERATION = "events.handle"
 SLACK_INTERACTION_HANDLE_OPERATION = "interactions.handle"
 SLACK_INTERACTION_REQUEST_OPERATION = "interactions.request"
 SLACK_REPLY_OPERATION = "events.reply"
+SLACK_SESSION_LINK_OPERATION = "events.sessionLink"
 SLACK_STATUS_OPERATION = "events.setStatus"
 SLACK_DELETE_STATUS_OPERATION = "events.deleteStatus"
 SLACK_ADD_REACTION_OPERATION = "events.addReaction"
@@ -620,6 +621,51 @@ def reply_to_slack_event(
     }
 
 
+def post_slack_event_session_link(
+    reply_ref: str,
+    session_id: str,
+    workflow_run_id: str,
+    text: str,
+    req: gestalt.Request,
+) -> OperationResult:
+    normalized_session_id = session_id.strip()
+    if not normalized_session_id:
+        return _bad_request("session_id is required")
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        session_url = _session_link_url(normalized_session_id, workflow_run_id, req)
+        message = text.strip() or _render_session_link_text(
+            normalized_session_id, session_url, workflow_run_id
+        )
+        if not message:
+            return _bad_request("text is required")
+        result = post_message(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            text=message,
+            thread_ts=verified_ref.reply_thread_ts,
+            unfurl_links=_agent_config.session_link.unfurl_links,
+            unfurl_media=_agent_config.session_link.unfurl_media,
+            client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "ts": str(result.get("ts") or ""),
+        "thread_ts": verified_ref.reply_thread_ts,
+        "session_id": normalized_session_id,
+        "session_url": session_url,
+    }
+
+
 def set_slack_event_status(
     reply_ref: str,
     text: str,
@@ -966,7 +1012,15 @@ def _event_reply_ref(reply_ref: str, req: gestalt.Request) -> SlackReplyRef:
 
 def _event_client_error(err: SlackClientError) -> ErrorResponse:
     message = str(err)
-    if message == "Slack bot token is not configured":
+    if message in {
+        "Slack bot token is not configured",
+        "Slack session link base URL is not configured",
+    } or message.startswith("Slack session link template references unknown field "):
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": message},
+        )
+    if message.startswith("Slack session link template is invalid: "):
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": message},
@@ -1189,6 +1243,76 @@ def _unlinked_slack_user_message(req: gestalt.Request) -> str:
     )
 
 
+def _session_link_url(
+    session_id: str, workflow_run_id: str, req: gestalt.Request
+) -> str:
+    session_link = _agent_config.session_link
+    base_url = (
+        session_link.base_url
+        or str(getattr(getattr(req, "host", None), "public_base_url", "") or "")
+    ).strip()
+    if not base_url:
+        raise SlackClientError("Slack session link base URL is not configured")
+    path = session_link.path.strip() or "/agents"
+    joined = urllib.parse.urljoin(f"{base_url.rstrip('/')}/", path.lstrip("/"))
+    parsed = urllib.parse.urlsplit(joined)
+    values = _session_link_template_values(
+        session_id=session_id,
+        workflow_run_id=workflow_run_id,
+        session_url="",
+    )
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    for name, template in session_link.query:
+        query.append((name, _format_session_link_template(template, values)))
+    return urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urllib.parse.urlencode(query),
+            parsed.fragment,
+        )
+    )
+
+
+def _render_session_link_text(
+    session_id: str, session_url: str, workflow_run_id: str
+) -> str:
+    values = _session_link_template_values(
+        session_id=session_id,
+        workflow_run_id=workflow_run_id,
+        session_url=session_url,
+    )
+    return _format_session_link_template(_agent_config.session_link.text, values)
+
+
+def _session_link_template_values(
+    *, session_id: str, session_url: str, workflow_run_id: str
+) -> dict[str, str]:
+    workflow_run_id = workflow_run_id.strip()
+    return {
+        "session_id": session_id,
+        "sessionId": session_id,
+        "session_url": session_url,
+        "sessionUrl": session_url,
+        "workflow_run_id": workflow_run_id,
+        "workflowRunId": workflow_run_id,
+    }
+
+
+def _format_session_link_template(template: str, values: dict[str, str]) -> str:
+    try:
+        return template.format_map(values)
+    except KeyError as err:
+        raise SlackClientError(
+            f"Slack session link template references unknown field {err.args[0]!r}"
+        ) from err
+    except (IndexError, ValueError) as err:
+        raise SlackClientError(
+            f"Slack session link template is invalid: {err}"
+        ) from err
+
+
 def _normalized_string_list(values: list[str], *, max_items: int) -> list[str]:
     normalized: list[str] = []
     for value in values:
@@ -1236,7 +1360,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -2306,6 +2430,9 @@ def _build_workflow_agent_target(
         "tool_refs": _agent_event_tool_refs(route),
         "output_delivery": _workflow_output_delivery(),
     }
+    session_created_delivery = _workflow_session_created_delivery()
+    if session_created_delivery is not None:
+        target_kwargs["session_created_delivery"] = session_created_delivery
     timeout_seconds = _agent_timeout_seconds(route)
     if timeout_seconds > 0:
         target_kwargs["timeout_seconds"] = timeout_seconds
@@ -2351,6 +2478,37 @@ def _workflow_output_delivery() -> Any:
             gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
                 value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
+            ),
+        ],
+    )
+
+
+def _workflow_session_created_delivery() -> Any | None:
+    if not _agent_config.session_link.enabled:
+        return None
+    if not _workflow_lifecycle_delivery_contract_available():
+        raise RuntimeError(
+            "Slack session links require a Gestalt SDK/runtime with workflow lifecycle delivery support"
+        )
+    return gestalt.WorkflowLifecycleDelivery(
+        target=gestalt.BoundWorkflowPluginTarget(
+            plugin_name=_agent_config.plugin_name,
+            operation=SLACK_SESSION_LINK_OPERATION,
+        ),
+        credential_mode="none",
+        failure_policy="continue",
+        input_bindings=[
+            gestalt.WorkflowLifecycleBinding(
+                input_field="reply_ref",
+                value=gestalt.WorkflowLifecycleValueSource(signal_payload="reply_ref"),
+            ),
+            gestalt.WorkflowLifecycleBinding(
+                input_field="session_id",
+                value=gestalt.WorkflowLifecycleValueSource(agent_session="id"),
+            ),
+            gestalt.WorkflowLifecycleBinding(
+                input_field="workflow_run_id",
+                value=gestalt.WorkflowLifecycleValueSource(workflow_context="runId"),
             ),
         ],
     )
@@ -2726,7 +2884,9 @@ def _assistant_thread_prompts_disabled(route: SlackAgentRoute | None) -> bool:
     return route.assistant.enabled_configured and not route.assistant.enabled
 
 
-def _acknowledgement_config(route: SlackAgentRoute | None) -> SlackAcknowledgementConfig:
+def _acknowledgement_config(
+    route: SlackAgentRoute | None,
+) -> SlackAcknowledgementConfig:
     if route is not None and route.acknowledgement is not None:
         return route.acknowledgement
     return _agent_config.acknowledgement
@@ -2918,7 +3078,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except (TypeError, ValueError, AttributeError):
+    except TypeError, ValueError, AttributeError:
         return str(status)
 
 
@@ -2934,6 +3094,17 @@ def _workflow_manager_contract_available() -> bool:
             "WorkflowOutputValueSource",
             "WorkflowManagerSignalOrStartRunRequest",
             "WorkflowSignal",
+        )
+    )
+
+
+def _workflow_lifecycle_delivery_contract_available() -> bool:
+    return all(
+        getattr(gestalt, name, None) is not None
+        for name in (
+            "WorkflowLifecycleBinding",
+            "WorkflowLifecycleDelivery",
+            "WorkflowLifecycleValueSource",
         )
     )
 

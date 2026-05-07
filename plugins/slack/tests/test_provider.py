@@ -109,6 +109,7 @@ class FakeBoundWorkflowAgentTarget:
         tool_refs: list[Any] | None = None,
         timeout_seconds: int = 0,
         output_delivery: Any = None,
+        session_created_delivery: Any = None,
         **_kwargs: Any,
     ) -> None:
         self.provider_name = provider_name
@@ -118,6 +119,7 @@ class FakeBoundWorkflowAgentTarget:
         self.tool_refs = tool_refs or []
         self.timeout_seconds = timeout_seconds
         self.output_delivery = output_delivery
+        self.session_created_delivery = session_created_delivery
         self.metadata = new_struct()
         self.model_options = new_struct()
         self.provider_options = self.model_options
@@ -189,6 +191,62 @@ class FakeWorkflowOutputDelivery:
         self.credential_mode = credential_mode
 
 
+class FakeWorkflowLifecycleValueSource:
+    def __init__(
+        self,
+        agent_session: str = "",
+        signal_payload: str = "",
+        signal_metadata: str = "",
+        workflow_context: str = "",
+        literal: Any = None,
+        **_kwargs: Any,
+    ) -> None:
+        self.agent_session = agent_session
+        self.signal_payload = signal_payload
+        self.signal_metadata = signal_metadata
+        self.workflow_context = workflow_context
+        self.literal = literal
+
+    def WhichOneof(self, _name: str) -> str | None:
+        if self.agent_session:
+            return "agent_session"
+        if self.signal_payload:
+            return "signal_payload"
+        if self.signal_metadata:
+            return "signal_metadata"
+        if self.workflow_context:
+            return "workflow_context"
+        if self.literal is not None:
+            return "literal"
+        return None
+
+
+class FakeWorkflowLifecycleBinding:
+    def __init__(
+        self,
+        input_field: str = "",
+        value: Any = None,
+        **_kwargs: Any,
+    ) -> None:
+        self.input_field = input_field
+        self.value = value
+
+
+class FakeWorkflowLifecycleDelivery:
+    def __init__(
+        self,
+        target: Any = None,
+        input_bindings: list[Any] | None = None,
+        credential_mode: str = "",
+        failure_policy: str = "",
+        **_kwargs: Any,
+    ) -> None:
+        self.target = target
+        self.input_bindings = input_bindings or []
+        self.credential_mode = credential_mode
+        self.failure_policy = failure_policy
+
+
 class FakeBoundWorkflowTarget:
     def __init__(self, agent: Any = None, **_kwargs: Any) -> None:
         self.agent = agent
@@ -255,6 +313,9 @@ class FakeWorkflowPb2:
     WorkflowOutputBinding = FakeWorkflowOutputBinding
     WorkflowOutputDelivery = FakeWorkflowOutputDelivery
     WorkflowOutputValueSource = FakeWorkflowOutputValueSource
+    WorkflowLifecycleBinding = FakeWorkflowLifecycleBinding
+    WorkflowLifecycleDelivery = FakeWorkflowLifecycleDelivery
+    WorkflowLifecycleValueSource = FakeWorkflowLifecycleValueSource
     WorkflowManagerSignalOrStartRunRequest = FakeWorkflowManagerSignalOrStartRunRequest
     WorkflowManagerPublishEventRequest = FakeWorkflowManagerPublishEventRequest
 
@@ -328,6 +389,18 @@ def tool_ref_details(refs: Any) -> list[tuple[str, str, str, str, str, str]]:
 
 
 def output_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
+    out: dict[str, tuple[str | None, Any]] = {}
+    for binding in delivery.input_bindings:
+        value = binding.value
+        kind = value.WhichOneof("kind") if hasattr(value, "WhichOneof") else None
+        out[str(binding.input_field)] = (
+            kind,
+            getattr(value, kind, None) if kind else None,
+        )
+    return out
+
+
+def lifecycle_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
     out: dict[str, tuple[str | None, Any]] = {}
     for binding in delivery.input_bindings:
         value = binding.value
@@ -609,8 +682,8 @@ class SlackProviderTests(unittest.TestCase):
                                 "model": "deep",
                                 "tools": [tool],
                             }
-                    },
-                )
+                        },
+                    )
 
     def test_agent_routes_reject_duplicate_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
@@ -818,6 +891,11 @@ class SlackProviderTests(unittest.TestCase):
             _catalog_parameter_names(catalog_ops["events.reply"]),
             ["reply_ref", "text"],
         )
+        self.assertEqual(
+            _catalog_parameter_names(catalog_ops["events.sessionLink"]),
+            ["reply_ref", "session_id", "workflow_run_id", "text"],
+        )
+        self.assertFalse(catalog_ops["events.sessionLink"]["visible"])
         self.assertIn(
             "requires reply_ref and text", catalog_ops["events.reply"]["description"]
         )
@@ -1190,6 +1268,10 @@ class SlackProviderTests(unittest.TestCase):
                 "reply_ref": ("signal_payload", "reply_ref"),
             },
         )
+        if hasattr(agent_target, "HasField"):
+            self.assertFalse(agent_target.HasField("session_created_delivery"))
+        else:
+            self.assertIsNone(getattr(agent_target, "session_created_delivery", None))
         self.assertNotIn("slack.events.reply", agent_target.messages[0].text)
         self.assertIn("final assistant answer", agent_target.messages[0].text)
         self.assertIn("slack.events.setStatus", agent_target.messages[0].text)
@@ -1264,6 +1346,81 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(signal_metadata["slack"]["user_id"], "U456")
         self.assertEqual(signal_metadata["slack"]["file_ids"], ["F123"])
         self.assertEqual(signal_metadata["slack"]["addressed_to_bot"], True)
+
+    def test_slack_event_workflow_target_includes_session_link_delivery_when_configured(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "sessionLink": {
+                        "enabled": True,
+                        "path": "/agents",
+                        "query": {"session": "{session_id}"},
+                        "text": "Agent session: {session_url}",
+                    },
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> summarize",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+
+        with (
+            mock.patch.object(
+                gestalt, "BoundWorkflowAgentTarget", FakeBoundWorkflowAgentTarget
+            ),
+            mock.patch.object(gestalt, "BoundWorkflowTarget", FakeBoundWorkflowTarget),
+            mock.patch.object(
+                gestalt,
+                "WorkflowLifecycleBinding",
+                FakeWorkflowLifecycleBinding,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt,
+                "WorkflowLifecycleDelivery",
+                FakeWorkflowLifecycleDelivery,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt,
+                "WorkflowLifecycleValueSource",
+                FakeWorkflowLifecycleValueSource,
+                create=True,
+            ),
+        ):
+            target = provider_module._agent._build_workflow_agent_target(event, None)
+
+        delivery = target.agent.session_created_delivery
+        self.assertIsNotNone(delivery)
+        self.assertEqual(delivery.target.plugin_name, "slack")
+        self.assertEqual(delivery.target.operation, "events.sessionLink")
+        self.assertEqual(delivery.credential_mode, "none")
+        self.assertEqual(delivery.failure_policy, "continue")
+        self.assertEqual(
+            lifecycle_delivery_bindings(delivery),
+            {
+                "reply_ref": ("signal_payload", "reply_ref"),
+                "session_id": ("agent_session", "id"),
+                "workflow_run_id": ("workflow_context", "runId"),
+            },
+        )
 
     def test_thread_reply_prefetches_context_in_workflow_signal(self) -> None:
         provider_module.configure(
@@ -2631,6 +2788,291 @@ class SlackProviderTests(unittest.TestCase):
             denied_response.body,
             {"error": "reply_ref does not belong to this subject"},
         )
+
+    def test_slack_events_session_link_posts_configured_url_with_reply_ref_scope(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "sessionLink": {
+                        "baseUrl": "https://valon.tools/",
+                        "path": "/agents",
+                        "query": {
+                            "session": "{session_id}",
+                            "run": "{workflow_run_id}",
+                        },
+                        "text": "Open agent session: {session_url}",
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        captured: dict[str, Any] = {}
+        idempotency_key = "workflow:local:run-123:lifecycle:session-created"
+        expected_client_msg_id = str(
+            uuid.UUID(
+                hex=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
+            )
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_session_link(
+                provider_module.SlackEventSessionLinkInput(
+                    reply_ref=reply_ref,
+                    session_id="agent_session_123",
+                    workflow_run_id="run-123",
+                ),
+                cast(
+                    Any,
+                    type(
+                        "RequestWithIdempotencyKey",
+                        (),
+                        {
+                            "subject": gestalt.Subject(
+                                id="user:gestalt-123", kind="user"
+                            ),
+                            "idempotency_key": idempotency_key,
+                        },
+                    )(),
+                ),
+            )
+
+        session_url = "https://valon.tools/agents?session=agent_session_123&run=run-123"
+        self.assertEqual(
+            captured["payload"],
+            {
+                "channel": "C789",
+                "text": f"Open agent session: {session_url}",
+                "thread_ts": "1712161829.000300",
+                "unfurl_links": False,
+                "unfurl_media": False,
+                "client_msg_id": expected_client_msg_id,
+            },
+        )
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "channel": "C789",
+                "ts": "1712161830.000400",
+                "thread_ts": "1712161829.000300",
+                "session_id": "agent_session_123",
+                "session_url": session_url,
+            },
+        )
+
+        denied = provider_module.slack_events_session_link(
+            provider_module.SlackEventSessionLinkInput(
+                reply_ref=reply_ref,
+                session_id="agent_session_123",
+                workflow_run_id="run-123",
+            ),
+            gestalt.Request(subject=gestalt.Subject(id="user:other", kind="user")),
+        )
+        self.assertIsInstance(denied, gestalt.Response)
+        denied_response = cast(gestalt.Response[dict[str, str]], denied)
+        self.assertEqual(denied_response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            denied_response.body,
+            {"error": "reply_ref does not belong to this subject"},
+        )
+
+    def test_slack_events_session_link_uses_request_public_base_url(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "sessionLink": {
+                        "path": "/agents",
+                        "query": {"session": "{session_id}"},
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            payload = json.loads(cast(bytes, request.data).decode("utf-8"))
+            self.assertEqual(
+                payload["text"],
+                "Agent session: https://valon.tools/agents?session=agent_session_123",
+            )
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_session_link(
+                provider_module.SlackEventSessionLinkInput(
+                    reply_ref=reply_ref,
+                    session_id="agent_session_123",
+                ),
+                cast(
+                    Any,
+                    type(
+                        "RequestWithHost",
+                        (),
+                        {
+                            "subject": gestalt.Subject(
+                                id="user:gestalt-123", kind="user"
+                            ),
+                            "idempotency_key": "",
+                            "host": types.SimpleNamespace(
+                                public_base_url="https://valon.tools/"
+                            ),
+                        },
+                    )(),
+                ),
+            )
+
+        self.assertEqual(
+            result["session_url"],
+            "https://valon.tools/agents?session=agent_session_123",
+        )
+
+    def test_slack_events_session_link_requires_configured_base_url(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {"sessionLink": {"enabled": True}},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.slack_events_session_link(
+                provider_module.SlackEventSessionLinkInput(
+                    reply_ref=reply_ref,
+                    session_id="agent_session_123",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertEqual(
+            response.body,
+            {"error": "Slack session link base URL is not configured"},
+        )
+        urlopen.assert_not_called()
+
+    def test_slack_events_session_link_rejects_invalid_template(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "sessionLink": {
+                        "baseUrl": "https://valon.tools/",
+                        "query": {"session": "{0}"},
+                    }
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.slack_events_session_link(
+                provider_module.SlackEventSessionLinkInput(
+                    reply_ref=reply_ref,
+                    session_id="agent_session_123",
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertIn(
+            "Slack session link template is invalid:",
+            response.body["error"],
+        )
+        urlopen.assert_not_called()
 
     def test_slack_interaction_request_posts_buttons_and_handler_signals_workflow(
         self,

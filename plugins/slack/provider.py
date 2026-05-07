@@ -20,6 +20,7 @@ from internals.agent import (
     SLACK_INTERACTION_REQUEST_OPERATION,
     SLACK_REMOVE_REACTION_OPERATION,
     SLACK_REPLY_OPERATION,
+    SLACK_SESSION_LINK_OPERATION,
     SLACK_STATUS_OPERATION,
     SLACK_STREAM_APPEND_OPERATION,
     SLACK_STREAM_START_OPERATION,
@@ -33,6 +34,7 @@ from internals.agent import (
     handle_slack_interaction,
     request_slack_interaction,
     reply_to_slack_event,
+    post_slack_event_session_link,
     resolve_slack_http_subject,
     remove_slack_event_reaction,
     set_slack_event_assistant_status,
@@ -202,6 +204,23 @@ class SlackEventReplyInput(gestalt.Model):
     )
     text: str = gestalt.field(
         description="Required complete Slack message body to post in the event thread"
+    )
+
+
+class SlackEventSessionLinkInput(gestalt.Model):
+    reply_ref: str = gestalt.field(
+        description="Opaque Slack event reply reference from the current Slack signal"
+    )
+    session_id: str = gestalt.field(description="Gestalt agent session ID")
+    workflow_run_id: str = gestalt.field(
+        description="Optional workflow run ID that created the agent session",
+        default="",
+        required=False,
+    )
+    text: str = gestalt.field(
+        description="Optional Slack message text override",
+        default="",
+        required=False,
     )
 
 
@@ -444,6 +463,24 @@ def slack_events_reply(
     input: SlackEventReplyInput, req: gestalt.Request
 ) -> OperationResult:
     return reply_to_slack_event(input.reply_ref, input.text, req)
+
+
+@gestalt.operation(
+    id=SLACK_SESSION_LINK_OPERATION,
+    method="POST",
+    description="Post a link to the Gestalt agent session created for a Slack event",
+    visible=False,
+)
+def slack_events_session_link(
+    input: SlackEventSessionLinkInput, req: gestalt.Request
+) -> OperationResult:
+    return post_slack_event_session_link(
+        input.reply_ref,
+        input.session_id,
+        input.workflow_run_id,
+        input.text,
+        req,
+    )
 
 
 @gestalt.operation(

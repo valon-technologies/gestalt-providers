@@ -183,6 +183,13 @@ run budget to Gestalt; when omitted, Gestalt's workflow-agent default applies.
 The target also sets `output_delivery` so the workflow runtime delivers
 the agent's final assistant answer through `events.reply` with `text` sourced
 from the agent output and `reply_ref` sourced from the current signal payload.
+If `agent.sessionLink.enabled` is set, the target also sets
+`session_created_delivery` so the workflow runtime posts a link to the created
+agent session before starting the first turn. Configure `agent.sessionLink.path`
+and `agent.sessionLink.query` to choose the UI route and query parameters. The
+provider uses `agent.sessionLink.baseUrl` when set, otherwise it uses the
+request host's public base URL. The default message text is
+`Agent session: {session_url}`.
 If the workflow handoff fails, `events.handle` returns an error so Slack can
 retry the callback. Once the workflow provider accepts the event, workflow state,
 signal idempotency, retries, and output delivery are owned by the workflow
@@ -216,9 +223,10 @@ with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user through the managed
 exact Slack event helper refs plus the exact `agent.tools` refs configured for
 the resolved Gestalt user.
 
-`events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
-`events.addReaction`, `events.removeReaction`, the native assistant helpers,
-and the interaction helpers are hidden operations (`visible: false`).
+`events.handle`, `events.reply`, `events.sessionLink`, `events.setStatus`,
+`events.deleteStatus`, `events.addReaction`, `events.removeReaction`, the native
+assistant helpers, and the interaction helpers are hidden operations
+(`visible: false`).
 `events.handle` is invoked by the signed Slack webhook binding. It starts an
 or signals a keyed workflow run and passes an opaque `reply_ref` in the signal
 payload. The agent returns the final Slack message body as its final assistant
@@ -233,6 +241,12 @@ Runtime output-delivery input:
 
 ```json
 {"reply_ref":"...","text":"I'll check that now."}
+```
+
+Runtime session-created delivery input:
+
+```json
+{"reply_ref":"...","session_id":"agent_session_123","workflow_run_id":"run-123"}
 ```
 
 To publish Slack Events API callbacks directly into Gestalt workflow events,
@@ -400,6 +414,9 @@ plugins:
         operation: events.reply
         credentialMode: none
       - plugin: slack
+        operation: events.sessionLink
+        credentialMode: none
+      - plugin: slack
         operation: events.setStatus
         credentialMode: none
       - plugin: slack
@@ -444,6 +461,11 @@ plugins:
       agent:
         provider: simple
         model: deep
+        sessionLink:
+          enabled: true
+          path: /agents
+          query:
+            session: "{session_id}"
         timeoutSeconds: 1800
         systemPrompt: Use Slack formatting and keep replies concise.
         toolSets:

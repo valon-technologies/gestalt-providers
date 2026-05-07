@@ -15,7 +15,7 @@ dev = [
 package = false
 
 [tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "main", subdirectory = "sdk/python" }
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", branch = "codex/workflow-session-created-delivery", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 provider = "provider"
@@ -28,6 +28,7 @@ vulture-ignore-names = [
   "slack_interactions_handle",
   "slack_interactions_request",
   "slack_events_reply",
+  "slack_events_session_link",
   "slack_events_set_status",
   "slack_events_delete_status",
   "slack_events_add_reaction",

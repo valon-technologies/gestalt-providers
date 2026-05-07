@@ -243,6 +243,17 @@ class SlackWorkflowConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackSessionLinkConfig:
+    enabled: bool = False
+    base_url: str = ""
+    path: str = "/agents"
+    query: tuple[tuple[str, str], ...] = (("session", "{session_id}"),)
+    text: str = "Agent session: {session_url}"
+    unfurl_links: bool = False
+    unfurl_media: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class SlackThreadContextConfig:
     enabled: bool = True
     max_messages: int = 200
@@ -264,6 +275,7 @@ class SlackAgentConfig:
         default_factory=SlackAcknowledgementConfig
     )
     workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
+    session_link: SlackSessionLinkConfig = field(default_factory=SlackSessionLinkConfig)
     thread_context: SlackThreadContextConfig = field(
         default_factory=SlackThreadContextConfig
     )
