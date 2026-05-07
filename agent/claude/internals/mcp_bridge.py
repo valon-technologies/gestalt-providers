@@ -34,6 +34,7 @@ TOOL_ERROR_MAX_CHARS = 1200
 TOOL_SEARCH_METADATA_MAX_CHARS = 800
 _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
+CLAUDE_BUILTIN_TOOLS_FOR_PLUGINS = ("Skill", "Read", "Write", "Bash")
 
 
 @dataclass(slots=True)
@@ -185,14 +186,30 @@ def create_gestalt_sdk_mcp_server(*, session_id: str, turn_id: str, run_grant: s
     return McpSdkServerConfig(type="sdk", name=MCP_SERVER_NAME, instance=bridge.server)
 
 
-def allowed_gestalt_mcp_tools() -> list[str]:
-    return [f"{_GESTALT_MCP_TOOL_PREFIX}*"]
+def allowed_gestalt_mcp_tools(*, include_plugin_tools: bool = False) -> list[str]:
+    tools = [f"{_GESTALT_MCP_TOOL_PREFIX}*"]
+    if include_plugin_tools:
+        tools.extend(CLAUDE_BUILTIN_TOOLS_FOR_PLUGINS)
+    return tools
 
 
 async def allow_gestalt_mcp_tool(
     tool_name: str, _arguments: dict[str, Any], _context: Any
 ) -> PermissionResultAllow | PermissionResultDeny:
-    if str(tool_name or "").startswith(_GESTALT_MCP_TOOL_PREFIX):
+    return _allow_tool(tool_name, include_plugin_tools=False)
+
+
+async def allow_gestalt_mcp_or_plugin_tool(
+    tool_name: str, _arguments: dict[str, Any], _context: Any
+) -> PermissionResultAllow | PermissionResultDeny:
+    return _allow_tool(tool_name, include_plugin_tools=True)
+
+
+def _allow_tool(tool_name: str, *, include_plugin_tools: bool) -> PermissionResultAllow | PermissionResultDeny:
+    name = str(tool_name or "")
+    if name.startswith(_GESTALT_MCP_TOOL_PREFIX) or (
+        include_plugin_tools and (name in CLAUDE_BUILTIN_TOOLS_FOR_PLUGINS or name.startswith("Skill("))
+    ):
         return PermissionResultAllow(behavior="allow")
     return PermissionResultDeny(behavior="deny", message=f"tool {tool_name!r} is not allowed", interrupt=False)
 

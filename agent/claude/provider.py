@@ -199,7 +199,9 @@ class ClaudeCodeAgentProvider(
 
         messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
         plugin_paths = session_start_metadata_paths(
-            session.metadata, "claudePluginPaths", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
+            session.metadata,
+            "claudePluginPaths",
+            allowed_basenames={"analytics", "deployment-strategy", "mortgage", "prod-ops", "vds", "tools", "rnb"},
         )
         cwd = _prepared_workspace_cwd(session.prepared_workspace)
         try:
@@ -361,6 +363,14 @@ class ClaudeCodeAgentProvider(
         cwd: str,
     ) -> None:
         try:
+            if plugin_paths:
+                logger.info(
+                    "starting Claude Agent SDK turn with session-start plugins",
+                    extra={
+                        "plugin_basenames": [os.path.basename(path) for path in plugin_paths],
+                        "plugin_count": len(plugin_paths),
+                    },
+                )
             output = runner.run_turn(
                 session_id=session_id,
                 turn_id=turn_id,

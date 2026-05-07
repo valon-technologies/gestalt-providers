@@ -351,21 +351,36 @@ class ClaudeProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         with tempfile.TemporaryDirectory() as marketplace:
             bundle_paths = {}
-            for bundle in ("mortgage", "vds", "tools", "rnb", "gestalt"):
+            for bundle in (
+                "analytics",
+                "deployment-strategy",
+                "mortgage",
+                "prod-ops",
+                "vds",
+                "tools",
+                "rnb",
+                "gestalt",
+            ):
                 path = os.path.join(marketplace, bundle)
                 os.makedirs(path)
                 bundle_paths[bundle] = path
             payload = {
                 "metadata": {
                     "claudePluginPaths": [
+                        bundle_paths["analytics"],
+                        bundle_paths["deployment-strategy"],
                         bundle_paths["mortgage"],
+                        bundle_paths["prod-ops"],
                         bundle_paths["vds"],
                         bundle_paths["tools"],
                         bundle_paths["rnb"],
                         bundle_paths["gestalt"],
                     ]
                 },
-                "additionalContext": "Loaded Toolshed marketplace bundles: mortgage, vds, tools, rnb.",
+                "additionalContext": (
+                    "Loaded Toolshed marketplace bundles: "
+                    "analytics, deployment-strategy, mortgage, prod-ops, vds, tools, rnb."
+                ),
             }
             session_start = agent_pb2.AgentSessionStartConfig()
             hook = session_start.hooks.add()
@@ -391,16 +406,32 @@ class ClaudeProviderTests(unittest.TestCase):
             _wait_for_turn(provider_client, "turn-session-start-plugins", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
             options = _FakeClaudeSDKClient.instances[-1].options
+            expected_tools = ["mcp__gestalt__*", "Skill", "Read", "Write", "Bash"]
+            self.assertEqual(getattr(options, "tools"), expected_tools)
+            self.assertEqual(getattr(options, "allowed_tools"), expected_tools)
+            self.assertEqual(getattr(options, "setting_sources"), [])
             self.assertEqual(getattr(options, "skills"), "all")
             self.assertEqual(
                 getattr(options, "plugins"),
                 [
+                    {"type": "local", "path": bundle_paths["analytics"]},
+                    {"type": "local", "path": bundle_paths["deployment-strategy"]},
                     {"type": "local", "path": bundle_paths["mortgage"]},
+                    {"type": "local", "path": bundle_paths["prod-ops"]},
                     {"type": "local", "path": bundle_paths["vds"]},
                     {"type": "local", "path": bundle_paths["tools"]},
                     {"type": "local", "path": bundle_paths["rnb"]},
                 ],
             )
+            self.assertTrue(callable(getattr(options, "stderr")))
+            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Skill", {}, None)), "behavior", ""), "allow")
+            self.assertEqual(
+                getattr(asyncio.run(options.can_use_tool("Skill(mortgage:foo)", {}, None)), "behavior", ""), "allow"
+            )
+            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Read", {}, None)), "behavior", ""), "allow")
+            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Write", {}, None)), "behavior", ""), "allow")
+            self.assertEqual(getattr(asyncio.run(options.can_use_tool("Bash", {}, None)), "behavior", ""), "allow")
+            self.assertEqual(getattr(asyncio.run(options.can_use_tool("WebFetch", {}, None)), "behavior", ""), "deny")
             self.assertIn("Loaded Toolshed marketplace bundles", _FakeClaudeSDKClient.instances[-1].prompt)
 
     def test_provider_rejects_reserved_session_start_metadata(self) -> None:
@@ -469,6 +500,9 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.tools, ["mcp__gestalt__*"])
         self.assertEqual(fake_client.options.allowed_tools, ["mcp__gestalt__*"])
         self.assertIsNotNone(fake_client.options.can_use_tool)
+        self.assertEqual(
+            getattr(asyncio.run(fake_client.options.can_use_tool("Read", {}, None)), "behavior", ""), "deny"
+        )
         self.assertEqual(set(fake_client.options.mcp_servers.keys()), {"gestalt"})
         self.assertEqual(fake_client.options.permission_mode, "dontAsk")
         self.assertEqual(fake_client.options.setting_sources, [])
@@ -609,15 +643,12 @@ class ClaudeProviderTests(unittest.TestCase):
 
         summary_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
-                limit=1,
-                summary_only=True,
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"), limit=1, summary_only=True
             )
         )
         full_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
-                limit=1,
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
             )
         )
         summary_turns = provider_client.ListTurns(
@@ -630,9 +661,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         full_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a",
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
-                limit=1,
+                session_id="session-stream-a", subject=agent_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
             )
         )
         running_turns = provider_client.ListTurns(
@@ -712,7 +741,9 @@ class ClaudeProviderTests(unittest.TestCase):
         session_projection_commands = indexeddb.cursor_commands(store=session_projection_store)[
             before_session_projection_cursors:
         ]
-        turn_projection_commands = indexeddb.cursor_commands(store=turn_projection_store)[before_turn_projection_cursors:]
+        turn_projection_commands = indexeddb.cursor_commands(store=turn_projection_store)[
+            before_turn_projection_cursors:
+        ]
         for commands in session_projection_commands[:2]:
             self.assertEqual(commands.count("next"), 1)
         for commands in turn_projection_commands[:2]:

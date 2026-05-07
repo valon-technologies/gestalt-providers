@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 from .config import ClaudeAgentConfig
 from .mcp_bridge import (
     MCP_SERVER_NAME,
+    allow_gestalt_mcp_or_plugin_tool,
     allow_gestalt_mcp_tool,
     allowed_gestalt_mcp_tools,
     create_gestalt_sdk_mcp_server,
@@ -227,8 +228,9 @@ class ClaudeSDKRunner:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
-        gestalt_tools = allowed_gestalt_mcp_tools()
         plugins: list[SdkPluginConfig] = [{"type": "local", "path": path} for path in plugin_paths or []]
+        plugin_tools_enabled = bool(plugins)
+        gestalt_tools = allowed_gestalt_mcp_tools(include_plugin_tools=plugin_tools_enabled)
         return ClaudeAgentOptions(
             tools=gestalt_tools,
             allowed_tools=gestalt_tools,
@@ -244,10 +246,11 @@ class ClaudeSDKRunner:
             cli_path=self._config.cli_path or None,
             env=env,
             setting_sources=[],
-            skills="all" if plugins else [],
+            skills="all" if plugin_tools_enabled else [],
             plugins=plugins,
             agents=None,
-            can_use_tool=allow_gestalt_mcp_tool,
+            can_use_tool=allow_gestalt_mcp_or_plugin_tool if plugin_tools_enabled else allow_gestalt_mcp_tool,
+            stderr=_log_claude_stderr,
         )
 
     def _register_active_turn(self, turn_id: str, active: _ActiveTurn) -> None:
@@ -322,6 +325,12 @@ def _message_content(message: dict[str, Any]) -> str:
         if isinstance(image_ref, dict):
             chunks.append(json.dumps({"image_ref": image_ref}, sort_keys=True, separators=(",", ":")))
     return "\n".join(chunks).strip()
+
+
+def _log_claude_stderr(line: str) -> None:
+    text = str(line or "").strip()
+    if text:
+        logger.warning("Claude Agent SDK stderr: %s", _truncate(text))
 
 
 def _schedule_interrupt(loop: asyncio.AbstractEventLoop, client: Any) -> concurrent.futures.Future[Any] | None:
