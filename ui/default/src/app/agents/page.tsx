@@ -738,7 +738,7 @@ export default function AgentsPage() {
           <div className="flex items-center justify-between border-t border-alpha px-5 py-2 font-mono text-[11px] text-muted">
             <div className="flex items-center gap-3">
               <span className={`tui-glyph ${footerStatusColor(footerStatus)}`}>●</span>
-              <span className="uppercase tracking-[0.18em]">{footerStatus}</span>
+              <span className="uppercase tracking-[0.18em]">state {footerStatus}</span>
               <span className="text-faint">│</span>
               <span>{selectedSession?.provider || "default"}</span>
               <span className="text-faint">·</span>
@@ -1886,13 +1886,13 @@ function EventInspector({
   return (
     <aside className="flex min-h-[16rem] flex-col overflow-hidden bg-background/30 lg:min-h-0">
       <div className="border-b border-alpha px-4 py-3">
-        <h2 className="tui-section-label flex items-center gap-2 font-normal">
+        <div className="tui-section-label flex items-center gap-2">
           <span className="tui-glyph text-faint">◇</span>
-          Activity
+          <h2 className="font-normal tracking-[0.22em]">Activity</h2>
           <span className="ml-auto text-faint normal-case tracking-normal">
             {activityEvents.length}
           </span>
-        </h2>
+        </div>
         <dl className="mt-3 space-y-1 font-mono text-[11px]">
           <InspectorRow label="session" value={sessionShort} />
           <InspectorRow label="turn" value={turnShort} />
@@ -1905,10 +1905,10 @@ function EventInspector({
         </dl>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <h3 className="tui-section-label mb-2 flex items-center gap-2 font-normal">
+        <div className="tui-section-label mb-2 flex items-center gap-2">
           <span className="tui-glyph text-faint">◇</span>
-          Public Activity
-        </h3>
+          <h3 className="font-normal tracking-[0.22em]">Public Activity</h3>
+        </div>
         {activityEvents.length === 0 ? (
           <p className="font-mono text-xs text-faint">
             <span className="tui-glyph mr-2">·</span>
