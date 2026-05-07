@@ -2234,7 +2234,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/github/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.35",
+      "latestInstallableVersion": "0.0.1-alpha.36",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/github/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.36",
       "name": "github",
@@ -2244,6 +2244,20 @@
       "registryPath": "/providers/plugin/github/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/github",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.36/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
+            "generic"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.36"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.35/provider-release.yaml",
