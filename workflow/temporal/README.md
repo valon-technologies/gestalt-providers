@@ -31,8 +31,8 @@ providers:
 
 `scopeID` is required and is part of the Temporal workflow IDs used by this
 provider. Reuse the same `scopeID` only for the same logical Gestalt workflow
-environment. `indexShardCount` is retained for compatibility with legacy
-Temporal index workflows; new provider metadata reads and writes use IndexedDB.
+environment. `indexShardCount` controls the number of Temporal-owned shards
+used for run projections and owner idempotency ledgers.
 
 ## Runtime Requirements
 
@@ -47,20 +47,20 @@ Workers are registered when the host calls `ProviderLifecycle.StartProvider` or
 when an execution RPC reaches the provider during startup reconciliation.
 Metadata-only reads do not start the Temporal worker.
 
-## v1 Behavior
+## Runtime Behavior
 
 - Temporal Cloud API-key authentication
-- Temporal workflows invoke the Gestalt workflow host through activities
+- Temporal V3 run workflows invoke the Gestalt workflow host through activities
 - native Temporal schedules for cron dispatch with skip overlap policy
-- pending-only cancellation
-- `SignalOrStartRun` uses Temporal update-with-start to append signals to the
-  active workflow-key run or start a new one
-- provider state is persisted in IndexedDB object stores; legacy sharded
-  Temporal index workflows remain registered only for compatibility with older
-  executions
-- public run IDs are opaque handles containing Temporal workflow and run IDs
-- completed run state is read from IndexedDB, not closed workflow queries
-- event trigger, execution reference, workflow-key, and idempotency lookups are
-  stored in IndexedDB
+- keyed `SignalOrStartRun` routes through durable Temporal lane workflows; the
+  active run, signal acknowledgements, and workflow-key ownership are workflow
+  state
+- unkeyed `SignalOrStartRun` idempotency is owned by durable Temporal owner
+  ledger workflows
+- public run IDs are opaque V3 handles that identify the run workflow and, for
+  keyed runs, the owning lane workflow
+- run state is projected to Temporal run-index workflows for listing and lookup
+- IndexedDB stores schedule, event-trigger, and execution-reference metadata;
+  run, workflow-key, and idempotency tables are not used
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked

@@ -33,35 +33,55 @@ type scopedTarget struct {
 	Target   *proto.BoundWorkflowTarget
 }
 
-type runHandle struct {
-	WorkflowID string `json:"workflow_id"`
-	RunID      string `json:"run_id"`
+type v3RunHandle struct {
+	Kind             string `json:"kind"`
+	LaneWorkflowID   string `json:"lane_workflow_id,omitempty"`
+	RunWorkflowID    string `json:"run_workflow_id"`
+	RunTemporalRunID string `json:"run_temporal_run_id,omitempty"`
+	LogicalRunKey    string `json:"logical_run_key,omitempty"`
+	WorkflowKey      string `json:"workflow_key,omitempty"`
+	OwnerKey         string `json:"owner_key,omitempty"`
 }
 
-func encodeRunHandle(workflowID, runID string) string {
-	payload, _ := json.Marshal(runHandle{WorkflowID: strings.TrimSpace(workflowID), RunID: strings.TrimSpace(runID)})
+func encodeV3RunHandle(handle v3RunHandle) string {
+	handle.Kind = strings.TrimSpace(handle.Kind)
+	handle.LaneWorkflowID = strings.TrimSpace(handle.LaneWorkflowID)
+	handle.RunWorkflowID = strings.TrimSpace(handle.RunWorkflowID)
+	handle.RunTemporalRunID = strings.TrimSpace(handle.RunTemporalRunID)
+	handle.LogicalRunKey = strings.TrimSpace(handle.LogicalRunKey)
+	handle.WorkflowKey = strings.TrimSpace(handle.WorkflowKey)
+	handle.OwnerKey = strings.TrimSpace(handle.OwnerKey)
+	payload, _ := json.Marshal(handle)
 	return base64.RawURLEncoding.EncodeToString(payload)
 }
 
-func decodeRunHandle(id string) (runHandle, error) {
+func decodeV3RunHandle(id string) (*v3RunHandle, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return runHandle{}, errors.New("run_id is required")
+		return nil, errors.New("run_id is required")
 	}
 	data, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
-		return runHandle{}, fmt.Errorf("run_id is not a temporal workflow handle")
+		return nil, fmt.Errorf("run_id is not a temporal workflow handle")
 	}
-	var out runHandle
-	if err := json.Unmarshal(data, &out); err != nil {
-		return runHandle{}, fmt.Errorf("run_id is not a temporal workflow handle")
+	var v3 v3RunHandle
+	if err := json.Unmarshal(data, &v3); err != nil {
+		return nil, fmt.Errorf("run_id is not a temporal workflow handle")
 	}
-	out.WorkflowID = strings.TrimSpace(out.WorkflowID)
-	out.RunID = strings.TrimSpace(out.RunID)
-	if out.WorkflowID == "" || out.RunID == "" {
-		return runHandle{}, fmt.Errorf("run_id is missing workflow_id or run_id")
+	v3.Kind = strings.TrimSpace(v3.Kind)
+	v3.LaneWorkflowID = strings.TrimSpace(v3.LaneWorkflowID)
+	v3.RunWorkflowID = strings.TrimSpace(v3.RunWorkflowID)
+	v3.RunTemporalRunID = strings.TrimSpace(v3.RunTemporalRunID)
+	v3.LogicalRunKey = strings.TrimSpace(v3.LogicalRunKey)
+	v3.WorkflowKey = strings.TrimSpace(v3.WorkflowKey)
+	v3.OwnerKey = strings.TrimSpace(v3.OwnerKey)
+	if v3.Kind != "temporal-run-v3" {
+		return nil, fmt.Errorf("run_id is not a supported temporal workflow handle")
 	}
-	return out, nil
+	if v3.RunWorkflowID == "" {
+		return nil, fmt.Errorf("run_id is missing run_workflow_id")
+	}
+	return &v3, nil
 }
 
 func hashID(parts ...string) string {
@@ -74,6 +94,92 @@ func hashID(parts ...string) string {
 	}
 	sum := h.Sum(nil)
 	return hex.EncodeToString(sum[:16])
+}
+
+func protoHashID(msg gproto.Message) string {
+	if msg == nil {
+		return ""
+	}
+	data, err := gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	if err != nil {
+		return hashID("proto-marshal-error", err.Error())
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:16])
+}
+
+func protoPayload(msg gproto.Message) []byte {
+	data, err := marshalProto(msg)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func targetFromPayload(data []byte) *proto.BoundWorkflowTarget {
+	if len(data) == 0 {
+		return nil
+	}
+	var target proto.BoundWorkflowTarget
+	if err := gproto.Unmarshal(data, &target); err != nil {
+		return nil
+	}
+	return cloneTarget(&target)
+}
+
+func triggerFromPayload(data []byte) *proto.WorkflowRunTrigger {
+	if len(data) == 0 {
+		return nil
+	}
+	var trigger proto.WorkflowRunTrigger
+	if err := gproto.Unmarshal(data, &trigger); err != nil {
+		return nil
+	}
+	return cloneRunTrigger(&trigger)
+}
+
+func actorFromPayload(data []byte) *proto.WorkflowActor {
+	if len(data) == 0 {
+		return nil
+	}
+	var actor proto.WorkflowActor
+	if err := gproto.Unmarshal(data, &actor); err != nil {
+		return nil
+	}
+	return cloneActor(&actor)
+}
+
+func signalFromPayload(data []byte) *proto.WorkflowSignal {
+	if len(data) == 0 {
+		return nil
+	}
+	var signal proto.WorkflowSignal
+	if err := gproto.Unmarshal(data, &signal); err != nil {
+		return nil
+	}
+	return cloneSignal(&signal)
+}
+
+func runFromPayload(data []byte) *proto.BoundWorkflowRun {
+	if len(data) == 0 {
+		return nil
+	}
+	var run proto.BoundWorkflowRun
+	if err := gproto.Unmarshal(data, &run); err != nil {
+		return nil
+	}
+	return cloneRun(&run)
+}
+
+func signalResponseFromPayload(data []byte) *proto.SignalWorkflowRunResponse {
+	if len(data) == 0 {
+		return nil
+	}
+	var resp proto.SignalWorkflowRunResponse
+	if err := gproto.Unmarshal(data, &resp); err != nil {
+		return nil
+	}
+	return cloneSignalResponse(&resp)
 }
 
 func scopeHash(scopeID string) string {
@@ -419,10 +525,6 @@ func eventTrigger(triggerID string, event *proto.WorkflowEvent) *proto.WorkflowR
 		TriggerId: strings.TrimSpace(triggerID),
 		Event:     cloneEvent(event),
 	}}}
-}
-
-func publicRunID(workflowID, runID string) string {
-	return encodeRunHandle(workflowID, runID)
 }
 
 func sortRuns(runs []*proto.BoundWorkflowRun) {

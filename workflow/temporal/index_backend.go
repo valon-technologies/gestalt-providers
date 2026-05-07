@@ -241,55 +241,6 @@ func (b *temporalBackend) updateAllIndexes(ctx context.Context, updateName strin
 	return nil
 }
 
-func (b *temporalBackend) putRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
-	if b.state == nil {
-		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.putRun(ctx, run)
-}
-
-func (b *temporalBackend) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
-	if b.state == nil {
-		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.getRun(ctx, id)
-}
-
-func (b *temporalBackend) listRuns(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
-	if b.state == nil {
-		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.listRuns(ctx)
-}
-
-func (b *temporalBackend) putWorkflowKey(ctx context.Context, workflowKey string, run *proto.BoundWorkflowRun) error {
-	if b.state == nil {
-		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.putWorkflowKey(ctx, workflowKey, run)
-}
-
-func (b *temporalBackend) getWorkflowKey(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
-	if b.state == nil {
-		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.getWorkflowKey(ctx, workflowKey)
-}
-
-func (b *temporalBackend) putIdempotency(ctx context.Context, ownerKey, key string, record *proto.SignalWorkflowRunResponse) error {
-	if b.state == nil {
-		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.putIdempotency(ctx, ownerKey, key, record)
-}
-
-func (b *temporalBackend) getIdempotency(ctx context.Context, ownerKey, key string) (*proto.SignalWorkflowRunResponse, bool, error) {
-	if b.state == nil {
-		return nil, false, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
-	}
-	return b.state.getIdempotency(ctx, ownerKey, key)
-}
-
 func (b *temporalBackend) putScheduleIndex(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
 	if b.state == nil {
 		return status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
@@ -308,8 +259,6 @@ func (b *temporalBackend) listSchedulesIndex(ctx context.Context) ([]*proto.Boun
 	if b.state == nil {
 		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	// Temporal schedules are the source of truth for firing; this helper only
-	// backs legacy callers that need the local mirror.
 	return nil, nil
 }
 

@@ -16,6 +16,7 @@ const (
 	defaultActivityStartToCloseTimeout = 5 * time.Minute
 	defaultScheduleCatchupWindow       = time.Minute
 	defaultIndexShardCount             = 64
+	defaultIdempotencyRetention        = 7 * 24 * time.Hour
 )
 
 type config struct {
@@ -31,6 +32,7 @@ type config struct {
 	ActivityStartToCloseTimeout time.Duration `yaml:"activityStartToCloseTimeout"`
 	ScheduleCatchupWindow       time.Duration `yaml:"scheduleCatchupWindow"`
 	IndexShardCount             int           `yaml:"indexShardCount"`
+	IdempotencyRetention        time.Duration `yaml:"idempotencyRetention"`
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
@@ -40,6 +42,7 @@ func decodeConfig(raw map[string]any) (config, error) {
 		ActivityStartToCloseTimeout: defaultActivityStartToCloseTimeout,
 		ScheduleCatchupWindow:       defaultScheduleCatchupWindow,
 		IndexShardCount:             defaultIndexShardCount,
+		IdempotencyRetention:        defaultIdempotencyRetention,
 	}
 	if len(raw) > 0 {
 		data, err := yaml.Marshal(raw)
@@ -87,6 +90,9 @@ func decodeConfig(raw map[string]any) (config, error) {
 	}
 	if cfg.IndexShardCount <= 0 {
 		return config{}, fmt.Errorf("indexShardCount must be positive")
+	}
+	if cfg.IdempotencyRetention <= 0 {
+		return config{}, fmt.Errorf("idempotencyRetention must be positive")
 	}
 	return cfg, nil
 }
