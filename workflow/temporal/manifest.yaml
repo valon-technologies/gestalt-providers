@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/workflow/temporal
-version: 0.0.1-alpha.12
+version: 0.0.1-alpha.13
 displayName: Temporal Workflow
 description: Temporal Cloud-backed workflow provider with durable workflow state and schedules.
 kind: workflow

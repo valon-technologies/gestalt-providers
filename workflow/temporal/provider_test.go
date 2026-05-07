@@ -608,6 +608,31 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if len(tc.queries) != 0 {
 		t.Fatalf("listExecutionRefsIndex touched temporal index queries=%#v", tc.queries)
 	}
+
+	tc.scheduleClient = newFakeScheduleClient(map[string]*client.ScheduleDescription{
+		backend.temporalScheduleID("schedule-1"): {
+			Schedule: client.Schedule{
+				Action: &client.ScheduleWorkflowAction{},
+				Spec:   &client.ScheduleSpec{CronExpressions: []string{"0 * * * *"}, TimeZoneName: "America/New_York"},
+				State:  &client.ScheduleState{},
+			},
+		},
+	})
+	if _, err := backend.UpsertSchedule(context.Background(), &proto.UpsertWorkflowProviderScheduleRequest{
+		ScheduleId:  "schedule-1",
+		Cron:        "0 * * * *",
+		Timezone:    "America/New_York",
+		Target:      pluginTarget("slack", "postMessage"),
+		RequestedBy: &proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"},
+	}); err != nil {
+		t.Fatalf("UpsertSchedule: %v", err)
+	}
+	if len(tc.updates) != 0 {
+		t.Fatalf("UpsertSchedule touched temporal index updates=%#v", tc.updates)
+	}
+	if len(tc.queries) != 0 {
+		t.Fatalf("UpsertSchedule touched temporal index queries=%#v", tc.queries)
+	}
 }
 
 func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {

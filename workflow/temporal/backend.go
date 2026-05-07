@@ -793,9 +793,6 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
-	if err := b.ensureTemporalRunIndexes(ctx); err != nil {
-		return err
-	}
 	scheduleMemo := map[string]interface{}{
 		workflowScheduleMemoKey: cloneSchedule(schedule),
 	}
