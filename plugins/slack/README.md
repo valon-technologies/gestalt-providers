@@ -465,7 +465,8 @@ plugins:
                 - C0123456789
               eventTypes:
                 - app_mention
-                - message
+                - message.channels
+              subtypes: []
             agent:
               systemPrompt: Help with team questions.
               timeoutSeconds: 900
@@ -535,11 +536,28 @@ channel internally.
 
 When `agent.routes` is present, only matching routes start or signal a workflow
 run. Match rules support singular or plural forms of `team`, `channel`,
-`channelType`, `eventType`, and `user`. Route-level `agent` fields override or
-extend the top-level agent settings, `prompt` is accepted as an alias for
-`systemPrompt`, and `modelOptions` are merged with route-level values taking
-precedence. Matching routes still require non-DM `message` events to be
-addressed to the bot; routes do not opt into every plain channel message.
+`channelType`, `eventType`, `subtype`, and `user`. `match.eventTypes` accepts
+Slack Events API subscription literals: `app_mention`, `message.channels`,
+`message.groups`, `message.im`, `message.mpim`, `message.app_home`,
+`assistant_thread_started`, and `assistant_thread_context_changed`. Values must
+match Slack's literals exactly.
+
+Slack delivers `message.*` subscriptions as payloads whose inner event type is
+`message`, so `match.eventTypes` remains available for payload-type matching and
+backward compatibility. However, `eventTypes: [message]` does not opt a non-DM
+route into every plain channel message. A non-DM `message` event that does not
+mention the bot or include assistant context starts an agent only when the
+selected route explicitly matches the corresponding `message.*` Slack event
+literal. Configure `eventTypes: [message.channels]` for a public channel
+where every incoming message should trigger the agent. Message routes can also
+set `subtypes`: omitted means all non-ignored subtypes can match, `subtypes: []`
+means only normal messages with no subtype match, and a non-empty list matches
+those Slack message subtypes. Bot, edit, delete, and thread-reply notification
+message events remain ignored before route matching.
+
+Route-level `agent` fields override or extend the top-level agent settings,
+`prompt` is accepted as an alias for `systemPrompt`, and `modelOptions` are
+merged with route-level values taking precedence.
 
 ## Configuration Reference
 
