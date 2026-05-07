@@ -589,44 +589,58 @@ export default function AgentsPage() {
     }
   }
 
+  const sessionShortID = selectedSession?.id
+    ? selectedSession.id.slice(0, 8)
+    : "—";
+  const turnShortID = selectedTurn?.id ? selectedTurn.id.slice(0, 8) : "—";
+  const footerStatus = selectedTurn?.status || (selectedSession ? "idle" : "no session");
+
   return (
     <AuthGuard>
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-background">
         <Nav />
-        <main className="mx-auto flex min-h-[calc(100vh-7rem)] max-w-7xl flex-col px-6 py-4 lg:h-[calc(100vh-7rem)] lg:overflow-hidden">
-          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-            <div>
-              <span className="label-text">Orchestration</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
-                Agent Sessions
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm text-muted">
-                Inspect live turns, tool activity, public event frames, and
-                pending agent interactions.
-              </p>
+        <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden">
+          <h1 className="sr-only">Agent Sessions</h1>
+          <div className="flex items-center justify-between border-b border-alpha px-5 py-2.5">
+            <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
+              <span className="tui-glyph text-grove-600 dark:text-grove-200">●</span>
+              <span>agents</span>
+              <span className="text-faint">/</span>
+              <span className="text-primary">sessions</span>
+              {selectedSession ? (
+                <>
+                  <span className="text-faint">/</span>
+                  <span className="truncate text-primary">
+                    {selectedSession.clientRef || sessionShortID}
+                  </span>
+                </>
+              ) : null}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2 font-mono text-[11px]">
               <button
                 type="button"
                 onClick={() => selectSession(null)}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
+                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted transition-colors duration-150 hover:border-alpha-strong hover:text-primary"
               >
-                New session
+                + new
               </button>
               <button
                 type="button"
                 onClick={() => setRefreshNonce((value) => value + 1)}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
+                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted transition-colors duration-150 hover:border-alpha-strong hover:text-primary"
               >
-                {refreshing ? "Refreshing..." : "Refresh"}
+                {refreshing ? "↻ refreshing" : "↻ refresh"}
               </button>
             </div>
           </div>
 
           {loading ? (
-            <p className="mt-10 text-sm text-faint">Loading...</p>
+            <div className="flex flex-1 items-center justify-center font-mono text-xs uppercase tracking-[0.22em] text-faint">
+              <span className="tui-glyph mr-2 text-sky-500">●</span>
+              connecting to runtime…
+            </div>
           ) : (
-            <div className="mt-8 grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+            <div className="flex min-h-0 flex-1 lg:grid lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
               <SessionSidebar
                 sessions={filteredSessions}
                 selectedSessionID={selectedSessionID}
@@ -638,7 +652,7 @@ export default function AgentsPage() {
                 onSelect={selectSession}
               />
 
-              <section className="flex min-h-[32rem] min-w-0 flex-col overflow-hidden rounded-lg border border-alpha bg-base-100 dark:bg-surface lg:min-h-0">
+              <section className="flex min-w-0 flex-col overflow-hidden border-x border-alpha lg:border-x">
                 <ConsoleHeader
                   session={selectedSession}
                   turn={selectedTurn}
@@ -649,17 +663,24 @@ export default function AgentsPage() {
                 />
 
                 {notice || actionError || detailError ? (
-                  <div className="border-t border-alpha px-5 py-3">
+                  <div className="border-t border-alpha px-5 py-2 font-mono text-[11px]">
                     {notice ? (
-                      <p className="text-sm text-grove-700 dark:text-grove-200">
+                      <p className="text-grove-700 dark:text-grove-200">
+                        <span className="tui-glyph mr-2">●</span>
                         {notice}
                       </p>
                     ) : null}
                     {actionError ? (
-                      <p className="text-sm text-ember-500">{actionError}</p>
+                      <p className="text-ember-500">
+                        <span className="tui-glyph mr-2">✗</span>
+                        {actionError}
+                      </p>
                     ) : null}
                     {detailError ? (
-                      <p className="text-sm text-ember-500">{detailError}</p>
+                      <p className="text-ember-500">
+                        <span className="tui-glyph mr-2">✗</span>
+                        {detailError}
+                      </p>
                     ) : null}
                   </div>
                 ) : null}
@@ -684,7 +705,7 @@ export default function AgentsPage() {
                   />
                 </div>
 
-                <div className="max-h-[45vh] overflow-y-auto border-t border-alpha bg-background/45 px-5 py-4 dark:bg-background/20">
+                <div className="max-h-[45vh] overflow-y-auto border-t border-alpha bg-background/40 px-5 py-4 dark:bg-background/30">
                   <AgentComposer
                     composer={composer}
                     selectedSession={selectedSession}
@@ -713,10 +734,50 @@ export default function AgentsPage() {
               />
             </div>
           )}
+
+          <div className="flex items-center justify-between border-t border-alpha px-5 py-2 font-mono text-[11px] text-muted">
+            <div className="flex items-center gap-3">
+              <span className={`tui-glyph ${footerStatusColor(footerStatus)}`}>●</span>
+              <span className="uppercase tracking-[0.18em]">state {footerStatus}</span>
+              <span className="text-faint">│</span>
+              <span>{selectedSession?.provider || "default"}</span>
+              <span className="text-faint">·</span>
+              <span>{selectedSession?.model || "—"}</span>
+              <span className="text-faint">│</span>
+              <span>session {sessionShortID}</span>
+              <span className="text-faint">·</span>
+              <span>turn {turnShortID}</span>
+            </div>
+            <div className="hidden items-center gap-3 text-faint md:flex">
+              <span>↵ send</span>
+              <span>·</span>
+              <span>⌘K commands</span>
+              <span>·</span>
+              <span>esc cancel</span>
+            </div>
+          </div>
         </main>
       </div>
     </AuthGuard>
   );
+}
+
+function footerStatusColor(status?: string): string {
+  switch (status) {
+    case "succeeded":
+      return "text-grove-600 dark:text-grove-200";
+    case "failed":
+      return "text-ember-500";
+    case "running":
+    case "pending":
+      return "text-sky-500";
+    case "waiting_for_input":
+      return "text-amber-500";
+    case "canceled":
+      return "text-faint";
+    default:
+      return "text-faint";
+  }
 }
 
 function SessionSidebar({
@@ -739,54 +800,75 @@ function SessionSidebar({
   onSelect: (sessionID: string) => void;
 }) {
   return (
-    <aside className="flex min-h-[16rem] flex-col overflow-hidden rounded-lg border border-alpha bg-base-100 dark:bg-surface lg:min-h-0">
-      <div className="border-b border-alpha p-4">
-        <h2 className="text-sm font-medium text-primary">Sessions</h2>
-        <div className="mt-3 space-y-2">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search sessions"
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-          />
+    <aside className="flex min-h-[16rem] flex-col overflow-hidden bg-background/30 lg:min-h-0">
+      <div className="border-b border-alpha px-4 py-3">
+        <div className="tui-section-label flex items-center gap-2">
+          <span className="tui-glyph text-faint">◇</span>
+          <span>Sessions</span>
+          <span className="ml-auto text-faint normal-case tracking-normal">
+            {sessions.length}
+          </span>
+        </div>
+        <div className="mt-3 space-y-1.5">
+          <div className="flex items-center gap-2 border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs">
+            <span className="tui-glyph text-faint">⌕</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="filter sessions…"
+              className="w-full bg-transparent text-primary outline-none placeholder:text-faint"
+            />
+          </div>
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+            className="w-full border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted outline-none transition-colors duration-150 focus:border-alpha-strong"
           >
-            <option value="all">All states</option>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
+            <option value="all">all states</option>
+            <option value="active">active</option>
+            <option value="archived">archived</option>
           </select>
         </div>
       </div>
 
       {error ? (
-        <p className="p-4 text-sm text-ember-500">{error}</p>
+        <p className="px-4 py-3 font-mono text-xs text-ember-500">
+          <span className="tui-glyph mr-2">✗</span>
+          {error}
+        </p>
       ) : sessions.length === 0 ? (
-        <p className="p-4 text-sm text-faint">No agent sessions yet.</p>
+        <p className="px-4 py-3 font-mono text-xs text-faint">
+          <span className="tui-glyph mr-2">·</span>
+          No agent sessions yet.
+        </p>
       ) : (
-        <div className="min-h-0 flex-1 divide-y divide-alpha overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {sessions.map((session) => {
             const active = session.id === selectedSessionID;
+            const dotClass = sessionDotClass(session);
+            const shortID = session.id.slice(0, 8);
             return (
               <button
                 key={session.id}
                 type="button"
                 onClick={() => onSelect(session.id)}
-                className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors duration-150 ${
-                  active ? "bg-alpha-5" : "hover:bg-alpha-5"
+                className={`relative flex w-full items-start gap-2.5 px-4 py-2 text-left font-mono transition-colors duration-150 ${
+                  active
+                    ? "bg-alpha-10 text-primary before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-grove-500 dark:before:bg-grove-200"
+                    : "text-muted hover:bg-alpha-5"
                 }`}
               >
-                <span className="truncate text-sm font-medium text-primary">
-                  {session.clientRef || session.id}
-                </span>
-                <span className="truncate text-xs text-muted">
-                  {session.provider || "default"} /{" "}
-                  {session.model || "default model"}
-                </span>
-                <span className="text-xs text-faint">
-                  {formatDate(session.lastTurnAt || session.updatedAt)}
+                <span className={`tui-glyph mt-1 text-[10px] ${dotClass}`}>●</span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-sm text-primary">
+                    {session.clientRef || shortID}
+                  </span>
+                  <span className="truncate text-[11px] text-faint">
+                    {session.provider || "default"} · {session.model || "—"}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-faint">
+                    {shortID} · {formatDate(session.lastTurnAt || session.updatedAt)}
+                  </span>
                 </span>
               </button>
             );
@@ -795,6 +877,19 @@ function SessionSidebar({
       )}
     </aside>
   );
+}
+
+function sessionDotClass(session: AgentSession): string {
+  const status = (session as { state?: string }).state;
+  switch (status) {
+    case "active":
+    case "running":
+      return "text-sky-500";
+    case "archived":
+      return "text-faint";
+    default:
+      return "text-grove-600 dark:text-grove-200";
+  }
 }
 
 function ConsoleHeader({
@@ -813,54 +908,77 @@ function ConsoleHeader({
   cancelingTurnID: string | null;
 }) {
   return (
-    <div className="px-5 py-4">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-medium text-primary">
-            {session?.clientRef || session?.id || "New agent session"}
-          </h2>
-          <p className="mt-1 text-xs text-faint">
-            {session
-              ? `${session.provider || "default"} / ${session.model || "default model"}`
-              : "The first message will create a cloud session."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="px-5 py-3">
+      <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
+        <span className="tui-section-label">session</span>
+        <span className="tui-glyph text-faint">›</span>
+        <h2 className="truncate text-sm font-normal text-primary">
+          {session?.clientRef || session?.id?.slice(0, 8) || "new"}
+        </h2>
+        <span className="text-faint">·</span>
+        <span className="text-muted">
+          {session ? `${session.provider || "default"} / ${session.model || "—"}` : "first message creates a cloud session"}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
           {turn ? <span className={statusClassName(turn.status)}>{turn.status}</span> : null}
           {turn && isTurnLive(turn.status) ? (
             <button
               type="button"
+              aria-label="Cancel turn"
               onClick={() => void onCancelTurn(turn)}
               disabled={cancelingTurnID === turn.id}
-              className="rounded-md bg-ember-500 px-3 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="border border-ember-500 bg-transparent px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-ember-500 transition-colors duration-150 hover:bg-ember-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {cancelingTurnID === turn.id ? "Canceling..." : "Cancel turn"}
+              {cancelingTurnID === turn.id ? "✗ canceling" : "✗ cancel"}
             </button>
           ) : null}
         </div>
       </div>
 
       {turns.length ? (
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-          {turns.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelectTurn(item.id)}
-              className={`shrink-0 rounded-md border px-3 py-2 text-left text-xs transition-colors duration-150 ${
-                item.id === turn?.id
-                  ? "border-alpha-strong bg-alpha-5 text-primary"
-                  : "border-alpha text-muted hover:bg-alpha-5"
-              }`}
-            >
-              <span className="block max-w-40 truncate">{turnLabel(item)}</span>
-              <span className="mt-1 block text-faint">{formatDate(item.createdAt)}</span>
-            </button>
-          ))}
+        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1 font-mono text-[11px]">
+          <span className="tui-section-label shrink-0 self-center pr-1">turns</span>
+          {turns.map((item) => {
+            const active = item.id === turn?.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectTurn(item.id)}
+                className={`flex shrink-0 items-center gap-2 border px-2 py-1 text-left transition-colors duration-150 ${
+                  active
+                    ? "border-alpha-strong bg-alpha-10 text-primary"
+                    : "border-alpha text-muted hover:border-alpha-strong hover:text-primary"
+                }`}
+              >
+                <span className={`tui-glyph text-[10px] ${turnDotColor(item.status)}`}>●</span>
+                <span className="block max-w-40 truncate">{turnLabel(item)}</span>
+                <span className="block text-faint">{formatDate(item.createdAt)}</span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </div>
   );
+}
+
+function turnDotColor(status?: string): string {
+  switch (status) {
+    case "succeeded":
+      return "text-grove-600 dark:text-grove-200";
+    case "failed":
+      return "text-ember-500";
+    case "running":
+    case "pending":
+      return "text-sky-500";
+    case "waiting_for_input":
+      return "text-amber-500";
+    case "canceled":
+      return "text-faint";
+    default:
+      return "text-faint";
+  }
 }
 
 function TranscriptView({
@@ -888,18 +1006,24 @@ function TranscriptView({
   }, [itemKey, loading]);
 
   if (loading) {
-    return <p className="text-sm text-faint">Loading transcript...</p>;
+    return (
+      <p className="font-mono text-xs text-faint">
+        <span className="tui-glyph mr-2 text-sky-500">●</span>
+        loading transcript…
+      </p>
+    );
   }
   if (items.length === 0) {
     return (
-      <div className="rounded-md border border-alpha bg-background/65 p-5 text-sm text-faint dark:bg-background/20">
+      <div className="border border-dashed border-alpha bg-background/40 px-5 py-6 font-mono text-xs text-faint">
+        <span className="tui-glyph mr-2">·</span>
         {emptyMessage}
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {items.map((item) => (
         <TranscriptBubble key={item.id} item={item} />
       ))}
@@ -913,43 +1037,61 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
     return <ToolTranscriptCard item={item} />;
   }
 
-  const alignClass =
-    item.kind === "user"
-      ? "justify-end"
-      : item.kind === "system" || item.kind === "event"
-        ? "justify-center"
-        : "justify-start";
-  const bubbleClass =
-    item.kind === "user"
-      ? "max-w-[min(42rem,86%)] border-primary bg-primary text-background"
-      : item.kind === "assistant"
-        ? "max-w-[min(42rem,86%)] border-alpha bg-base-100 text-primary dark:bg-surface"
-        : item.kind === "error"
-          ? "max-w-[min(42rem,86%)] border-ember-500/30 bg-ember-500/10 text-primary"
-          : item.kind === "interaction"
-            ? "max-w-[min(36rem,92%)] border-alpha bg-alpha-5 text-primary"
-            : "max-w-[min(34rem,92%)] border-alpha bg-background/65 text-muted dark:bg-background/20";
-  const labelClass =
-    item.kind === "user" ? "text-background/70" : "text-faint";
-
-  return (
-    <div className={`flex ${alignClass}`}>
-      <article className={`rounded-lg border px-4 py-3 ${bubbleClass}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={`text-xs font-medium uppercase tracking-[0.14em] ${labelClass}`}>
-            {item.title}
-          </p>
+  if (item.kind === "user") {
+    return (
+      <div className="tui-user-bar border-l-2 border-l-grove-500 px-3 py-2 dark:border-l-grove-200">
+        <div className="flex items-center gap-2 text-[11px]">
+          <span className="tui-user-bar-prompt text-grove-700 dark:text-grove-200">›</span>
+          <span className="tui-section-label">{item.title}</span>
           {item.streaming ? (
-            <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.14em] text-sky-600 dark:text-sky-200">
-              Streaming
-            </span>
+            <span className="ml-auto tui-status-line text-sky-500">streaming</span>
           ) : null}
         </div>
-        <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm leading-6">
+        <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-primary">
           {item.text}
         </pre>
-      </article>
-    </div>
+      </div>
+    );
+  }
+
+  const glyph =
+    item.kind === "assistant"
+      ? "●"
+      : item.kind === "error"
+        ? "✗"
+        : item.kind === "interaction"
+          ? "◆"
+          : "·";
+  const glyphClass =
+    item.kind === "assistant"
+      ? "text-grove-600 dark:text-grove-200"
+      : item.kind === "error"
+        ? "text-ember-500"
+        : item.kind === "interaction"
+          ? "text-amber-500"
+          : "text-faint";
+  const textClass =
+    item.kind === "error"
+      ? "text-ember-500"
+      : item.kind === "system" || item.kind === "event"
+        ? "text-muted"
+        : "text-primary";
+
+  return (
+    <article className="flex gap-3 px-1 py-1">
+      <span className={`tui-glyph mt-1 ${glyphClass}`}>{glyph}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="tui-section-label">{item.title}</span>
+          {item.streaming ? (
+            <span className="tui-status-line text-sky-500">streaming</span>
+          ) : null}
+        </div>
+        <pre className={`mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 ${textClass}`}>
+          {item.text}
+        </pre>
+      </div>
+    </article>
   );
 }
 
@@ -960,57 +1102,74 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
   const detail = event ? eventDetail(event) : item.text;
   const raw = event ? JSON.stringify(event, null, 2) : null;
   const showSummary = Boolean(item.text && item.text !== detail);
+  const phaseClass = toolPhaseDotColor(phase);
 
   return (
-    <div className="flex justify-start">
-      <article className="max-w-[min(42rem,92%)] rounded-lg border border-alpha bg-alpha-5 px-4 py-3 text-primary">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-primary">
-              {item.title}
-            </p>
-            <p className="mt-1 text-xs text-faint">
-              {event?.seq ? `#${event.seq} ` : ""}
-              {phase || "tool activity"}
-            </p>
-          </div>
-          <span className={toolPhaseClassName(phase)}>
+    <article className="flex gap-3 px-1 py-1">
+      <span className={`tui-glyph mt-1 ${phaseClass}`}>●</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-sm text-primary">{item.title}</span>
+          <span className="tui-status-line">
+            {event?.seq ? `#${event.seq} ` : ""}
+            {phase || "tool"}
+          </span>
+          <span className="ml-auto tui-status-line">
             {event?.display?.kind || event?.source || "tool"}
           </span>
         </div>
 
         {showSummary ? (
-          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-muted">
+          <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-muted">
             {item.text}
-          </p>
+          </pre>
         ) : null}
 
-        <div className="mt-3 space-y-2">
-          {input ? <TranscriptDetail label="Input" value={input} /> : null}
-          {detail ? <TranscriptDetail label="Output" value={detail} /> : null}
-          {raw ? <TranscriptDetail label="Event JSON" value={raw} muted /> : null}
+        <div className="mt-1.5 tui-tree">
+          {input ? <TranscriptDetail glyph="├─" label="Input" value={input} /> : null}
+          {detail ? (
+            <TranscriptDetail glyph={raw ? "├─" : "└─"} label="Output" value={detail} />
+          ) : null}
+          {raw ? <TranscriptDetail glyph="└─" label="Event JSON" value={raw} muted /> : null}
         </div>
-      </article>
-    </div>
+      </div>
+    </article>
   );
 }
 
+function toolPhaseDotColor(phase?: string | null): string {
+  const normalized = phase?.toLowerCase() ?? "";
+  if (normalized.includes("failed") || normalized.includes("error")) {
+    return "text-ember-500";
+  }
+  if (normalized.includes("completed") || normalized.includes("succeeded")) {
+    return "text-grove-600 dark:text-grove-200";
+  }
+  if (normalized.includes("started") || normalized.includes("running")) {
+    return "text-sky-500";
+  }
+  return "text-faint";
+}
+
 function TranscriptDetail({
+  glyph = "└─",
   label,
   value,
   muted,
 }: {
+  glyph?: string;
   label: string;
   value: string;
   muted?: boolean;
 }) {
   return (
-    <details className="rounded-md border border-alpha bg-base-100 p-2 dark:bg-surface">
-      <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.14em] text-faint">
+    <details className="block">
+      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.14em] text-faint hover:text-muted">
+        <span className="tui-glyph mr-1">{glyph}</span>
         {label}
       </summary>
       <pre
-        className={`mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/65 p-2 text-xs dark:bg-background/20 ${
+        className={`ml-4 mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 font-mono text-[11px] leading-5 ${
           muted ? "text-muted" : "text-primary"
         }`}
       >
@@ -1721,36 +1880,42 @@ function EventInspector({
   events: TranscriptState["rawPublicEvents"];
 }) {
   const activityEvents = events.filter(isActivityEvent);
+  const sessionShort = session?.id?.slice(0, 8) ?? "—";
+  const turnShort = turn?.id?.slice(0, 8) ?? "—";
 
   return (
-    <aside className="flex min-h-[16rem] flex-col overflow-hidden rounded-lg border border-alpha bg-base-100 dark:bg-surface lg:min-h-0">
-      <div className="border-b border-alpha p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-medium text-primary">Activity</h2>
-            <p className="mt-1 text-xs text-faint">
-              {activityEvents.length} public activity
-            </p>
-          </div>
+    <aside className="flex min-h-[16rem] flex-col overflow-hidden bg-background/30 lg:min-h-0">
+      <div className="border-b border-alpha px-4 py-3">
+        <div className="tui-section-label flex items-center gap-2">
+          <span className="tui-glyph text-faint">◇</span>
+          <h2 className="font-normal tracking-[0.22em]">Activity</h2>
+          <span className="ml-auto text-faint normal-case tracking-normal">
+            {activityEvents.length}
+          </span>
         </div>
-        <dl className="mt-4 space-y-3 text-xs">
-          <InspectorRow label="Session" value={session?.id} />
-          <InspectorRow label="Turn" value={turn?.id} />
-          <InspectorRow label="Provider" value={session?.provider} />
+        <dl className="mt-3 space-y-1 font-mono text-[11px]">
+          <InspectorRow label="session" value={sessionShort} />
+          <InspectorRow label="turn" value={turnShort} />
+          <InspectorRow label="provider" value={session?.provider || "—"} />
+          <InspectorRow label="model" value={session?.model || "—"} />
           <InspectorRow
-            label="Tool sources"
-            value={providerSourceLabel(providers, session?.provider)}
+            label="sources"
+            value={providerSourceLabel(providers, session?.provider) || "—"}
           />
         </dl>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <h3 className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-          Public Activity
-        </h3>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className="tui-section-label mb-2 flex items-center gap-2">
+          <span className="tui-glyph text-faint">◇</span>
+          <h3 className="font-normal tracking-[0.22em]">Public Activity</h3>
+        </div>
         {activityEvents.length === 0 ? (
-          <p className="mt-3 text-sm text-faint">No public activity.</p>
+          <p className="font-mono text-xs text-faint">
+            <span className="tui-glyph mr-2">·</span>
+            no public activity
+          </p>
         ) : (
-          <div className="mt-3 space-y-3">
+          <div className="space-y-1">
             {activityEvents.map((event) => (
               <ActivityEvent
                 key={`${event.turnId}-${event.seq}-${event.id}`}
@@ -1769,35 +1934,36 @@ function ActivityEvent({ event }: { event: AgentTurnEvent }) {
   const phase = eventPhase(event);
   const detail = eventDetail(event);
   const input = eventInput(event);
+  const dotClass = toolPhaseDotColor(phase);
 
   return (
-    <details className="rounded-md border border-alpha bg-background/65 p-3 dark:bg-background/20">
-      <summary className="cursor-pointer list-none">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-primary">{title}</p>
-            <p className="mt-1 text-xs text-faint">
-              #{event.seq} {phase}
+    <details className="group block border-l border-transparent pl-1 hover:border-alpha-strong">
+      <summary className="cursor-pointer list-none py-1">
+        <div className="flex items-start gap-2 font-mono text-[11px]">
+          <span className={`tui-glyph mt-[2px] ${dotClass}`}>●</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-primary">{title}</p>
+            <p className="tui-status-line">
+              #{event.seq} {phase || event.display?.kind || event.source || "event"}
             </p>
           </div>
-          <span className="shrink-0 rounded-full bg-alpha-5 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-faint">
-            {event.display?.kind || event.source || "event"}
-          </span>
         </div>
       </summary>
-      {input ? (
-        <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border border-alpha bg-base-100 p-2 text-xs text-primary dark:bg-surface">
-          {input}
+      <div className="ml-4 mt-1 space-y-1 tui-tree">
+        {input ? (
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+            {input}
+          </pre>
+        ) : null}
+        {detail ? (
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+            {detail}
+          </pre>
+        ) : null}
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-muted">
+          {JSON.stringify(event, null, 2)}
         </pre>
-      ) : null}
-      {detail ? (
-        <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border border-alpha bg-base-100 p-2 text-xs text-primary dark:bg-surface">
-          {detail}
-        </pre>
-      ) : null}
-      <pre className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-alpha bg-base-100 p-2 text-xs text-muted dark:bg-surface">
-        {JSON.stringify(event, null, 2)}
-      </pre>
+      </div>
     </details>
   );
 }
@@ -1857,9 +2023,9 @@ function InspectorRow({
   value?: string | null;
 }) {
   return (
-    <div>
-      <dt className="uppercase tracking-[0.14em] text-faint">{label}</dt>
-      <dd className="mt-1 break-words text-muted">{value || "-"}</dd>
+    <div className="flex items-baseline gap-2">
+      <dt className="w-16 shrink-0 uppercase tracking-[0.16em] text-faint">{label}</dt>
+      <dd className="min-w-0 flex-1 truncate text-primary">{value || "—"}</dd>
     </div>
   );
 }
@@ -2096,38 +2262,38 @@ function turnLabel(turn: AgentTurn): string {
 
 function statusClassName(status?: string): string {
   const base =
-    "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.14em]";
+    "inline-flex shrink-0 items-center gap-1.5 border px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.16em]";
   switch (status) {
     case "succeeded":
-      return `${base} bg-grove-500/10 text-grove-700 dark:text-grove-200`;
+      return `${base} border-grove-500/40 text-grove-700 dark:text-grove-200`;
     case "failed":
-      return `${base} bg-ember-500/10 text-ember-500`;
+      return `${base} border-ember-500/50 text-ember-500`;
     case "canceled":
-      return `${base} bg-alpha-5 text-muted`;
+      return `${base} border-alpha text-muted`;
     case "waiting_for_input":
-      return `${base} bg-amber-500/10 text-amber-700 dark:text-amber-200`;
+      return `${base} border-amber-500/40 text-amber-600 dark:text-amber-200`;
     case "pending":
     case "running":
-      return `${base} bg-sky-500/10 text-sky-600 dark:text-sky-200`;
+      return `${base} border-sky-500/40 text-sky-600 dark:text-sky-200`;
     default:
-      return `${base} bg-alpha-5 text-faint`;
+      return `${base} border-alpha text-faint`;
   }
 }
 
 function toolPhaseClassName(phase?: string | null): string {
   const base =
-    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.12em]";
+    "shrink-0 border px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.16em]";
   const normalized = phase?.toLowerCase() ?? "";
   if (normalized.includes("failed") || normalized.includes("error")) {
-    return `${base} bg-ember-500/10 text-ember-500`;
+    return `${base} border-ember-500/50 text-ember-500`;
   }
   if (normalized.includes("completed") || normalized.includes("succeeded")) {
-    return `${base} bg-grove-500/10 text-grove-700 dark:text-grove-200`;
+    return `${base} border-grove-500/40 text-grove-700 dark:text-grove-200`;
   }
   if (normalized.includes("started") || normalized.includes("running")) {
-    return `${base} bg-sky-500/10 text-sky-600 dark:text-sky-200`;
+    return `${base} border-sky-500/40 text-sky-600 dark:text-sky-200`;
   }
-  return `${base} bg-alpha-5 text-faint`;
+  return `${base} border-alpha text-faint`;
 }
 
 function sortOperations(

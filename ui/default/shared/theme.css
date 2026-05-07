@@ -60,3 +60,50 @@ html {
     #161110 80%
   );
 }
+
+/* Terminal-IDE surface tokens. Used by /agents to mirror the TUI grammar
+ * (tui.rs status colors, ●/›/├─ glyphs) inside a Claude Code-style shell. */
+.tui-section-label {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(var(--alpha-dark), 0.42);
+}
+
+.tui-status-line {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(var(--alpha-dark), 0.4);
+}
+
+.tui-glyph {
+  font-family: var(--font-mono), monospace;
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  line-height: 1;
+}
+
+.tui-tree {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  white-space: pre;
+  color: rgba(var(--alpha-dark), 0.5);
+}
+
+.tui-user-bar {
+  background: rgba(var(--alpha-dark), 0.08);
+  font-family: var(--font-mono), monospace;
+  letter-spacing: 0.01em;
+}
+
+.tui-user-bar-prompt {
+  font-family: var(--font-mono), monospace;
+  color: rgba(var(--alpha-dark), 0.55);
+}
+
+.tui-divider {
+  border-top: 1px solid rgba(var(--alpha-dark), 0.08);
+}
