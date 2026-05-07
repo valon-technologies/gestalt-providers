@@ -1463,6 +1463,12 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Target:              updatedTarget,
 			SubjectId:           "user:123",
 			CredentialSubjectId: "svc:workflow",
+			RunAs: &proto.WorkflowRunAsSubject{
+				SubjectId:   "service_account:roadmap-sync",
+				SubjectKind: "service_account",
+				DisplayName: "Roadmap sync",
+				AuthSource:  "config",
+			},
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "roadmap", Operations: []string{"sync"}},
 			},
@@ -1510,6 +1516,12 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 	if got.GetCredentialSubjectId() != "svc:workflow" {
 		t.Fatalf("credential_subject_id = %q, want svc:workflow", got.GetCredentialSubjectId())
+	}
+	if got.GetRunAs().GetSubjectId() != "service_account:roadmap-sync" || got.GetRunAs().GetSubjectKind() != "service_account" {
+		t.Fatalf("run_as = %#v, want roadmap sync service account", got.GetRunAs())
+	}
+	if got.GetRunAs().GetDisplayName() != "Roadmap sync" || got.GetRunAs().GetAuthSource() != "config" {
+		t.Fatalf("run_as metadata = (%q, %q), want display/auth", got.GetRunAs().GetDisplayName(), got.GetRunAs().GetAuthSource())
 	}
 	if got.GetTarget().GetPlugin().GetCredentialMode() != "none" {
 		t.Fatalf("target credential mode = %q, want none", got.GetTarget().GetPlugin().GetCredentialMode())
@@ -3850,6 +3862,7 @@ func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
 			{Name: "display_name", Type: gestalt.TypeString},
 			{Name: "auth_source", Type: gestalt.TypeString},
 			{Name: "credential_subject_id", Type: gestalt.TypeString},
+			{Name: "run_as_json", Type: gestalt.TypeString},
 			{Name: "permissions_json", Type: gestalt.TypeString},
 			{Name: "caller_plugin_name", Type: gestalt.TypeString},
 			{Name: "created_at", Type: gestalt.TypeTime},
