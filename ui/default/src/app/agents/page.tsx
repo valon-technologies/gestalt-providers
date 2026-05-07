@@ -171,6 +171,12 @@ export default function AgentsPage() {
         if (!active) return;
         setProviders(value);
         setProvidersError(null);
+        const fallback = value.find((p) => p.default) ?? value[0];
+        if (fallback) {
+          setComposer((current) =>
+            current.provider ? current : { ...current, provider: fallback.name },
+          );
+        }
       })
       .catch((err) => {
         if (!active) return;
@@ -1338,17 +1344,10 @@ function AgentComposer({
   selectedSession,
   providers,
   providersError,
-  integrations,
-  integrationsError,
-  operationsByPlugin,
-  operationsLoadingByPlugin,
-  operationErrorsByPlugin,
   formError,
   submitting,
-  providerSupportsSelectedTools,
   setComposer,
   onSubmit,
-  ensureOperationsLoaded,
 }: {
   composer: AgentComposerState;
   selectedSession: AgentSession | null;
@@ -1366,33 +1365,6 @@ function AgentComposer({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
   ensureOperationsLoaded: (plugin: string) => Promise<void>;
 }) {
-  function updateTool(index: number, patch: Partial<AgentToolForm>) {
-    setComposer((current) => ({
-      ...current,
-      tools: current.tools.map((tool, itemIndex) =>
-        itemIndex === index ? { ...tool, ...patch } : tool,
-      ),
-    }));
-  }
-
-  function addTool() {
-    setComposer((current) => ({
-      ...current,
-      toolMode: "selected",
-      tools: [...current.tools, emptyToolForm()],
-    }));
-  }
-
-  function removeTool(index: number) {
-    setComposer((current) => {
-      const tools = current.tools.filter((_, itemIndex) => itemIndex !== index);
-      return {
-        ...current,
-        tools: tools.length ? tools : [emptyToolForm()],
-      };
-    });
-  }
-
   function handleUserPromptKeyDown(
     event: React.KeyboardEvent<HTMLTextAreaElement>,
   ) {
@@ -1405,278 +1377,22 @@ function AgentComposer({
     }
   }
 
-  const selectedToolCount =
-    composer.toolMode === "selected"
-      ? composer.tools.filter((tool) => tool.plugin.trim() && tool.operation.trim())
-          .length
-      : 0;
-  const toolSummary =
-    composer.toolMode === "selected"
-      ? `${selectedToolCount} tool${selectedToolCount === 1 ? "" : "s"} selected`
-      : "No tools";
-  const modelSummary =
-    composer.model.trim() || selectedSession?.model || "provider default";
-  const hasTurnOptions =
-    Boolean(composer.model.trim()) ||
-    Boolean(composer.systemPrompt.trim()) ||
-    composer.toolMode === "selected" ||
-    Boolean(composer.responseSchemaJSON.trim()) ||
-    Boolean(composer.metadataJSON.trim()) ||
-    Boolean(composer.modelOptionsJSON.trim()) ||
-    Boolean(composer.idempotencyKey.trim());
-
   const errorBlock =
     formError || providersError ? (
-      <div className="space-y-1">
-        {formError ? <p className="text-sm text-ember-500">{formError}</p> : null}
+      <div className="space-y-1 font-mono text-[11px]">
+        {formError ? <p className="text-ember-500">{formError}</p> : null}
         {providersError ? (
-          <p className="text-sm text-ember-500">{providersError}</p>
+          <p className="text-ember-500">{providersError}</p>
         ) : null}
       </div>
     ) : null;
-
-  const modelField = (
-    <label className="space-y-2 text-sm">
-      <span className="text-muted">
-        {selectedSession ? "Model override" : "Model"}
-      </span>
-      <input
-        value={composer.model}
-        onChange={(event) =>
-          setComposer((current) => ({
-            ...current,
-            model: event.target.value,
-          }))
-        }
-        placeholder={selectedSession?.model || "provider default"}
-        className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-      />
-    </label>
-  );
-
-  const systemField = (
-    <label className="block space-y-2 text-sm">
-      <span className="text-muted">System message</span>
-      <textarea
-        value={composer.systemPrompt}
-        onChange={(event) =>
-          setComposer((current) => ({
-            ...current,
-            systemPrompt: event.target.value,
-          }))
-        }
-        rows={2}
-        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-      />
-    </label>
-  );
-
-  const toolSection = (
-    <section className="rounded-md border border-alpha bg-background/65 p-4 dark:bg-background/20">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-medium text-primary">Tools</h4>
-          <p className="mt-1 text-xs text-faint">
-            No tools sends an empty toolRefs list.
-          </p>
-        </div>
-        <select
-          aria-label="Tools"
-          value={composer.toolMode}
-          onChange={(event) =>
-            setComposer((current) => ({
-              ...current,
-              toolMode: event.target.value as AgentToolMode,
-            }))
-          }
-          className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-        >
-          <option value="none">No tools</option>
-          <option value="selected">Selected tools</option>
-        </select>
-      </div>
-
-      {composer.toolMode === "selected" && !providerSupportsSelectedTools ? (
-        <p className="mt-3 text-sm text-ember-500">
-          The selected provider does not advertise mcp_catalog tools.
-        </p>
-      ) : null}
-      {integrationsError ? (
-        <p className="mt-3 text-sm text-ember-500">{integrationsError}</p>
-      ) : null}
-
-      {composer.toolMode === "selected" ? (
-        <div className="mt-4 space-y-4">
-          {composer.tools.map((tool, index) => {
-            const operations = tool.plugin
-              ? (operationsByPlugin[tool.plugin] ?? EMPTY_OPERATIONS)
-              : EMPTY_OPERATIONS;
-            const operationsLoading = tool.plugin
-              ? Boolean(operationsLoadingByPlugin[tool.plugin])
-              : false;
-            const operationsError = tool.plugin
-              ? (operationErrorsByPlugin[tool.plugin] ?? null)
-              : null;
-            return (
-              <div
-                key={index}
-                className="rounded-md border border-alpha bg-base-100 p-4 dark:bg-surface"
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted">Plugin</span>
-                    <select
-                      value={tool.plugin}
-                      onChange={(event) => {
-                        const plugin = event.target.value;
-                        updateTool(index, { plugin, operation: "" });
-                        void ensureOperationsLoaded(plugin);
-                      }}
-                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                    >
-                      <option value="">Select plugin</option>
-                      {integrations.map((integration) => (
-                        <option key={integration.name} value={integration.name}>
-                          {integrationLabel(integration)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted">Operation</span>
-                    <select
-                      value={tool.operation}
-                      disabled={!tool.plugin || operationsLoading}
-                      onChange={(event) =>
-                        updateTool(index, { operation: event.target.value })
-                      }
-                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-                    >
-                      <option value="">
-                        {operationsLoading
-                          ? "Loading operations..."
-                          : "Select operation"}
-                      </option>
-                      {operations.map((operation) => (
-                        <option key={operation.id} value={operation.id}>
-                          {operation.title || operation.id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                {operationsError ? (
-                  <p className="mt-3 text-sm text-ember-500">
-                    {operationsError}
-                  </p>
-                ) : null}
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted">Connection</span>
-                    <input
-                      value={tool.connection}
-                      onChange={(event) =>
-                        updateTool(index, { connection: event.target.value })
-                      }
-                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted">Instance</span>
-                    <input
-                      value={tool.instance}
-                      onChange={(event) =>
-                        updateTool(index, { instance: event.target.value })
-                      }
-                      className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => removeTool(index)}
-                    className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-                  >
-                    Remove tool
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={addTool}
-            className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-          >
-            Add tool
-          </button>
-        </div>
-      ) : null}
-    </section>
-  );
-
-  const advancedFields = (
-    <details className="rounded-md border border-alpha bg-base-100 p-4 dark:bg-surface">
-      <summary className="cursor-pointer text-sm font-medium text-primary">
-        Advanced request fields
-      </summary>
-      <div className="mt-4 grid gap-4">
-        <JsonTextarea
-          label="Response schema JSON"
-          value={composer.responseSchemaJSON}
-          onChange={(value) =>
-            setComposer((current) => ({
-              ...current,
-              responseSchemaJSON: value,
-            }))
-          }
-        />
-        <JsonTextarea
-          label="Metadata JSON"
-          value={composer.metadataJSON}
-          onChange={(value) =>
-            setComposer((current) => ({ ...current, metadataJSON: value }))
-          }
-        />
-        <JsonTextarea
-          label="Model options JSON"
-          value={composer.modelOptionsJSON}
-          onChange={(value) =>
-            setComposer((current) => ({
-              ...current,
-              modelOptionsJSON: value,
-            }))
-          }
-        />
-        <label className="space-y-2 text-sm">
-          <span className="text-muted">Idempotency key</span>
-          <input
-            value={composer.idempotencyKey}
-            onChange={(event) =>
-              setComposer((current) => ({
-                ...current,
-                idempotencyKey: event.target.value,
-              }))
-            }
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-          />
-        </label>
-      </div>
-    </details>
-  );
 
   if (selectedSession) {
     return (
       <form className="space-y-3" onSubmit={onSubmit}>
         {errorBlock}
 
-        <div className="rounded-lg border border-alpha bg-base-100 p-3 dark:bg-surface">
+        <div className="border border-alpha bg-background/50 p-3">
           <label className="block">
             <span className="sr-only">User message</span>
             <textarea
@@ -1693,101 +1409,44 @@ function AgentComposer({
               rows={3}
               required
               placeholder="Message agent..."
-              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 text-sm leading-6 text-primary outline-none placeholder:text-faint"
+              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-none placeholder:text-faint"
             />
           </label>
 
-          <div className="mt-3 flex flex-col gap-3 border-t border-alpha pt-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 flex-wrap gap-2 text-xs text-faint">
-              <span className="rounded-full bg-alpha-5 px-2 py-1">
-                Model: {modelSummary}
-              </span>
-              <span className="rounded-full bg-alpha-5 px-2 py-1">
-                {toolSummary}
-              </span>
-              {composer.systemPrompt.trim() ? (
-                <span className="rounded-full bg-alpha-5 px-2 py-1">
-                  System message set
-                </span>
-              ) : null}
-            </div>
+          <div className="mt-3 flex flex-col gap-3 border-t border-alpha pt-3 sm:flex-row sm:items-center sm:justify-end">
             <button
               type="submit"
               disabled={submitting}
-              className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="shrink-0 border border-alpha bg-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? "Starting..." : "Send turn"}
+              {submitting ? "↵ sending…" : "↵ send turn"}
             </button>
           </div>
         </div>
-
-        <details className="rounded-md border border-alpha bg-background/65 p-4 dark:bg-background/20">
-          <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-medium text-primary">
-            <span>Turn options</span>
-            <span className="text-xs font-normal uppercase tracking-[0.14em] text-faint">
-              {hasTurnOptions ? "Configured" : "Optional"}
-            </span>
-          </summary>
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">{modelField}</div>
-            {systemField}
-            {toolSection}
-            {advancedFields}
-          </div>
-        </details>
       </form>
     );
   }
 
   return (
-    <form className="space-y-4" onSubmit={onSubmit}>
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="text-sm font-medium text-primary">
-            {selectedSession ? "Send Turn" : "Create Session"}
-          </h3>
-          <p className="mt-1 text-xs text-faint">
-            {selectedSession
-              ? "Messages are appended to the selected cloud session."
-              : "The first message creates a cloud agent session."}
-          </p>
-        </div>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2 md:w-[28rem]">
-          <ProviderField
-            providers={providers}
-            value={composer.provider}
-            disabled={Boolean(selectedSession)}
-            onChange={(value) =>
-              setComposer((current) => ({ ...current, provider: value }))
-            }
-          />
-          {modelField}
-        </div>
+    <form className="space-y-3" onSubmit={onSubmit}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="tui-section-label">new session</span>
+        <span className="tui-glyph text-faint">›</span>
+        <ProviderField
+          providers={providers}
+          value={composer.provider}
+          disabled={Boolean(selectedSession)}
+          onChange={(value) =>
+            setComposer((current) => ({ ...current, provider: value }))
+          }
+        />
       </div>
 
       {errorBlock}
 
-      <div className="space-y-4">
-        {!selectedSession ? (
-          <label className="block space-y-2 text-sm">
-            <span className="text-muted">Client ref</span>
-            <input
-              value={composer.clientRef}
-              onChange={(event) =>
-                setComposer((current) => ({
-                  ...current,
-                  clientRef: event.target.value,
-                }))
-              }
-              className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-            />
-          </label>
-        ) : null}
-
-        {systemField}
-
-        <label className="block space-y-2 text-sm">
-          <span className="text-muted">User message</span>
+      <div className="border border-alpha bg-background/50 p-3">
+        <label className="block">
+          <span className="sr-only">User message</span>
           <textarea
             aria-label="User message"
             aria-keyshortcuts="Meta+Enter Control+Enter"
@@ -1801,22 +1460,21 @@ function AgentComposer({
             }
             rows={4}
             required
-            className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+            placeholder="Message agent…"
+            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-none placeholder:text-faint"
           />
         </label>
-
-        {toolSection}
-        {advancedFields}
-
+        <div className="mt-3 flex items-center justify-between border-t border-alpha pt-3 font-mono text-[11px] text-faint">
+          <span>The first message creates a cloud agent session.</span>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="shrink-0 border border-alpha bg-transparent px-3 py-1 uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? "↵ creating…" : "↵ create session"}
+          </button>
+        </div>
       </div>
-
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {submitting ? "Starting..." : selectedSession ? "Send turn" : "Create session"}
-      </button>
     </form>
   );
 }
@@ -1832,38 +1490,25 @@ function ProviderField({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
-  if (providers.length > 0) {
-    return (
-      <label className="space-y-2 text-sm">
-        <span className="text-muted">Provider</span>
-        <select
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-        >
-          <option value="">Default provider</option>
-          {providers.map((provider) => (
-            <option key={provider.name} value={provider.name}>
-              {provider.name}
-              {provider.default ? " (default)" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
-    );
+  if (providers.length === 0) {
+    return null;
   }
-
   return (
-    <label className="space-y-2 text-sm">
-      <span className="text-muted">Provider</span>
-      <input
-        value={value}
+    <label className="flex items-center gap-2 font-mono text-xs">
+      <span className="tui-section-label">Agent</span>
+      <select
+        value={value || providers.find((p) => p.default)?.name || providers[0]?.name || ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="default"
-        className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-      />
+        className="border border-alpha bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {providers.map((provider) => (
+          <option key={provider.name} value={provider.name}>
+            {provider.name}
+            {provider.default ? " (default)" : ""}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -2098,7 +1743,6 @@ function composerToTurnCreate(
 
   const body: AgentTurnCreate = {
     messages,
-    toolRefs: [],
   };
   const model = composer.model.trim();
   if (model) body.model = model;
