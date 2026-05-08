@@ -18,6 +18,7 @@ const (
 	storeTemporalEventTriggers    = "workflow_temporal_event_triggers"
 	storeTemporalEventTriggerKeys = "workflow_temporal_event_trigger_keys"
 	storeTemporalExecutionRefs    = "workflow_temporal_execution_refs"
+	storeTemporalRunProjections   = "workflow_temporal_v4_run_projections"
 
 	indexBySubject   = "by_subject"
 	indexByMatchKey  = "by_match_key"
@@ -38,6 +39,7 @@ type workflowStateStore struct {
 	eventTriggers    *gestalt.ObjectStoreClient
 	eventTriggerKeys *gestalt.ObjectStoreClient
 	executionRefs    *gestalt.ObjectStoreClient
+	runProjections   *gestalt.ObjectStoreClient
 }
 
 func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*workflowStateStore, error) {
@@ -62,6 +64,10 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 		_ = db.Close()
 		return nil, err
 	}
+	if err := ensureWorkflowStateStores(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	store := &workflowStateStore{
 		scopeID:          scopeID,
 		db:               db,
@@ -69,6 +75,7 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 		eventTriggers:    db.ObjectStore(storeTemporalEventTriggers),
 		eventTriggerKeys: db.ObjectStore(storeTemporalEventTriggerKeys),
 		executionRefs:    db.ObjectStore(storeTemporalExecutionRefs),
+		runProjections:   db.ObjectStore(storeTemporalRunProjections),
 	}
 	return store, nil
 }
@@ -83,6 +90,32 @@ func deleteDeprecatedWorkflowStateStores(ctx context.Context, db *gestalt.Indexe
 		}
 	}
 	return nil
+}
+
+func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
+	if db == nil {
+		return nil
+	}
+	if err := db.CreateObjectStore(ctx, storeTemporalRunProjections, temporalRunProjectionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create workflow run projection store: %w", err)
+	}
+	return nil
+}
+
+func temporalRunProjectionSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_key", Type: gestalt.TypeString},
+			{Name: "workflow_key", Type: gestalt.TypeString},
+			{Name: "status", Type: gestalt.TypeInt},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "started_at", Type: gestalt.TypeTime},
+			{Name: "completed_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
 }
 
 func (s *workflowStateStore) Close() error {
@@ -121,6 +154,94 @@ func (s *workflowStateStore) deleteSchedule(ctx context.Context, id string) erro
 		return nil
 	}
 	return err
+}
+
+func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
+	run = cloneRun(run)
+	if run == nil || strings.TrimSpace(run.GetId()) == "" {
+		return nil
+	}
+	tx, err := s.db.Transaction(ctx, []string{storeTemporalRunProjections}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
+	if err != nil {
+		return fmt.Errorf("begin run projection transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Abort(ctx)
+		}
+	}()
+	store := tx.ObjectStore(storeTemporalRunProjections)
+	recordID := s.scopedID(run.GetId())
+	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: recordID, Upper: recordID})
+	if err != nil {
+		return fmt.Errorf("load run projection: %w", err)
+	}
+	var record gestalt.Record
+	for _, candidate := range records {
+		if recordString(candidate, "id") == recordID {
+			record = candidate
+			break
+		}
+	}
+	found := record != nil
+	var existing *proto.BoundWorkflowRun
+	if found {
+		existing, err = runFromRecord(record)
+		if err != nil {
+			return fmt.Errorf("decode run projection: %w", err)
+		}
+	}
+	if found && workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(run.GetStatus()) {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit skipped run projection: %w", err)
+		}
+		committed = true
+		return nil
+	}
+	if err := store.Put(ctx, s.runRecord(run)); err != nil {
+		return fmt.Errorf("store run projection: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit run projection: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func (s *workflowStateStore) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
+	record, err := s.runProjections.Get(ctx, s.scopedID(strings.TrimSpace(id)))
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	run, err := runFromRecord(record)
+	return run, err == nil && run.GetId() != "", err
+}
+
+func (s *workflowStateStore) listRuns(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
+	records, err := s.runProjections.GetAll(ctx, nil)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]*proto.BoundWorkflowRun, 0, len(records))
+	for _, record := range records {
+		if recordString(record, "scope_id") != s.scopeID {
+			continue
+		}
+		run, err := runFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	sortRuns(runs)
+	return runs, nil
 }
 
 func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *proto.BoundWorkflowEventTrigger) error {
@@ -333,6 +454,30 @@ func (s *workflowStateStore) scheduleRecord(schedule *proto.BoundWorkflowSchedul
 		"updated_at": timeFromProtoOrNow(schedule.GetUpdatedAt(), now),
 		"payload":    payload,
 	}
+}
+
+func (s *workflowStateStore) runRecord(run *proto.BoundWorkflowRun) gestalt.Record {
+	payload, _ := marshalProto(run)
+	now := time.Now().UTC()
+	return gestalt.Record{
+		"id":           s.scopedID(run.GetId()),
+		"scope_id":     s.scopeID,
+		"owner_key":    targetOwnerKey(run.GetTarget()),
+		"workflow_key": strings.TrimSpace(run.GetWorkflowKey()),
+		"status":       int64(run.GetStatus()),
+		"created_at":   timeFromProtoOrNow(run.GetCreatedAt(), now),
+		"started_at":   timeFromProto(run.GetStartedAt()),
+		"completed_at": timeFromProto(run.GetCompletedAt()),
+		"payload":      payload,
+	}
+}
+
+func runFromRecord(record gestalt.Record) (*proto.BoundWorkflowRun, error) {
+	var run proto.BoundWorkflowRun
+	if err := unmarshalRecordPayload(record, &run); err != nil {
+		return nil, err
+	}
+	return cloneRun(&run), nil
 }
 
 func (s *workflowStateStore) triggerRecord(trigger *proto.BoundWorkflowEventTrigger) gestalt.Record {

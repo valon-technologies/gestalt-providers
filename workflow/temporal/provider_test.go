@@ -72,6 +72,97 @@ func TestGestaltRunWorkflowV3InvokesHostWhenProjectionUnavailable(t *testing.T) 
 	}
 }
 
+func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(&workflowActivities{host: host, state: state})
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var run proto.BoundWorkflowRun
+	if err := env.GetWorkflowResult(&run); err != nil {
+		t.Fatalf("workflow result: %v", err)
+	}
+	projected, found, err := state.getRun(ctx, run.GetId())
+	if err != nil || !found {
+		t.Fatalf("projected run found=%v err=%v", found, err)
+	}
+	if projected.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || projected.GetResultBody() != "ok" {
+		t.Fatalf("projected run = %#v, want succeeded with body", projected)
+	}
+	listed, err := state.listRuns(ctx)
+	if err != nil {
+		t.Fatalf("listRuns: %v", err)
+	}
+	if len(listed) != 1 || listed[0].GetId() != run.GetId() {
+		t.Fatalf("listed runs = %#v, want %q", listed, run.GetId())
+	}
+}
+
+func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	if err := state.db.DeleteObjectStore(ctx, storeTemporalRunProjections); err != nil {
+		t.Fatalf("DeleteObjectStore(%s): %v", storeTemporalRunProjections, err)
+	}
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(&workflowActivities{host: host, state: state})
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var run proto.BoundWorkflowRun
+	if err := env.GetWorkflowResult(&run); err != nil {
+		t.Fatalf("workflow result: %v", err)
+	}
+	if run.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || run.GetResultBody() != "ok" {
+		t.Fatalf("run = %#v, want succeeded with body", &run)
+	}
+	if len(host.calls) != 1 {
+		t.Fatalf("host calls = %d, want 1", len(host.calls))
+	}
+}
+
 func TestGestaltRunWorkflowV3AcksLaneSignalWithoutSelectorBlocking(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
@@ -538,6 +629,45 @@ func TestScheduleFromTemporalDescriptionUsesActionMemo(t *testing.T) {
 	}
 	if !got.GetCreatedAt().AsTime().Equal(createdAt) || !got.GetUpdatedAt().AsTime().Equal(updatedAt) || !got.GetNextRunAt().AsTime().Equal(nextAt) {
 		t.Fatalf("decoded schedule times = created %v updated %v next %v", got.GetCreatedAt(), got.GetUpdatedAt(), got.GetNextRunAt())
+	}
+}
+
+func TestScheduleFromTemporalDescriptionUsesLegacyV3ActionArgs(t *testing.T) {
+	createdAt := time.Unix(100, 0).UTC()
+	updatedAt := time.Unix(200, 0).UTC()
+	nextAt := time.Unix(300, 0).UTC()
+	input := runWorkflowV3Input{
+		ScheduleID:       "schedule-1",
+		ExecutionRef:     "ref-1",
+		TargetPayload:    protoPayload(pluginTarget("slack", "postMessage")),
+		CreatedByPayload: protoPayload(&proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"}),
+	}
+	payload, err := converter.GetDefaultDataConverter().ToPayload(input)
+	if err != nil {
+		t.Fatalf("encode legacy schedule args: %v", err)
+	}
+
+	got, found, err := scheduleFromTemporalDescription("schedule-1", &client.ScheduleDescription{
+		Schedule: client.Schedule{
+			Action: &client.ScheduleWorkflowAction{
+				Args: []interface{}{payload},
+			},
+			Spec:  &client.ScheduleSpec{CronExpressions: []string{"0 * * * *"}, TimeZoneName: "America/New_York"},
+			State: &client.ScheduleState{Paused: true},
+		},
+		Info: client.ScheduleInfo{CreatedAt: createdAt, LastUpdateAt: updatedAt, NextActionTimes: []time.Time{nextAt}},
+	})
+	if err != nil {
+		t.Fatalf("scheduleFromTemporalDescription: %v", err)
+	}
+	if !found {
+		t.Fatalf("schedule not found")
+	}
+	if got.GetId() != "schedule-1" || got.GetExecutionRef() != "ref-1" || got.GetTarget().GetPlugin().GetPluginName() != "slack" {
+		t.Fatalf("decoded legacy schedule = %#v", got)
+	}
+	if got.GetCreatedBy().GetSubjectId() != "system:config" || !got.GetNextRunAt().AsTime().Equal(nextAt) {
+		t.Fatalf("decoded legacy schedule metadata = %#v", got)
 	}
 }
 
@@ -1067,6 +1197,120 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	}
 	if len(tc.queries) != 0 {
 		t.Fatalf("UpsertSchedule touched temporal index queries=%#v", tc.queries)
+	}
+}
+
+func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, state)
+
+	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedBy: &proto.WorkflowActor{SubjectId: "user-1"},
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %d, want 1", len(tc.executions))
+	}
+	if _, ok := tc.executions[0].Args[0].(runWorkflowV4Input); !ok {
+		t.Fatalf("execution input = %T, want runWorkflowV4Input", tc.executions[0].Args[0])
+	}
+	projected, found, err := state.getRun(ctx, run.GetId())
+	if err != nil || !found {
+		t.Fatalf("projected run found=%v err=%v", found, err)
+	}
+	if projected.GetId() != run.GetId() || projected.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
+		t.Fatalf("projected run = %#v, want pending %q", projected, run.GetId())
+	}
+}
+
+func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	if err := state.db.DeleteObjectStore(ctx, storeTemporalRunProjections); err != nil {
+		t.Fatalf("DeleteObjectStore(%s): %v", storeTemporalRunProjections, err)
+	}
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, state)
+
+	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedBy: &proto.WorkflowActor{SubjectId: "user-1"},
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if run.GetId() == "" || len(tc.executions) != 1 {
+		t.Fatalf("run=%#v executions=%d, want started run", run, len(tc.executions))
+	}
+}
+
+func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	run := &proto.BoundWorkflowRun{
+		Id:        "run-projected",
+		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
+		Target:    pluginTarget("slack", "postMessage"),
+		Trigger:   newManualTrigger(),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("putRun: %v", err)
+	}
+
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             2,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, &recordingTemporalClient{}, nil, state)
+	resp, err := backend.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].GetId() != run.GetId() {
+		t.Fatalf("runs = %#v, want projected run", resp.GetRuns())
 	}
 }
 

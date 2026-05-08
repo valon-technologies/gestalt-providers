@@ -518,11 +518,19 @@ func indexWorkflow(ctx workflow.Context, input indexInput) error {
 }
 
 type workflowActivities struct {
-	host workflowHost
+	host  workflowHost
+	state *workflowStateStore
 }
 
 func (a *workflowActivities) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
 	return a.host.InvokeOperation(ctx, req)
+}
+
+func (a *workflowActivities) ProjectRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
+	if a.state == nil {
+		return nil
+	}
+	return a.state.putRun(ctx, run)
 }
 
 func signalRunIndex(ctx workflow.Context, scopeID string, indexShardCount int, run *proto.BoundWorkflowRun) error {
