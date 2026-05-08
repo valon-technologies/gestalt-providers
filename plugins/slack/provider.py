@@ -20,6 +20,7 @@ from internals.agent import (
     SLACK_INTERACTION_REQUEST_OPERATION,
     SLACK_REMOVE_REACTION_OPERATION,
     SLACK_REPLY_OPERATION,
+    SLACK_SESSION_STARTED_REPLY_OPERATION,
     SLACK_STATUS_OPERATION,
     SLACK_STREAM_APPEND_OPERATION,
     SLACK_STREAM_START_OPERATION,
@@ -32,6 +33,7 @@ from internals.agent import (
     handle_slack_event,
     handle_slack_interaction,
     request_slack_interaction,
+    reply_slack_event_session_started,
     reply_to_slack_event,
     resolve_slack_http_subject,
     remove_slack_event_reaction,
@@ -202,6 +204,15 @@ class SlackEventReplyInput(gestalt.Model):
     )
     text: str = gestalt.field(
         description="Required complete Slack message body to post in the event thread"
+    )
+
+
+class SlackEventSessionStartedInput(gestalt.Model):
+    reply_ref: str = gestalt.field(
+        description="Opaque Slack event reply reference from the current Slack signal"
+    )
+    session_id: str = gestalt.field(
+        description="Gestalt agent session ID to include in the session link"
     )
 
 
@@ -444,6 +455,18 @@ def slack_events_reply(
     input: SlackEventReplyInput, req: gestalt.Request
 ) -> OperationResult:
     return reply_to_slack_event(input.reply_ref, input.text, req)
+
+
+@gestalt.operation(
+    id=SLACK_SESSION_STARTED_REPLY_OPERATION,
+    method="POST",
+    description="Reply to the Slack event thread with a link to the started Gestalt agent session",
+    visible=False,
+)
+def slack_events_reply_session_started(
+    input: SlackEventSessionStartedInput, req: gestalt.Request
+) -> OperationResult:
+    return reply_slack_event_session_started(input.reply_ref, input.session_id, req)
 
 
 @gestalt.operation(

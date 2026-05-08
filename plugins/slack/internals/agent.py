@@ -73,6 +73,7 @@ SLACK_EVENT_OPERATION = "events.handle"
 SLACK_INTERACTION_HANDLE_OPERATION = "interactions.handle"
 SLACK_INTERACTION_REQUEST_OPERATION = "interactions.request"
 SLACK_REPLY_OPERATION = "events.reply"
+SLACK_SESSION_STARTED_REPLY_OPERATION = "events.replySessionStarted"
 SLACK_STATUS_OPERATION = "events.setStatus"
 SLACK_DELETE_STATUS_OPERATION = "events.deleteStatus"
 SLACK_ADD_REACTION_OPERATION = "events.addReaction"
@@ -369,7 +370,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         if not _workflow_manager_contract_available():
             if publish_response is not None:
                 return publish_response
-            message = "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start and output-delivery support"
+            message = "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start, session-ready delivery, and output-delivery support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
         workflow_manager_factory = cast(
@@ -549,7 +550,7 @@ def handle_slack_interaction(
             body={"error": "Slack workflow provider is not configured"},
         )
     if not _workflow_manager_contract_available():
-        message = "Slack interactions require a Gestalt SDK/runtime with workflow signal-or-start and output-delivery support"
+        message = "Slack interactions require a Gestalt SDK/runtime with workflow signal-or-start, session-ready delivery, and output-delivery support"
         logger.error("%s %s", message, log_context)
         return _server_error(message)
     workflow_manager_factory = cast(
@@ -618,6 +619,51 @@ def reply_to_slack_event(
         "channel": str(result.get("channel") or verified_ref.channel_id),
         "ts": str(result.get("ts") or ""),
         "thread_ts": verified_ref.reply_thread_ts,
+    }
+
+
+def reply_slack_event_session_started(
+    reply_ref: str, session_id: str, req: gestalt.Request
+) -> OperationResult:
+    normalized_session_id = session_id.strip()
+    if not normalized_session_id:
+        return _bad_request("session_id is required")
+    base_url = str(
+        getattr(getattr(req, "host", None), "public_base_url", "") or ""
+    ).strip()
+    if not base_url:
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "host.public_base_url is required"},
+        )
+    session_url = f"{base_url.rstrip('/')}/agents?{urllib.parse.urlencode({'session': normalized_session_id})}"
+    text = f"Started a Gestalt session: <{session_url}|open session>"
+
+    verified_ref: SlackReplyRef | None = None
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        result = post_message(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            text=text,
+            thread_ts=verified_ref.reply_thread_ts,
+            unfurl_links=False,
+            unfurl_media=False,
+            client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
+        )
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _event_client_error(err)
+
+    return {
+        "ok": True,
+        "channel": str(result.get("channel") or verified_ref.channel_id),
+        "ts": str(result.get("ts") or ""),
+        "thread_ts": verified_ref.reply_thread_ts,
+        "session_url": session_url,
     }
 
 
@@ -1237,7 +1283,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -2320,6 +2366,7 @@ def _build_workflow_agent_target(
             gestalt.AgentMessage(role="system", text=_agent_system_prompt(route)),
         ],
         "tool_refs": _agent_event_tool_refs(route),
+        "session_ready_delivery": _workflow_session_ready_delivery(),
         "output_delivery": _workflow_output_delivery(),
     }
     timeout_seconds = _agent_timeout_seconds(route)
@@ -2365,6 +2412,26 @@ def _workflow_output_delivery() -> Any:
             gestalt.WorkflowOutputBinding(
                 input_field="text",
                 value=gestalt.WorkflowOutputValueSource(agent_output="text"),
+            ),
+            gestalt.WorkflowOutputBinding(
+                input_field="reply_ref",
+                value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
+            ),
+        ],
+    )
+
+
+def _workflow_session_ready_delivery() -> Any:
+    return gestalt.WorkflowOutputDelivery(
+        target=gestalt.BoundWorkflowPluginTarget(
+            plugin_name=_agent_config.plugin_name,
+            operation=SLACK_SESSION_STARTED_REPLY_OPERATION,
+        ),
+        credential_mode="none",
+        input_bindings=[
+            gestalt.WorkflowOutputBinding(
+                input_field="session_id",
+                value=gestalt.WorkflowOutputValueSource(agent_session="id"),
             ),
             gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
@@ -2761,7 +2828,9 @@ def _assistant_thread_prompts_disabled(route: SlackAgentRoute | None) -> bool:
     return route.assistant.enabled_configured and not route.assistant.enabled
 
 
-def _acknowledgement_config(route: SlackAgentRoute | None) -> SlackAcknowledgementConfig:
+def _acknowledgement_config(
+    route: SlackAgentRoute | None,
+) -> SlackAcknowledgementConfig:
     if route is not None and route.acknowledgement is not None:
         return route.acknowledgement
     return _agent_config.acknowledgement
@@ -2949,12 +3018,12 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except (TypeError, ValueError, AttributeError):
+    except TypeError, ValueError, AttributeError:
         return str(status)
 
 
 def _workflow_manager_contract_available() -> bool:
-    return all(
+    if not all(
         getattr(gestalt, name, None) is not None
         for name in (
             "BoundWorkflowAgentTarget",
@@ -2966,6 +3035,16 @@ def _workflow_manager_contract_available() -> bool:
             "WorkflowManagerSignalOrStartRunRequest",
             "WorkflowSignal",
         )
+    ):
+        return False
+    try:
+        agent = gestalt.BoundWorkflowAgentTarget()
+        source = gestalt.WorkflowOutputValueSource(agent_session="id")
+    except Exception:
+        return False
+    return (
+        hasattr(agent, "session_ready_delivery")
+        and source.WhichOneof("kind") == "agent_session"
     )
 
 

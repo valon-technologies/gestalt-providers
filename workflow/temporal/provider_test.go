@@ -1398,6 +1398,82 @@ func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) 
 	}
 }
 
+func TestNormalizeTargetPreservesSessionReadyDelivery(t *testing.T) {
+	target := temporalAgentTargetWithSessionReadyDelivery()
+
+	scoped, err := normalizeTarget(target)
+	if err != nil {
+		t.Fatalf("normalizeTarget: %v", err)
+	}
+	delivery := scoped.Target.GetAgent().GetSessionReadyDelivery()
+	if delivery.GetTarget().GetPluginName() != "slack" || delivery.GetTarget().GetOperation() != "events.replySessionStarted" {
+		t.Fatalf("session ready delivery target = %#v", delivery.GetTarget())
+	}
+	if delivery.GetCredentialMode() != "none" {
+		t.Fatalf("session ready delivery credential mode = %q, want none", delivery.GetCredentialMode())
+	}
+	if got := delivery.GetInputBindings()[0].GetValue().GetAgentSession(); got != "id" {
+		t.Fatalf("agent session source = %q, want id", got)
+	}
+}
+
+func TestNormalizeTargetRejectsSessionReadyDeliveryAgentOutput(t *testing.T) {
+	target := temporalAgentTargetWithSessionReadyDelivery()
+	target.GetAgent().GetSessionReadyDelivery().InputBindings[0].Value = &proto.WorkflowOutputValueSource{
+		Kind: &proto.WorkflowOutputValueSource_AgentOutput{AgentOutput: "text"},
+	}
+
+	_, err := normalizeTarget(target)
+	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
+		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery agent output", err)
+	}
+}
+
+func TestExecutionReferencePermissionsIncludeSessionReadyDelivery(t *testing.T) {
+	permissions := executionReferencePermissionsForTarget(temporalAgentTargetWithSessionReadyDelivery())
+	got := map[string]map[string]bool{}
+	for _, permission := range permissions {
+		ops := got[permission.GetPlugin()]
+		if ops == nil {
+			ops = map[string]bool{}
+			got[permission.GetPlugin()] = ops
+		}
+		for _, operation := range permission.GetOperations() {
+			ops[operation] = true
+		}
+	}
+	if !got["slack"]["events.replySessionStarted"] {
+		t.Fatalf("permissions = %#v, missing slack/events.replySessionStarted", permissions)
+	}
+}
+
+func temporalAgentTargetWithSessionReadyDelivery() *proto.BoundWorkflowTarget {
+	return &proto.BoundWorkflowTarget{
+		Kind: &proto.BoundWorkflowTarget_Agent{Agent: &proto.BoundWorkflowAgentTarget{
+			ProviderName: "managed",
+			Prompt:       "review",
+			ToolRefs: []*proto.AgentToolRef{
+				{Plugin: "slack", Operation: "chat.postMessage"},
+			},
+			SessionReadyDelivery: &proto.WorkflowOutputDelivery{
+				Target: &proto.BoundWorkflowPluginTarget{
+					PluginName: "slack",
+					Operation:  "events.replySessionStarted",
+				},
+				CredentialMode: "none",
+				InputBindings: []*proto.WorkflowOutputBinding{
+					{
+						InputField: "session_id",
+						Value: &proto.WorkflowOutputValueSource{
+							Kind: &proto.WorkflowOutputValueSource_AgentSession{AgentSession: "id"},
+						},
+					},
+				},
+			},
+		}},
+	}
+}
+
 func updateCallback(t *testing.T, onComplete func(interface{})) *testsuite.TestUpdateCallback {
 	t.Helper()
 	return &testsuite.TestUpdateCallback{

@@ -92,8 +92,10 @@ func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) [
 			addPermission(set, strings.TrimSpace(tool.GetPlugin()), strings.TrimSpace(tool.GetOperation()))
 		}
 		if delivery := agent.GetOutputDelivery(); delivery != nil {
-			deliveryTarget := delivery.GetTarget()
-			addPermission(set, strings.TrimSpace(deliveryTarget.GetPluginName()), strings.TrimSpace(deliveryTarget.GetOperation()))
+			addDeliveryPermission(set, delivery)
+		}
+		if delivery := agent.GetSessionReadyDelivery(); delivery != nil {
+			addDeliveryPermission(set, delivery)
 		}
 		return permissionsFromSet(set)
 	}
@@ -109,6 +111,14 @@ func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) [
 		return []*proto.WorkflowAccessPermission{permission}
 	}
 	return nil
+}
+
+func addDeliveryPermission(set map[string]map[string]struct{}, delivery *proto.WorkflowOutputDelivery) {
+	if delivery == nil {
+		return
+	}
+	deliveryTarget := delivery.GetTarget()
+	addPermission(set, strings.TrimSpace(deliveryTarget.GetPluginName()), strings.TrimSpace(deliveryTarget.GetOperation()))
 }
 
 func configuredEventRunPermissions(input map[string]any) ([]*proto.WorkflowAccessPermission, error) {

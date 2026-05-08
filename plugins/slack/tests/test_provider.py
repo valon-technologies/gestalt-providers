@@ -109,6 +109,7 @@ class FakeBoundWorkflowAgentTarget:
         tool_refs: list[Any] | None = None,
         timeout_seconds: int = 0,
         output_delivery: Any = None,
+        session_ready_delivery: Any = None,
         **_kwargs: Any,
     ) -> None:
         self.provider_name = provider_name
@@ -118,6 +119,7 @@ class FakeBoundWorkflowAgentTarget:
         self.tool_refs = tool_refs or []
         self.timeout_seconds = timeout_seconds
         self.output_delivery = output_delivery
+        self.session_ready_delivery = session_ready_delivery
         self.metadata = new_struct()
         self.model_options = new_struct()
         self.provider_options = self.model_options
@@ -145,12 +147,14 @@ class FakeWorkflowOutputValueSource:
         agent_output: str = "",
         signal_payload: str = "",
         signal_metadata: str = "",
+        agent_session: str = "",
         literal: Any = None,
         **_kwargs: Any,
     ) -> None:
         self.agent_output = agent_output
         self.signal_payload = signal_payload
         self.signal_metadata = signal_metadata
+        self.agent_session = agent_session
         self.literal = literal
 
     def WhichOneof(self, _name: str) -> str | None:
@@ -160,6 +164,8 @@ class FakeWorkflowOutputValueSource:
             return "signal_payload"
         if self.signal_metadata:
             return "signal_metadata"
+        if self.agent_session:
+            return "agent_session"
         if self.literal is not None:
             return "literal"
         return None
@@ -929,6 +935,11 @@ class SlackProviderTests(unittest.TestCase):
             "complete Slack message body", reply_parameters["text"]["description"]
         )
         self.assertEqual(
+            _catalog_parameter_names(catalog_ops["events.replySessionStarted"]),
+            ["reply_ref", "session_id"],
+        )
+        self.assertFalse(catalog_ops["events.replySessionStarted"]["visible"])
+        self.assertEqual(
             _catalog_parameter_names(catalog_ops["events.clearAssistantStatus"]),
             ["reply_ref"],
         )
@@ -1343,6 +1354,22 @@ class SlackProviderTests(unittest.TestCase):
             output_delivery_bindings(agent_target.output_delivery),
             {
                 "text": ("agent_output", "text"),
+                "reply_ref": ("signal_payload", "reply_ref"),
+            },
+        )
+        self.assertEqual(
+            agent_target.session_ready_delivery.target.plugin_name,
+            "slack",
+        )
+        self.assertEqual(
+            agent_target.session_ready_delivery.target.operation,
+            "events.replySessionStarted",
+        )
+        self.assertEqual(agent_target.session_ready_delivery.credential_mode, "none")
+        self.assertEqual(
+            output_delivery_bindings(agent_target.session_ready_delivery),
+            {
+                "session_id": ("agent_session", "id"),
                 "reply_ref": ("signal_payload", "reply_ref"),
             },
         )
@@ -2929,6 +2956,111 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             denied_response.body,
             {"error": "reply_ref does not belong to this subject"},
+        )
+
+    def test_slack_events_reply_session_started_posts_session_link(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        captured: dict[str, Any] = {}
+        idempotency_key = "workflow:local:run-123:session-ready:signal-batch-abc"
+        expected_client_msg_id = str(
+            uuid.UUID(
+                hex=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
+            )
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_reply_session_started(
+                provider_module.SlackEventSessionStartedInput(
+                    reply_ref=reply_ref, session_id="agent session/123"
+                ),
+                cast(
+                    Any,
+                    type(
+                        "RequestWithHostAndIdempotencyKey",
+                        (),
+                        {
+                            "subject": gestalt.Subject(
+                                id="user:gestalt-123", kind="user"
+                            ),
+                            "host": types.SimpleNamespace(
+                                public_base_url="https://gestalt.example.test/"
+                            ),
+                            "idempotency_key": idempotency_key,
+                        },
+                    )(),
+                ),
+            )
+
+        expected_url = "https://gestalt.example.test/agents?session=agent+session%2F123"
+        self.assertEqual(
+            captured["payload"],
+            {
+                "channel": "C789",
+                "text": f"Started a Gestalt session: <{expected_url}|open session>",
+                "thread_ts": "1712161829.000300",
+                "unfurl_links": False,
+                "unfurl_media": False,
+                "client_msg_id": expected_client_msg_id,
+            },
+        )
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "channel": "C789",
+                "ts": "1712161830.000400",
+                "thread_ts": "1712161829.000300",
+                "session_url": expected_url,
+            },
+        )
+
+        missing_base_url = provider_module.slack_events_reply_session_started(
+            provider_module.SlackEventSessionStartedInput(
+                reply_ref=reply_ref, session_id="agent-session-123"
+            ),
+            gestalt.Request(
+                subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+            ),
+        )
+        self.assertIsInstance(missing_base_url, gestalt.Response)
+        missing_base_url_response = cast(
+            gestalt.Response[dict[str, str]], missing_base_url
+        )
+        self.assertEqual(
+            missing_base_url_response.status, HTTPStatus.PRECONDITION_FAILED
+        )
+        self.assertEqual(
+            missing_base_url_response.body,
+            {"error": "host.public_base_url is required"},
         )
 
     def test_slack_interaction_request_posts_buttons_and_handler_signals_workflow(
@@ -4722,9 +4854,7 @@ class SlackProviderTests(unittest.TestCase):
                         workflow_request.signal.payload
                     )
                     self.assertEqual(signal_payload["slack"]["reply_thread_ts"], "")
-                    self.assertEqual(
-                        signal_payload["slack"]["addressed_to_bot"], True
-                    )
+                    self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
 
         assistant_cases = [
             "assistant_thread_started",
