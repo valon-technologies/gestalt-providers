@@ -80,12 +80,13 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 		return nil
 	}
 	w := b.newWorker(b.client, b.cfg.TaskQueue, b.workerOptions())
+	w.RegisterWorkflow(gestaltRunWorkflowV4)
 	w.RegisterWorkflow(gestaltRunWorkflowV3)
 	w.RegisterWorkflow(gestaltWorkflowKeyLaneV1)
 	w.RegisterWorkflow(gestaltOwnerLedgerWorkflow)
 	w.RegisterWorkflow(indexWorkflow)
 	w.RegisterWorkflow(scopeMetadataWorkflow)
-	w.RegisterActivity(&workflowActivities{host: b.host})
+	w.RegisterActivity(&workflowActivities{host: b.host, state: b.state})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
@@ -308,7 +309,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 		}
 		return run, nil
 	}
-	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v3", uuid.NewString())
+	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	if key != "" {
 		temporalWorkflowID = workflowID(b.cfg.ScopeID, "manual-v3", target.OwnerKey, key)
 	}
@@ -316,7 +317,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 	if key != "" {
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
-	run, err := b.executeRunV3(ctx, temporalWorkflowID, b.runV3Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), nil, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -340,14 +341,24 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if run, found, err := b.getRunProjection(ctx, runID); err != nil {
+		return nil, status.Errorf(codes.Internal, "load workflow run projection: %v", err)
+	} else if found {
+		return run, nil
+	}
 	return b.queryOrGetV3Run(ctx, handle)
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	runs, err := b.listRunsFromTemporalIndex(ctx)
+	projected, err := b.listRunProjections(ctx)
 	if err != nil {
 		return nil, err
 	}
+	legacy, err := b.listRunsFromTemporalIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	runs := mergeRuns(projected, legacy)
 	sortRuns(runs)
 	return &proto.ListWorkflowProviderRunsResponse{Runs: runs}, nil
 }
@@ -922,8 +933,8 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 				}
 			}
 		}
-		input := b.runV3Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, false)
-		run, err := b.executeRunV3(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+		input := b.runV4Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, nil, false)
+		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
 				continue
@@ -1005,10 +1016,10 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	scheduleMemo := map[string]interface{}{
 		workflowScheduleMemoKey: cloneSchedule(schedule),
 	}
-	actionInput := b.runV3Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), false)
+	actionInput := b.runV4Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), nil, false)
 	actionInput.ScheduleID = schedule.GetId()
 	action := &client.ScheduleWorkflowAction{
-		Workflow:            gestaltRunWorkflowV3,
+		Workflow:            gestaltRunWorkflowV4,
 		Args:                []any{actionInput},
 		TaskQueue:           b.cfg.TaskQueue,
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
@@ -1160,23 +1171,45 @@ func scheduleFromTemporalActionArgs(fallbackScheduleID string, action *client.Sc
 	if !ok {
 		return nil, false, nil
 	}
-	var input runWorkflowV3Input
-	if err := converter.GetDefaultDataConverter().FromPayload(payload, &input); err != nil {
+	var v4 runWorkflowV4Input
+	if err := converter.GetDefaultDataConverter().FromPayload(payload, &v4); err == nil {
+		if runActionInputHasScheduleMetadata(v4.ScheduleID, v4.TargetPayload, v4.CreatedByPayload, v4.ExecutionRef) {
+			if schedule := scheduleFromRunActionInput(fallbackScheduleID, v4.ScheduleID, v4.TargetPayload, v4.CreatedByPayload, v4.ExecutionRef); schedule != nil {
+				return schedule, true, nil
+			}
+		}
+	}
+	var v3 runWorkflowV3Input
+	if err := converter.GetDefaultDataConverter().FromPayload(payload, &v3); err != nil {
 		return nil, false, err
 	}
-	scheduleID := strings.TrimSpace(input.ScheduleID)
+	if schedule := scheduleFromRunActionInput(fallbackScheduleID, v3.ScheduleID, v3.TargetPayload, v3.CreatedByPayload, v3.ExecutionRef); schedule != nil {
+		return schedule, true, nil
+	}
+	return nil, false, nil
+}
+
+func runActionInputHasScheduleMetadata(scheduleID string, targetPayload, createdByPayload []byte, executionRef string) bool {
+	return strings.TrimSpace(scheduleID) != "" ||
+		len(targetPayload) > 0 ||
+		len(createdByPayload) > 0 ||
+		strings.TrimSpace(executionRef) != ""
+}
+
+func scheduleFromRunActionInput(fallbackScheduleID, scheduleID string, targetPayload, createdByPayload []byte, executionRef string) *proto.BoundWorkflowSchedule {
+	scheduleID = strings.TrimSpace(scheduleID)
 	if scheduleID == "" {
 		scheduleID = strings.TrimSpace(fallbackScheduleID)
 	}
 	if scheduleID == "" {
-		return nil, false, nil
+		return nil
 	}
 	return &proto.BoundWorkflowSchedule{
 		Id:           scheduleID,
-		Target:       targetFromPayload(input.TargetPayload),
-		CreatedBy:    actorFromPayload(input.CreatedByPayload),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
-	}, true, nil
+		Target:       targetFromPayload(targetPayload),
+		CreatedBy:    actorFromPayload(createdByPayload),
+		ExecutionRef: strings.TrimSpace(executionRef),
+	}
 }
 
 func applyTemporalScheduleDescription(schedule *proto.BoundWorkflowSchedule, desc *client.ScheduleDescription) {

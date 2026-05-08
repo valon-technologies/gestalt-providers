@@ -85,7 +85,9 @@ update; already-polled tasks cannot be recalled by the provider.
 ## Runtime Behavior
 
 - Temporal Cloud API-key authentication
-- Temporal V3 run workflows invoke the Gestalt workflow host through activities
+- Temporal V4 run workflows invoke the Gestalt workflow host through activities
+  and project run state into IndexedDB for new unkeyed, scheduled, and event
+  runs; V3 remains registered for existing handles and keyed lane compatibility
 - native Temporal schedules for cron dispatch with skip overlap policy
 - keyed `SignalOrStartRun` routes through durable Temporal lane workflows; the
   active run, signal acknowledgements, and workflow-key ownership are workflow
@@ -94,8 +96,10 @@ update; already-polled tasks cannot be recalled by the provider.
   ledger workflows
 - public run IDs are opaque V3 handles that identify the run workflow and, for
   keyed runs, the owning lane workflow
-- run state is projected to Temporal run-index workflows for listing and lookup
-- IndexedDB stores schedule, event-trigger, and execution-reference metadata;
-  run, workflow-key, and idempotency tables are not used
+- legacy V3 run state is still projected to Temporal run-index workflows for
+  compatibility during the migration window
+- IndexedDB stores schedule, event-trigger, execution-reference, and V4 run
+  projection metadata; workflow-key and idempotency ownership still use the
+  legacy Temporal lane/ledger path
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked
