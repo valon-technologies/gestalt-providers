@@ -651,9 +651,12 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 }
 
 func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
-	schedules, err := b.listTemporalSchedules(ctx)
+	schedules, err := b.listSchedulesIndex(ctx)
 	if err != nil {
 		return nil, err
+	}
+	for _, schedule := range schedules {
+		b.fillScheduleNextRun(ctx, schedule)
 	}
 	sortSchedules(schedules)
 	return &proto.ListWorkflowProviderSchedulesResponse{Schedules: schedules}, nil

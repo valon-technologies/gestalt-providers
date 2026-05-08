@@ -175,6 +175,30 @@ func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*proto
 	return cloneSchedule(&schedule), schedule.GetId() != "", nil
 }
 
+func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*proto.BoundWorkflowSchedule, error) {
+	records, err := s.schedules.GetAll(ctx, nil)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	schedules := make([]*proto.BoundWorkflowSchedule, 0, len(records))
+	for _, record := range records {
+		if recordString(record, "scope_id") != s.scopeID {
+			continue
+		}
+		var schedule proto.BoundWorkflowSchedule
+		if err := unmarshalRecordPayload(record, &schedule); err != nil {
+			return nil, err
+		}
+		if schedule.GetId() != "" {
+			schedules = append(schedules, cloneSchedule(&schedule))
+		}
+	}
+	return schedules, nil
+}
+
 func (s *workflowStateStore) deleteSchedule(ctx context.Context, id string) error {
 	err := s.schedules.Delete(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {

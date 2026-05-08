@@ -259,7 +259,7 @@ func (b *temporalBackend) listSchedulesIndex(ctx context.Context) ([]*proto.Boun
 	if b.state == nil {
 		return nil, status.Error(codes.FailedPrecondition, "temporal workflow state store is not configured")
 	}
-	return nil, nil
+	return b.state.listSchedules(ctx)
 }
 
 func (b *temporalBackend) deleteScheduleIndex(ctx context.Context, id string) error {
