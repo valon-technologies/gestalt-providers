@@ -310,7 +310,10 @@ def authorization_header(request: urllib.request.Request) -> str | None:
 
 
 def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
-    return [(str(ref.plugin), str(ref.operation)) for ref in refs]
+    return [
+        (str(getattr(ref, "system", "") or ref.plugin), str(ref.operation))
+        for ref in refs
+    ]
 
 
 def tool_ref_details(refs: Any) -> list[tuple[str, str, str, str, str, str]]:
@@ -610,6 +613,9 @@ class SlackProviderTests(unittest.TestCase):
             {"plugin": "*", "operation": ""},
             {"plugin": "linear", "operation": ""},
             {"plugin": "system", "operation": "shell"},
+            {"system": "shell", "operation": "run"},
+            {"system": "workflow", "operation": ""},
+            {"system": "workflow", "operation": "schedules.create", "plugin": "linear"},
             {"plugin": "linear", "operation": "searchIssues", "credentialMode": "none"},
             {"plugin": "linear", "operation": "searchIssues", "runAs": "user"},
             {
@@ -1231,6 +1237,8 @@ class SlackProviderTests(unittest.TestCase):
                             "description": "Find Linear issues relevant to the Slack request.",
                         },
                         {"plugin": "statusPage", "operation": "status"},
+                        {"system": "workflow", "operation": "definitions.create"},
+                        {"system": "workflow", "operation": "schedules.create"},
                     ],
                 },
             },
@@ -1314,6 +1322,8 @@ class SlackProviderTests(unittest.TestCase):
             [
                 ("linear", "searchIssues"),
                 ("statusPage", "status"),
+                ("workflow", "definitions.create"),
+                ("workflow", "schedules.create"),
                 *BASE_EVENT_TOOL_REFS,
                 *WORKFLOW_EVENT_TOOL_REFS,
             ],

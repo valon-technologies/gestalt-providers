@@ -2604,14 +2604,16 @@ def _interaction_user_prompt(
 
 def _agent_tool_ref(
     *,
-    plugin: str,
-    operation: str,
+    system: str = "",
+    plugin: str = "",
+    operation: str = "",
     connection: str = "",
     instance: str = "",
     title: str = "",
     description: str = "",
 ) -> Any:
     return gestalt.AgentToolRef(
+        system=system,
         plugin=plugin,
         operation=operation,
         connection=connection,
@@ -2649,6 +2651,7 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
     operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
     return [
         _agent_tool_ref(
+            system=ref.system,
             plugin=ref.plugin,
             operation=ref.operation,
             connection=ref.connection,
@@ -2682,9 +2685,9 @@ def _dedupe_agent_tool_refs(
     refs: Iterable[SlackAgentToolRef],
 ) -> list[SlackAgentToolRef]:
     deduped: list[SlackAgentToolRef] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for ref in refs:
-        key = (ref.plugin, ref.operation, ref.connection, ref.instance)
+        key = (ref.system, ref.plugin, ref.operation, ref.connection, ref.instance)
         if key in seen:
             continue
         seen.add(key)

@@ -566,7 +566,6 @@ def _agent_tool_refs_from_config(
                 "credential_mode",
                 "runAs",
                 "run_as",
-                "system",
                 "input",
                 "inputBindings",
                 "input_bindings",
@@ -577,10 +576,28 @@ def _agent_tool_refs_from_config(
         if unsupported_fields:
             joined = ", ".join(unsupported_fields)
             raise ValueError(f"{ref_path} contains unsupported field(s): {joined}")
+        if "system" in tool and not isinstance(tool.get("system"), str):
+            raise ValueError(f"{ref_path}.system must be an exact system name")
+        system = _config_string(tool, "system")
         plugin = _config_string(tool, "plugin", "pluginName", "plugin_name")
         operation = _config_string(tool, "operation", "operationName", "operation_name")
         connection = _config_string(tool, "connection", "connectionName")
         instance = _config_string(tool, "instance", "instanceName")
+        title = _config_string(tool, "title")
+        description = _config_string(tool, "description")
+        if system:
+            if plugin:
+                raise ValueError(f"{ref_path} must set exactly one of plugin or system")
+            if system != "workflow":
+                raise ValueError(f"{ref_path}.system must be workflow")
+            if not operation or operation == "*":
+                raise ValueError(f"{ref_path}.operation must be an exact operation name")
+            if connection or instance or title or description:
+                raise ValueError(
+                    f"{ref_path} system refs cannot include connection, instance, title, or description"
+                )
+            refs.append(SlackAgentToolRef(system=system, operation=operation))
+            continue
         if not plugin or plugin == "*" or plugin.lower() == "system":
             raise ValueError(f"{ref_path}.plugin must be an exact plugin name")
         if not operation or operation == "*":
@@ -593,8 +610,8 @@ def _agent_tool_refs_from_config(
                 operation=operation,
                 connection=connection,
                 instance=instance,
-                title=_config_string(tool, "title"),
-                description=_config_string(tool, "description"),
+                title=title,
+                description=description,
             )
         )
     return tuple(refs)

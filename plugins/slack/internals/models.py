@@ -171,8 +171,9 @@ class SlackAgentRouteMatch:
 
 @dataclass(frozen=True, slots=True)
 class SlackAgentToolRef:
-    plugin: str
-    operation: str
+    system: str = ""
+    plugin: str = ""
+    operation: str = ""
     connection: str = ""
     instance: str = ""
     title: str = ""
