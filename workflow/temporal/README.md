@@ -99,7 +99,8 @@ update; already-polled tasks cannot be recalled by the provider.
   IndexedDB; signal idempotency for new signal operations requires IndexedDB,
   with read-through support for completed legacy owner-ledger entries
 - public run IDs are opaque V3 handles that identify the run workflow; legacy
-  keyed runs may also include the owning lane workflow
+  keyed runs may also include the owning lane workflow, but signal and cancel
+  operations route directly to the run workflow
 - legacy V3 run state is still projected to Temporal run-index workflows for
   compatibility during the migration window
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
@@ -114,8 +115,8 @@ update; already-polled tasks cannot be recalled by the provider.
 
 The large remaining deletion point is after the migration window:
 
-- delete legacy Temporal lane start/signal-or-start compatibility after all
-  active lane-owned keyed runs have completed
+- delete legacy Temporal lane workflows after all active lane-owned keyed runs
+  have completed and old lane histories no longer need replay
 - delete Temporal owner-ledger workflows after old signal and unkeyed-start
   ledger entries have expired
 - delete V3 run/index workflows after no public run handles require Temporal V3
