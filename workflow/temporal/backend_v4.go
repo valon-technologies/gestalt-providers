@@ -200,9 +200,6 @@ func (b *temporalBackend) signalExistingWorkflowKeyRunV4(ctx context.Context, wo
 	if strings.TrimSpace(out.GetWorkflowKey()) == "" {
 		out.WorkflowKey = strings.TrimSpace(workflowKey)
 	}
-	if b.state != nil && out.GetRun() != nil {
-		_ = b.state.putRun(ctx, out.GetRun())
-	}
 	return cloneSignalResponse(&out), nil
 }
 
@@ -222,12 +219,8 @@ func (b *temporalBackend) releaseClaimedRunV4(ctx context.Context, run *proto.Bo
 	if err != nil {
 		return mapTemporalWorkflowCallError("claim temporal workflow", err)
 	}
-	var out proto.BoundWorkflowRun
-	if err := update.Get(ctx, &out); err != nil {
+	if err := update.Get(ctx, nil); err != nil {
 		return mapWorkflowUpdateError(err)
-	}
-	if b.state != nil && out.GetId() != "" {
-		_ = b.state.putRun(ctx, &out)
 	}
 	return nil
 }

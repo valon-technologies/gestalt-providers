@@ -31,6 +31,11 @@ type runWorkflowV4Input struct {
 	RequireClaim                  bool          `json:"require_claim,omitempty"`
 }
 
+const (
+	changeV4AddSignalProjectionAfterUpdate = "v4-add-signal-projection-after-update"
+	changeV4ClaimProjectionAfterUpdate     = "v4-claim-projection-after-update"
+)
+
 func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*proto.BoundWorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
@@ -108,7 +113,9 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())
 		}
 		signal = appendSignal(signal)
-		project(ctx)
+		if workflow.GetVersion(ctx, changeV4AddSignalProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+			project(ctx)
+		}
 		return &proto.SignalWorkflowRunResponse{
 			Run:         cloneRun(state),
 			Signal:      cloneSignal(signal),
@@ -124,7 +131,9 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		defer runMutex.Unlock()
 		claimed = true
-		project(ctx)
+		if workflow.GetVersion(ctx, changeV4ClaimProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+			project(ctx)
+		}
 		return cloneRun(state), nil
 	}); err != nil {
 		return nil, err
