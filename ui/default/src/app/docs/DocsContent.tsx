@@ -15,8 +15,8 @@ const mcpTabs = [
 
 const agentEnvironmentTabs = [
   { id: "agent-codex", label: "Codex Cloud" },
-  { id: "agent-cursor", label: "Cursor Cloud Agents" },
   { id: "agent-claude-code", label: "Claude Code web" },
+  { id: "agent-cursor", label: "Cursor Cloud Agents" },
 ] as const;
 
 type McpTabId = (typeof mcpTabs)[number]["id"];

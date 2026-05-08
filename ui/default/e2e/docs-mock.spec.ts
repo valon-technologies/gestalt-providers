@@ -84,11 +84,16 @@ test.describe("Docs page", () => {
     });
     await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
     await expect(
-      agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
-    ).toBeVisible();
-    await expect(
       agentTabs.getByRole("tab", { name: "Claude Code web" }),
     ).toBeVisible();
+    await expect(
+      agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
+    ).toBeVisible();
+    await expect(agentTabs.getByRole("tab")).toHaveText([
+      "Codex Cloud",
+      "Claude Code web",
+      "Cursor Cloud Agents",
+    ]);
     await expect(page.locator("#agent-codex-panel")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
