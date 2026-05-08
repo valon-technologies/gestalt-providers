@@ -7,14 +7,21 @@ import Button from "./Button";
 function formatPermissions(token: APIToken): string {
   if (token.permissions?.length) {
     return token.permissions
-      .map((permission) =>
-        permission.operations?.length
-          ? `${permission.plugin}: ${permission.operations.join(", ")}`
-          : `${permission.plugin}: all`,
-      )
+      .map((permission) => {
+        const parts: string[] = [];
+        if (permission.operations?.length) {
+          parts.push(permission.operations.join(", "));
+        }
+        if (permission.actions?.length) {
+          parts.push(`actions: ${permission.actions.join(", ")}`);
+        }
+        return parts.length > 0
+          ? `${permission.plugin}: ${parts.join("; ")}`
+          : `${permission.plugin}: all`;
+      })
       .join(" · ");
   }
-  return token.scopes || "No visible permissions";
+  return token.scopes || "All authorized access";
 }
 
 export default function IdentityTokenTable({
