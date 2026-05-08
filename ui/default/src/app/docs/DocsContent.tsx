@@ -14,9 +14,9 @@ const mcpTabs = [
 ] as const;
 
 const agentEnvironmentTabs = [
-  { id: "agent-codex", label: "Codex" },
-  { id: "agent-cursor", label: "Cursor" },
-  { id: "agent-claude-code", label: "Claude Code" },
+  { id: "agent-codex", label: "Codex Cloud" },
+  { id: "agent-cursor", label: "Cursor Background Agents" },
+  { id: "agent-claude-code", label: "Claude Code on the web" },
 ] as const;
 
 type McpTabId = (typeof mcpTabs)[number]["id"];
@@ -28,11 +28,16 @@ const defaultMcpTabId: McpTabId = "mcp-claude-code";
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-codex";
 
-function agentStartupScript(origin: string) {
+function agentStartupScript() {
   return `curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh
-export BASE_URL="${origin}"
 export GESTALT_URL="\${BASE_URL}"
 export GESTALT_API_KEY="\${GESTALT_API_KEY}"`;
+}
+
+function cloudEnvironmentVariables(origin: string) {
+  return `BASE_URL=${origin}
+GESTALT_URL=${origin}
+GESTALT_API_KEY=gst_api_your_token_here`;
 }
 
 export function GettingStartedDocsPage() {
@@ -188,12 +193,12 @@ brew install valon-technologies/gestalt/gestalt`}
 
         <Subheading
           id="agent-environments"
-          title="Configure agent environments"
+          title="Configure cloud environments"
         />
         <p className="doc-copy">
-          Put the installer and environment exports in the startup or setup
-          script for the coding agent environment. Keep the API token in that
-          environment secret or variable store, not in source control.
+          Configure the hosted coding environment before starting cloud tasks.
+          Set the workspace URL and API token in that environment, then install
+          the CLI in the platform setup or startup script.
         </p>
         <AgentEnvironmentTabs origin={origin} />
 
@@ -423,7 +428,7 @@ export function McpDocsPage() {
           These examples assume the agent environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
+        <CodeBlock code={agentStartupScript()} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -786,7 +791,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
     <div className="space-y-5">
       <div
         role="tablist"
-        aria-label="Agent environment configuration"
+        aria-label="Cloud environment configuration"
         className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {agentEnvironmentTabs.map((tab) => {
@@ -824,27 +829,19 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         }
       >
         <p className="doc-copy">
-          In Codex cloud, install the CLI in the environment setup script. Codex
-          runs setup scripts in a separate Bash session, so set persistent
-          values in environment settings or append them to the shell profile.
+          In Codex settings, open the cloud environment and add these
+          environment variables. Use a scoped API token for the cloud agent.
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
+        <CodeBlock code={cloudEnvironmentVariables(origin)} />
         <p className="doc-copy">
-          Then add Gestalt as an MCP server in{" "}
-          <code className="font-mono text-sm text-primary">
-            ~/.codex/config.toml
-          </code>{" "}
-          or a trusted project{" "}
-          <code className="font-mono text-sm text-primary">
-            .codex/config.toml
-          </code>
-          .
+          Then add this to the environment setup script.
         </p>
-        <CodeBlock
-          code={`[mcp_servers.gestalt]
-url = "${origin}/mcp"
-bearer_token_env_var = "GESTALT_API_KEY"`}
-        />
+        <CodeBlock code={agentStartupScript()} />
+        <p className="doc-copy">
+          Codex setup script exports do not persist into the agent phase, so the
+          values above must also be configured as environment variables in the
+          cloud environment. Codex secrets are only available during setup.
+        </p>
         <p className="doc-copy">
           Reference:{" "}
           <a
@@ -854,15 +851,6 @@ bearer_token_env_var = "GESTALT_API_KEY"`}
             className="doc-link"
           >
             Codex cloud environments
-          </a>{" "}
-          and{" "}
-          <a
-            href="https://developers.openai.com/codex/config-reference"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Codex config
           </a>
           .
         </p>
@@ -880,39 +868,38 @@ bearer_token_env_var = "GESTALT_API_KEY"`}
         }
       >
         <p className="doc-copy">
-          Install the CLI in the environment startup script, then configure MCP
-          in{" "}
+          In Cursor Background Agents, add the token as a Background Agent
+          secret and keep the workspace URL with the environment. Put the
+          install command in{" "}
           <code className="font-mono text-sm text-primary">
-            .cursor/mcp.json
-          </code>{" "}
-          or{" "}
-          <code className="font-mono text-sm text-primary">
-            ~/.cursor/mcp.json
+            .cursor/environment.json
           </code>
           .
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
         <CodeBlock
           code={`{
-  "mcpServers": {
-    "gestalt": {
-      "url": "\${env:GESTALT_URL}/mcp",
-      "headers": {
-        "Authorization": "Bearer \${env:GESTALT_API_KEY}"
-      }
-    }
-  }
+  "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+  "start": "export GESTALT_URL=\\"\${BASE_URL}\\" && export GESTALT_API_KEY=\\"\${GESTALT_API_KEY}\\""
 }`}
         />
         <p className="doc-copy">
+          Set{" "}
+          <code className="font-mono text-sm text-primary">BASE_URL</code> to{" "}
+          <code className="font-mono text-sm text-primary">{origin}</code> and{" "}
+          <code className="font-mono text-sm text-primary">
+            GESTALT_API_KEY
+          </code>{" "}
+          to a Gestalt API token in the Background Agent environment.
+        </p>
+        <p className="doc-copy">
           Reference:{" "}
           <a
-            href="https://docs.cursor.com/advanced/model-context-protocol"
+            href="https://docs.cursor.com/en/background-agents"
             target="_blank"
             rel="noreferrer"
             className="doc-link"
           >
-            Cursor MCP
+            Cursor Background Agents
           </a>
           .
         </p>
@@ -930,40 +917,36 @@ bearer_token_env_var = "GESTALT_API_KEY"`}
         }
       >
         <p className="doc-copy">
-          Install the CLI in the startup script. For team-shared MCP config,
-          commit a project{" "}
-          <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
-          file; for private config, add it with the Claude Code CLI.
+          In the Claude Code web environment, add environment variables in the
+          cloud environment editor. Values use{" "}
+          <code className="font-mono text-sm text-primary">.env</code> format.
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
-        <CodeBlock
-          code={`{
-  "mcpServers": {
-    "gestalt": {
-      "type": "http",
-      "url": "\${GESTALT_URL}/mcp",
-      "headers": {
-        "Authorization": "Bearer \${GESTALT_API_KEY}"
-      }
-    }
-  }
-}`}
-        />
-        <p className="doc-copy">Or add it from the CLI:</p>
-        <CodeBlock
-          code={`claude mcp add --transport http --scope project \\
-  --header "Authorization: Bearer $GESTALT_API_KEY" \\
-  gestalt "$GESTALT_URL/mcp"`}
-        />
+        <CodeBlock code={cloudEnvironmentVariables(origin)} />
+        <p className="doc-copy">
+          Then add this to the cloud environment setup script.
+        </p>
+        <CodeBlock code={agentStartupScript()} />
+        <p className="doc-copy">
+          Claude Code on the web does not have a dedicated secrets store yet;
+          environment variables and setup scripts are visible to users who can
+          edit the environment. If you want Gestalt tools loaded through MCP in
+          cloud sessions, commit the project{" "}
+          <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
+          config from{" "}
+          <Link href="/docs/mcp" className="doc-link">
+            Use With MCP
+          </Link>
+          .
+        </p>
         <p className="doc-copy">
           Reference:{" "}
           <a
-            href="https://docs.anthropic.com/en/docs/claude-code/mcp"
+            href="https://code.claude.com/docs/en/claude-code-on-the-web"
             target="_blank"
             rel="noreferrer"
             className="doc-link"
           >
-            Claude Code MCP
+            Claude Code on the web
           </a>
           .
         </p>

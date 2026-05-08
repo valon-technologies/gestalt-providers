@@ -77,19 +77,23 @@ test.describe("Docs page", () => {
     );
     await expect(page.getByText("gestalt plugins list", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Configure agent environments" }),
+      page.getByRole("heading", { name: "Configure cloud environments" }),
     ).toBeVisible();
     const agentTabs = page.getByRole("tablist", {
-      name: "Agent environment configuration",
+      name: "Cloud environment configuration",
     });
-    await expect(agentTabs.getByRole("tab", { name: "Codex" })).toBeVisible();
-    await expect(agentTabs.getByRole("tab", { name: "Cursor" })).toBeVisible();
-    await expect(agentTabs.getByRole("tab", { name: "Claude Code" })).toBeVisible();
+    await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
+    await expect(
+      agentTabs.getByRole("tab", { name: "Cursor Background Agents" }),
+    ).toBeVisible();
+    await expect(
+      agentTabs.getByRole("tab", { name: "Claude Code on the web" }),
+    ).toBeVisible();
     await expect(page.locator("#agent-codex-panel")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
     await expect(page.locator("#agent-codex-panel")).toContainText(
-      `export BASE_URL="${expectedOrigin}"`,
+      `BASE_URL=${expectedOrigin}`,
     );
     await expect(page.locator("#agent-codex-panel")).toContainText(
       'export GESTALT_URL="${BASE_URL}"',
@@ -98,21 +102,24 @@ test.describe("Docs page", () => {
       'export GESTALT_API_KEY="${GESTALT_API_KEY}"',
     );
     await expect(page.locator("#agent-codex-panel")).toContainText(
-      "[mcp_servers.gestalt]",
+      "Codex secrets are only available during setup",
     );
-    await agentTabs.getByRole("tab", { name: "Cursor" }).click();
+    await agentTabs.getByRole("tab", { name: "Cursor Background Agents" }).click();
     await expect(page.locator("#agent-cursor-panel")).toContainText(
-      ".cursor/mcp.json",
+      ".cursor/environment.json",
     );
     await expect(page.locator("#agent-cursor-panel")).toContainText(
-      '"url": "${env:GESTALT_URL}/mcp"',
+      '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
     );
-    await agentTabs.getByRole("tab", { name: "Claude Code" }).click();
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      `Set BASE_URL to ${expectedOrigin}`,
+    );
+    await agentTabs.getByRole("tab", { name: "Claude Code on the web" }).click();
     await expect(page.locator("#agent-claude-code-panel")).toContainText(
-      ".mcp.json",
+      `BASE_URL=${expectedOrigin}`,
     );
     await expect(page.locator("#agent-claude-code-panel")).toContainText(
-      '"url": "${GESTALT_URL}/mcp"',
+      "Claude Code on the web does not have a dedicated secrets store yet",
     );
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
