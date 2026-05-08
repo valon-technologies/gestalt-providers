@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
@@ -915,8 +916,27 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         }
       >
         <p className="doc-copy">
-          In the Claude Code web environment, add environment variables in the
-          cloud environment editor. Values use{" "}
+          Navigate to{" "}
+          <a
+            href="https://claude.ai/code"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            claude.ai/code
+          </a>
+          , choose the cloud environment, and open its settings.
+        </p>
+        <Image
+          src="/docs/claude-code-web-environment.png"
+          alt="Claude Code web environment picker with the settings control highlighted"
+          width={1170}
+          height={558}
+          unoptimized
+          className="w-full rounded-lg border border-alpha"
+        />
+        <p className="doc-copy">
+          Add environment variables in the cloud environment editor. Values use{" "}
           <code className="font-mono text-sm text-primary">.env</code> format.
         </p>
         <CodeBlock code={cloudEnvironmentVariables(origin)} />

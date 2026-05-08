@@ -124,6 +124,14 @@ test.describe("Docs page", () => {
       "export GESTALT_API_KEY",
     );
     await agentTabs.getByRole("tab", { name: "Claude Code web" }).click();
+    await expect(
+      page.getByRole("link", { name: "claude.ai/code" }),
+    ).toHaveAttribute("href", "https://claude.ai/code");
+    await expect(
+      page.getByAltText(
+        "Claude Code web environment picker with the settings control highlighted",
+      ),
+    ).toBeVisible();
     await expect(page.locator("#agent-claude-code-panel")).toContainText(
       `GESTALT_URL=${expectedOrigin}`,
     );
