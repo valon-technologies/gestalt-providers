@@ -77,13 +77,15 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             raise RuntimeError("unreachable after context.abort") from exc
-        try:
-            prepared_workspace = _prepared_workspace_to_dict(_optional_field(request, "prepared_workspace"))
-        except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
+        prepared_workspace = None
+        if gestalt.has_field(request, "prepared_workspace"):
+            try:
+                prepared_workspace = _prepared_workspace_to_dict(request.prepared_workspace)
+            except ValueError as exc:
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+                raise RuntimeError("unreachable after context.abort") from exc
         idempotency_key = str(request.idempotency_key or "").strip()
-        session_start = _optional_field(request, "session_start")
+        session_start = request.session_start if gestalt.has_field(request, "session_start") else None
         if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
             with self._session_start_lock:
                 existing = _existing_session_for_create(store, session_id, idempotency_key)
@@ -102,7 +104,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     client_ref=str(request.client_ref or "").strip(),
                     metadata=metadata,
                     prepared_workspace=prepared_workspace,
-                    created_by=_actor_to_dict(request.created_by),
+                    created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
                 )
                 return _session_to_proto(session)
         session, _ = store.create_session(
@@ -113,7 +115,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             client_ref=str(request.client_ref or "").strip(),
             metadata=metadata,
             prepared_workspace=prepared_workspace,
-            created_by=_actor_to_dict(request.created_by),
+            created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
         )
         return _session_to_proto(session)
 
@@ -188,7 +190,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 provider_name=self._name,
                 model=model,
                 messages=messages,
-                created_by=_actor_to_dict(request.created_by),
+                created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
                 execution_ref=str(request.execution_ref or "").strip(),
             )
         except StoreConflictError as exc:
@@ -483,16 +485,6 @@ def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
     return _text(value.get("cwd"))
 
 
-def _optional_field(message: Any, field_name: str) -> Any | None:
-    if message is None or not hasattr(message, field_name):
-        return None
-    has_field = getattr(message, "HasField", None)
-    if callable(has_field):
-        if not gestalt.has_field(message, field_name):
-            return None
-    return getattr(message, field_name)
-
-
 def _existing_session_for_create(
     store: InMemoryRunStore, session_id: str, idempotency_key: str
 ) -> StoredSession | None:
@@ -502,10 +494,6 @@ def _existing_session_for_create(
     if not idempotency_key:
         return None
     return store.get_session_by_idempotency_key(idempotency_key)
-
-
-def _actor_to_dict(actor: Any) -> dict[str, str]:
-    return cast(dict[str, str], gestalt.agent_actor_to_dict(actor))
 
 
 def _subject_id(request: Any) -> str:
