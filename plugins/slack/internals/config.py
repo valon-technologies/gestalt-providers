@@ -323,9 +323,17 @@ def _agent_route_from_config(
             config, "timeoutSeconds", "timeout_seconds"
         )
 
+    match = _agent_route_match_from_config(_config_dict(config, "match"))
+    run_as_subject_id = _agent_route_run_as_subject_id(config, index)
+    if run_as_subject_id and not match.bot_ids:
+        raise ValueError(f"agent.routes[{index}].runAs requires match.botIds")
+
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
-        match=_agent_route_match_from_config(_config_dict(config, "match")),
+        match=match,
+        run_as_subject_id=run_as_subject_id,
+        run_as_subject_kind=_agent_route_run_as_subject_kind(config, index),
+        run_as_display_name=_agent_route_run_as_display_name(config, index),
         workflow=_route_workflow_config_from_config(config, agent),
         assistant=_route_assistant_config_from_config(config, agent, assistant),
         acknowledgement=_route_acknowledgement_config_from_config(
@@ -350,6 +358,73 @@ def _agent_route_from_config(
         )
         or _agent_tool_refs_from_config(config, f"agent.routes[{index}].tools"),
     )
+
+
+def _agent_route_run_as_subject_id(config: dict[str, Any], index: int) -> str:
+    subject = _agent_route_run_as_subject_config(config, index)
+    if subject is None:
+        return ""
+    subject_id = _config_string(subject, "id", "subjectId", "subjectID", "subject_id")
+    if not subject_id:
+        raise ValueError(f"agent.routes[{index}].runAs.subject.id is required")
+    kind = _agent_route_run_as_subject_kind(config, index, subject_id=subject_id)
+    subject_value = subject_id.partition(":")[2].strip()
+    if (
+        kind != "service_account"
+        or not subject_id.startswith("service_account:")
+        or not subject_value
+    ):
+        raise ValueError(
+            f"agent.routes[{index}].runAs.subject must identify a service_account subject"
+        )
+    return subject_id
+
+
+def _agent_route_run_as_subject_kind(
+    config: dict[str, Any], index: int, *, subject_id: str = ""
+) -> str:
+    subject = _agent_route_run_as_subject_config(config, index)
+    if subject is None:
+        return ""
+    kind = _config_string(subject, "kind", "type", "subjectKind", "subject_kind")
+    subject_id = subject_id or _config_string(
+        subject, "id", "subjectId", "subjectID", "subject_id"
+    )
+    if not kind and ":" in subject_id:
+        kind, _separator, _value = subject_id.partition(":")
+    kind = kind.strip()
+    if kind and kind != "service_account":
+        raise ValueError(
+            f"agent.routes[{index}].runAs.subject must identify a service_account subject"
+        )
+    return kind
+
+
+def _agent_route_run_as_display_name(config: dict[str, Any], index: int) -> str:
+    subject = _agent_route_run_as_subject_config(config, index)
+    if subject is None:
+        return ""
+    return _config_string(subject, "displayName", "display_name")
+
+
+def _agent_route_run_as_subject_config(
+    config: dict[str, Any], index: int
+) -> dict[str, Any] | None:
+    run_as: Any = None
+    configured = False
+    for key in ("runAs", "run_as"):
+        if key in config:
+            run_as = config.get(key)
+            configured = True
+            break
+    if not configured:
+        return None
+    if not isinstance(run_as, dict):
+        raise ValueError(f"agent.routes[{index}].runAs must be an object")
+    subject = run_as.get("subject")
+    if not isinstance(subject, dict):
+        raise ValueError(f"agent.routes[{index}].runAs.subject is required")
+    return dict(subject)
 
 
 def _route_workflow_config_from_config(

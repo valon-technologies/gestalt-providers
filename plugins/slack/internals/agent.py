@@ -287,15 +287,21 @@ def resolve_slack_http_subject(
     )
     event, _ignored_reason = _slack_agent_event_from_payload(payload)
     if event is not None:
-        _route, ignored_reason = _select_agent_route(event)
+        route, ignored_reason = _select_agent_route(event)
         if ignored_reason:
             return None
+        subject = _agent_route_run_as_subject(route)
+        if subject is not None:
+            return subject
         team_id = event.team_id
         user_id = event.user_id
     else:
         interaction = _slack_interaction_payload_from_input(payload)
         if interaction is None:
             return None
+        subject = _interaction_route_run_as_subject(interaction)
+        if subject is not None:
+            return subject
         team_id = _interaction_team_id(interaction)
         user_id = _interaction_user_id(interaction)
 
@@ -1438,7 +1444,12 @@ def _validate_interaction_payload_matches_ref(
         raise ValueError("interaction_ref team does not match Slack payload")
     if channel_id and channel_id != ref.channel_id:
         raise ValueError("interaction_ref channel does not match Slack payload")
-    if user_id and ref.user_id and user_id != ref.user_id:
+    if (
+        user_id
+        and ref.user_id
+        and user_id != ref.user_id
+        and _subject_kind_from_id(ref.subject_id) != "service_account"
+    ):
         raise ValueError("interaction_ref user does not match Slack payload")
 
 
@@ -2101,6 +2112,32 @@ def _resolve_slack_subject(
     )
 
 
+def _agent_route_run_as_subject(route: SlackAgentRoute | None) -> gestalt.Subject | None:
+    if route is None or not route.run_as_subject_id:
+        return None
+    return gestalt.Subject(
+        id=route.run_as_subject_id,
+        kind=route.run_as_subject_kind
+        or _subject_kind_from_id(route.run_as_subject_id),
+        display_name=route.run_as_display_name or route.run_as_subject_id,
+        auth_source="slack_agent_route_run_as",
+    )
+
+
+def _interaction_route_run_as_subject(
+    interaction: dict[str, Any],
+) -> gestalt.Subject | None:
+    try:
+        interaction_ref, _selected_action = _interaction_ref_from_payload(interaction)
+        ref = _decode_interaction_ref(interaction_ref)
+        route = _agent_route_from_signed_id(ref.route_id)
+    except ValueError:
+        return None
+    if route is None or ref.subject_id != route.run_as_subject_id:
+        return None
+    return _agent_route_run_as_subject(route)
+
+
 def _dedupe_resolved_subjects(subjects: Iterable[Any]) -> list[Any]:
     unique: dict[tuple[str, str], Any] = {}
     for subject in subjects:
@@ -2121,10 +2158,15 @@ def _resolved_subject_kind(subject: Any) -> str:
     subject_type = str(getattr(subject, "type", "") or "").strip()
     subject_id = str(getattr(subject, "id", "") or "").strip()
     if subject_type == "subject" and ":" in subject_id:
-        kind, _separator, _value = subject_id.partition(":")
+        kind = _subject_kind_from_id(subject_id)
         if kind:
             return kind
     return subject_type
+
+
+def _subject_kind_from_id(subject_id: str) -> str:
+    kind, _separator, _value = subject_id.partition(":")
+    return kind
 
 
 def _subject_display_name(subject: Any) -> str:
@@ -2289,6 +2331,13 @@ def _resign_reply_ref(ref: SlackReplyRef, *, expires_at: int) -> str:
 def _verify_interaction_ref(
     interaction_ref: str, subject_id: str
 ) -> SlackInteractionRef:
+    ref = _decode_interaction_ref(interaction_ref)
+    if ref.subject_id != subject_id:
+        raise ValueError("interaction_ref does not belong to this subject")
+    return ref
+
+
+def _decode_interaction_ref(interaction_ref: str) -> SlackInteractionRef:
     payload_part, separator, signature_part = interaction_ref.strip().partition(".")
     if not separator:
         raise ValueError("invalid interaction_ref")
@@ -2337,11 +2386,9 @@ def _verify_interaction_ref(
         or not ref.action_id
     ):
         raise ValueError("invalid interaction_ref")
-    if ref.subject_id != subject_id:
-        raise ValueError("interaction_ref does not belong to this subject")
     if ref.expires_at < int(time.time()):
         raise ValueError("interaction_ref expired")
-    _verify_reply_ref(ref.reply_ref, subject_id)
+    _verify_reply_ref(ref.reply_ref, ref.subject_id)
     return ref
 
 
