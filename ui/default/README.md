@@ -6,22 +6,37 @@ contains the provider-owned admin shell under `admin/` for `gestaltd`'s
 
 ## Overview
 
-`ui/default` is the reference UI bundle that ships with Gestalt. It is a
-[Next.js](https://nextjs.org/) application exported as static assets and
-served by `gestaltd` as a `ui` provider.
+This package ships two static surfaces in a single bundle:
 
-A single published artifact backs two surfaces:
+- **Root UI** (`/`) — a Next.js app (App Router, `output: "export"`) that
+  hosts the user-facing workspace: dashboard, plugins, authorization,
+  workflows, agents, and in-app docs.
+- **Admin shell** (`admin/`) — the static admin surface that `gestaltd`
+  serves at `/admin`. It is bundled into the same `out/` artifact during
+  release so a single UI provider covers both surfaces.
 
-- **`/`** — the end-user UI: agents, workflows, integrations, identities,
-  authorization, tokens, login, and the in-app documentation shell under
-  `/docs`.
-- **`/admin`** — the provider-owned admin shell. `gestaltd` auto-discovers
-  the `admin/` directory inside this bundle when `server.admin.ui` is
-  omitted, so most deployments do not need to configure it explicitly.
+Both surfaces are static assets resolved by `gestaltd` at runtime. There is
+no separate Node server in production.
 
-The in-app docs at `/docs` mirror the public docs site and cover
-`getting-started`, `connect`, `invoke`, `mcp`, `tokens`, `workflows`, and
-`troubleshooting`.
+## Surfaces
+
+The root UI exposes the following routes (see `src/app/`):
+
+| Path                | Purpose                                                |
+| ------------------- | ------------------------------------------------------ |
+| `/`                 | Dashboard with counts for plugins, tokens, workflows, and agent sessions. |
+| `/login`            | Login flow when an authentication provider is configured. |
+| `/authorization`    | API tokens and the authorization browser.              |
+| `/tokens`           | Token management for the current identity.            |
+| `/identities`       | Managed identities and their tokens.                   |
+| `/integrations`     | Connect, configure, and inspect plugins.               |
+| `/workflows`        | Schedules, event triggers, and recent runs.            |
+| `/agents`           | Agent sessions (only when the auth provider exposes the `agent` feature). |
+| `/docs`             | In-app user-facing docs. The full content lives in `src/app/docs/`. |
+
+The admin shell mounts at `/admin` and is served from `public/admin/`. It is
+built and packaged independently of the Next app and does not require a
+separate provider entry — `gestaltd` auto-discovers it from the bundle.
 
 ## Configuration
 
@@ -40,171 +55,115 @@ providers:
       path: /
 ```
 
-Set `path` to mount the bundle somewhere other than `/` (for example
-`/app`). The admin shell is always served from `/admin` and is not affected
-by `path`.
+`path` controls where the bundle mounts. Use `/` to serve the bundle as the
+root UI; mount additional UI providers (for example `ui/github`) at
+sub-paths such as `/github`.
 
 See [Getting Started](https://gestaltd.ai/getting-started) and
 [Configuration](https://gestaltd.ai/configuration).
 
-### Content Security Policy
-
 If you serve this static bundle behind a Content Security Policy, allow
-`data:` in `img-src` for provider icons. Inline SVGs and provider-supplied
-icons are rendered as data URLs, so a strict `img-src 'self'` will break
-them.
+`data:` in `img-src` for provider icons.
 
-## Repository layout
+## Local Development
 
-```
-ui/default/
-├── manifest.yaml          # Provider manifest consumed by gestaltd
-├── package.json           # @gestalt/ui-default package
-├── build.sh               # Production build entrypoint (gestaltd provider release)
-├── dev.sh                 # Local dev script — builds + runs gestaltd
-├── next.config.mjs        # Next.js config (static export)
-├── tailwind.config.ts     # Tailwind config
-├── playwright.config.ts   # Playwright config for e2e tests
-├── public/                # Static assets copied into out/
-├── shared/                # theme.css and assets shared across surfaces
-├── src/
-│   ├── app/               # Next.js App Router surfaces
-│   │   ├── agents/
-│   │   ├── auth/
-│   │   ├── authorization/
-│   │   ├── docs/          # In-app docs surface served at /docs
-│   │   ├── identities/
-│   │   ├── integrations/
-│   │   ├── login/
-│   │   ├── tokens/
-│   │   └── workflows/
-│   ├── components/        # Shared React components
-│   ├── hooks/             # React hooks
-│   ├── lib/               # API clients, helpers
-│   └── types/             # Shared TypeScript types
-└── e2e/                   # Playwright tests
+`./dev.sh` builds the static export and serves it through a local `gestaltd`
+so routing and packaging match production. It expects a sibling checkout of
+the `gestalt` repository at `../../../gestalt`. Override the location with
+`GESTALT_CHECKOUT=/path/to/gestalt` if your layout differs.
+
+```sh
+# Auto-generates ~/.gestaltd/config.yaml on first run
+./dev.sh
+
+# Use a custom config
+./dev.sh gestalt.local.yaml
+
+# Run on a non-default port (creates a per-port dev config)
+API_PORT=9090 ./dev.sh
 ```
 
-## Local development
+The script:
 
-The dev workflow builds the static export and serves it through a local
-`gestaltd` so routing and packaging match production.
+- Installs npm dependencies if `node_modules` is missing.
+- Loads environment variables from `../../.env` if present.
+- Runs `npm run build` to produce `out/`.
+- Builds and runs `gestaltd` from `$GESTALT_CHECKOUT/gestaltd`, pointing
+  `GESTALTD_CLIENT_UI_DIR` at this package's `out/` directory.
+- Waits for `http://localhost:$API_PORT/health` and prints the ready URL.
 
-### Prerequisites
+Dev mode disables auth in the auto-generated config — re-run the script
+after editing UI source so the export refreshes. For a faster inner loop on
+the Next app alone, use `npm run dev:next` (no admin shell, no `gestaltd`).
 
-- Node.js (matching `@types/node` major in `package.json`)
-- Go (for building `gestaltd`)
-- A sibling [`gestalt`](https://github.com/valon-technologies/gestalt)
-  checkout at `../../../gestalt` from this directory, or set
-  `GESTALT_CHECKOUT=/path/to/gestalt`.
+Useful checks:
 
-### Run
-
-```bash
-./dev.sh                         # auto-generates ~/.gestaltd/config.yaml
-./dev.sh gestalt.local.yaml      # use a custom config (relative to repo root)
-API_PORT=9090 ./dev.sh           # run gestaltd on a different port
-GESTALT_CHECKOUT=/path/to/gestalt ./dev.sh
+```sh
+npm run typecheck   # tsc --noEmit
+npm run lint        # eslint .
+npm run check       # typecheck + lint
 ```
 
-`dev.sh`:
-
-1. Installs npm dependencies if `node_modules/` is missing.
-2. Sources `../../.env` if present.
-3. Generates a minimal config under `~/.gestaltd-dev/api-${API_PORT}/`
-   when no config is supplied and `API_PORT` is non-default.
-4. Runs `npm run build` to produce `out/`.
-5. Builds `gestaltd` from the sibling checkout.
-6. Starts `gestaltd` with `GESTALTD_CLIENT_UI_DIR` pointed at `out/`.
-
-The UI is served from `out/`, so re-run `./dev.sh` after UI changes. Auth
-is disabled in the auto-generated dev config — do not point it at
-production data.
-
-If you want to iterate on the UI without `gestaltd` in the loop, you can
-run the Next.js dev server directly:
-
-```bash
-npm run dev:next
-```
-
-Note that `dev:next` does not exercise the same routing or the admin
-shell; use `./dev.sh` for end-to-end behavior.
-
-## Build
+## Build & Release
 
 This package publishes the default Gestalt UI as a `ui` bundle.
 
-`gestaltd provider release` runs the package's `release.build` recipe
-(`./build.sh`), which:
+`gestaltd provider release` runs the package's `release.build` recipe (see
+`manifest.yaml`), which executes `./build.sh`:
 
-1. Runs `npm ci` for a reproducible install.
-2. Runs `npm run build`, which builds the Next.js app as a static export
-   and bundles the static admin shell into `out/`.
-
-The `manifest.yaml` declares `spec.assetRoot: out`, so `out/` is what
-`gestaltd` mounts at runtime.
-
-By default the build looks for a sibling checkout at `../../../gestalt`
-from this package directory. Set `GESTALT_CHECKOUT=/path/to/gestalt` if
-your local layout is different.
-
-## Testing
-
-```bash
-npm run typecheck       # tsc --noEmit
-npm run lint            # eslint .
-npm run check           # typecheck + lint
-npm run test:e2e        # Playwright (headless)
-npm run test:e2e:headed # Playwright (headed browser)
-npm run test:e2e:ui     # Playwright UI mode
+```sh
+npm ci
+npm run build
 ```
 
-Playwright specs live under `e2e/`. They expect a running `gestaltd` —
-the simplest setup is `./dev.sh` in one terminal and `npm run test:e2e`
-in another.
+`npm run build` runs `next build` with `output: "export"` (see
+`next.config.mjs`), producing the static export under `out/`. The release
+flow bundles the static admin shell into `out/` and packages everything
+according to `spec.assetRoot: out`.
 
-## Customization
+By default the build looks for a sibling checkout at `../../../gestalt` from
+this package directory. Set `GESTALT_CHECKOUT=/path/to/gestalt` if your
+local layout is different.
 
-Most teams should consume this bundle as-is. If you need to ship a
-customized UI, prefer one of:
+Tag releases with the standard `<kind>/<name>/v<version>` format from the
+repository root, e.g. `ui/default/v0.0.1-alpha.34`. See
+[Releasing](https://gestaltd.ai/providers/releasing) for the CI pipeline.
 
-1. **Theme overrides** via the standard Gestalt theming hooks rather
-   than forking.
-2. **A new `ui` provider** in this repository (see `ui/github` for a
-   minimal example) that mounts at a different path and reuses pieces
-   of `ui/default`.
-3. **A fork** of this directory published from your own repo, with the
-   `manifest.yaml` `source:` field updated to point at your fork.
+## End-to-End Tests
 
-When forking, keep the `manifest.yaml` `kind: ui` and `spec.assetRoot:
-out` so `gestaltd` can mount it without extra configuration.
+Playwright specs live in `e2e/`. By default the Playwright config boots
+`./dev.sh` (or `npx serve out` in CI) and points the browser at
+`http://localhost:$API_PORT`.
 
-## Versioning & publishing
-
-The published version is the `version` field in `manifest.yaml`
-(currently mirrored in `package.json`). `gestaltd provider release`
-publishes the bundle under the `source:` URL declared in the manifest:
-
-```
-github.com/valon-technologies/gestalt-providers/ui/default
+```sh
+npm run test:e2e         # headless
+npm run test:e2e:headed  # with browser UI
+npm run test:e2e:ui      # Playwright UI mode
 ```
 
-Bump the manifest `version` (and `package.json` `version`) using
-semver:
+Most specs (`*-mock.spec.ts`) run against mocked API responses and do not
+require a live `gestaltd`. The non-mock specs (`auth.spec.ts`,
+`integrations.spec.ts`, `tokens.spec.ts`) need a running backend.
 
-- **patch** — bug fixes, copy tweaks, dependency bumps with no
-  user-visible behavior change.
-- **minor** — new screens, new components, new opt-in behavior.
-- **major** — removed routes, breaking layout changes, or breaking API
-  expectations against `gestaltd`.
+To run the suite against an existing backend, set `GESTALT_BASE_URL` (or
+`PLAYWRIGHT_BASE_URL`):
 
-Pre-1.0 alpha versions (`0.0.1-alpha.N`) are the current default; bump
-the `alpha.N` suffix for in-flight releases.
+```sh
+GESTALT_BASE_URL=https://staging.example.com npm run test:e2e
+```
+
+## Theming
+
+The UI ships light, dark, and system themes. The active mode is read from
+`localStorage` under the `theme` key (`light`, `dark`, or `system`); the
+inline script in `src/app/layout.tsx` applies the right class before the
+first paint to avoid a flash of the wrong theme.
+
+Fonts are loaded locally from `public/fonts/` via `next/font/local` — no
+network font requests are made at runtime.
 
 ## Documentation
 
 - [Configuration](https://gestaltd.ai/configuration)
 - [Provider Development](https://gestaltd.ai/providers)
 - [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
-- [Getting Started](https://gestaltd.ai/getting-started)
