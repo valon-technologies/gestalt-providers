@@ -84,7 +84,7 @@ test.describe("Docs page", () => {
     });
     await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
     await expect(
-      agentTabs.getByRole("tab", { name: "Cursor Background Agents" }),
+      agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
     ).toBeVisible();
     await expect(
       agentTabs.getByRole("tab", { name: "Claude Code on the web" }),
@@ -102,7 +102,7 @@ test.describe("Docs page", () => {
     await expect(page.locator("#agent-codex-panel")).toContainText(
       "Codex secrets are only available during setup",
     );
-    await agentTabs.getByRole("tab", { name: "Cursor Background Agents" }).click();
+    await agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }).click();
     await expect(page.locator("#agent-cursor-panel")).toContainText(
       ".cursor/environment.json",
     );

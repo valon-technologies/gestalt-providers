@@ -15,7 +15,7 @@ const mcpTabs = [
 
 const agentEnvironmentTabs = [
   { id: "agent-codex", label: "Codex Cloud" },
-  { id: "agent-cursor", label: "Cursor Background Agents" },
+  { id: "agent-cursor", label: "Cursor Cloud Agents" },
   { id: "agent-claude-code", label: "Claude Code on the web" },
 ] as const;
 
@@ -864,8 +864,8 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         }
       >
         <p className="doc-copy">
-          In Cursor Background Agents, add the token as a Background Agent
-          secret and keep the workspace URL with the environment. Put the
+          In Cursor Cloud Agents, add the token as an environment secret and
+          keep the workspace URL with the environment. Put the
           install command in{" "}
           <code className="font-mono text-sm text-primary">
             .cursor/environment.json
@@ -885,17 +885,17 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           <code className="font-mono text-sm text-primary">
             GESTALT_API_KEY
           </code>{" "}
-          to a Gestalt API token in the Background Agent environment.
+          to a Gestalt API token in the Cloud Agent environment.
         </p>
         <p className="doc-copy">
           Reference:{" "}
           <a
-            href="https://docs.cursor.com/en/background-agents"
+            href="https://cursor.com/docs/cloud-agent"
             target="_blank"
             rel="noreferrer"
             className="doc-link"
           >
-            Cursor Background Agents
+            Cursor Cloud Agents
           </a>
           .
         </p>
