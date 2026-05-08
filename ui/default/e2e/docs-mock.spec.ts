@@ -96,7 +96,7 @@ test.describe("Docs page", () => {
       `BASE_URL=${expectedOrigin}`,
     );
     await expect(page.locator("#agent-codex-panel")).toContainText(
-      'export GESTALT_URL="${BASE_URL}"',
+      `export GESTALT_URL="${expectedOrigin}"`,
     );
     await expect(page.locator("#agent-codex-panel")).toContainText(
       'export GESTALT_API_KEY="${GESTALT_API_KEY}"',
@@ -110,6 +110,9 @@ test.describe("Docs page", () => {
     );
     await expect(page.locator("#agent-cursor-panel")).toContainText(
       '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      `export GESTALT_URL=\\"${expectedOrigin}\\"`,
     );
     await expect(page.locator("#agent-cursor-panel")).toContainText(
       `Set BASE_URL to ${expectedOrigin}`,

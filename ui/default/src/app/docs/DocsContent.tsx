@@ -28,9 +28,9 @@ const defaultMcpTabId: McpTabId = "mcp-claude-code";
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-codex";
 
-function agentStartupScript() {
+function agentStartupScript(origin: string) {
   return `curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh
-export GESTALT_URL="\${BASE_URL}"
+export GESTALT_URL="${origin}"
 export GESTALT_API_KEY="\${GESTALT_API_KEY}"`;
 }
 
@@ -428,7 +428,7 @@ export function McpDocsPage() {
           These examples assume the agent environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <CodeBlock code={agentStartupScript(origin)} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -836,7 +836,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         <p className="doc-copy">
           Then add this to the environment setup script.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <CodeBlock code={agentStartupScript(origin)} />
         <p className="doc-copy">
           Codex setup script exports do not persist into the agent phase, so the
           values above must also be configured as environment variables in the
@@ -879,7 +879,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         <CodeBlock
           code={`{
   "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
-  "start": "export GESTALT_URL=\\"\${BASE_URL}\\" && export GESTALT_API_KEY=\\"\${GESTALT_API_KEY}\\""
+  "start": "export GESTALT_URL=\\"${origin}\\" && export GESTALT_API_KEY=\\"\${GESTALT_API_KEY}\\""
 }`}
         />
         <p className="doc-copy">
@@ -925,7 +925,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         <p className="doc-copy">
           Then add this to the cloud environment setup script.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <CodeBlock code={agentStartupScript(origin)} />
         <p className="doc-copy">
           Claude Code on the web does not have a dedicated secrets store yet;
           environment variables and setup scripts are visible to users who can
