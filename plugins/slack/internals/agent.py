@@ -139,6 +139,7 @@ def _slack_event_log_context(
         slack_channel_id=event.channel_id,
         slack_channel_type=event.channel_type,
         slack_user_id=event.user_id,
+        slack_bot_id=event.bot_id,
         slack_message_ts=event.message_ts,
         slack_thread_ts=event.thread_ts,
         slack_reply_thread_ts=event.reply_thread_ts,
@@ -336,7 +337,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         return {"ok": True, "ignored": ignored_reason}
 
     log_context = _slack_event_log_context(event, req, route)
-    if not req.subject.id or req.subject.id.startswith("system:"):
+    subject_id = _request_subject_id(req)
+    if not _slack_event_subject_allowed(event, route, subject_id):
         if publish_response is not None:
             return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
@@ -358,7 +360,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     assistant_status_error = ""
     workflow_provider = _workflow_provider_name(route)
     try:
-        reply_ref = _sign_reply_ref(event, req.subject.id, route)
+        reply_ref = _sign_reply_ref(event, subject_id, route)
         if not workflow_provider:
             if publish_response is not None:
                 return publish_response
@@ -1507,9 +1509,11 @@ def _slack_agent_event_from_payload(
             "",
         )
 
-    user_id = str(event.get("user") or "").strip()
+    bot_id = _slack_agent_event_bot_id(event)
+    is_bot_event = _slack_agent_event_is_bot(event, bot_id=bot_id)
+    user_id = _slack_agent_event_user_id(event, bot_id=bot_id)
     channel_id = str(event.get("channel") or "").strip()
-    text = str(event.get("text") or "").strip()
+    text = _slack_agent_event_text(event)
     message_ts = str(event.get("ts") or event.get("event_ts") or "").strip()
     thread_ts = str(event.get("thread_ts") or "").strip()
     files = tuple(map_slice(event.get("files")))
@@ -1553,6 +1557,7 @@ def _slack_agent_event_from_payload(
             client_msg_id=str(event.get("client_msg_id") or "").strip(),
             addressed_to_bot=addressed_to_bot,
             assistant_context_present=assistant_context_present,
+            bot_id=bot_id,
             bot_user_id=_slack_addressed_bot_user_id(
                 event=event,
                 text=text,
@@ -1560,6 +1565,7 @@ def _slack_agent_event_from_payload(
                 bot_user_ids=bot_user_ids,
             ),
             files=files,
+            is_bot_event=is_bot_event,
         ),
         "",
     )
@@ -1837,15 +1843,80 @@ def _is_url_verification(payload: dict[str, Any]) -> bool:
 def _is_ignored_event(event: dict[str, Any]) -> bool:
     subtype = str(event.get("subtype") or "").strip()
     if subtype in {
-        "bot_message",
         "message_changed",
         "message_deleted",
         "message_replied",
     }:
         return True
-    if event.get("bot_id") or event.get("bot_profile"):
-        return True
     return False
+
+
+def _slack_agent_event_bot_id(event: dict[str, Any]) -> str:
+    nested_message = map_field(event, "message")
+    return (
+        string_field(event, "bot_id")
+        or string_field(nested_message, "bot_id")
+        or string_field(map_field(event, "bot_profile"), "id")
+        or string_field(map_field(nested_message, "bot_profile"), "id")
+    )
+
+
+def _slack_agent_event_is_bot(event: dict[str, Any], *, bot_id: str) -> bool:
+    nested_message = map_field(event, "message")
+    return bool(
+        string_field(event, "subtype") == "bot_message"
+        or bot_id
+        or event.get("bot_profile")
+        or nested_message.get("bot_profile")
+    )
+
+
+def _slack_agent_event_user_id(event: dict[str, Any], *, bot_id: str) -> str:
+    nested_message = map_field(event, "message")
+    bot_profile = map_field(event, "bot_profile") or map_field(
+        nested_message, "bot_profile"
+    )
+    return (
+        string_field(event, "user")
+        or string_field(event, "user_id")
+        or string_field(nested_message, "user")
+        or string_field(nested_message, "user_id")
+        or string_field(bot_profile, "user_id")
+        or bot_id
+    )
+
+
+def _slack_agent_event_text(event: dict[str, Any]) -> str:
+    text = string_field(event, "text")
+    if text:
+        return text
+    parts: list[str] = []
+    _collect_slack_text(event.get("blocks"), parts)
+    _collect_slack_text(event.get("attachments"), parts)
+    return "\n".join(dict.fromkeys(part for part in parts if part))
+
+
+def _collect_slack_text(value: Any, parts: list[str]) -> None:
+    if isinstance(value, str):
+        text = value.strip()
+        if text:
+            parts.append(text)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_slack_text(item, parts)
+        return
+    if not isinstance(value, dict):
+        return
+
+    for key in ("fallback", "pretext", "title", "text", "value", "alt_text"):
+        child = value.get(key)
+        if child is not None:
+            _collect_slack_text(child, parts)
+    for key in ("blocks", "fields", "elements", "accessory"):
+        child = value.get(key)
+        if child is not None:
+            _collect_slack_text(child, parts)
 
 
 def _slack_team_id(payload: dict[str, Any], event: dict[str, Any]) -> str:
@@ -2330,6 +2401,22 @@ def _agent_event_can_start_agent(
     )
 
 
+def _slack_event_subject_allowed(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+    subject_id: str,
+) -> bool:
+    if not subject_id:
+        return False
+    if not subject_id.startswith("system:"):
+        return True
+    return bool(
+        event.is_bot_event
+        and route is not None
+        and (route.match.bot_ids or route.match.include_bot_events)
+    )
+
+
 def _build_workflow_signal_or_start_request(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
@@ -2521,6 +2608,7 @@ def _slack_workflow_signal_payload(
         "event_id": event.event_id,
         "team_id": event.team_id,
         "user_id": event.user_id,
+        "bot_id": event.bot_id,
         "channel_id": event.channel_id,
         "channel_type": event.channel_type,
         "message_ts": event.message_ts,
@@ -2530,6 +2618,7 @@ def _slack_workflow_signal_payload(
         "addressed_to_bot": event.addressed_to_bot,
         "assistant_context_present": event.assistant_context_present,
         "bot_user_id": event.bot_user_id,
+        "is_bot_event": event.is_bot_event,
         "text": event.text,
         "file_ids": _event_file_ids(event),
         "files": [dict(file_data) for file_data in event.files],
@@ -2558,6 +2647,8 @@ def _slack_agent_request(event: SlackAgentEvent, user_prompt: str) -> dict[str, 
         "current_message": {
             "text": event.text,
             "user_id": event.user_id,
+            "bot_id": event.bot_id,
+            "is_bot_event": event.is_bot_event,
             "message_ts": event.message_ts,
             "file_ids": _event_file_ids(event),
         },
@@ -2770,6 +2861,8 @@ def _agent_session_metadata(event: SlackAgentEvent) -> Any:
                 "team_id": event.team_id,
                 "channel_id": event.channel_id,
                 "channel_type": event.channel_type,
+                "bot_id": event.bot_id,
+                "is_bot_event": event.is_bot_event,
                 "root_message_ts": root_ts,
                 "session_ref": _agent_session_ref(event),
             }
@@ -2790,6 +2883,7 @@ def _agent_metadata(
                 "event_id": event.event_id,
                 "team_id": event.team_id,
                 "user_id": event.user_id,
+                "bot_id": event.bot_id,
                 "channel_id": event.channel_id,
                 "channel_type": event.channel_type,
                 "message_ts": event.message_ts,
@@ -2799,6 +2893,7 @@ def _agent_metadata(
                 "addressed_to_bot": event.addressed_to_bot,
                 "assistant_context_present": event.assistant_context_present,
                 "bot_user_id": event.bot_user_id,
+                "is_bot_event": event.is_bot_event,
                 "file_ids": _event_file_ids(event),
                 "agent_route_id": route.id if route is not None else "",
             }
@@ -2895,6 +2990,8 @@ def _agent_user_prompt(
         f"team_id: {event.team_id}",
         f"channel_id: {event.channel_id}",
         f"user_id: {event.user_id}",
+        f"bot_id: {event.bot_id}",
+        f"is_bot_event: {event.is_bot_event}",
         f"message_ts: {event.message_ts}",
         f"thread_ts: {event.thread_ts}",
         f"reply_thread_ts: {event.reply_thread_ts}",
@@ -2999,11 +3096,14 @@ def _agent_session_ref(event: SlackAgentEvent) -> str:
 
 
 def _agent_turn_idempotency_key(event: SlackAgentEvent) -> str:
+    actor_id = event.user_id or event.bot_id
     if event.event_type in (SlackEventType.APP_MENTION, SlackEventType.MESSAGE):
-        return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
+        return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{actor_id}"
     if event.event_id:
         return f"slack:event:{event.event_id}"
-    return f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{event.user_id}"
+    return (
+        f"slack:event:{event.team_id}:{event.channel_id}:{event.message_ts}:{actor_id}"
+    )
 
 
 def _slack_client_msg_id(idempotency_key: str) -> str:

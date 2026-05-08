@@ -577,8 +577,11 @@ matches messages whose `thread_ts` is present and differs from the message
 `ts`; omitted `thread` behaves as `thread: any`. Message routes can also
 set `subtypes`: omitted means all non-ignored subtypes can match, `subtypes: []`
 means only normal messages with no subtype match, and a non-empty list matches
-those Slack message subtypes. Bot, edit, delete, and `message_replied`
-message events remain ignored before route matching.
+those Slack message subtypes. Bot-originated message events are ignored unless
+the route sets `botIds` to the allowed Slack bot IDs, or sets
+`includeBotEvents: true`; use `botIds` when only a specific alerting bot should
+trigger the agent. Edit, delete, and `message_replied` message events remain
+ignored before route matching.
 
 Route-level `agent` fields override or extend the top-level agent settings,
 `prompt` is accepted as an alias for `systemPrompt`, and `modelOptions` are
