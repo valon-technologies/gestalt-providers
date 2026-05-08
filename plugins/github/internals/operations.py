@@ -302,6 +302,19 @@ class GitHubListCheckSuiteCheckRunsRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListCheckRunsForRefRequest:
+    owner: str
+    repo: str
+    ref: str
+    check_name: str = ""
+    status: str = ""
+    filter: str = ""
+    per_page: int = 0
+    page: int = 0
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubListCheckRunAnnotationsRequest:
     owner: str
     repo: str
@@ -1453,6 +1466,62 @@ def get_check_run(
     )
 
 
+def list_check_runs_for_ref(
+    request: GitHubListCheckRunsForRefRequest,
+    *,
+    subject: Any,
+    external_identity: Any = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    ref = require_text(request.ref, "ref")
+    check_name = request.check_name.strip()
+    status = request.status.strip()
+    if status and status not in {
+        "queued",
+        "in_progress",
+        "completed",
+        "waiting",
+        "requested",
+        "pending",
+    }:
+        raise ValueError(
+            "status must be queued, in_progress, completed, waiting, requested, or pending"
+        )
+    filter_value = request.filter.strip()
+    if filter_value and filter_value not in {"latest", "all"}:
+        raise ValueError("filter must be either 'latest' or 'all'")
+    params: dict[str, Any] = {}
+    if check_name:
+        params["check_name"] = check_name
+    if status:
+        params["status"] = status
+    if filter_value:
+        params["filter"] = filter_value
+    params.update(pagination_params(per_page=request.per_page, page=request.page))
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "read"}
+    )
+    return github.github_json(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "commits", ref, "check-runs"),
+            params,
+        ),
+        token,
+    )
+
+
 def list_check_suite_check_runs(
     request: GitHubListCheckSuiteCheckRunsRequest,
     *,
@@ -1938,10 +2007,9 @@ def scoped_installation_id_from_external_identity(
 def non_empty_external_identity(external_identity: Any) -> Any | None:
     if external_identity is None:
         return None
-    if (
-        not external_identity_field(external_identity, "type")
-        and not external_identity_field(external_identity, "id")
-    ):
+    if not external_identity_field(
+        external_identity, "type"
+    ) and not external_identity_field(external_identity, "id"):
         return None
     return external_identity
 
@@ -1960,7 +2028,9 @@ def resolve_repository_installation(
     github = github_client(client)
     normalized_owner = require_slug(owner, "owner")
     normalized_repo = require_slug(repo, "repo")
-    installation_id = github.repository_installation_id(normalized_owner, normalized_repo)
+    installation_id = github.repository_installation_id(
+        normalized_owner, normalized_repo
+    )
     # Mint a repo-restricted token so the resolver proves the app can act on
     # the repository before returning an install/runAs contract to config.
     github.installation_token(installation_id, repositories=[normalized_repo])
