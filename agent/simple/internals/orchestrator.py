@@ -5,23 +5,18 @@ import threading
 import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import gestalt
 import grpc
 from gestalt import telemetry
 from google.protobuf import json_format
-from google.protobuf import struct_pb2 as _struct_pb2
-from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from jsonschema import ValidationError, validate
 
 
 from .config import SimpleAgentConfig
 from .model_backend import ModelBackend
 from .store import SimpleRunStore, StoredRun, StoredTurnCheckpoint
-
-struct_pb2: Any = _struct_pb2
-timestamp_pb2: Any = _timestamp_pb2
 
 TOOL_SEARCH_FUNCTION_NAME = "gestalt_search_tools"
 TOOL_SEARCH_TOOL_ID = "__gestalt_search_tools__"
@@ -142,8 +137,8 @@ class SimpleAgentOrchestrator:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         projected_messages = _project_messages(request.messages)
-        response_schema = _struct_to_dict(request.response_schema)
-        model_options = _struct_to_dict(request.model_options)
+        response_schema = gestalt.struct_to_dict(request.response_schema)
+        model_options = gestalt.struct_to_dict(request.model_options)
         tool_specs_and_names = _tool_registry_from_resolved_tools(request.tools)
         prepared_seed = _resume_seed_from_request(
             messages=projected_messages,
@@ -163,7 +158,7 @@ class SimpleAgentOrchestrator:
                 provider_name=provider_name.strip(),
                 model=resolved_model,
                 messages=projected_messages,
-                created_by=_actor_to_dict(request.created_by),
+                created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
                 execution_ref=str(request.execution_ref or "").strip(),
                 resume_seed=prepared_seed,
                 start_event_source=start_event_source,
@@ -646,21 +641,14 @@ class SimpleAgentOrchestrator:
             execution_ref=run.execution_ref,
         )
         if run.structured_output and not summary_only:
-            proto.structured_output.CopyFrom(_dict_to_struct(run.structured_output))
+            proto.structured_output.CopyFrom(gestalt.struct_from_dict(run.structured_output))
         if run.created_by:
-            proto.created_by.CopyFrom(
-                gestalt.AgentActor(
-                    subject_id=run.created_by.get("subject_id", ""),
-                    subject_kind=run.created_by.get("subject_kind", ""),
-                    display_name=run.created_by.get("display_name", ""),
-                    auth_source=run.created_by.get("auth_source", ""),
-                )
-            )
-        proto.created_at.CopyFrom(_datetime_to_timestamp(run.created_at))
+            proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(run.created_by))
+        proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(run.created_at))
         if run.started_at is not None:
-            proto.started_at.CopyFrom(_datetime_to_timestamp(run.started_at))
+            proto.started_at.CopyFrom(gestalt.timestamp_from_datetime(run.started_at))
         if run.completed_at is not None:
-            proto.completed_at.CopyFrom(_datetime_to_timestamp(run.completed_at))
+            proto.completed_at.CopyFrom(gestalt.timestamp_from_datetime(run.completed_at))
         return proto
 
 
@@ -772,7 +760,7 @@ def _execute_tool_request(
         turn_id=checkpoint.turn_id,
         tool_call_id=tool_call_id,
         tool_id=resolved_tool_id,
-        arguments=_dict_to_struct(execution_arguments),
+        arguments=gestalt.struct_from_dict(execution_arguments),
         run_grant=checkpoint.run_grant,
     )
     request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
@@ -1302,7 +1290,7 @@ def _register_resolved_tools(
         function_name_to_tool_id[function_name] = tool_id
         loaded_tool_ids.add(tool_id)
         description = _tool_description(tool)
-        parameters = copy.deepcopy(_struct_to_dict(tool.parameters_schema))
+        parameters = copy.deepcopy(gestalt.struct_to_dict(tool.parameters_schema))
         if not isinstance(parameters, dict):
             parameters = {"type": "object", "properties": {}}
         if "type" not in parameters:
@@ -1436,34 +1424,3 @@ def _parse_structured_output(*, output_text: str, response_schema: dict[str, Any
             "structured output must be a JSON object because AgentTurn.structured_output is a protobuf Struct"
         )
     return parsed
-
-
-def _struct_to_dict(message: Any) -> dict[str, Any]:
-    if message is None:
-        return {}
-    if not getattr(message, "fields", None):
-        return {}
-    return json_format.MessageToDict(message)
-
-
-def _dict_to_struct(data: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(data)
-    return struct
-
-
-def _actor_to_dict(actor: Any) -> dict[str, str]:
-    if actor is None:
-        return {}
-    return {
-        "subject_id": str(getattr(actor, "subject_id", "") or "").strip(),
-        "subject_kind": str(getattr(actor, "subject_kind", "") or "").strip(),
-        "display_name": str(getattr(actor, "display_name", "") or "").strip(),
-        "auth_source": str(getattr(actor, "auth_source", "") or "").strip(),
-    }
-
-
-def _datetime_to_timestamp(value: datetime) -> Any:
-    timestamp = timestamp_pb2.Timestamp()
-    timestamp.FromDatetime(value.astimezone(UTC))
-    return timestamp
