@@ -11,6 +11,10 @@ use tokio::time;
 
 use crate::config::HermesConfig;
 
+type PendingAcpResponse = Result<JsonValue, String>;
+type PendingAcpSender = oneshot::Sender<PendingAcpResponse>;
+type PendingAcpRequests = Arc<Mutex<HashMap<String, PendingAcpSender>>>;
+
 #[derive(Clone, Debug)]
 pub enum AcpNotification {
     SessionUpdate(JsonValue),
@@ -29,7 +33,7 @@ pub struct AcpInitializeResult;
 struct AcpProcessInner {
     writer: Arc<Mutex<ChildStdin>>,
     child: Mutex<Option<Child>>,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<JsonValue, String>>>>>,
+    pending: PendingAcpRequests,
     next_id: AtomicU64,
     notifications: Mutex<mpsc::Receiver<AcpNotification>>,
     stderr: Arc<Mutex<String>>,
@@ -261,7 +265,7 @@ impl AcpProcess {
     }
 
     async fn fail_all_pending(&self, message: &str) {
-        let pending: Vec<oneshot::Sender<Result<JsonValue, String>>> = self
+        let pending: Vec<PendingAcpSender> = self
             .inner
             .pending
             .lock()
@@ -277,7 +281,7 @@ impl AcpProcess {
 
 fn spawn_stdout_reader(
     stdout: tokio::process::ChildStdout,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<JsonValue, String>>>>>,
+    pending: PendingAcpRequests,
     writer: Arc<Mutex<ChildStdin>>,
     notifications_tx: mpsc::Sender<AcpNotification>,
 ) {
@@ -426,10 +430,7 @@ async fn write_json_line(
         .map_err(|err| format!("flush Hermes ACP stdin: {err}"))
 }
 
-async fn fail_pending(
-    pending: &Arc<Mutex<HashMap<String, oneshot::Sender<Result<JsonValue, String>>>>>,
-    message: &str,
-) {
+async fn fail_pending(pending: &PendingAcpRequests, message: &str) {
     let senders: Vec<_> = pending.lock().await.drain().map(|(_, tx)| tx).collect();
     for tx in senders {
         let _ = tx.send(Err(message.to_string()));

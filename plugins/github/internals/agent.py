@@ -67,12 +67,12 @@ def build_workflow_signal_or_start_request(
         signal=gestalt.WorkflowSignal(
             name=GITHUB_WORKFLOW_SIGNAL_NAME,
             idempotency_key=idempotency_key,
+            payload=workflow_signal_payload(
+                payload, summary, policy, extra_signal_data
+            ),
+            metadata=agent_turn_metadata(summary, policy),
         ),
     )
-    request.signal.payload.CopyFrom(
-        workflow_signal_payload(payload, summary, policy, extra_signal_data)
-    )
-    request.signal.metadata.CopyFrom(agent_turn_metadata(summary, policy))
     return request
 
 
@@ -98,8 +98,8 @@ def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
         connection=target.connection,
         instance=target.instance,
         credential_mode=target.credential_mode,
+        input=target.input,
     )
-    plugin.input.CopyFrom(dict_to_struct(target.input))
     return gestalt.BoundWorkflowTarget(plugin=plugin)
 
 
@@ -115,13 +115,13 @@ def workflow_agent_target(
             gestalt.AgentMessage(role="system", text=agent_system_prompt(policy)),
         ],
         tool_refs=agent_tool_refs(policy),
+        metadata=agent_session_metadata(summary, policy),
     )
-    agent.metadata.CopyFrom(agent_session_metadata(summary, policy))
     if model_options:
         target_options = getattr(agent, "model_options", None)
         if target_options is None:
             target_options = agent.provider_options
-        target_options.CopyFrom(dict_to_struct(model_options))
+        target_options.update(model_options)
     return gestalt.BoundWorkflowTarget(agent=agent)
 
 
@@ -130,7 +130,7 @@ def workflow_signal_payload(
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
     extra_signal_data: dict[str, Any] | None = None,
-) -> Any:
+) -> dict[str, Any]:
     data = workflow_signal_data(payload, summary, policy)
     if extra_signal_data:
         data.update(extra_signal_data)
@@ -145,7 +145,7 @@ def workflow_signal_payload(
         agent_request = {}
         data["agent_request"] = agent_request
     agent_request["user_prompt"] = agent_user_prompt(agent_request, summary, policy)
-    return dict_to_struct(data)
+    return data
 
 
 def workflow_agent_prompt() -> str:
@@ -177,7 +177,7 @@ def agent_operations(policy: GitHubWebhookPolicy | None = None) -> tuple[str, ..
 
 def agent_session_metadata(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
-) -> Any:
+) -> dict[str, Any]:
     metadata = {
         key: summary[key]
         for key in (
@@ -201,17 +201,17 @@ def agent_session_metadata(
     metadata["session_ref"] = agent_session_ref(summary, policy)
     if policy is not None:
         metadata["policy"] = policy_metadata(policy, summary)
-    return dict_to_struct({"github": metadata})
+    return {"github": metadata}
 
 
 def agent_turn_metadata(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
-) -> Any:
+) -> dict[str, Any]:
     metadata = dict(summary)
     metadata["session_ref"] = agent_session_ref(summary, policy)
     if policy is not None:
         metadata["policy"] = policy_metadata(policy, summary)
-    return dict_to_struct({"github": metadata})
+    return {"github": metadata}
 
 
 def agent_provider(policy: GitHubWebhookPolicy | None) -> str:
@@ -643,7 +643,3 @@ def policy_canonical_metadata(
     if idempotency_key:
         metadata["idempotency_key"] = idempotency_key
     return metadata
-
-
-def dict_to_struct(data: dict[str, Any]) -> Any:
-    return gestalt.struct_from_dict(data)

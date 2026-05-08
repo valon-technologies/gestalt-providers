@@ -144,7 +144,7 @@ def execute_tool(
             turn_id=turn_id,
             tool_call_id=tool_call_id,
             tool_id=entry.tool_id,
-            arguments=gestalt.struct_from_dict(arguments or {}),
+            arguments=arguments or {},
             run_grant=run_grant,
             idempotency_key=idempotency_key,
         )

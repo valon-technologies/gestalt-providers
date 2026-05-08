@@ -114,7 +114,7 @@ impl Store {
             state: proto::AgentSessionState::Active as i32,
             metadata: req.metadata.clone(),
             created_by: req.created_by.clone(),
-            created_at: Some(now.clone()),
+            created_at: Some(now),
             updated_at: Some(now),
             last_turn_at: None,
             active_turn_id: None,
@@ -264,8 +264,8 @@ impl Store {
             output_text: String::new(),
             status_message: String::new(),
             created_by: req.created_by.clone(),
-            created_at: Some(now.clone()),
-            started_at: Some(now.clone()),
+            created_at: Some(now),
+            started_at: Some(now),
             completed_at: None,
             execution_ref: req.execution_ref.trim().to_string(),
             tool_refs: req.tool_refs.clone(),
@@ -280,7 +280,7 @@ impl Store {
             );
         }
         session.active_turn_id = Some(turn.id.clone());
-        session.last_turn_at = Some(now.clone());
+        session.last_turn_at = Some(now);
         session.updated_at = Some(now);
         self.append_event(
             turn.id.as_str(),
@@ -361,7 +361,7 @@ impl Store {
         }
         turn.status = status;
         turn.status_message = status_message;
-        turn.completed_at = Some(now.clone());
+        turn.completed_at = Some(now);
         if let Some(session) = self.sessions.get_mut(&turn.session_id) {
             if session.active_turn_id.as_deref() == Some(turn_id.trim()) {
                 session.active_turn_id = None;

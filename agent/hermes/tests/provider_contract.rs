@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use gestalt::AgentProvider as GestaltAgentProvider;
 use gestalt::proto::v1 as proto;
 use gestalt::proto::v1::agent_host_server::{
     AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
@@ -1446,7 +1445,7 @@ impl Fixture {
             "extraEnv": JsonValue::Object(extra_env),
             "autoApprovePermissions": true
         }));
-        GestaltAgentProvider::configure(&provider, "hermes", config)
+        gestalt::AgentProvider::configure(&provider, "hermes", config)
             .await
             .unwrap();
         provider

@@ -9,8 +9,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use gestalt::{AgentHost, proto::v1 as proto};
-use prost_types::Struct;
+use gestalt::{AgentHost, AgentHostExecuteToolInput, AgentHostListToolsInput, proto::v1 as proto};
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, ListToolsResult,
@@ -24,8 +23,6 @@ use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-
-use crate::store::json_to_value;
 
 const MCP_PAGE_SIZE: i32 = 100;
 const MAX_SCAN_PAGES: usize = 100;
@@ -301,12 +298,12 @@ impl GestaltMcpBridge {
             .host
             .lock()
             .await
-            .execute_tool(proto::ExecuteAgentToolRequest {
+            .execute_tool_for_turn(AgentHostExecuteToolInput {
                 session_id: self.session_id.clone(),
                 turn_id: self.turn_id.clone(),
                 tool_call_id,
                 tool_id: tool.id.clone(),
-                arguments: Some(json_object_to_struct(call_arguments)),
+                arguments: Some(JsonValue::Object(call_arguments)),
                 idempotency_key: format!(
                     "agent/hermes-mcp:{}:{seq}:{}",
                     self.turn_id, tool.mcp_name
@@ -474,12 +471,13 @@ impl GestaltMcpBridge {
             .host
             .lock()
             .await
-            .list_tools(proto::ListAgentToolsRequest {
+            .list_tools_for_turn(AgentHostListToolsInput {
                 session_id: self.session_id.clone(),
                 turn_id: self.turn_id.clone(),
                 page_size: MCP_PAGE_SIZE,
                 page_token: page_token.trim().to_string(),
                 run_grant: self.run_grant.clone(),
+                ..Default::default()
             })
             .await
             .map_err(|err| {
@@ -945,15 +943,6 @@ fn schema_value_or_null(raw: &str) -> JsonValue {
 
 fn json_object(value: JsonValue) -> JsonMap<String, JsonValue> {
     value.as_object().expect("JSON object").clone()
-}
-
-fn json_object_to_struct(object: JsonMap<String, JsonValue>) -> Struct {
-    Struct {
-        fields: object
-            .into_iter()
-            .map(|(key, value)| (key, json_to_value(value)))
-            .collect(),
-    }
 }
 
 fn validate_mcp_name_text(name: &str) -> Result<(), String> {

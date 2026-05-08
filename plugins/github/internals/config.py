@@ -782,9 +782,11 @@ def enum_string(
 
 def validate_struct_compatible(input_value: dict[str, Any], path: str) -> None:
     try:
-        gestalt.struct_from_dict(input_value)
+        normalized = gestalt.json_from_native(input_value, path=path)
     except Exception as err:
         raise ValueError(f"{path} must be JSON-compatible") from err
+    if not isinstance(normalized, dict):
+        raise ValueError(f"{path} must be JSON-compatible")
 
 
 def policy_allowed_operations(
