@@ -40,6 +40,7 @@ vulture-ignore-names = [
   "slack_events_start_stream",
   "slack_events_append_stream",
   "slack_events_stop_stream",
+  "chat_post_message",
   "conversations_get_message",
   "conversations_find_user_mentions",
   "conversations_get_thread_participants",

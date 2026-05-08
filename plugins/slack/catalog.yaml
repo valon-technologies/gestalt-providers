@@ -31,7 +31,7 @@ operations:
   - name: expires_in_seconds
     type: integer
     description: Seconds before embedded Slack interaction refs expire
-    default: 86400.0
+    default: 86400
   visible: false
 - id: events.reply
   method: POST
@@ -50,7 +50,7 @@ operations:
 - id: events.replySessionStarted
   method: POST
   description: Reply to the Slack event thread with a link to the started Gestalt
-    agent session; requires reply_ref and session_id
+    agent session
   parameters:
   - name: reply_ref
     type: string
@@ -288,6 +288,40 @@ operations:
     type: object
     description: Optional Slack message metadata for the finalized stream
   visible: false
+- id: chat.postMessage
+  method: POST
+  description: Send a Slack message with a visible Gestalt context footer
+  parameters:
+  - name: channel
+    type: string
+    description: Channel ID
+    required: true
+    default: ''
+  - name: text
+    type: string
+    description: Message text and Slack fallback text
+    required: true
+    default: ''
+  - name: thread_ts
+    type: string
+    description: Thread timestamp to reply to
+    default: ''
+  - name: unfurl_links
+    type: boolean
+    description: Whether Slack should unfurl links
+    default: null
+  - name: unfurl_media
+    type: boolean
+    description: Whether Slack should unfurl media
+    default: null
+  - name: blocks
+    type: array
+    description: Optional Slack Block Kit blocks. Gestalt appends a context footer.
+  - name: metadata
+    type: object
+    description: Optional Slack message metadata. Omit for default Gestalt metadata;
+      pass {} for no metadata.
+    default: null
 - id: conversations.getMessage
   method: POST
   description: Fetch a single message by Slack URL or channel and timestamp
@@ -319,7 +353,7 @@ operations:
   - name: limit
     type: integer
     description: Number of messages to scan
-    default: 100.0
+    default: 100
   - name: oldest
     type: string
     description: Only include messages after this Unix timestamp
@@ -354,7 +388,8 @@ operations:
     default: true
 - id: conversations.getThreadContext
   method: POST
-  description: Build rich Slack thread context by Slack URL or channel/timestamp, with messages, participants, and files
+  description: Build rich Slack thread context by Slack URL or channel/timestamp,
+    with messages, participants, and files
   parameters:
   - name: url
     type: string
@@ -375,7 +410,7 @@ operations:
   - name: limit
     type: integer
     description: Maximum number of messages to return
-    default: 15.0
+    default: 15
   - name: include_user_info
     type: boolean
     description: Fetch user profile details for participants
@@ -399,7 +434,7 @@ operations:
   - name: max_file_bytes
     type: integer
     description: Maximum bytes to read from each Slack file
-    default: 200000.0
+    default: 200000
 - id: files.get
   method: POST
   description: Fetch Slack file metadata and bounded file or image content
@@ -419,4 +454,4 @@ operations:
   - name: max_bytes
     type: integer
     description: Maximum bytes to read from the Slack file
-    default: 200000.0
+    default: 200000

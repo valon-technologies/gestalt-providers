@@ -62,12 +62,18 @@ from internals.operations import (
     get_thread_context,
     get_thread_participants,
     parse_message_url,
+    post_message,
 )
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 plugin = gestalt.Plugin("slack")
+SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID = "service_account:slack-bot"
+SLACK_POST_MESSAGE_FOOTER = "Sent with Gestalt"
+SLACK_MAX_BLOCKS = 50
+SLACK_MAX_SECTION_TEXT_CHARS = 3000
+SLACK_MAX_SYNTHESIZED_TEXT_BLOCKS = SLACK_MAX_BLOCKS - 1
 
 _agent_session_ref = _agent._agent_session_ref
 _select_agent_route = _agent._select_agent_route
@@ -89,6 +95,32 @@ class GetMessageInput(gestalt.Model):
     )
     channel: str = gestalt.field(description="Channel ID", default="", required=False)
     ts: str = gestalt.field(description="Message timestamp", default="", required=False)
+
+
+class ChatPostMessageInput(gestalt.Model):
+    channel: str = gestalt.field(description="Channel ID", default="", required=True)
+    text: str = gestalt.field(
+        description="Message text and Slack fallback text", default="", required=True
+    )
+    thread_ts: str = gestalt.field(
+        description="Thread timestamp to reply to", default="", required=False
+    )
+    unfurl_links: bool | None = gestalt.field(
+        description="Whether Slack should unfurl links", default=None, required=False
+    )
+    unfurl_media: bool | None = gestalt.field(
+        description="Whether Slack should unfurl media", default=None, required=False
+    )
+    blocks: list[dict[str, Any]] | None = gestalt.field(
+        description="Optional Slack Block Kit blocks. Gestalt appends a context footer.",
+        default_factory=list,
+        required=False,
+    )
+    metadata: dict[str, Any] | None = gestalt.field(
+        description="Optional Slack message metadata. Omit for default Gestalt metadata; pass {} for no metadata.",
+        default=None,
+        required=False,
+    )
 
 
 class FindUserMentionsInput(gestalt.Model):
@@ -642,6 +674,44 @@ def slack_events_stop_stream(
 
 
 @gestalt.operation(
+    id="chat.postMessage",
+    method="POST",
+    description="Send a Slack message with a visible Gestalt context footer",
+)
+def chat_post_message(
+    input: ChatPostMessageInput, req: gestalt.Request
+) -> OperationResult:
+    token_or_error = _chat_post_message_token(req)
+    if isinstance(token_or_error, gestalt.Response):
+        return token_or_error
+    if not input.channel:
+        return _bad_request("channel is required")
+    if input.text is None:
+        return _bad_request("text is required")
+
+    blocks_or_error = _chat_post_message_blocks(input.text, input.blocks)
+    if isinstance(blocks_or_error, gestalt.Response):
+        return blocks_or_error
+    metadata = _chat_post_message_metadata(input.metadata)
+
+    try:
+        return post_message(
+            token_or_error,
+            channel=input.channel,
+            text=input.text,
+            thread_ts=input.thread_ts,
+            unfurl_links=input.unfurl_links,
+            unfurl_media=input.unfurl_media,
+            blocks=blocks_or_error,
+            metadata=metadata,
+        )
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
     id="conversations.getMessage",
     method="POST",
     description="Fetch a single message by Slack URL or channel and timestamp",
@@ -804,6 +874,69 @@ def files_get(input: GetFileInput, req: gestalt.Request) -> OperationResult:
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
         return _server_error(str(err))
+
+
+def _chat_post_message_token(req: gestalt.Request) -> str | ErrorResponse:
+    subject_id = str(getattr(req.subject, "id", "") or "").strip()
+    if subject_id == SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID:
+        bot_token = _agent._agent_config.bot.token
+        if not bot_token:
+            return gestalt.Response(
+                status=HTTPStatus.PRECONDITION_FAILED,
+                body={"error": "Slack bot token is not configured"},
+            )
+        return bot_token
+
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+    return req.token
+
+
+def _chat_post_message_footer_block() -> dict[str, Any]:
+    return {
+        "type": "context",
+        "elements": [{"type": "mrkdwn", "text": SLACK_POST_MESSAGE_FOOTER}],
+    }
+
+
+def _chat_post_message_blocks(
+    text: str, blocks: list[dict[str, Any]] | None
+) -> list[dict[str, Any]] | ErrorResponse:
+    if blocks:
+        if not isinstance(blocks, list) or not all(
+            isinstance(block, dict) for block in blocks
+        ):
+            return _bad_request("blocks must be an array of Slack block objects")
+        if len(blocks) >= SLACK_MAX_BLOCKS:
+            return _bad_request("blocks must leave room for the Gestalt footer")
+        return [*blocks, _chat_post_message_footer_block()]
+    if blocks is not None and not isinstance(blocks, list):
+        return _bad_request("blocks must be an array of Slack block objects")
+
+    chunks = [
+        text[index : index + SLACK_MAX_SECTION_TEXT_CHARS]
+        for index in range(0, len(text), SLACK_MAX_SECTION_TEXT_CHARS)
+    ]
+    if len(chunks) > SLACK_MAX_SYNTHESIZED_TEXT_BLOCKS:
+        return _bad_request("text is too long to send with the Gestalt footer")
+    synthesized = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+        for chunk in chunks
+        if chunk
+    ]
+    return [*synthesized, _chat_post_message_footer_block()]
+
+
+def _chat_post_message_metadata(
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if metadata is None:
+        return {
+            "event_type": "gestalt_message",
+            "event_payload": {"sent_with": "gestalt"},
+        }
+    return metadata
 
 
 def _validate_token(req: gestalt.Request) -> ErrorResponse | None:
