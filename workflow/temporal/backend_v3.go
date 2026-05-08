@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -12,7 +11,6 @@ import (
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (b *temporalBackend) laneWorkflowID(workflowKey string) string {
@@ -24,96 +22,10 @@ func (b *temporalBackend) ownerLedgerWorkflowID(key string) string {
 	return workflowID(b.cfg.ScopeID, "owner-ledger-v3", fmt.Sprintf("%04d", shard))
 }
 
-func (b *temporalBackend) laneInput(workflowKey string) laneWorkflowSnapshot {
-	return laneWorkflowSnapshot{Input: laneWorkflowInput{
-		ProviderName:                  b.providerName,
-		ScopeID:                       b.cfg.ScopeID,
-		IndexShardCount:               b.cfg.IndexShardCount,
-		TaskQueue:                     b.cfg.TaskQueue,
-		WorkflowRunTimeoutNS:          b.cfg.WorkflowRunTimeout,
-		WorkflowTaskTimeoutNS:         b.cfg.WorkflowTaskTimeout,
-		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
-		IdempotencyRetentionNS:        b.cfg.IdempotencyRetention,
-		WorkflowKey:                   strings.TrimSpace(workflowKey),
-	}}
-}
-
-func (b *temporalBackend) runV3Input(ownerKey, executionRef, workflowKey string, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor, requireSignal bool) runWorkflowV3Input {
-	return runWorkflowV3Input{
-		ProviderName:                  b.providerName,
-		ScopeID:                       b.cfg.ScopeID,
-		IndexShardCount:               b.cfg.IndexShardCount,
-		TaskQueue:                     b.cfg.TaskQueue,
-		WorkflowRunTimeoutNS:          b.cfg.WorkflowRunTimeout,
-		WorkflowTaskTimeoutNS:         b.cfg.WorkflowTaskTimeout,
-		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
-		ExecutionRef:                  strings.TrimSpace(executionRef),
-		WorkflowKey:                   strings.TrimSpace(workflowKey),
-		OwnerKey:                      strings.TrimSpace(ownerKey),
-		TargetPayload:                 protoPayload(target),
-		TriggerPayload:                protoPayload(trigger),
-		CreatedByPayload:              protoPayload(createdBy),
-		RequireSignal:                 requireSignal,
-	}
-}
-
 func (b *temporalBackend) startV3WorkflowOptions(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) client.StartWorkflowOptions {
 	opts := b.runStartOptions(workflowID, conflict, reuse)
 	opts.WorkflowIDReusePolicy = reuse
 	return opts
-}
-
-func (b *temporalBackend) signalOrStartLane(ctx context.Context, workflowKey, updateID string, req laneSignalRequest) (*proto.SignalWorkflowRunResponse, error) {
-	workflowKey = strings.TrimSpace(workflowKey)
-	laneID := b.laneWorkflowID(workflowKey)
-	startOp := b.client.NewWithStartWorkflowOperation(
-		b.startOptions(laneID),
-		gestaltWorkflowKeyLaneV1,
-		b.laneInput(workflowKey),
-	)
-	update, err := b.client.UpdateWithStartWorkflow(ctx, client.UpdateWithStartWorkflowOptions{
-		StartWorkflowOperation: startOp,
-		UpdateOptions: client.UpdateWorkflowOptions{
-			UpdateID:     strings.TrimSpace(updateID),
-			UpdateName:   updateLaneSignalOrStart,
-			Args:         []any{req},
-			WaitForStage: client.WorkflowUpdateStageCompleted,
-		},
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "signal-or-start temporal lane: %v", err)
-	}
-	var resp proto.SignalWorkflowRunResponse
-	if err := update.Get(ctx, &resp); err != nil {
-		return nil, mapWorkflowUpdateError(err)
-	}
-	return &resp, nil
-}
-
-func (b *temporalBackend) startKeyedRunInLane(ctx context.Context, workflowKey, updateID string, req laneStartRequest) (*proto.BoundWorkflowRun, error) {
-	laneID := b.laneWorkflowID(workflowKey)
-	startOp := b.client.NewWithStartWorkflowOperation(
-		b.startOptions(laneID),
-		gestaltWorkflowKeyLaneV1,
-		b.laneInput(workflowKey),
-	)
-	update, err := b.client.UpdateWithStartWorkflow(ctx, client.UpdateWithStartWorkflowOptions{
-		StartWorkflowOperation: startOp,
-		UpdateOptions: client.UpdateWorkflowOptions{
-			UpdateID:     strings.TrimSpace(updateID),
-			UpdateName:   updateLaneStartRun,
-			Args:         []any{req},
-			WaitForStage: client.WorkflowUpdateStageCompleted,
-		},
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "start temporal lane run: %v", err)
-	}
-	var run proto.BoundWorkflowRun
-	if err := update.Get(ctx, &run); err != nil {
-		return nil, mapWorkflowUpdateError(err)
-	}
-	return &run, nil
 }
 
 func (b *temporalBackend) updateLaneSignalRun(ctx context.Context, handle *v3RunHandle, signal *proto.WorkflowSignal, updateID string) (*proto.SignalWorkflowRunResponse, error) {
@@ -156,34 +68,6 @@ func (b *temporalBackend) cancelLaneRun(ctx context.Context, handle *v3RunHandle
 		return nil, mapWorkflowUpdateError(err)
 	}
 	return &run, nil
-}
-
-func (b *temporalBackend) executeRunV3(ctx context.Context, workflowID string, input runWorkflowV3Input, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) (*proto.BoundWorkflowRun, error) {
-	run, err := b.client.ExecuteWorkflow(ctx, b.startV3WorkflowOptions(workflowID, conflict, reuse), gestaltRunWorkflowV3, input)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "start temporal v3 workflow: %v", err)
-	}
-	now := time.Now().UTC()
-	publicID := encodeV3RunHandle(v3RunHandle{
-		Kind:             runHandleKindV3,
-		RunWorkflowID:    run.GetID(),
-		RunTemporalRunID: run.GetRunID(),
-		LogicalRunKey:    input.LogicalRunKey,
-		WorkflowKey:      input.WorkflowKey,
-		OwnerKey:         input.OwnerKey,
-	})
-	out := &proto.BoundWorkflowRun{
-		Id:           publicID,
-		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:       targetFromPayload(input.TargetPayload),
-		Trigger:      triggerFromPayload(input.TriggerPayload),
-		CreatedAt:    timestamppb.New(now),
-		CreatedBy:    actorFromPayload(input.CreatedByPayload),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
-		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
-	}
-	_ = b.putRunTemporalIndex(ctx, out)
-	return out, nil
 }
 
 func (b *temporalBackend) queryOrGetV3Run(ctx context.Context, handle *v3RunHandle) (*proto.BoundWorkflowRun, error) {
