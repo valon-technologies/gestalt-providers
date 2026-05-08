@@ -112,6 +112,9 @@ test.describe("Docs page", () => {
     await expect(page.locator("#agent-cursor-panel")).toContainText(
       `Set GESTALT_URL to ${expectedOrigin}`,
     );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      "GESTALT_API_KEY as a Cursor Cloud Agent secret",
+    );
     await expect(page.locator("#agent-cursor-panel")).not.toContainText(
       "export GESTALT_API_KEY",
     );

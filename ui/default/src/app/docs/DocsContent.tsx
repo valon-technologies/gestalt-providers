@@ -864,9 +864,9 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         }
       >
         <p className="doc-copy">
-          In Cursor Cloud Agents, add the token as an environment secret and
-          keep the workspace URL with the environment. Put the
-          install command in{" "}
+          In Cursor Cloud Agents, configure the workspace URL as an environment
+          variable and add the API token as a Cursor secret. Put the install
+          command in{" "}
           <code className="font-mono text-sm text-primary">
             .cursor/environment.json
           </code>
@@ -885,7 +885,9 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           <code className="font-mono text-sm text-primary">
             GESTALT_API_KEY
           </code>{" "}
-          to a Gestalt API token in the Cloud Agent environment.
+          as a Cursor Cloud Agent secret containing a Gestalt API token. Cursor
+          provides the secret to the agent environment at runtime under that
+          variable name.
         </p>
         <p className="doc-copy">
           Reference:{" "}
