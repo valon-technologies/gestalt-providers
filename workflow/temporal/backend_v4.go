@@ -50,7 +50,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 			}
 		}
 	}
-	if existing, found, err := b.getWorkflowKeyRunForStart(ctx, workflowKey); err != nil {
+	if existing, found, err := b.state.getWorkflowKeyRun(ctx, workflowKey); err != nil {
 		return nil, mapWorkflowKeyLoadError(err)
 	} else if found && !workflowRunTerminal(existing.GetStatus()) {
 		if key != "" && runHasTemporalWorkflowID(existing, temporalWorkflowID) {
@@ -186,7 +186,7 @@ func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, target scopedT
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	if existing, found, err := b.getWorkflowKeyRunForStart(ctx, workflowKey); err != nil {
+	if existing, found, err := b.state.getWorkflowKeyRun(ctx, workflowKey); err != nil {
 		return nil, mapWorkflowKeyLoadError(err)
 	} else if found && !workflowRunTerminal(existing.GetStatus()) {
 		resp, err := b.signalExistingWorkflowKeyRunV4(ctx, workflowKey, existing, signal, updateID)
@@ -214,47 +214,6 @@ func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, target scopedT
 		}
 	}
 	return b.startSignalWorkflowRunV4(ctx, target, req, workflowKey, signal, updateID)
-}
-
-func (b *temporalBackend) getWorkflowKeyRunForStart(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
-	run, found, err := b.state.getWorkflowKeyRun(ctx, workflowKey)
-	if err != nil || found {
-		return run, found, err
-	}
-	run, found, err = b.queryLegacyLaneRun(ctx, workflowKey)
-	if err != nil || !found || workflowRunTerminal(run.GetStatus()) {
-		return run, found, err
-	}
-	owner, _, claimErr := b.state.claimWorkflowKeyRun(ctx, workflowKey, run, time.Now().UTC())
-	if claimErr != nil {
-		return nil, false, claimErr
-	}
-	return owner, true, nil
-}
-
-func (b *temporalBackend) queryLegacyLaneRun(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
-	workflowKey = strings.TrimSpace(workflowKey)
-	if workflowKey == "" {
-		return nil, false, nil
-	}
-	value, err := b.client.QueryWorkflow(ctx, b.laneWorkflowID(workflowKey), "", queryLaneRun)
-	if err != nil {
-		if isNotFoundLike(err) || isQueryHandlerUnavailable(err) {
-			if isQueryHandlerUnavailable(err) {
-				return nil, false, status.Errorf(codes.FailedPrecondition, "legacy workflow key lane %q cannot report its active run yet", workflowKey)
-			}
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	var run proto.BoundWorkflowRun
-	if err := value.Get(&run); err != nil {
-		return nil, false, err
-	}
-	if strings.TrimSpace(run.GetId()) == "" {
-		return nil, false, nil
-	}
-	return cloneRun(&run), true, nil
 }
 
 func (b *temporalBackend) signalExistingWorkflowKeyRunV4(ctx context.Context, workflowKey string, run *proto.BoundWorkflowRun, signal *proto.WorkflowSignal, updateID string) (*proto.SignalWorkflowRunResponse, error) {
@@ -336,7 +295,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 		temporalWorkflowID = workflowID(b.cfg.ScopeID, "signal-keyed-v4", target.OwnerKey, signalKey, hashID(workflowKey))
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
-	input := b.runV4Input(target.OwnerKey, req.GetExecutionRef(), workflowKey, target.Target, newManualTrigger(), req.GetCreatedBy(), nil, true)
+	input := b.runV4Input(target.OwnerKey, req.GetExecutionRef(), workflowKey, target.Target, newManualTrigger(), req.GetCreatedBy(), signal, true)
 	input.RequireClaim = true
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -359,15 +318,12 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 	if err := b.releaseClaimedRunV4(ctx, owner); err != nil {
 		return nil, err
 	}
-	resp, err := b.signalExistingWorkflowKeyRunV4(ctx, workflowKey, owner, signal, updateID)
-	if err != nil {
-		return nil, err
-	}
-	resp.StartedRun = true
-	if resp.GetSignal().GetSequence() <= 0 || strings.TrimSpace(resp.GetSignal().GetId()) == "" {
-		resp.Signal = signalForStartedRun(owner, signal)
-	}
-	return resp, nil
+	return &proto.SignalWorkflowRunResponse{
+		Run:         cloneRun(owner),
+		Signal:      signalForStartedRun(owner, signal),
+		StartedRun:  true,
+		WorkflowKey: strings.TrimSpace(workflowKey),
+	}, nil
 }
 
 func signalForStartedRun(run *proto.BoundWorkflowRun, signal *proto.WorkflowSignal) *proto.WorkflowSignal {
