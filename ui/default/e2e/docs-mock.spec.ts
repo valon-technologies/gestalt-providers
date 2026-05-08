@@ -82,48 +82,18 @@ test.describe("Docs page", () => {
     const agentTabs = page.getByRole("tablist", {
       name: "Cloud environment configuration",
     });
-    await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
     await expect(
       agentTabs.getByRole("tab", { name: "Claude Code web" }),
     ).toBeVisible();
+    await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
     await expect(
       agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
     ).toBeVisible();
     await expect(agentTabs.getByRole("tab")).toHaveText([
-      "Codex Cloud",
       "Claude Code web",
+      "Codex Cloud",
       "Cursor Cloud Agents",
     ]);
-    await expect(page.locator("#agent-codex-panel")).toContainText(
-      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
-    );
-    await expect(page.locator("#agent-codex-panel")).not.toContainText("BASE_URL");
-    await expect(page.locator("#agent-codex-panel")).toContainText(
-      `GESTALT_URL=${expectedOrigin}`,
-    );
-    await expect(page.locator("#agent-codex-panel")).not.toContainText(
-      "export GESTALT_API_KEY",
-    );
-    await expect(page.locator("#agent-codex-panel")).toContainText(
-      "Codex secrets are only available during setup",
-    );
-    await agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }).click();
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
-      ".cursor/environment.json",
-    );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
-      '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
-    );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
-      `Set GESTALT_URL to ${expectedOrigin}`,
-    );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
-      "GESTALT_API_KEY as a Cursor Cloud Agent secret",
-    );
-    await expect(page.locator("#agent-cursor-panel")).not.toContainText(
-      "export GESTALT_API_KEY",
-    );
-    await agentTabs.getByRole("tab", { name: "Claude Code web" }).click();
     await expect(
       page.getByRole("link", { name: "claude.ai/code" }),
     ).toHaveAttribute("href", "https://claude.ai/code");
@@ -138,6 +108,42 @@ test.describe("Docs page", () => {
     await expect(page.locator("#agent-claude-code-panel")).not.toContainText("BASE_URL");
     await expect(page.locator("#agent-claude-code-panel")).not.toContainText(
       "dedicated secrets store",
+    );
+    await agentTabs.getByRole("tab", { name: "Codex Cloud" }).click();
+    await expect(
+      page.getByRole("link", { name: "Codex environment settings" }),
+    ).toHaveAttribute("href", "https://chatgpt.com/codex/settings/environments");
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+    );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText("BASE_URL");
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      `GESTALT_URL=${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
+    );
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      "Codex secrets are only available during setup",
+    );
+    await agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }).click();
+    await expect(
+      page.getByRole("link", { name: "Cursor Cloud Agents settings" }),
+    ).toHaveAttribute("href", "https://cursor.com/dashboard/cloud-agents#environments");
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      ".cursor/environment.json",
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      `Set GESTALT_URL to ${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      "GESTALT_API_KEY as a Cursor Cloud Agent secret",
+    );
+    await expect(page.locator("#agent-cursor-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
     );
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();

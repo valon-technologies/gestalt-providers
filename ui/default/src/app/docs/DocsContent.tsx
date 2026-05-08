@@ -15,8 +15,8 @@ const mcpTabs = [
 ] as const;
 
 const agentEnvironmentTabs = [
-  { id: "agent-codex", label: "Codex Cloud" },
   { id: "agent-claude-code", label: "Claude Code web" },
+  { id: "agent-codex", label: "Codex Cloud" },
   { id: "agent-cursor", label: "Cursor Cloud Agents" },
 ] as const;
 
@@ -27,7 +27,7 @@ const mcpTabIds = mcpTabs.map((tab) => tab.id);
 const defaultMcpTabId: McpTabId = "mcp-claude-code";
 
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
-const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-codex";
+const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
 
 function agentStartupScript() {
   return "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh";
@@ -827,8 +827,17 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         }
       >
         <p className="doc-copy">
-          In Codex settings, open the cloud environment and add these
-          environment variables. Use a scoped API token for the cloud agent.
+          Navigate to{" "}
+          <a
+            href="https://chatgpt.com/codex/settings/environments"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Codex environment settings
+          </a>
+          , open the cloud environment, and add these environment variables.
+          Use a scoped API token for the cloud agent.
         </p>
         <CodeBlock code={cloudEnvironmentVariables(origin)} />
         <p className="doc-copy">
@@ -865,9 +874,17 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         }
       >
         <p className="doc-copy">
-          In Cursor Cloud Agents, configure the workspace URL as an environment
-          variable and add the API token as a Cursor secret. Put the install
-          command in{" "}
+          Navigate to{" "}
+          <a
+            href="https://cursor.com/dashboard/cloud-agents#environments"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Cursor Cloud Agents settings
+          </a>
+          , configure the workspace URL as an environment variable, and add the
+          API token as a Cursor secret. Put the install command in{" "}
           <code className="font-mono text-sm text-primary">
             .cursor/environment.json
           </code>
