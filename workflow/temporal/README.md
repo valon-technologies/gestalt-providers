@@ -92,14 +92,15 @@ update; already-polled tasks cannot be recalled by the provider.
 - keyed `SignalOrStartRun` routes through durable Temporal lane workflows; the
   active run, signal acknowledgements, and workflow-key ownership are workflow
   state
-- unkeyed `SignalOrStartRun` idempotency is owned by durable Temporal owner
-  ledger workflows
+- unkeyed `StartRun` idempotency for new V4 runs is stored in IndexedDB;
+  signal and keyed-run idempotency still use durable Temporal owner ledger
+  workflows
 - public run IDs are opaque V3 handles that identify the run workflow and, for
   keyed runs, the owning lane workflow
 - legacy V3 run state is still projected to Temporal run-index workflows for
   compatibility during the migration window
-- IndexedDB stores schedule, event-trigger, execution-reference, and V4 run
-  projection metadata; workflow-key and idempotency ownership still use the
-  legacy Temporal lane/ledger path
+- IndexedDB stores schedule, event-trigger, execution-reference, V4 run
+  projection, and V4 unkeyed-start idempotency metadata; workflow-key and
+  signal idempotency ownership still use the legacy Temporal lane/ledger path
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked

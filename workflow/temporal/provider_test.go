@@ -1277,6 +1277,352 @@ func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
 	}
 }
 
+func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	req := &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "start-1",
+		Target:         pluginTarget("slack", "postMessage"),
+		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	}
+	first, err := backend.StartRun(ctx, req)
+	if err != nil {
+		t.Fatalf("StartRun(first): %v", err)
+	}
+	duplicate, err := backend.StartRun(ctx, req)
+	if err != nil {
+		t.Fatalf("StartRun(duplicate): %v", err)
+	}
+	if duplicate.GetId() != first.GetId() {
+		t.Fatalf("duplicate run id = %q, want %q", duplicate.GetId(), first.GetId())
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %d, want 1", len(tc.executions))
+	}
+	if len(tc.updates) != 0 {
+		t.Fatalf("legacy ledger updates = %#v, want none", tc.updates)
+	}
+}
+
+func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "start-1",
+		Target:         pluginTarget("slack", "postMessage"),
+		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	})
+	if err != nil {
+		t.Fatalf("StartRun(first): %v", err)
+	}
+	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "start-1",
+		Target:         pluginTarget("slack", "sendMessage"),
+		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("StartRun(conflict) error = %v, want FailedPrecondition", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %d, want 1", len(tc.executions))
+	}
+}
+
+func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	tc.afterExecute = func() {
+		if err := state.db.DeleteObjectStore(ctx, storeTemporalRunIdempotency); err != nil {
+			t.Errorf("DeleteObjectStore(%s): %v", storeTemporalRunIdempotency, err)
+		}
+	}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+
+	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: "start-1",
+		Target:         pluginTarget("slack", "postMessage"),
+		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	})
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("StartRun error = %v, want Internal", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %d, want 1", len(tc.executions))
+	}
+}
+
+func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	ownerKey := "slack"
+	key := "start-1"
+	fingerprint := "same-request"
+	run := &proto.BoundWorkflowRun{Id: "run-1", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING}
+	if _, _, err := state.reserveRunIdempotency(ctx, ownerKey, key, fingerprint, time.Hour, time.Unix(100, 0).UTC()); err != nil {
+		t.Fatalf("reserveRunIdempotency: %v", err)
+	}
+	completedAt := time.Unix(200, 0).UTC()
+	if err := state.completeRunIdempotency(ctx, ownerKey, key, fingerprint, run, time.Hour, completedAt); err != nil {
+		t.Fatalf("completeRunIdempotency(first): %v", err)
+	}
+	if err := state.completeRunIdempotency(ctx, ownerKey, key, fingerprint, run, time.Hour, time.Unix(300, 0).UTC()); err != nil {
+		t.Fatalf("completeRunIdempotency(duplicate): %v", err)
+	}
+	record, err := state.runIdempotency.Get(ctx, state.runIdempotencyID(ownerKey, key))
+	if err != nil {
+		t.Fatalf("load idempotency record: %v", err)
+	}
+	updatedAt := recordTime(record, "updated_at")
+	if updatedAt == nil || !updatedAt.Equal(completedAt) {
+		t.Fatalf("updated_at = %v, want original completion %v", updatedAt, completedAt)
+	}
+}
+
+func TestStartRunReturnsCompletedLegacyIdempotentRun(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	target := pluginTarget("slack", "postMessage")
+	createdBy := &proto.WorkflowActor{SubjectId: "user-1"}
+	key := "start-1"
+	ledgerKey := startLedgerKey("slack", key)
+	legacyRun := &proto.BoundWorkflowRun{Id: "legacy-run", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED, Target: target}
+	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
+		ledgerKey: {
+			Key:         ledgerKey,
+			Status:      "completed",
+			Fingerprint: startFingerprint("slack", key, "", "", target, createdBy),
+			RunPayload:  protoPayload(legacyRun),
+		},
+	}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+
+	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: key,
+		Target:         target,
+		CreatedBy:      createdBy,
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if run.GetId() != legacyRun.GetId() {
+		t.Fatalf("run id = %q, want legacy %q", run.GetId(), legacyRun.GetId())
+	}
+	if len(tc.executions) != 0 {
+		t.Fatalf("executions = %d, want none", len(tc.executions))
+	}
+}
+
+func TestStartRunRejectsConflictingCompletedLegacyIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	key := "start-1"
+	ledgerKey := startLedgerKey("slack", key)
+	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
+		ledgerKey: {
+			Key:         ledgerKey,
+			Status:      "completed",
+			Fingerprint: "different-request",
+			RunPayload:  protoPayload(&proto.BoundWorkflowRun{Id: "legacy-run"}),
+		},
+	}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+
+	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: key,
+		Target:         pluginTarget("slack", "postMessage"),
+		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("StartRun error = %v, want FailedPrecondition", err)
+	}
+	if len(tc.executions) != 0 {
+		t.Fatalf("executions = %d, want none", len(tc.executions))
+	}
+}
+
+func TestStartRunIgnoresExpiredLegacyIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	key := "start-1"
+	ledgerKey := startLedgerKey("slack", key)
+	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
+		ledgerKey: {
+			Key:         ledgerKey,
+			Status:      "completed",
+			Fingerprint: "different-expired-request",
+			ExpiresAt:   time.Now().Add(-time.Minute),
+			RunPayload:  protoPayload(&proto.BoundWorkflowRun{Id: "legacy-run"}),
+		},
+	}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+
+	if _, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: key,
+		Target:         pluginTarget("slack", "postMessage"),
+		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %d, want 1", len(tc.executions))
+	}
+	expectedWorkflowID := workflowID("scope", "manual-v4", "slack", key)
+	if tc.executions[0].WorkflowID != expectedWorkflowID {
+		t.Fatalf("workflow id = %q, want %q", tc.executions[0].WorkflowID, expectedWorkflowID)
+	}
+}
+
+func TestStartRunUsesLegacyWorkflowIDForReservedLegacyIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	target := pluginTarget("slack", "postMessage")
+	createdBy := &proto.WorkflowActor{SubjectId: "user-1"}
+	key := "start-1"
+	ledgerKey := startLedgerKey("slack", key)
+	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
+		ledgerKey: {
+			Key:         ledgerKey,
+			Status:      "reserved",
+			Fingerprint: startFingerprint("slack", key, "", "", target, createdBy),
+		},
+	}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+
+	if _, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+		IdempotencyKey: key,
+		Target:         target,
+		CreatedBy:      createdBy,
+	}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %d, want 1", len(tc.executions))
+	}
+	expectedWorkflowID := workflowID("scope", "manual-v3", "slack", key)
+	if tc.executions[0].WorkflowID != expectedWorkflowID {
+		t.Fatalf("workflow id = %q, want %q", tc.executions[0].WorkflowID, expectedWorkflowID)
+	}
+	if !tc.hasUpdate(backend.ownerLedgerWorkflowID(ledgerKey), updateLedgerComplete) {
+		t.Fatalf("legacy ledger completion updates = %#v, want %s", tc.updates, updateLedgerComplete)
+	}
+}
+
 func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -1839,18 +2185,25 @@ type recordingTemporalClient struct {
 	releaseQueries     <-chan struct{}
 	scheduleClient     client.ScheduleClient
 	deploymentClient   *fakeWorkerDeploymentClient
+	ledgerEntries      map[string]*ownerLedgerEntry
+	afterExecute       func()
 }
 
 func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.executions = append(c.executions, recordedExecution{
 		WorkflowID: options.ID,
 		Args:       args,
 	})
+	runNumber := len(c.executions)
+	afterExecute := c.afterExecute
+	c.mu.Unlock()
+	if afterExecute != nil {
+		afterExecute()
+	}
 	return recordingWorkflowRun{
 		id:    options.ID,
-		runID: fmt.Sprintf("run-%d", len(c.executions)),
+		runID: fmt.Sprintf("run-%d", runNumber),
 	}, nil
 }
 
@@ -1859,6 +2212,18 @@ func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.S
 	defer c.mu.Unlock()
 	c.pendingWorkflowIDs = append(c.pendingWorkflowIDs, options.ID)
 	return nil
+}
+
+func (c *recordingTemporalClient) UpdateWorkflow(_ context.Context, options client.UpdateWorkflowOptions) (client.WorkflowUpdateHandle, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	update := recordedUpdate{
+		WorkflowID: options.WorkflowID,
+		Name:       options.UpdateName,
+		Args:       options.Args,
+	}
+	c.updates = append(c.updates, update)
+	return recordingUpdateHandle{update: update}, nil
 }
 
 func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, options client.UpdateWithStartWorkflowOptions) (client.WorkflowUpdateHandle, error) {
@@ -1895,6 +2260,15 @@ func (c *recordingTemporalClient) QueryWorkflow(ctx context.Context, workflowID 
 		case <-c.releaseQueries:
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		}
+	}
+	if queryType == queryLedgerGet && len(args) > 0 {
+		key, _ := args[0].(string)
+		c.mu.Lock()
+		entry := cloneLedgerEntry(c.ledgerEntries[strings.TrimSpace(key)])
+		c.mu.Unlock()
+		if entry != nil {
+			return recordingEncodedValue{query: query, value: entry}, nil
 		}
 	}
 	return recordingEncodedValue{query: query}, nil
@@ -2138,11 +2512,18 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 
 type recordingEncodedValue struct {
 	query recordedQuery
+	value any
 }
 
 func (v recordingEncodedValue) HasValue() bool { return true }
 
 func (v recordingEncodedValue) Get(valuePtr interface{}) error {
+	switch out := valuePtr.(type) {
+	case *ownerLedgerEntry:
+		if entry, ok := v.value.(*ownerLedgerEntry); ok {
+			*out = *cloneLedgerEntry(entry)
+		}
+	}
 	return nil
 }
 

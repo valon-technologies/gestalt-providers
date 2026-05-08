@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -11,6 +12,119 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTarget, req *proto.StartWorkflowProviderRunRequest, key, fingerprint string) (*proto.BoundWorkflowRun, error) {
+	now := time.Now().UTC()
+	if run, found, err := b.startFromLegacyStartRunEntry(ctx, target, req, key, fingerprint, now); err != nil {
+		return nil, err
+	} else if found {
+		return run, nil
+	}
+	if b.state != nil {
+		entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, b.cfg.IdempotencyRetention, now)
+		if err != nil {
+			var conflict *runIdempotencyConflictError
+			if errors.As(err, &conflict) {
+				return nil, status.Error(codes.FailedPrecondition, err.Error())
+			}
+			if status.Code(err) == codes.Aborted {
+				return nil, status.Errorf(codes.Aborted, "reserve workflow run idempotency: %v", err)
+			}
+			return nil, status.Errorf(codes.Internal, "reserve workflow run idempotency: %v", err)
+		}
+		if existing && entry != nil && entry.Status == "completed" {
+			if run := runFromPayload(entry.RunPayload); run != nil {
+				return run, nil
+			}
+		}
+	}
+	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), nil, false), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	if err != nil {
+		return nil, err
+	}
+	if b.state != nil {
+		if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, run, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+			var conflict *runIdempotencyConflictError
+			if errors.As(err, &conflict) {
+				return nil, status.Error(codes.FailedPrecondition, err.Error())
+			}
+			return nil, status.Errorf(codes.Internal, "complete workflow run idempotency: %v", err)
+		}
+	}
+	return run, nil
+}
+
+func (b *temporalBackend) startFromLegacyStartRunEntry(ctx context.Context, target scopedTarget, req *proto.StartWorkflowProviderRunRequest, key, fingerprint string, now time.Time) (*proto.BoundWorkflowRun, bool, error) {
+	ledgerKey := startLedgerKey(target.OwnerKey, key)
+	entry, found, err := b.queryLegacyLedger(ctx, ledgerKey)
+	if err != nil || !found || entry.Status != "completed" {
+		if err != nil || !found {
+			return nil, false, err
+		}
+		if legacyLedgerEntryExpired(entry, now) {
+			return nil, false, nil
+		}
+		if strings.TrimSpace(entry.Fingerprint) != strings.TrimSpace(fingerprint) {
+			return nil, true, status.Errorf(codes.FailedPrecondition, "idempotency key %q is already reserved for a different request", ledgerKey)
+		}
+		run, err := b.startLegacyReservedRun(ctx, target, req, key, fingerprint, ledgerKey)
+		return run, true, err
+	}
+	if legacyLedgerEntryExpired(entry, now) {
+		return nil, false, nil
+	}
+	if strings.TrimSpace(entry.Fingerprint) != strings.TrimSpace(fingerprint) {
+		return nil, true, status.Errorf(codes.FailedPrecondition, "idempotency key %q is already reserved for a different request", ledgerKey)
+	}
+	run := runFromPayload(entry.RunPayload)
+	if run == nil {
+		run, err := b.startLegacyReservedRun(ctx, target, req, key, fingerprint, ledgerKey)
+		return run, true, err
+	}
+	return run, true, nil
+}
+
+func (b *temporalBackend) startLegacyReservedRun(ctx context.Context, target scopedTarget, req *proto.StartWorkflowProviderRunRequest, key, fingerprint, ledgerKey string) (*proto.BoundWorkflowRun, error) {
+	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v3", target.OwnerKey, key)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), nil, false), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.completeLedger(ctx, ledgerKey, fingerprint, &proto.SignalWorkflowRunResponse{Run: run}, run); err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+func legacyLedgerEntryExpired(entry *ownerLedgerEntry, now time.Time) bool {
+	if entry == nil || entry.ExpiresAt.IsZero() {
+		return false
+	}
+	return !entry.ExpiresAt.After(now.UTC())
+}
+
+func (b *temporalBackend) queryLegacyLedger(ctx context.Context, key string) (*ownerLedgerEntry, bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, false, nil
+	}
+	value, err := b.client.QueryWorkflow(ctx, b.ownerLedgerWorkflowID(key), "", queryLedgerGet, key)
+	if err != nil {
+		if isNotFoundLike(err) {
+			return nil, false, nil
+		}
+		return nil, false, status.Errorf(codes.Internal, "query temporal idempotency ledger: %v", err)
+	}
+	var entry ownerLedgerEntry
+	if err := value.Get(&entry); err != nil {
+		return nil, false, status.Errorf(codes.Internal, "decode temporal idempotency ledger: %v", err)
+	}
+	if strings.TrimSpace(entry.Key) == "" {
+		return nil, false, nil
+	}
+	return &entry, true, nil
+}
 
 func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor, initialSignal *proto.WorkflowSignal, requireSignal bool) runWorkflowV4Input {
 	return runWorkflowV4Input{
