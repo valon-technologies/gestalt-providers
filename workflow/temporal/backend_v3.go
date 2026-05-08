@@ -30,48 +30,6 @@ func (b *temporalBackend) startV3WorkflowOptions(workflowID string, conflict enu
 	return opts
 }
 
-func (b *temporalBackend) updateLaneSignalRun(ctx context.Context, handle *v3RunHandle, signal *proto.WorkflowSignal, updateID string) (*proto.SignalWorkflowRunResponse, error) {
-	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-		WorkflowID: handle.LaneWorkflowID,
-		UpdateID:   strings.TrimSpace(updateID),
-		UpdateName: updateLaneSignalRun,
-		Args: []any{laneSignalRunRequest{
-			RunID:          encodeV3RunHandle(*handle),
-			OwnerKey:       handle.OwnerKey,
-			SignalPayload:  protoPayload(signal),
-			RequestID:      strings.TrimSpace(updateID),
-			IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
-		}},
-		WaitForStage: client.WorkflowUpdateStageCompleted,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "signal temporal lane run: %v", err)
-	}
-	var resp proto.SignalWorkflowRunResponse
-	if err := update.Get(ctx, &resp); err != nil {
-		return nil, mapWorkflowUpdateError(err)
-	}
-	return &resp, nil
-}
-
-func (b *temporalBackend) cancelLaneRun(ctx context.Context, handle *v3RunHandle, reason string) (*proto.BoundWorkflowRun, error) {
-	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-		WorkflowID:   handle.LaneWorkflowID,
-		UpdateID:     "cancel:" + hashID(handle.LaneWorkflowID, handle.RunWorkflowID, handle.RunTemporalRunID, reason),
-		UpdateName:   updateLaneCancelRun,
-		Args:         []any{laneCancelRequest{RunID: encodeV3RunHandle(*handle), Reason: strings.TrimSpace(reason)}},
-		WaitForStage: client.WorkflowUpdateStageCompleted,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "cancel temporal lane run: %v", err)
-	}
-	var run proto.BoundWorkflowRun
-	if err := update.Get(ctx, &run); err != nil {
-		return nil, mapWorkflowUpdateError(err)
-	}
-	return &run, nil
-}
-
 func (b *temporalBackend) queryOrGetV3Run(ctx context.Context, handle *v3RunHandle) (*proto.BoundWorkflowRun, error) {
 	value, err := b.client.QueryWorkflow(ctx, handle.RunWorkflowID, handle.RunTemporalRunID, queryRunState)
 	if err == nil {

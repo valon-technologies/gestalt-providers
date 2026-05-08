@@ -331,9 +331,6 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	if reason == "" {
 		reason = "canceled"
 	}
-	if handle.LaneWorkflowID != "" {
-		return b.cancelLaneRun(ctx, handle, reason)
-	}
 	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
 		WorkflowID:   handle.RunWorkflowID,
 		RunID:        handle.RunTemporalRunID,
@@ -402,42 +399,22 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 			return resp, nil
 		}
 	}
-	var resp *proto.SignalWorkflowRunResponse
-	if handle.LaneWorkflowID != "" {
-		if b.state != nil && handle.WorkflowKey != "" {
-			owner, found, loadErr := b.state.getWorkflowKeyRun(ctx, handle.WorkflowKey)
-			if loadErr != nil {
-				return nil, status.Errorf(codes.Internal, "load workflow key: %v", loadErr)
-			}
-			if found && owner.GetId() == req.GetRunId() {
-				resp, err = b.signalExistingWorkflowKeyRunV4(ctx, handle.WorkflowKey, owner, signal, updateID)
-			} else {
-				resp, err = b.updateLaneSignalRun(ctx, handle, signal, updateID)
-			}
-		} else {
-			resp, err = b.updateLaneSignalRun(ctx, handle, signal, updateID)
-		}
-	} else {
-		update, updateErr := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
-			WorkflowID:   handle.RunWorkflowID,
-			RunID:        handle.RunTemporalRunID,
-			UpdateID:     updateID,
-			UpdateName:   updateAddSignal,
-			Args:         []any{signal},
-			WaitForStage: client.WorkflowUpdateStageCompleted,
-		})
-		if updateErr != nil {
-			return nil, status.Errorf(codes.Internal, "signal temporal workflow: %v", updateErr)
-		}
-		var out proto.SignalWorkflowRunResponse
-		if updateErr := update.Get(ctx, &out); updateErr != nil {
-			return nil, mapWorkflowUpdateError(updateErr)
-		}
-		resp = &out
-	}
+	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   handle.RunWorkflowID,
+		RunID:        handle.RunTemporalRunID,
+		UpdateID:     updateID,
+		UpdateName:   updateAddSignal,
+		Args:         []any{signal},
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+	})
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "signal temporal workflow: %v", err)
 	}
+	var out proto.SignalWorkflowRunResponse
+	if err := update.Get(ctx, &out); err != nil {
+		return nil, mapWorkflowUpdateError(err)
+	}
+	resp := &out
 	if ledgerKey != "" {
 		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp); err != nil {
 			return nil, err

@@ -2041,6 +2041,82 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	}
 }
 
+func TestSignalRunWithLegacyLaneHandleSignalsChildDirectly(t *testing.T) {
+	ctx := context.Background()
+	legacyLaneID := workflowID("scope", "key-lane-v3", "thread-legacy")
+	runID := encodeV3RunHandle(v3RunHandle{
+		Kind:             runHandleKindV3,
+		LaneWorkflowID:   legacyLaneID,
+		RunWorkflowID:    "legacy-run-workflow",
+		RunTemporalRunID: "legacy-run-id",
+		LogicalRunKey:    "00000000000000000001",
+		WorkflowKey:      "thread-legacy",
+		OwnerKey:         "slack",
+	})
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, nil)
+
+	_, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+		RunId:  runID,
+		Signal: &proto.WorkflowSignal{Name: "slack.event"},
+	})
+	if err != nil {
+		t.Fatalf("SignalRun: %v", err)
+	}
+	if len(tc.updates) != 1 || tc.updates[0].WorkflowID != "legacy-run-workflow" || tc.updates[0].Name != updateAddSignal {
+		t.Fatalf("updates = %#v, want direct child add-signal", tc.updates)
+	}
+	if tc.updates[0].WorkflowID == legacyLaneID {
+		t.Fatalf("SignalRun hit lane workflow %q, want child workflow", legacyLaneID)
+	}
+}
+
+func TestCancelRunWithLegacyLaneHandleCancelsChildDirectly(t *testing.T) {
+	ctx := context.Background()
+	legacyLaneID := workflowID("scope", "key-lane-v3", "thread-legacy")
+	runID := encodeV3RunHandle(v3RunHandle{
+		Kind:             runHandleKindV3,
+		LaneWorkflowID:   legacyLaneID,
+		RunWorkflowID:    "legacy-run-workflow",
+		RunTemporalRunID: "legacy-run-id",
+		LogicalRunKey:    "00000000000000000001",
+		WorkflowKey:      "thread-legacy",
+		OwnerKey:         "slack",
+	})
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, nil)
+
+	_, err := backend.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{
+		RunId:  runID,
+		Reason: "user requested",
+	})
+	if err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	if len(tc.updates) != 1 || tc.updates[0].WorkflowID != "legacy-run-workflow" || tc.updates[0].Name != updateCancelRun {
+		t.Fatalf("updates = %#v, want direct child cancel", tc.updates)
+	}
+	if tc.updates[0].WorkflowID == legacyLaneID {
+		t.Fatalf("CancelRun hit lane workflow %q, want child workflow", legacyLaneID)
+	}
+}
+
 func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
