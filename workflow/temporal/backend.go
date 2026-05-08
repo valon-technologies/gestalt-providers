@@ -369,39 +369,37 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
 	fingerprint := signalFingerprint(ownerKey, handle.WorkflowKey+"\x00"+req.GetRunId(), signal)
 	if ledgerKey != "" {
-		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
-			Operation:      "signal",
-			Fingerprint:    fingerprint,
-			OwnerKey:       ownerKey,
-			WorkflowKey:    handle.WorkflowKey,
-			RunID:          req.GetRunId(),
-			SignalID:       signal.GetId(),
-			LaneWorkflowID: handle.LaneWorkflowID,
-			LaneUpdateID:   updateID,
+		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
+			Key:         ledgerKey,
+			Operation:   "signal",
+			Fingerprint: fingerprint,
+			OwnerKey:    ownerKey,
+			WorkflowKey: handle.WorkflowKey,
+			RunID:       req.GetRunId(),
+			SignalID:    signal.GetId(),
 		})
 		if err != nil {
 			return nil, err
 		}
-		if entry != nil && entry.Status == "completed" {
-			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
-				return resp, nil
-			}
+		if resp != nil {
+			return resp, nil
 		}
 	}
 	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
-		if entry, _, err := b.reserveLedger(ctx, sigKey, ownerLedgerReserveRequest{
+		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
+			Key:         sigKey,
 			Operation:   "signal-id",
 			Fingerprint: fingerprint,
 			OwnerKey:    ownerKey,
 			WorkflowKey: handle.WorkflowKey,
 			RunID:       req.GetRunId(),
 			SignalID:    signal.GetId(),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
-		} else if entry != nil && entry.Status == "completed" {
-			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
-				return resp, nil
-			}
+		}
+		if resp != nil {
+			return resp, nil
 		}
 	}
 	var resp *proto.SignalWorkflowRunResponse
@@ -441,12 +439,12 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 		return nil, err
 	}
 	if ledgerKey != "" {
-		if err := b.completeLedger(ctx, ledgerKey, fingerprint, resp, resp.GetRun()); err != nil {
+		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp); err != nil {
 			return nil, err
 		}
 	}
 	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
-		if err := b.completeLedger(ctx, sigKey, fingerprint, resp, resp.GetRun()); err != nil {
+		if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, resp); err != nil {
 			return nil, err
 		}
 	}
@@ -474,7 +472,8 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	fingerprint := signalFingerprint(ownerKey, workflowKey, signal)
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
 	if ledgerKey != "" {
-		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
+		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
+			Key:         ledgerKey,
 			Operation:   "signal_or_start",
 			Fingerprint: fingerprint,
 			OwnerKey:    ownerKey,
@@ -484,25 +483,24 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 		if err != nil {
 			return nil, err
 		}
-		if entry != nil && entry.Status == "completed" {
-			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
-				return resp, nil
-			}
+		if resp != nil {
+			return resp, nil
 		}
 	}
 	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
-		if entry, _, err := b.reserveLedger(ctx, sigKey, ownerLedgerReserveRequest{
+		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
+			Key:         sigKey,
 			Operation:   "signal-id",
 			Fingerprint: fingerprint,
 			OwnerKey:    ownerKey,
 			WorkflowKey: workflowKey,
 			SignalID:    signal.GetId(),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
-		} else if entry != nil && entry.Status == "completed" {
-			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
-				return resp, nil
-			}
+		}
+		if resp != nil {
+			return resp, nil
 		}
 	}
 	resp, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
@@ -513,12 +511,12 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 		return nil, status.Error(codes.Internal, "signal-or-start returned no run")
 	}
 	if ledgerKey != "" {
-		if err := b.completeLedger(ctx, ledgerKey, fingerprint, resp, resp.GetRun()); err != nil {
+		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp); err != nil {
 			return nil, err
 		}
 	}
 	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
-		if err := b.completeLedger(ctx, sigKey, fingerprint, resp, resp.GetRun()); err != nil {
+		if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, resp); err != nil {
 			return nil, err
 		}
 	}

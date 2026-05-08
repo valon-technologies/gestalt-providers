@@ -2,8 +2,10 @@ package temporal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -203,6 +205,86 @@ func (b *temporalBackend) completeLedger(ctx context.Context, key, fingerprint s
 		return mapWorkflowUpdateError(err)
 	}
 	return nil
+}
+
+func (b *temporalBackend) reserveSignalIdempotency(ctx context.Context, req signalIdempotencyReserveRequest) (*proto.SignalWorkflowRunResponse, error) {
+	req.Key = strings.TrimSpace(req.Key)
+	req.Fingerprint = strings.TrimSpace(req.Fingerprint)
+	if req.Key == "" {
+		return nil, nil
+	}
+	if b.state != nil {
+		now := time.Now().UTC()
+		entry, existing, err := b.state.reserveSignalIdempotency(ctx, req, b.cfg.IdempotencyRetention, now)
+		if err != nil {
+			var conflict *runIdempotencyConflictError
+			if errors.As(err, &conflict) {
+				return nil, status.Error(codes.FailedPrecondition, err.Error())
+			}
+			if status.Code(err) == codes.Aborted {
+				return nil, status.Errorf(codes.Aborted, "reserve workflow signal idempotency: %v", err)
+			}
+			return nil, status.Errorf(codes.Internal, "reserve workflow signal idempotency: %v", err)
+		}
+		if existing && entry != nil && entry.Status == "completed" {
+			if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+				return resp, nil
+			}
+		}
+		legacy, found, err := b.queryLegacyLedger(ctx, req.Key)
+		if err != nil {
+			return nil, err
+		}
+		if found && !legacyLedgerEntryExpired(legacy, now) {
+			if strings.TrimSpace(legacy.Fingerprint) != req.Fingerprint {
+				return nil, status.Errorf(codes.FailedPrecondition, "idempotency key %q is already reserved for a different request", req.Key)
+			}
+			if legacy.Status == "completed" {
+				if resp := signalResponseFromPayload(legacy.ResponsePayload); resp != nil {
+					if err := b.state.completeSignalIdempotency(ctx, req.Key, req.Fingerprint, resp, b.cfg.IdempotencyRetention, now); err != nil {
+						return nil, status.Errorf(codes.Internal, "complete workflow signal idempotency: %v", err)
+					}
+					return resp, nil
+				}
+			}
+		}
+		return nil, nil
+	}
+	entry, _, err := b.reserveLedger(ctx, req.Key, ownerLedgerReserveRequest{
+		Operation:   req.Operation,
+		Fingerprint: req.Fingerprint,
+		OwnerKey:    req.OwnerKey,
+		WorkflowKey: req.WorkflowKey,
+		RunID:       req.RunID,
+		SignalID:    req.SignalID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if entry != nil && entry.Status == "completed" {
+		if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+			return resp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (b *temporalBackend) completeSignalIdempotency(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	if b.state != nil {
+		if err := b.state.completeSignalIdempotency(ctx, key, fingerprint, resp, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+			var conflict *runIdempotencyConflictError
+			if errors.As(err, &conflict) {
+				return status.Error(codes.FailedPrecondition, err.Error())
+			}
+			return status.Errorf(codes.Internal, "complete workflow signal idempotency: %v", err)
+		}
+		return nil
+	}
+	return b.completeLedger(ctx, key, fingerprint, resp, resp.GetRun())
 }
 
 func ownerIdempotencyLedgerKey(ownerKey, key string) string {
