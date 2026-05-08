@@ -33,29 +33,30 @@ type scopedTarget struct {
 	Target   *proto.BoundWorkflowTarget
 }
 
-type v3RunHandle struct {
+const runHandleKindV4 = "temporal-run-v4"
+
+type temporalRunHandle struct {
 	Kind             string `json:"kind"`
-	LaneWorkflowID   string `json:"lane_workflow_id,omitempty"`
 	RunWorkflowID    string `json:"run_workflow_id"`
 	RunTemporalRunID string `json:"run_temporal_run_id,omitempty"`
-	LogicalRunKey    string `json:"logical_run_key,omitempty"`
 	WorkflowKey      string `json:"workflow_key,omitempty"`
 	OwnerKey         string `json:"owner_key,omitempty"`
 }
 
-func encodeV3RunHandle(handle v3RunHandle) string {
+func encodeTemporalRunHandle(handle temporalRunHandle) string {
 	handle.Kind = strings.TrimSpace(handle.Kind)
-	handle.LaneWorkflowID = strings.TrimSpace(handle.LaneWorkflowID)
+	if handle.Kind == "" {
+		handle.Kind = runHandleKindV4
+	}
 	handle.RunWorkflowID = strings.TrimSpace(handle.RunWorkflowID)
 	handle.RunTemporalRunID = strings.TrimSpace(handle.RunTemporalRunID)
-	handle.LogicalRunKey = strings.TrimSpace(handle.LogicalRunKey)
 	handle.WorkflowKey = strings.TrimSpace(handle.WorkflowKey)
 	handle.OwnerKey = strings.TrimSpace(handle.OwnerKey)
 	payload, _ := json.Marshal(handle)
 	return base64.RawURLEncoding.EncodeToString(payload)
 }
 
-func decodeV3RunHandle(id string) (*v3RunHandle, error) {
+func decodeTemporalRunHandle(id string) (*temporalRunHandle, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, errors.New("run_id is required")
@@ -64,24 +65,22 @@ func decodeV3RunHandle(id string) (*v3RunHandle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("run_id is not a temporal workflow handle")
 	}
-	var v3 v3RunHandle
-	if err := json.Unmarshal(data, &v3); err != nil {
+	var handle temporalRunHandle
+	if err := json.Unmarshal(data, &handle); err != nil {
 		return nil, fmt.Errorf("run_id is not a temporal workflow handle")
 	}
-	v3.Kind = strings.TrimSpace(v3.Kind)
-	v3.LaneWorkflowID = strings.TrimSpace(v3.LaneWorkflowID)
-	v3.RunWorkflowID = strings.TrimSpace(v3.RunWorkflowID)
-	v3.RunTemporalRunID = strings.TrimSpace(v3.RunTemporalRunID)
-	v3.LogicalRunKey = strings.TrimSpace(v3.LogicalRunKey)
-	v3.WorkflowKey = strings.TrimSpace(v3.WorkflowKey)
-	v3.OwnerKey = strings.TrimSpace(v3.OwnerKey)
-	if v3.Kind != "temporal-run-v3" {
+	handle.Kind = strings.TrimSpace(handle.Kind)
+	handle.RunWorkflowID = strings.TrimSpace(handle.RunWorkflowID)
+	handle.RunTemporalRunID = strings.TrimSpace(handle.RunTemporalRunID)
+	handle.WorkflowKey = strings.TrimSpace(handle.WorkflowKey)
+	handle.OwnerKey = strings.TrimSpace(handle.OwnerKey)
+	if handle.Kind != runHandleKindV4 {
 		return nil, fmt.Errorf("run_id is not a supported temporal workflow handle")
 	}
-	if v3.RunWorkflowID == "" {
+	if handle.RunWorkflowID == "" {
 		return nil, fmt.Errorf("run_id is missing run_workflow_id")
 	}
-	return &v3, nil
+	return &handle, nil
 }
 
 func hashID(parts ...string) string {
@@ -94,6 +93,20 @@ func hashID(parts ...string) string {
 	}
 	sum := h.Sum(nil)
 	return hex.EncodeToString(sum[:16])
+}
+
+func workflowInvokeMetadata(workflowKey string) *structpb.Struct {
+	workflowKey = strings.TrimSpace(workflowKey)
+	if workflowKey == "" {
+		return nil
+	}
+	meta, err := structpb.NewStruct(map[string]any{
+		workflowInvokeMetadataWorkflowKey: workflowKey,
+	})
+	if err != nil {
+		return nil
+	}
+	return meta
 }
 
 func protoHashID(msg gproto.Message) string {

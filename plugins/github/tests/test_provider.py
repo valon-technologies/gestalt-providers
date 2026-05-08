@@ -1483,6 +1483,7 @@ class GitHubProviderTests(unittest.TestCase):
                     "github:trigger:once_per_ci_incident:99:acme/widgets:"
                     "ci:pr:7:head:abc123:policy:failed-ci",
                 )
+                self.assertEqual(request.signal.idempotency_key, request.idempotency_key)
                 data = cast(
                     dict[str, Any],
                     json_format.MessageToDict(request.signal.payload),
