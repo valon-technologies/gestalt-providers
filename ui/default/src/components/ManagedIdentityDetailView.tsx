@@ -476,7 +476,10 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">Authorization</span>
-            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Plugin Grants</h2>
+            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity Plugin Access</h2>
+            <p className="mt-2 text-sm text-muted">
+              Grants are identity-level roles for plugins that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
+            </p>
             {canAdmin ? (
               <form
                 onSubmit={(event) => {
@@ -564,47 +567,56 @@ export default function ManagedIdentityDetailView({
                   ) : null}
                 </div>
                 <Button type="submit" disabled={!canSubmitGrant}>
-                  {grantBusy ? "Saving..." : "Set Grant"}
+                  {grantBusy ? "Saving..." : "Save Plugin Access"}
                 </Button>
               </form>
             ) : null}
-            <div className="mt-6 overflow-x-auto rounded-lg border border-alpha">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-alpha text-left">
-                    <th className="px-5 py-3.5 label-text">Plugin</th>
-                    <th className="px-5 py-3.5 label-text">Role</th>
-                    <th className="px-5 py-3.5 label-text">Source</th>
-                    <th className="px-5 py-3.5 label-text"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grants.map((grant) => (
-                    <tr key={grant.plugin} className="border-b border-alpha last:border-b-0">
-                      <td className="px-5 py-4 text-primary font-medium">{grant.plugin}</td>
-                      <td className="px-5 py-4 text-muted">{grant.role}</td>
-                      <td className="px-5 py-4 text-muted">{grant.source}</td>
-                      <td className="px-5 py-4">
-                        {canAdmin && grant.mutable ? (
-                          <Button
-                            variant="danger"
-                            onClick={() => handleDeleteGrant(grant.plugin)}
-                            disabled={grantBusy}
-                          >
-                            Remove
-                          </Button>
-                        ) : null}
-                      </td>
+            {grants.length === 0 ? (
+              <p className="mt-6 text-sm text-muted">
+                No identity-level plugin access grants. Protected plugins need a grant here; API keys can still be created below.
+              </p>
+            ) : (
+              <div className="mt-6 overflow-x-auto rounded-lg border border-alpha">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-alpha text-left">
+                      <th className="px-5 py-3.5 label-text">Plugin</th>
+                      <th className="px-5 py-3.5 label-text">Role</th>
+                      <th className="px-5 py-3.5 label-text">Source</th>
+                      <th className="px-5 py-3.5 label-text"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {grants.map((grant) => (
+                      <tr key={grant.plugin} className="border-b border-alpha last:border-b-0">
+                        <td className="px-5 py-4 text-primary font-medium">{grant.plugin}</td>
+                        <td className="px-5 py-4 text-muted">{grant.role}</td>
+                        <td className="px-5 py-4 text-muted">{grant.source}</td>
+                        <td className="px-5 py-4">
+                          {canAdmin && grant.mutable ? (
+                            <Button
+                              variant="danger"
+                              onClick={() => handleDeleteGrant(grant.plugin)}
+                              disabled={grantBusy}
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
 
           <section className={SECTION_CARD}>
             <span className="label-text">Connections</span>
             <h2 className="mt-2 text-lg font-heading font-bold text-primary">Plugin Connections</h2>
+            <p className="mt-2 text-sm text-muted">
+              Connections store OAuth or manual credentials for this identity. They do not add plugin roles or change API-key limits.
+            </p>
             {managedIntegrationError ? (
               <p className="mt-6 text-sm text-ember-500">{managedIntegrationError}</p>
             ) : managedIntegrations.length === 0 ? (
@@ -671,7 +683,10 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">API Access</span>
-            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity Tokens</h2>
+            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity API Keys</h2>
+            <p className="mt-2 text-sm text-muted">
+              API keys authenticate as this identity. By default, a key follows managed identity plugin access and connector credentials at use time; token limits only narrow one key.
+            </p>
             {canAdmin ? (
               <IdentityTokenCreateForm
                 identityID={identityID}
