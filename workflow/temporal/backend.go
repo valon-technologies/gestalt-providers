@@ -79,11 +79,6 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	}
 	w := b.newWorker(b.client, b.cfg.TaskQueue, b.workerOptions())
 	w.RegisterWorkflow(gestaltRunWorkflowV4)
-	w.RegisterWorkflow(gestaltRunWorkflowV3)
-	w.RegisterWorkflow(gestaltWorkflowKeyLaneV1)
-	w.RegisterWorkflow(gestaltOwnerLedgerWorkflow)
-	w.RegisterWorkflow(indexWorkflow)
-	w.RegisterWorkflow(scopeMetadataWorkflow)
 	w.RegisterActivity(&workflowActivities{host: b.host, state: b.state})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
@@ -265,7 +260,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), nil, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +275,7 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	handle, err := decodeV3RunHandle(runID)
+	handle, err := decodeTemporalRunHandle(runID)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -289,7 +284,14 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	} else if found {
 		return run, nil
 	}
-	return b.queryOrGetV3Run(ctx, handle)
+	run, err := b.queryRunWorkflow(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
+	if b.state != nil {
+		_ = b.state.putRun(ctx, run)
+	}
+	return run, nil
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
@@ -304,7 +306,7 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	handle, err := decodeV3RunHandle(req.GetRunId())
+	handle, err := decodeTemporalRunHandle(req.GetRunId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -334,7 +336,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	handle, err := decodeV3RunHandle(req.GetRunId())
+	handle, err := decodeTemporalRunHandle(req.GetRunId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -345,25 +347,29 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	ownerKey := handle.OwnerKey
 	updateID := signalUpdateID(signal)
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
+	sigKey := explicitSignalLedgerKey(signal)
 	fingerprint := signalFingerprint(ownerKey, handle.WorkflowKey+"\x00"+req.GetRunId(), signal)
+	var ownerResp *proto.SignalWorkflowRunResponse
 	if ledgerKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
-			Key:         ledgerKey,
-			Operation:   "signal",
-			Fingerprint: fingerprint,
-			OwnerKey:    ownerKey,
-			WorkflowKey: handle.WorkflowKey,
-			RunID:       req.GetRunId(),
-			SignalID:    signal.GetId(),
+			Key:                  ledgerKey,
+			Operation:            "signal",
+			Fingerprint:          fingerprint,
+			OwnerKey:             ownerKey,
+			WorkflowKey:          handle.WorkflowKey,
+			RunID:                req.GetRunId(),
+			SignalID:             signal.GetId(),
+			AllowPayloadVariance: true,
 		})
 		if err != nil {
 			return nil, err
 		}
 		if resp != nil {
-			return resp, nil
+			ownerResp = resp
 		}
 	}
-	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
+	var explicitResp *proto.SignalWorkflowRunResponse
+	if sigKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
 			Key:         sigKey,
 			Operation:   "signal-id",
@@ -377,8 +383,24 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 			return nil, err
 		}
 		if resp != nil {
-			return resp, nil
+			explicitResp = resp
 		}
+	}
+	if explicitResp != nil {
+		if ledgerKey != "" && ownerResp == nil {
+			if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, explicitResp, true); err != nil {
+				return nil, err
+			}
+		}
+		return explicitResp, nil
+	}
+	if ownerResp != nil {
+		if sigKey != "" {
+			if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, ownerResp, false); err != nil {
+				return nil, err
+			}
+		}
+		return ownerResp, nil
 	}
 	update, err := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
 		WorkflowID:   handle.RunWorkflowID,
@@ -397,12 +419,12 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	}
 	resp := &out
 	if ledgerKey != "" {
-		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp); err != nil {
+		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp, true); err != nil {
 			return nil, err
 		}
 	}
-	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
-		if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, resp); err != nil {
+	if sigKey != "" {
+		if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, resp, false); err != nil {
 			return nil, err
 		}
 	}
@@ -429,23 +451,27 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	updateID := signalUpdateID(signal)
 	fingerprint := signalFingerprint(ownerKey, workflowKey, signal)
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
+	sigKey := explicitSignalLedgerKey(signal)
+	var ownerResp *proto.SignalWorkflowRunResponse
 	if ledgerKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
-			Key:         ledgerKey,
-			Operation:   "signal_or_start",
-			Fingerprint: fingerprint,
-			OwnerKey:    ownerKey,
-			WorkflowKey: workflowKey,
-			SignalID:    signal.GetId(),
+			Key:                  ledgerKey,
+			Operation:            "signal_or_start",
+			Fingerprint:          fingerprint,
+			OwnerKey:             ownerKey,
+			WorkflowKey:          workflowKey,
+			SignalID:             signal.GetId(),
+			AllowPayloadVariance: true,
 		})
 		if err != nil {
 			return nil, err
 		}
 		if resp != nil {
-			return resp, nil
+			ownerResp = resp
 		}
 	}
-	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
+	var explicitResp *proto.SignalWorkflowRunResponse
+	if sigKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
 			Key:         sigKey,
 			Operation:   "signal-id",
@@ -458,8 +484,24 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 			return nil, err
 		}
 		if resp != nil {
-			return resp, nil
+			explicitResp = resp
 		}
+	}
+	if explicitResp != nil {
+		if ledgerKey != "" && ownerResp == nil {
+			if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, explicitResp, true); err != nil {
+				return nil, err
+			}
+		}
+		return explicitResp, nil
+	}
+	if ownerResp != nil {
+		if sigKey != "" {
+			if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, ownerResp, false); err != nil {
+				return nil, err
+			}
+		}
+		return ownerResp, nil
 	}
 	resp, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
 	if err != nil {
@@ -469,12 +511,12 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 		return nil, status.Error(codes.Internal, "signal-or-start returned no run")
 	}
 	if ledgerKey != "" {
-		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp); err != nil {
+		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp, true); err != nil {
 			return nil, err
 		}
 	}
-	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
-		if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, resp); err != nil {
+	if sigKey != "" {
+		if err := b.completeSignalIdempotency(ctx, sigKey, fingerprint, resp, false); err != nil {
 			return nil, err
 		}
 	}
@@ -848,7 +890,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 				}
 			}
 		}
-		input := b.runV4Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, nil, false)
+		input := b.runV4Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, false)
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
@@ -931,7 +973,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	scheduleMemo := map[string]interface{}{
 		workflowScheduleMemoKey: cloneSchedule(schedule),
 	}
-	actionInput := b.runV4Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), nil, false)
+	actionInput := b.runV4Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), false)
 	actionInput.ScheduleID = schedule.GetId()
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,
@@ -1094,13 +1136,6 @@ func scheduleFromTemporalActionArgs(fallbackScheduleID string, action *client.Sc
 			}
 		}
 	}
-	var v3 runWorkflowV3Input
-	if err := converter.GetDefaultDataConverter().FromPayload(payload, &v3); err != nil {
-		return nil, false, err
-	}
-	if schedule := scheduleFromRunActionInput(fallbackScheduleID, v3.ScheduleID, v3.TargetPayload, v3.CreatedByPayload, v3.ExecutionRef); schedule != nil {
-		return schedule, true, nil
-	}
 	return nil, false, nil
 }
 
@@ -1240,7 +1275,7 @@ func workflowRunTerminal(status proto.WorkflowRunStatus) bool {
 
 func signalUpdateID(signal *proto.WorkflowSignal) string {
 	if signal.GetIdempotencyKey() != "" {
-		return "signal-key:" + hashID(signal.GetName(), signal.GetIdempotencyKey())
+		return "signal-key:" + hashID(signal.GetIdempotencyKey())
 	}
 	if signal.GetId() != "" {
 		return "signal-id:" + hashID(signal.GetId())

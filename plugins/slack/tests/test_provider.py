@@ -609,13 +609,22 @@ class SlackProviderTests(unittest.TestCase):
             result = provider_module.chat_post_message(input, req)
         return result, captured
 
-    def _slack_bot_service_account_request(self, token: str = "") -> gestalt.Request:
+    def _slack_bot_service_account_request(
+        self, token: str = "", agent_slack_user_id: str = ""
+    ) -> gestalt.Request:
+        kwargs: dict[str, Any] = {}
+        if agent_slack_user_id:
+            kwargs["agent_external_identity"] = gestalt.ExternalIdentity(
+                type="slack_identity",
+                id=f"team:T123:user:{agent_slack_user_id}",
+            )
         return gestalt.Request(
             token=token,
             credential=gestalt.Credential(mode="none"),
             subject=gestalt.Subject(
                 id="service_account:slack-bot", kind="service_account"
             ),
+            **kwargs,
         )
 
     def _handle_event_with_workflow(
@@ -1289,9 +1298,31 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(captured["authorization"], "Bearer xoxb-configured-bot")
 
+    def test_chat_post_message_service_account_footer_identifies_agent_actor(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {"bot": {"token": "xoxb-configured-bot", "userId": "UBOT"}},
+        )
+
+        _, captured = self._capture_chat_post_message(
+            provider_module.ChatPostMessageInput(
+                channel="C123",
+                text="hello from gestalt",
+            ),
+            self._slack_bot_service_account_request(agent_slack_user_id="U456"),
+        )
+
+        self.assertEqual(
+            captured["payload"]["blocks"][-1]["elements"][0]["text"],
+            "Sent by <@U456> with <@UBOT>",
+        )
+
     def test_chat_post_message_uses_request_token_for_non_bot_subjects(self) -> None:
         provider_module.configure(
-            "slack", {"bot": {"token": "xoxb-configured-bot"}}
+            "slack",
+            {"bot": {"token": "xoxb-configured-bot", "userId": "UBOT"}},
         )
 
         _, captured = self._capture_chat_post_message(
@@ -1311,6 +1342,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(captured["authorization"], "Bearer xoxp-user")
         self.assertEqual(captured["payload"]["unfurl_links"], True)
         self.assertEqual(captured["payload"]["unfurl_media"], False)
+        self.assertEqual(
+            captured["payload"]["blocks"][-1]["elements"][0]["text"],
+            "Sent with <@UBOT>",
+        )
 
         _, other_service_account = self._capture_chat_post_message(
             provider_module.ChatPostMessageInput(channel="C123", text="hello"),

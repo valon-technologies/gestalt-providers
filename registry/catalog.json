@@ -4321,7 +4321,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/slack/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.62",
+      "latestInstallableVersion": "0.0.1-alpha.64",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/slack/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.62",
       "name": "slack",
@@ -4331,6 +4331,20 @@
       "registryPath": "/providers/plugin/slack/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/slack",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.64/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
+            "generic"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.64"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.62/provider-release.yaml",
@@ -6365,7 +6379,7 @@
       ],
       "iconUrl": null,
       "kind": "ui",
-      "latestInstallableVersion": "0.0.1-alpha.35",
+      "latestInstallableVersion": "0.0.1-alpha.37",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/default/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.35",
       "name": "default",
@@ -6375,6 +6389,15 @@
       "registryPath": "/providers/ui/default/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/ui/default",
       "versions": [
+        {
+          "kind": "ui",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.37/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "ui",
+          "version": "0.0.1-alpha.37"
+        },
         {
           "kind": "ui",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.35/provider-release.yaml",
@@ -7337,9 +7360,9 @@
       ],
       "iconUrl": null,
       "kind": "workflow",
-      "latestInstallableVersion": "0.0.1-alpha.19",
+      "latestInstallableVersion": "0.0.1-alpha.20",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/temporal/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.19",
+      "manifestVersion": "0.0.1-alpha.21",
       "name": "temporal",
       "package": "github.com/valon-technologies/gestalt-providers/workflow/temporal",
       "packagePath": "workflow/temporal",
@@ -7347,6 +7370,19 @@
       "registryPath": "/providers/workflow/temporal/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/workflow/temporal",
       "versions": [
+        {
+          "kind": "workflow",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.20/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.20"
+        },
         {
           "kind": "workflow",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.19/provider-release.yaml",

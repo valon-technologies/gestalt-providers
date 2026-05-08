@@ -39,6 +39,8 @@ const (
 
 	signalIndexPutRun  = "gestalt.index.signal_put_run"
 	signalIndexCompact = "gestalt.index.signal_compact"
+
+	workflowInvokeMetadataWorkflowKey = "workflow_key"
 )
 
 type scopeMetadata struct {

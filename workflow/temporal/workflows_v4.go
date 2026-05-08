@@ -31,14 +31,25 @@ type runWorkflowV4Input struct {
 	RequireClaim                  bool          `json:"require_claim,omitempty"`
 }
 
+const (
+	changeV4AddSignalProjectionAfterUpdate = "v4-add-signal-projection-after-update"
+	changeV4ClaimProjectionAfterUpdate     = "v4-claim-projection-after-update"
+)
+
 func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*proto.BoundWorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
 	if input.ScheduleID != "" {
 		input.TriggerPayload = protoPayload(scheduleTrigger(input.ScheduleID, now))
 	}
-	publicID := encodeV3RunHandle(v3RunHandle{
-		Kind:             runHandleKindV3,
+	handleKind := runHandleKindV4
+	if workflow.GetVersion(ctx, "temporal-run-v4-handle-kind", workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+		// Alpha.19 V4 histories used the old handle kind. Preserve replay for
+		// those histories; provider APIs still reject old handles.
+		handleKind = "temporal-run-v3"
+	}
+	publicID := encodeTemporalRunHandle(temporalRunHandle{
+		Kind:             handleKind,
 		RunWorkflowID:    info.WorkflowExecution.ID,
 		RunTemporalRunID: info.WorkflowExecution.RunID,
 		WorkflowKey:      input.WorkflowKey,
@@ -88,7 +99,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	if initial := signalFromPayload(input.InitialSignalPayload); initial != nil {
 		appendSignal(initial)
 	}
-
 	if err := workflow.SetQueryHandler(ctx, queryRunState, func() (*proto.BoundWorkflowRun, error) {
 		return cloneRun(state), nil
 	}); err != nil {
@@ -99,14 +109,13 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		defer runMutex.Unlock()
-		if !claimed {
-			return nil, fmt.Errorf("failed_precondition: workflow run %q is not claimed", state.GetId())
-		}
 		if workflowRunTerminal(state.GetStatus()) {
 			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())
 		}
 		signal = appendSignal(signal)
-		project(ctx)
+		if workflow.GetVersion(ctx, changeV4AddSignalProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+			project(ctx)
+		}
 		return &proto.SignalWorkflowRunResponse{
 			Run:         cloneRun(state),
 			Signal:      cloneSignal(signal),
@@ -122,7 +131,9 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		defer runMutex.Unlock()
 		claimed = true
-		project(ctx)
+		if workflow.GetVersion(ctx, changeV4ClaimProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+			project(ctx)
+		}
 		return cloneRun(state), nil
 	}); err != nil {
 		return nil, err

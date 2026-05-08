@@ -34,44 +34,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestGestaltRunWorkflowV3InvokesHostWhenProjectionUnavailable(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
-	env.RegisterWorkflow(gestaltRunWorkflowV3)
-	env.RegisterActivity(&workflowActivities{host: host})
-	env.OnSignalExternalWorkflow(mock.Anything, indexWorkflowID("scope", 0), "", signalIndexPutRun, mock.Anything).Return(nil)
-
-	env.ExecuteWorkflow(gestaltRunWorkflowV3, runWorkflowV3Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
-		IndexShardCount:               1,
-		ExecutionRef:                  "ref-1",
-		ActivityStartToCloseTimeoutNS: time.Minute,
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-	})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	var run proto.BoundWorkflowRun
-	if err := env.GetWorkflowResult(&run); err != nil {
-		t.Fatalf("workflow result: %v", err)
-	}
-	if run.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || run.GetResultBody() != "ok" {
-		t.Fatalf("run = %#v, want succeeded with body", &run)
-	}
-	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1", len(host.calls))
-	}
-	decoded, err := decodeV3RunHandle(run.GetId())
-	if err != nil || decoded.RunWorkflowID == "" {
-		t.Fatalf("decode v3 handle = %#v err=%v", decoded, err)
-	}
-}
-
 func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -128,9 +90,96 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	env.RegisterActivity(&workflowActivities{host: host})
 
 	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updateAddSignal, "signal-1", updateCallback(t, func(value interface{}) {
+			resp := value.(*proto.SignalWorkflowRunResponse)
+			if resp.GetSignal().GetIdempotencyKey() != "signal-1" {
+				t.Fatalf("queued signal response = %#v, want signal-1", resp.GetSignal())
+			}
+		}), &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()})
 		if len(host.calls) != 0 {
 			t.Fatalf("host calls before claim = %d, want 0", len(host.calls))
 		}
+		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		WorkflowKey:                   "thread-1",
+		OwnerKey:                      "slack",
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		RequireSignal:                 true,
+		RequireClaim:                  true,
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(host.calls) != 1 {
+		t.Fatalf("host calls = %d, want 1 after claim", len(host.calls))
+	}
+}
+
+func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(&workflowActivities{host: host})
+
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		WorkflowKey:                   "thread-1",
+		OwnerKey:                      "slack",
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()}),
+		RequireSignal:                 true,
+		RequireClaim:                  true,
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(host.calls) != 1 {
+		t.Fatalf("host calls = %d, want 1 after claim", len(host.calls))
+	}
+	signals := host.calls[0].GetSignals()
+	if len(signals) != 1 || signals[0].GetIdempotencyKey() != "signal-1" {
+		t.Fatalf("signals = %#v, want initial signal", signals)
+	}
+}
+
+func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	activities := &workflowActivities{host: host}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(activities)
+
+	var mu sync.Mutex
+	var projectedStatuses []proto.WorkflowRunStatus
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run *proto.BoundWorkflowRun) error {
+		mu.Lock()
+		defer mu.Unlock()
+		projectedStatuses = append(projectedStatuses, run.GetStatus())
+		return nil
+	}).Maybe()
+
+	env.RegisterDelayedCallback(func() {
 		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
 	}, time.Millisecond)
 
@@ -152,8 +201,60 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1 after claim", len(host.calls))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(projectedStatuses) != 3 ||
+		projectedStatuses[0] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
+		projectedStatuses[1] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING ||
+		projectedStatuses[2] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("projected statuses = %v, want pending/running/succeeded", projectedStatuses)
+	}
+}
+
+func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	activities := &workflowActivities{host: host}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(activities)
+
+	var mu sync.Mutex
+	var projectedStatuses []proto.WorkflowRunStatus
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run *proto.BoundWorkflowRun) error {
+		mu.Lock()
+		defer mu.Unlock()
+		projectedStatuses = append(projectedStatuses, run.GetStatus())
+		return nil
+	}).Maybe()
+
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), &proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		WorkflowKey:                   "thread-1",
+		OwnerKey:                      "slack",
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		RequireSignal:                 true,
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(projectedStatuses) != 3 ||
+		projectedStatuses[0] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
+		projectedStatuses[1] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING ||
+		projectedStatuses[2] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("projected statuses = %v, want pending/running/succeeded", projectedStatuses)
 	}
 }
 
@@ -197,262 +298,6 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	}
 	if len(host.calls) != 1 {
 		t.Fatalf("host calls = %d, want 1", len(host.calls))
-	}
-}
-
-func TestGestaltRunWorkflowV3AcksLaneSignalWithoutSelectorBlocking(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
-	env.RegisterWorkflow(gestaltRunWorkflowV3)
-	env.RegisterActivity(&workflowActivities{host: host})
-	env.OnSignalExternalWorkflow(mock.Anything, indexWorkflowID("scope", 0), "", signalIndexPutRun, mock.Anything).Return(nil)
-	env.OnSignalExternalWorkflow(mock.Anything, "lane-workflow", "lane-run", signalLaneAck, mock.Anything).Return(nil)
-	env.OnSignalExternalWorkflow(mock.Anything, "lane-workflow", "lane-run", signalLaneRunDone, mock.Anything).Return(nil)
-
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalRunAddV3, runSignalMessage{
-			AckID:         "ack-1",
-			SignalPayload: protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "evt-1", CreatedAt: timestamppb.Now()}),
-		})
-	}, time.Millisecond)
-
-	env.ExecuteWorkflow(gestaltRunWorkflowV3, runWorkflowV3Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
-		IndexShardCount:               1,
-		ExecutionRef:                  "ref-1",
-		WorkflowKey:                   "slack:T:C:1778164397.804829",
-		LaneWorkflowID:                "lane-workflow",
-		LaneTemporalRunID:             "lane-run",
-		LogicalRunKey:                 "logical-1",
-		OwnerKey:                      "slack",
-		RequireSignal:                 true,
-		ActivityStartToCloseTimeoutNS: time.Minute,
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-	})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	var run proto.BoundWorkflowRun
-	if err := env.GetWorkflowResult(&run); err != nil {
-		t.Fatalf("workflow result: %v", err)
-	}
-	if run.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
-		t.Fatalf("run status = %s, want succeeded", run.GetStatus())
-	}
-	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1", len(host.calls))
-	}
-	signals := host.calls[0].GetSignals()
-	if len(signals) != 1 || signals[0].GetIdempotencyKey() != "evt-1" {
-		t.Fatalf("host signals = %#v, want evt-1", signals)
-	}
-	if host.calls[0].GetMetadata() == nil || host.calls[0].GetMetadata().AsMap()["workflow_key"] != "slack:T:C:1778164397.804829" {
-		t.Fatalf("host metadata = %#v, want workflow_key", host.calls[0].GetMetadata())
-	}
-}
-
-func TestGestaltWorkflowKeyLaneV1DedupesDuplicateSignalOrStart(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
-	env.RegisterWorkflow(gestaltWorkflowKeyLaneV1)
-	env.RegisterWorkflow(gestaltRunWorkflowV3)
-	env.RegisterActivity(&workflowActivities{host: host})
-	env.OnSignalExternalWorkflow(mock.Anything, indexWorkflowID("scope", 0), "", signalIndexPutRun, mock.Anything).Return(nil)
-
-	var first *proto.SignalWorkflowRunResponse
-	var duplicate *proto.SignalWorkflowRunResponse
-	request := laneSignalRequest{
-		OwnerKey:         "slack",
-		TargetPayload:    protoPayload(pluginTarget("slack", "postMessage")),
-		ExecutionRef:     "ref-1",
-		CreatedByPayload: protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-		SignalPayload:    protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "evt-1", CreatedAt: timestamppb.Now()}),
-		RequestID:        "signal-key:" + hashID("slack.event", "evt-1"),
-		IdempotencyKey:   "evt-1",
-	}
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLaneSignalOrStart, "evt-1", updateCallback(t, func(value interface{}) {
-			first = cloneSignalResponse(value.(*proto.SignalWorkflowRunResponse))
-		}), request)
-	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLaneSignalOrStart, "evt-1-duplicate", updateCallback(t, func(value interface{}) {
-			duplicate = cloneSignalResponse(value.(*proto.SignalWorkflowRunResponse))
-		}), request)
-	}, 2*time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.CancelWorkflow()
-	}, 20*time.Millisecond)
-
-	env.ExecuteWorkflow(gestaltWorkflowKeyLaneV1, laneWorkflowSnapshot{Input: laneWorkflowInput{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
-		IndexShardCount:               1,
-		TaskQueue:                     "test",
-		WorkflowRunTimeoutNS:          time.Minute,
-		WorkflowTaskTimeoutNS:         time.Second,
-		ActivityStartToCloseTimeoutNS: time.Minute,
-		IdempotencyRetentionNS:        time.Hour,
-		WorkflowKey:                   "slack:T:C",
-	}})
-
-	if first == nil || duplicate == nil {
-		t.Fatalf("responses first=%#v duplicate=%#v", first, duplicate)
-	}
-	if first.GetRun().GetId() == "" || duplicate.GetRun().GetId() != first.GetRun().GetId() {
-		t.Fatalf("duplicate run = %q, want %q", duplicate.GetRun().GetId(), first.GetRun().GetId())
-	}
-	if first.GetSignal().GetId() == "" || duplicate.GetSignal().GetId() != first.GetSignal().GetId() {
-		t.Fatalf("duplicate signal = %#v, want %#v", duplicate.GetSignal(), first.GetSignal())
-	}
-	if !first.GetStartedRun() || !duplicate.GetStartedRun() {
-		t.Fatalf("started flags first=%v duplicate=%v, want replayed first response", first.GetStartedRun(), duplicate.GetStartedRun())
-	}
-	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1", len(host.calls))
-	}
-}
-
-func TestGestaltWorkflowKeyLaneV1AcksSignalWhileActivityRunning(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	release := make(chan struct{})
-	host := &blockingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}, releaseFirst: release}
-	env.RegisterWorkflow(gestaltWorkflowKeyLaneV1)
-	env.RegisterWorkflow(gestaltRunWorkflowV3)
-	env.RegisterActivity(&workflowActivities{host: host})
-	env.OnSignalExternalWorkflow(mock.Anything, indexWorkflowID("scope", 0), "", signalIndexPutRun, mock.Anything).Return(nil)
-
-	var first *proto.SignalWorkflowRunResponse
-	var second *proto.SignalWorkflowRunResponse
-	firstReq := laneSignalRequest{
-		OwnerKey:         "slack",
-		TargetPayload:    protoPayload(pluginTarget("slack", "postMessage")),
-		ExecutionRef:     "ref-1",
-		CreatedByPayload: protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-		SignalPayload:    protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "evt-1", CreatedAt: timestamppb.Now()}),
-		RequestID:        "evt-1",
-		IdempotencyKey:   "evt-1",
-	}
-	secondReq := firstReq
-	secondReq.SignalPayload = protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "evt-2", CreatedAt: timestamppb.Now()})
-	secondReq.RequestID = "evt-2"
-	secondReq.IdempotencyKey = "evt-2"
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLaneSignalOrStart, "evt-1", updateCallback(t, func(value interface{}) {
-			first = cloneSignalResponse(value.(*proto.SignalWorkflowRunResponse))
-		}), firstReq)
-	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLaneSignalOrStart, "evt-2", updateCallback(t, func(value interface{}) {
-			second = cloneSignalResponse(value.(*proto.SignalWorkflowRunResponse))
-		}), secondReq)
-	}, 2*time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		if second == nil {
-			t.Fatalf("second signal was not acknowledged while first activity was running")
-		}
-		close(release)
-	}, 10*time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.CancelWorkflow()
-	}, 50*time.Millisecond)
-
-	env.ExecuteWorkflow(gestaltWorkflowKeyLaneV1, laneWorkflowSnapshot{Input: laneWorkflowInput{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
-		IndexShardCount:               1,
-		TaskQueue:                     "test",
-		WorkflowRunTimeoutNS:          time.Minute,
-		WorkflowTaskTimeoutNS:         time.Second,
-		ActivityStartToCloseTimeoutNS: time.Minute,
-		IdempotencyRetentionNS:        time.Hour,
-		WorkflowKey:                   "slack:T:C",
-	}})
-
-	if first == nil || second == nil {
-		t.Fatalf("responses first=%#v second=%#v", first, second)
-	}
-	if second.GetRun().GetId() != first.GetRun().GetId() {
-		t.Fatalf("second run = %q, want first run %q", second.GetRun().GetId(), first.GetRun().GetId())
-	}
-	if first.GetSignal().GetSequence() != 1 || second.GetSignal().GetSequence() != 2 {
-		t.Fatalf("sequences first=%d second=%d, want 1 and 2", first.GetSignal().GetSequence(), second.GetSignal().GetSequence())
-	}
-	host.mu.Lock()
-	calls := append([]*proto.InvokeWorkflowOperationRequest(nil), host.calls...)
-	host.mu.Unlock()
-	if len(calls) != 2 {
-		t.Fatalf("host calls = %d, want 2 batches", len(calls))
-	}
-	if calls[0].GetRunId() != calls[1].GetRunId() || calls[0].GetRunId() != first.GetRun().GetId() {
-		t.Fatalf("batch run ids = %q/%q, want %q", calls[0].GetRunId(), calls[1].GetRunId(), first.GetRun().GetId())
-	}
-	if len(calls[0].GetSignals()) != 1 || calls[0].GetSignals()[0].GetIdempotencyKey() != "evt-1" || len(calls[1].GetSignals()) != 1 || calls[1].GetSignals()[0].GetIdempotencyKey() != "evt-2" {
-		t.Fatalf("batches signals = %#v / %#v", calls[0].GetSignals(), calls[1].GetSignals())
-	}
-}
-
-func TestGestaltOwnerLedgerWorkflowRetainsCompletedResponse(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	env.RegisterWorkflow(gestaltOwnerLedgerWorkflow)
-
-	var replay *ownerLedgerEntry
-	resp := &proto.SignalWorkflowRunResponse{
-		Run:         &proto.BoundWorkflowRun{Id: "run-1", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING},
-		Signal:      &proto.WorkflowSignal{Id: "sig-1", Name: "message"},
-		StartedRun:  true,
-		WorkflowKey: "thread-1",
-	}
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLedgerReserve, "reserve-1", updateCallback(t, nil), ownerLedgerReserveRequest{
-			Key:         "owner-idem:1",
-			Operation:   "signal_or_start",
-			Fingerprint: "fp-1",
-			OwnerKey:    "slack",
-			WorkflowKey: "thread-1",
-		})
-	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLedgerComplete, "complete-1", updateCallback(t, nil), ownerLedgerCompleteRequest{
-			Key:             "owner-idem:1",
-			Fingerprint:     "fp-1",
-			ResponsePayload: protoPayload(resp),
-			RunPayload:      protoPayload(resp.GetRun()),
-		})
-	}, 2*time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateLedgerReserve, "reserve-2", updateCallback(t, func(value interface{}) {
-			out := value.(*ownerLedgerReserveResponse)
-			replay = out.Entry
-		}), ownerLedgerReserveRequest{
-			Key:         "owner-idem:1",
-			Operation:   "signal_or_start",
-			Fingerprint: "fp-1",
-			OwnerKey:    "slack",
-			WorkflowKey: "thread-1",
-		})
-	}, 3*time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.CancelWorkflow()
-	}, 10*time.Millisecond)
-
-	env.ExecuteWorkflow(gestaltOwnerLedgerWorkflow, ownerLedgerInput{ScopeID: "scope", Shard: 0, IdempotencyRetentionNS: time.Hour})
-
-	if replay == nil || replay.Status != "completed" {
-		t.Fatalf("replay entry = %#v, want completed", replay)
-	}
-	gotResp := signalResponseFromPayload(replay.ResponsePayload)
-	gotRun := runFromPayload(replay.RunPayload)
-	if gotResp.GetSignal().GetId() != "sig-1" || gotRun.GetId() != "run-1" {
-		t.Fatalf("replay payloads resp=%#v run=%#v", gotResp, gotRun)
 	}
 }
 
@@ -669,45 +514,6 @@ func TestScheduleFromTemporalDescriptionUsesActionMemo(t *testing.T) {
 	}
 }
 
-func TestScheduleFromTemporalDescriptionUsesLegacyV3ActionArgs(t *testing.T) {
-	createdAt := time.Unix(100, 0).UTC()
-	updatedAt := time.Unix(200, 0).UTC()
-	nextAt := time.Unix(300, 0).UTC()
-	input := runWorkflowV3Input{
-		ScheduleID:       "schedule-1",
-		ExecutionRef:     "ref-1",
-		TargetPayload:    protoPayload(pluginTarget("slack", "postMessage")),
-		CreatedByPayload: protoPayload(&proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"}),
-	}
-	payload, err := converter.GetDefaultDataConverter().ToPayload(input)
-	if err != nil {
-		t.Fatalf("encode legacy schedule args: %v", err)
-	}
-
-	got, found, err := scheduleFromTemporalDescription("schedule-1", &client.ScheduleDescription{
-		Schedule: client.Schedule{
-			Action: &client.ScheduleWorkflowAction{
-				Args: []interface{}{payload},
-			},
-			Spec:  &client.ScheduleSpec{CronExpressions: []string{"0 * * * *"}, TimeZoneName: "America/New_York"},
-			State: &client.ScheduleState{Paused: true},
-		},
-		Info: client.ScheduleInfo{CreatedAt: createdAt, LastUpdateAt: updatedAt, NextActionTimes: []time.Time{nextAt}},
-	})
-	if err != nil {
-		t.Fatalf("scheduleFromTemporalDescription: %v", err)
-	}
-	if !found {
-		t.Fatalf("schedule not found")
-	}
-	if got.GetId() != "schedule-1" || got.GetExecutionRef() != "ref-1" || got.GetTarget().GetPlugin().GetPluginName() != "slack" {
-		t.Fatalf("decoded legacy schedule = %#v", got)
-	}
-	if got.GetCreatedBy().GetSubjectId() != "system:config" || !got.GetNextRunAt().AsTime().Equal(nextAt) {
-		t.Fatalf("decoded legacy schedule metadata = %#v", got)
-	}
-}
-
 func TestIndexWorkflowCompactsViaSignal(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
@@ -782,7 +588,7 @@ func TestIndexInputStateDataConverterRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTemporalBackendStartKeepsLegacyWorkerUnversionedWhenConfigOmitted(t *testing.T) {
+func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
 	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
@@ -800,7 +606,7 @@ func TestTemporalBackendStartKeepsLegacyWorkerUnversionedWhenConfigOmitted(t *te
 			t.Fatalf("task queue = %q, want gestalt-workflow", taskQueue)
 		}
 		if options.DeploymentOptions.UseVersioning {
-			t.Fatalf("legacy config set deployment options: %#v", options.DeploymentOptions)
+			t.Fatalf("unversioned config set deployment options: %#v", options.DeploymentOptions)
 		}
 		return fw
 	}
@@ -810,15 +616,18 @@ func TestTemporalBackendStartKeepsLegacyWorkerUnversionedWhenConfigOmitted(t *te
 	if got := strings.Join(order, ","); got != "start" {
 		t.Fatalf("startup order = %s, want start", got)
 	}
+	if fw.registeredWorkflows != 1 || fw.registeredActivities != 1 {
+		t.Fatalf("registered workflows=%d activities=%d, want only v4 workflow and activities", fw.registeredWorkflows, fw.registeredActivities)
+	}
 	if len(tc.deploymentClient.handle.describeCalls) != 0 || len(tc.deploymentClient.handle.setCurrentCalls) != 0 {
-		t.Fatalf("legacy config touched worker deployments: %#v", tc.deploymentClient.handle)
+		t.Fatalf("unversioned config touched worker deployments: %#v", tc.deploymentClient.handle)
 	}
 	if !backend.started {
 		t.Fatalf("backend not marked started")
 	}
 }
 
-func TestTemporalBackendStartSkipsLegacyIndexCleanupByDefault(t *testing.T) {
+func TestTemporalBackendStartDoesNotTouchTemporalIndexWorkflows(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
 	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
@@ -839,8 +648,11 @@ func TestTemporalBackendStartSkipsLegacyIndexCleanupByDefault(t *testing.T) {
 	if got := strings.Join(order, ","); got != "start" {
 		t.Fatalf("startup order = %s, want start", got)
 	}
+	if fw.registeredWorkflows != 1 || fw.registeredActivities != 1 {
+		t.Fatalf("registered workflows=%d activities=%d, want only v4 workflow and activities", fw.registeredWorkflows, fw.registeredActivities)
+	}
 	if len(tc.updates) != 0 || len(tc.queries) != 0 {
-		t.Fatalf("startup touched legacy temporal index queries=%#v updates=%#v", tc.queries, tc.updates)
+		t.Fatalf("startup touched temporal index queries=%#v updates=%#v", tc.queries, tc.updates)
 	}
 }
 
@@ -1393,9 +1205,6 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) {
 		t.Fatalf("updates = %#v, want claim update on v4 run", tc.updates)
 	}
-	if tc.hasAnyLegacyKeyedUpdate("thread-1", backend) {
-		t.Fatalf("legacy keyed updates = %#v, want none", tc.updates)
-	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
 	if err != nil || !found {
 		t.Fatalf("getWorkflowKeyRun found=%v err=%v", found, err)
@@ -1403,12 +1212,12 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 	if owned.GetId() != run.GetId() {
 		t.Fatalf("owned run = %q, want %q", owned.GetId(), run.GetId())
 	}
-	handle, err := decodeV3RunHandle(run.GetId())
+	handle, err := decodeTemporalRunHandle(run.GetId())
 	if err != nil {
 		t.Fatalf("decode run handle: %v", err)
 	}
-	if handle.LaneWorkflowID != "" {
-		t.Fatalf("lane workflow id = %q, want empty for v4 keyed run", handle.LaneWorkflowID)
+	if handle.Kind != runHandleKindV4 || handle.RunWorkflowID == "" || handle.WorkflowKey != "thread-1" {
+		t.Fatalf("handle = %#v, want v4 keyed run handle", handle)
 	}
 }
 
@@ -1494,9 +1303,6 @@ func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
 	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) {
 		t.Fatalf("updates = %#v, want claim update on v4 run", tc.updates)
 	}
-	if tc.hasAnyLegacyKeyedUpdate("thread-1", backend) {
-		t.Fatalf("legacy keyed updates = %#v, want none", tc.updates)
-	}
 	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		WorkflowKey:    "thread-1",
@@ -1530,8 +1336,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 	}
 	temporalWorkflowID := workflowID("scope", "manual-keyed-v4", "slack", key, hashID(workflowKey))
 	run := &proto.BoundWorkflowRun{
-		Id: encodeV3RunHandle(v3RunHandle{
-			Kind:             runHandleKindV3,
+		Id: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    temporalWorkflowID,
 			RunTemporalRunID: "run-1",
 			WorkflowKey:      workflowKey,
@@ -1661,7 +1466,7 @@ func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
 		t.Fatalf("executions = %d, want 1", len(tc.executions))
 	}
 	if len(tc.updates) != 0 {
-		t.Fatalf("legacy ledger updates = %#v, want none", tc.updates)
+		t.Fatalf("updates = %#v, want none", tc.updates)
 	}
 }
 
@@ -1819,17 +1624,31 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	if !ok {
 		t.Fatalf("execution input = %T, want runWorkflowV4Input", tc.executions[0].Args[0])
 	}
-	if input.WorkflowKey != "thread-1" || !input.RequireSignal || !input.RequireClaim || len(input.InitialSignalPayload) == 0 {
-		t.Fatalf("v4 input = %#v, want claimed keyed run with initial signal", input)
+	if input.WorkflowKey != "thread-1" || !input.RequireSignal || !input.RequireClaim {
+		t.Fatalf("v4 input = %#v, want claimed keyed run waiting for signal", input)
 	}
-	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) || tc.hasUpdate(tc.executions[0].WorkflowID, updateAddSignal) {
-		t.Fatalf("updates = %#v, want claim without add-signal on new v4 run", tc.updates)
+	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateAddSignal) || !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) {
+		t.Fatalf("updates = %#v, want UpdateWithStart add-signal and claim on v4 run", tc.updates)
 	}
-	if tc.hasAnyLegacyKeyedUpdate("thread-1", backend) {
-		t.Fatalf("legacy keyed updates = %#v, want none", tc.updates)
+	addSignalUpdateFound := false
+	for _, update := range tc.updates {
+		if update.WorkflowID == tc.executions[0].WorkflowID && update.Name == updateAddSignal {
+			addSignalUpdateFound = true
+			if update.WaitForStage != client.WorkflowUpdateStageCompleted {
+				t.Fatalf("signal update wait stage = %v, want completed", update.WaitForStage)
+			}
+		}
+		if update.WorkflowID == tc.executions[0].WorkflowID && update.Name == updateClaimRun {
+			if update.WaitForStage != client.WorkflowUpdateStageCompleted {
+				t.Fatalf("claim update wait stage = %v, want completed", update.WaitForStage)
+			}
+		}
+	}
+	if !addSignalUpdateFound {
+		t.Fatalf("updates = %#v, want add-signal update", tc.updates)
 	}
 	if len(tc.queries) != 0 {
-		t.Fatalf("queries = %#v, want no legacy lane lookup", tc.queries)
+		t.Fatalf("queries = %#v, want no temporal lookup", tc.queries)
 	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
 	if err != nil || !found || owned.GetId() != resp.GetRun().GetId() {
@@ -1867,12 +1686,17 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignalOrStartRun(first): %v", err)
 	}
+	if len(tc.updates) == 0 || tc.updates[0].Name != updateAddSignal || tc.updates[0].UpdateID != "signal-key:"+hashID("signal-1") {
+		t.Fatalf("first update = %#v, want add-signal keyed only by idempotency key", tc.updates)
+	}
 	updateCount := len(tc.updates)
 	executionCount := len(tc.executions)
 
-	duplicate, err := backend.SignalOrStartRun(ctx, req)
+	duplicateReq := cloneSignalOrStartRequest(req)
+	duplicateReq.Signal.Name = "slack.changed"
+	duplicate, err := backend.SignalOrStartRun(ctx, duplicateReq)
 	if err != nil {
-		t.Fatalf("SignalOrStartRun(duplicate): %v", err)
+		t.Fatalf("SignalOrStartRun(duplicate different payload): %v", err)
 	}
 	if duplicate.GetRun().GetId() != first.GetRun().GetId() || duplicate.GetSignal().GetId() != first.GetSignal().GetId() {
 		t.Fatalf("duplicate response = %#v, want first response %#v", duplicate, first)
@@ -1883,9 +1707,6 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	if len(tc.updates) != updateCount {
 		t.Fatalf("updates = %#v, want no duplicate temporal signal", tc.updates[updateCount:])
 	}
-	if tc.hasAnyLegacyKeyedUpdate("thread-1", backend) {
-		t.Fatalf("legacy keyed updates = %#v, want none", tc.updates)
-	}
 	key := ownerIdempotencyLedgerKey("slack", "signal-1")
 	record, err := state.signalIdempotency.Get(ctx, state.signalIdempotencyID(key))
 	if err != nil {
@@ -1893,6 +1714,82 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	}
 	if recordString(record, "status") != "completed" || len(recordBytes(record, "response_payload")) == 0 {
 		t.Fatalf("signal idempotency record = %#v, want completed response", record)
+	}
+}
+
+func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	signal := &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.event"}
+	if _, err := backend.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey: "thread-1",
+		Target:      pluginTarget("slack", "postMessage"),
+		CreatedBy:   &proto.WorkflowActor{SubjectId: "user-1"},
+		Signal:      signal,
+	}); err != nil {
+		t.Fatalf("SignalOrStartRun: %v", err)
+	}
+	expectedWorkflowID := workflowID("scope", "signal-keyed-v4", "slack", explicitSignalLedgerKey(signal), hashID("thread-1"))
+	if len(tc.executions) != 1 || tc.executions[0].WorkflowID != expectedWorkflowID {
+		t.Fatalf("executions = %#v, want workflow id %q", tc.executions, expectedWorkflowID)
+	}
+}
+
+func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	req := &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey: "thread-1",
+		Target:      pluginTarget("slack", "postMessage"),
+		CreatedBy:   &proto.WorkflowActor{SubjectId: "user-1"},
+		Signal:      &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
+	}
+	if _, err := backend.SignalOrStartRun(ctx, req); err != nil {
+		t.Fatalf("SignalOrStartRun(first): %v", err)
+	}
+	updateCount := len(tc.updates)
+	duplicateReq := cloneSignalOrStartRequest(req)
+	duplicateReq.Signal.Name = "slack.changed"
+	_, err = backend.SignalOrStartRun(ctx, duplicateReq)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("SignalOrStartRun(conflict) error = %v, want FailedPrecondition", err)
+	}
+	if len(tc.updates) != updateCount {
+		t.Fatalf("updates = %#v, want no second temporal signal", tc.updates[updateCount:])
 	}
 }
 
@@ -1923,7 +1820,7 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
-	handle, err := decodeV3RunHandle(run.GetId())
+	handle, err := decodeTemporalRunHandle(run.GetId())
 	if err != nil {
 		t.Fatalf("decode run handle: %v", err)
 	}
@@ -1951,8 +1848,8 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	if newUpdates[0].WorkflowID != handle.RunWorkflowID || newUpdates[0].Name != updateAddSignal {
 		t.Fatalf("update = %#v, want updateAddSignal on run workflow %q", newUpdates[0], handle.RunWorkflowID)
 	}
-	if newUpdates[0].WorkflowID == backend.laneWorkflowID("thread-1") {
-		t.Fatalf("update hit lane workflow %q, want direct run workflow", newUpdates[0].WorkflowID)
+	if newUpdates[0].WaitForStage != client.WorkflowUpdateStageCompleted {
+		t.Fatalf("signal update wait stage = %v, want completed", newUpdates[0].WaitForStage)
 	}
 }
 
@@ -2054,82 +1951,6 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	}
 }
 
-func TestSignalRunWithLegacyLaneHandleSignalsChildDirectly(t *testing.T) {
-	ctx := context.Background()
-	legacyLaneID := workflowID("scope", "key-lane-v3", "thread-legacy")
-	runID := encodeV3RunHandle(v3RunHandle{
-		Kind:             runHandleKindV3,
-		LaneWorkflowID:   legacyLaneID,
-		RunWorkflowID:    "legacy-run-workflow",
-		RunTemporalRunID: "legacy-run-id",
-		LogicalRunKey:    "00000000000000000001",
-		WorkflowKey:      "thread-legacy",
-		OwnerKey:         "slack",
-	})
-	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, nil)
-
-	_, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
-		RunId:  runID,
-		Signal: &proto.WorkflowSignal{Name: "slack.event"},
-	})
-	if err != nil {
-		t.Fatalf("SignalRun: %v", err)
-	}
-	if len(tc.updates) != 1 || tc.updates[0].WorkflowID != "legacy-run-workflow" || tc.updates[0].Name != updateAddSignal {
-		t.Fatalf("updates = %#v, want direct child add-signal", tc.updates)
-	}
-	if tc.updates[0].WorkflowID == legacyLaneID {
-		t.Fatalf("SignalRun hit lane workflow %q, want child workflow", legacyLaneID)
-	}
-}
-
-func TestCancelRunWithLegacyLaneHandleCancelsChildDirectly(t *testing.T) {
-	ctx := context.Background()
-	legacyLaneID := workflowID("scope", "key-lane-v3", "thread-legacy")
-	runID := encodeV3RunHandle(v3RunHandle{
-		Kind:             runHandleKindV3,
-		LaneWorkflowID:   legacyLaneID,
-		RunWorkflowID:    "legacy-run-workflow",
-		RunTemporalRunID: "legacy-run-id",
-		LogicalRunKey:    "00000000000000000001",
-		WorkflowKey:      "thread-legacy",
-		OwnerKey:         "slack",
-	})
-	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, nil)
-
-	_, err := backend.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{
-		RunId:  runID,
-		Reason: "user requested",
-	})
-	if err != nil {
-		t.Fatalf("CancelRun: %v", err)
-	}
-	if len(tc.updates) != 1 || tc.updates[0].WorkflowID != "legacy-run-workflow" || tc.updates[0].Name != updateCancelRun {
-		t.Fatalf("updates = %#v, want direct child cancel", tc.updates)
-	}
-	if tc.updates[0].WorkflowID == legacyLaneID {
-		t.Fatalf("CancelRun hit lane workflow %q, want child workflow", legacyLaneID)
-	}
-}
-
 func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -2159,10 +1980,15 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignalRun(first): %v", err)
 	}
+	if len(tc.updates) != 1 || tc.updates[0].Name != updateAddSignal || tc.updates[0].UpdateID != "signal-key:"+hashID("signal-1") {
+		t.Fatalf("first update = %#v, want add-signal keyed only by idempotency key", tc.updates)
+	}
 	updateCount := len(tc.updates)
-	duplicate, err := backend.SignalRun(ctx, req)
+	duplicateReq := cloneSignalRunRequest(req)
+	duplicateReq.Signal.Name = "slack.changed"
+	duplicate, err := backend.SignalRun(ctx, duplicateReq)
 	if err != nil {
-		t.Fatalf("SignalRun(duplicate): %v", err)
+		t.Fatalf("SignalRun(duplicate different payload): %v", err)
 	}
 	if duplicate.GetSignal().GetId() != first.GetSignal().GetId() {
 		t.Fatalf("duplicate signal = %#v, want first signal %#v", duplicate.GetSignal(), first.GetSignal())
@@ -2178,8 +2004,45 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	if recordString(record, "status") != "completed" || recordString(record, "run_id") != run.GetId() {
 		t.Fatalf("signal idempotency record = %#v, want completed run %q", record, run.GetId())
 	}
-	if tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerReserve) || tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerComplete) {
-		t.Fatalf("legacy ledger updates = %#v, want none", tc.updates)
+}
+
+func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	run := workflowKeyClaimRun("strict-signal-id", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	if _, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+		RunId:  run.GetId(),
+		Signal: &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
+	}); err != nil {
+		t.Fatalf("SignalRun(first): %v", err)
+	}
+	updateCount := len(tc.updates)
+	_, err = backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+		RunId:  run.GetId(),
+		Signal: &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.changed", IdempotencyKey: "owner-key-1"},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("SignalRun(conflict) error = %v, want FailedPrecondition", err)
+	}
+	if len(tc.updates) != updateCount {
+		t.Fatalf("updates = %#v, want no second temporal signal", tc.updates[updateCount:])
 	}
 }
 
@@ -2205,68 +2068,8 @@ func TestSignalRunRejectsSignalIdempotencyWithoutIndexedDB(t *testing.T) {
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("SignalRun error = %v, want FailedPrecondition", err)
 	}
-	key := ownerIdempotencyLedgerKey("slack", "signal-1")
-	if tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerReserve) || tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerComplete) {
-		t.Fatalf("legacy ledger updates = %#v, want none", tc.updates)
-	}
 	if len(tc.updates) != 0 {
 		t.Fatalf("updates = %#v, want no temporal signal after idempotency failure", tc.updates)
-	}
-}
-
-func TestSignalRunReturnsCompletedLegacySignalIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
-
-	run := workflowKeyClaimRun("legacy-signal-idem", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	signal := &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"}
-	normalized, err := normalizeWorkflowSignal(signal, time.Unix(200, 0).UTC())
-	if err != nil {
-		t.Fatalf("normalizeWorkflowSignal: %v", err)
-	}
-	resp := &proto.SignalWorkflowRunResponse{Run: run, Signal: normalized, WorkflowKey: "thread-1"}
-	key := ownerIdempotencyLedgerKey("slack", "signal-1")
-	fingerprint := signalFingerprint("slack", "thread-1"+"\x00"+run.GetId(), normalized)
-	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
-		key: {
-			Key:             key,
-			Status:          "completed",
-			Fingerprint:     fingerprint,
-			ResponsePayload: protoPayload(resp),
-			RunPayload:      protoPayload(run),
-		},
-	}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
-	got, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{RunId: run.GetId(), Signal: signal})
-	if err != nil {
-		t.Fatalf("SignalRun: %v", err)
-	}
-	if got.GetRun().GetId() != run.GetId() || got.GetSignal().GetIdempotencyKey() != "signal-1" {
-		t.Fatalf("response = %#v, want completed legacy response", got)
-	}
-	if len(tc.updates) != 0 {
-		t.Fatalf("updates = %#v, want no temporal signal", tc.updates)
-	}
-	record, err := state.signalIdempotency.Get(ctx, state.signalIdempotencyID(key))
-	if err != nil {
-		t.Fatalf("load migrated signal idempotency record: %v", err)
-	}
-	if recordString(record, "status") != "completed" || len(recordBytes(record, "response_payload")) == 0 {
-		t.Fatalf("migrated signal idempotency record = %#v, want completed response", record)
 	}
 }
 
@@ -2297,7 +2100,7 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load workflow key record: %v", err)
 	}
-	handle, err := decodeV3RunHandle(run.GetId())
+	handle, err := decodeTemporalRunHandle(run.GetId())
 	if err != nil {
 		t.Fatalf("decode run handle: %v", err)
 	}
@@ -2390,7 +2193,7 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 
 	missingKey := "thread-missing"
 	missingRun := workflowKeyClaimRun("missing", missingKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	missingHandle, err := decodeV3RunHandle(missingRun.GetId())
+	missingHandle, err := decodeTemporalRunHandle(missingRun.GetId())
 	if err != nil {
 		t.Fatalf("decode missing run handle: %v", err)
 	}
@@ -2443,7 +2246,7 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 		"missing temporal run id": {
 			workflowKey: "thread",
 			run: &proto.BoundWorkflowRun{
-				Id:          encodeV3RunHandle(v3RunHandle{Kind: runHandleKindV3, RunWorkflowID: "workflow-without-run-id", WorkflowKey: "thread", OwnerKey: "slack"}),
+				Id:          encodeTemporalRunHandle(temporalRunHandle{RunWorkflowID: "workflow-without-run-id", WorkflowKey: "thread", OwnerKey: "slack"}),
 				WorkflowKey: "thread",
 				Target:      pluginTarget("slack", "postMessage"),
 			},
@@ -2527,118 +2330,161 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 	}
 }
 
-func TestStartRunReturnsCompletedLegacyIdempotentRun(t *testing.T) {
+func TestWorkflowStateStorePurgesLegacyRunHandleRecordsOnOpen(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
 	state, err := openWorkflowStateStore(ctx, "", "scope")
 	if err != nil {
 		t.Fatalf("openWorkflowStateStore: %v", err)
 	}
-	t.Cleanup(func() { _ = state.Close() })
 
-	target := pluginTarget("slack", "postMessage")
-	createdBy := &proto.WorkflowActor{SubjectId: "user-1"}
-	key := "start-1"
-	ledgerKey := startLedgerKey("slack", key)
-	legacyRun := &proto.BoundWorkflowRun{Id: "legacy-run", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED, Target: target}
-	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
-		ledgerKey: {
-			Key:         ledgerKey,
-			Status:      "completed",
-			Fingerprint: startFingerprint("slack", key, "", "", target, createdBy),
-			RunPayload:  protoPayload(legacyRun),
-		},
-	}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
-
-	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		IdempotencyKey: key,
-		Target:         target,
-		CreatedBy:      createdBy,
+	legacyID := encodeTemporalRunHandle(temporalRunHandle{
+		Kind:             "temporal-run-v3",
+		RunWorkflowID:    "legacy-workflow",
+		RunTemporalRunID: "legacy-run",
+		WorkflowKey:      "legacy-thread",
+		OwnerKey:         "slack",
 	})
-	if err != nil {
-		t.Fatalf("StartRun: %v", err)
-	}
-	if run.GetId() != legacyRun.GetId() {
-		t.Fatalf("run id = %q, want legacy %q", run.GetId(), legacyRun.GetId())
-	}
-	if len(tc.executions) != 0 {
-		t.Fatalf("executions = %d, want none", len(tc.executions))
-	}
-}
-
-func TestStartRunRejectsConflictingCompletedLegacyIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
-
-	key := "start-1"
-	ledgerKey := startLedgerKey("slack", key)
-	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
-		ledgerKey: {
-			Key:         ledgerKey,
-			Status:      "completed",
-			Fingerprint: "different-request",
-			RunPayload:  protoPayload(&proto.BoundWorkflowRun{Id: "legacy-run"}),
-		},
-	}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
-
-	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		IdempotencyKey: key,
-		Target:         pluginTarget("slack", "postMessage"),
-		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
+	currentID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "current-workflow",
+		RunTemporalRunID: "current-run",
+		WorkflowKey:      "current-thread",
+		OwnerKey:         "slack",
 	})
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("StartRun error = %v, want FailedPrecondition", err)
+	legacyRun := &proto.BoundWorkflowRun{Id: legacyID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: pluginTarget("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	currentRun := &proto.BoundWorkflowRun{Id: currentID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: pluginTarget("slack", "postMessage"), WorkflowKey: "current-thread"}
+	if err := state.runProjections.Put(ctx, state.runRecord(legacyRun)); err != nil {
+		t.Fatalf("put legacy run projection: %v", err)
 	}
-	if len(tc.executions) != 0 {
-		t.Fatalf("executions = %d, want none", len(tc.executions))
+	if err := state.putRun(ctx, currentRun); err != nil {
+		t.Fatalf("put current run: %v", err)
 	}
-}
+	if err := state.workflowKeys.Put(ctx, state.workflowKeyRecord(workflowKeyRecord{
+		ID:                 state.workflowKeyID("legacy-thread"),
+		WorkflowKey:        "legacy-thread",
+		OwnerKey:           "slack",
+		RunID:              legacyID,
+		TemporalWorkflowID: "legacy-workflow",
+		TemporalRunID:      "legacy-run",
+		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		CreatedAt:          time.Unix(100, 0).UTC(),
+		UpdatedAt:          time.Unix(100, 0).UTC(),
+	})); err != nil {
+		t.Fatalf("put legacy workflow key: %v", err)
+	}
+	if err := state.workflowKeys.Put(ctx, state.workflowKeyRecord(workflowKeyRecord{
+		ID:                 state.workflowKeyID("current-thread"),
+		WorkflowKey:        "current-thread",
+		OwnerKey:           "slack",
+		RunID:              currentID,
+		TemporalWorkflowID: "current-workflow",
+		TemporalRunID:      "current-run",
+		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		CreatedAt:          time.Unix(100, 0).UTC(),
+		UpdatedAt:          time.Unix(100, 0).UTC(),
+	})); err != nil {
+		t.Fatalf("put current workflow key: %v", err)
+	}
+	if err := state.runIdempotency.Put(ctx, state.runIdempotencyRecord(runIdempotencyRecord{
+		ID:             state.runIdempotencyID("slack", "legacy-start"),
+		OwnerKey:       "slack",
+		IdempotencyKey: "legacy-start",
+		Fingerprint:    "legacy-fp",
+		Status:         "completed",
+		RunID:          legacyID,
+		CreatedAt:      time.Unix(100, 0).UTC(),
+		UpdatedAt:      time.Unix(100, 0).UTC(),
+		ExpiresAt:      time.Now().Add(time.Hour),
+		RunPayload:     protoPayload(legacyRun),
+	})); err != nil {
+		t.Fatalf("put legacy run idempotency: %v", err)
+	}
+	if err := state.runIdempotency.Put(ctx, state.runIdempotencyRecord(runIdempotencyRecord{
+		ID:             state.runIdempotencyID("slack", "current-start"),
+		OwnerKey:       "slack",
+		IdempotencyKey: "current-start",
+		Fingerprint:    "current-fp",
+		Status:         "completed",
+		RunID:          currentID,
+		CreatedAt:      time.Unix(100, 0).UTC(),
+		UpdatedAt:      time.Unix(100, 0).UTC(),
+		ExpiresAt:      time.Now().Add(time.Hour),
+		RunPayload:     protoPayload(currentRun),
+	})); err != nil {
+		t.Fatalf("put current run idempotency: %v", err)
+	}
+	if err := state.signalIdempotency.Put(ctx, state.signalIdempotencyRecord(signalIdempotencyRecord{
+		ID:              state.signalIdempotencyID("owner-idem:legacy"),
+		IdempotencyKey:  "owner-idem:legacy",
+		Operation:       "signal_or_start",
+		Fingerprint:     "legacy-fp",
+		Status:          "completed",
+		OwnerKey:        "slack",
+		WorkflowKey:     "legacy-thread",
+		RunID:           legacyID,
+		CreatedAt:       time.Unix(100, 0).UTC(),
+		UpdatedAt:       time.Unix(100, 0).UTC(),
+		ExpiresAt:       time.Now().Add(time.Hour),
+		ResponsePayload: protoPayload(&proto.SignalWorkflowRunResponse{Run: legacyRun, Signal: &proto.WorkflowSignal{Id: "legacy-signal"}}),
+		RunPayload:      protoPayload(legacyRun),
+	})); err != nil {
+		t.Fatalf("put legacy signal idempotency: %v", err)
+	}
+	if err := state.signalIdempotency.Put(ctx, state.signalIdempotencyRecord(signalIdempotencyRecord{
+		ID:              state.signalIdempotencyID("owner-idem:current"),
+		IdempotencyKey:  "owner-idem:current",
+		Operation:       "signal_or_start",
+		Fingerprint:     "current-fp",
+		Status:          "completed",
+		OwnerKey:        "slack",
+		WorkflowKey:     "current-thread",
+		RunID:           currentID,
+		CreatedAt:       time.Unix(100, 0).UTC(),
+		UpdatedAt:       time.Unix(100, 0).UTC(),
+		ExpiresAt:       time.Now().Add(time.Hour),
+		ResponsePayload: protoPayload(&proto.SignalWorkflowRunResponse{Run: currentRun, Signal: &proto.WorkflowSignal{Id: "current-signal"}}),
+		RunPayload:      protoPayload(currentRun),
+	})); err != nil {
+		t.Fatalf("put current signal idempotency: %v", err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatalf("close seeded state: %v", err)
+	}
 
-func TestStartRunIgnoresExpiredLegacyIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
+	reopened, err := openWorkflowStateStore(ctx, "", "scope")
 	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
+		t.Fatalf("reopenWorkflowStateStore: %v", err)
 	}
-	t.Cleanup(func() { _ = state.Close() })
+	t.Cleanup(func() { _ = reopened.Close() })
+	if _, found, err := reopened.getRun(ctx, legacyID); err != nil || found {
+		t.Fatalf("legacy run found=%v err=%v, want purged", found, err)
+	}
+	if _, found, err := reopened.getRun(ctx, currentID); err != nil || !found {
+		t.Fatalf("current run found=%v err=%v, want preserved", found, err)
+	}
+	if _, found, err := reopened.getWorkflowKeyRun(ctx, "legacy-thread"); err != nil || found {
+		t.Fatalf("legacy workflow key found=%v err=%v, want purged", found, err)
+	}
+	if _, found, err := reopened.getWorkflowKeyRun(ctx, "current-thread"); err != nil || !found {
+		t.Fatalf("current workflow key found=%v err=%v, want preserved", found, err)
+	}
+	if _, err := reopened.runIdempotency.Get(ctx, reopened.runIdempotencyID("slack", "legacy-start")); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("legacy run idempotency err=%v, want not found", err)
+	}
+	if _, err := reopened.runIdempotency.Get(ctx, reopened.runIdempotencyID("slack", "current-start")); err != nil {
+		t.Fatalf("current run idempotency: %v", err)
+	}
+	if _, err := reopened.signalIdempotency.Get(ctx, reopened.signalIdempotencyID("owner-idem:legacy")); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("legacy signal idempotency err=%v, want not found", err)
+	}
+	if _, err := reopened.signalIdempotency.Get(ctx, reopened.signalIdempotencyID("owner-idem:current")); err != nil {
+		t.Fatalf("current signal idempotency: %v", err)
+	}
 
-	key := "start-1"
-	ledgerKey := startLedgerKey("slack", key)
-	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
-		ledgerKey: {
-			Key:         ledgerKey,
-			Status:      "completed",
-			Fingerprint: "different-expired-request",
-			ExpiresAt:   time.Now().Add(-time.Minute),
-			RunPayload:  protoPayload(&proto.BoundWorkflowRun{Id: "legacy-run"}),
-		},
-	}}
+	if err := reopened.runProjections.Put(ctx, reopened.runRecord(legacyRun)); err != nil {
+		t.Fatalf("reinsert legacy projection: %v", err)
+	}
+	tc := &recordingTemporalClient{}
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
@@ -2647,72 +2493,18 @@ func TestStartRunIgnoresExpiredLegacyIdempotency(t *testing.T) {
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
-
-	if _, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		IdempotencyKey: key,
-		Target:         pluginTarget("slack", "postMessage"),
-		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
-	}); err != nil {
-		t.Fatalf("StartRun: %v", err)
+	}, tc, nil, reopened)
+	if _, err := backend.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: legacyID}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("GetRun legacy projection error = %v, want InvalidArgument", err)
 	}
-	if len(tc.executions) != 1 {
-		t.Fatalf("executions = %d, want 1", len(tc.executions))
-	}
-	expectedWorkflowID := workflowID("scope", "manual-v4", "slack", key)
-	if tc.executions[0].WorkflowID != expectedWorkflowID {
-		t.Fatalf("workflow id = %q, want %q", tc.executions[0].WorkflowID, expectedWorkflowID)
-	}
-}
-
-func TestStartRunUsesLegacyWorkflowIDForReservedLegacyIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
+	listed, err := backend.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
+		t.Fatalf("ListRuns: %v", err)
 	}
-	t.Cleanup(func() { _ = state.Close() })
-
-	target := pluginTarget("slack", "postMessage")
-	createdBy := &proto.WorkflowActor{SubjectId: "user-1"}
-	key := "start-1"
-	ledgerKey := startLedgerKey("slack", key)
-	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
-		ledgerKey: {
-			Key:         ledgerKey,
-			Status:      "reserved",
-			Fingerprint: startFingerprint("slack", key, "", "", target, createdBy),
-		},
-	}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
-
-	if _, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		IdempotencyKey: key,
-		Target:         target,
-		CreatedBy:      createdBy,
-	}); err != nil {
-		t.Fatalf("StartRun: %v", err)
-	}
-	if len(tc.executions) != 1 {
-		t.Fatalf("executions = %d, want 1", len(tc.executions))
-	}
-	expectedWorkflowID := workflowID("scope", "manual-v3", "slack", key)
-	if tc.executions[0].WorkflowID != expectedWorkflowID {
-		t.Fatalf("workflow id = %q, want %q", tc.executions[0].WorkflowID, expectedWorkflowID)
-	}
-	if !tc.hasUpdate(backend.ownerLedgerWorkflowID(ledgerKey), updateLedgerComplete) {
-		t.Fatalf("legacy ledger completion updates = %#v, want %s", tc.updates, updateLedgerComplete)
+	for _, run := range listed.GetRuns() {
+		if run.GetId() == legacyID {
+			t.Fatalf("ListRuns included legacy projection %#v", run)
+		}
 	}
 }
 
@@ -2725,7 +2517,11 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	run := &proto.BoundWorkflowRun{
-		Id:        "run-projected",
+		Id: encodeTemporalRunHandle(temporalRunHandle{
+			RunWorkflowID:    "run-projected-workflow",
+			RunTemporalRunID: "run-projected-temporal-run",
+			OwnerKey:         "slack",
+		}),
 		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
 		Target:    pluginTarget("slack", "postMessage"),
 		Trigger:   newManualTrigger(),
@@ -3007,8 +2803,7 @@ func (h *capturingHost) Close() error { return nil }
 
 func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunStatus) *proto.BoundWorkflowRun {
 	return &proto.BoundWorkflowRun{
-		Id: encodeV3RunHandle(v3RunHandle{
-			Kind:             runHandleKindV3,
+		Id: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    "temporal-workflow-" + strings.TrimSpace(suffix),
 			RunTemporalRunID: "temporal-run-" + strings.TrimSpace(suffix),
 			WorkflowKey:      strings.TrimSpace(workflowKey),
@@ -3018,6 +2813,29 @@ func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunSta
 		Target:      pluginTarget("slack", "postMessage"),
 		WorkflowKey: strings.TrimSpace(workflowKey),
 		CreatedAt:   timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+}
+
+func cloneSignalOrStartRequest(req *proto.SignalOrStartWorkflowProviderRunRequest) *proto.SignalOrStartWorkflowProviderRunRequest {
+	if req == nil {
+		return nil
+	}
+	return &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey:  req.GetWorkflowKey(),
+		Target:       cloneTarget(req.GetTarget()),
+		Signal:       cloneSignal(req.GetSignal()),
+		CreatedBy:    cloneActor(req.GetCreatedBy()),
+		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
+	}
+}
+
+func cloneSignalRunRequest(req *proto.SignalWorkflowProviderRunRequest) *proto.SignalWorkflowProviderRunRequest {
+	if req == nil {
+		return nil
+	}
+	return &proto.SignalWorkflowProviderRunRequest{
+		RunId:  strings.TrimSpace(req.GetRunId()),
+		Signal: cloneSignal(req.GetSignal()),
 	}
 }
 
@@ -3267,9 +3085,11 @@ func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHand
 }
 
 type recordedUpdate struct {
-	WorkflowID string
-	Name       string
-	Args       []any
+	WorkflowID   string
+	UpdateID     string
+	Name         string
+	Args         []any
+	WaitForStage client.WorkflowUpdateStage
 }
 
 type recordedQuery struct {
@@ -3293,7 +3113,6 @@ type recordingTemporalClient struct {
 	queries            []recordedQuery
 	scheduleClient     client.ScheduleClient
 	deploymentClient   *fakeWorkerDeploymentClient
-	ledgerEntries      map[string]*ownerLedgerEntry
 	afterExecute       func()
 }
 
@@ -3315,11 +3134,18 @@ func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options cli
 	}, nil
 }
 
-func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, _ interface{}, _ ...interface{}) client.WithStartWorkflowOperation {
+func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, _ interface{}, args ...interface{}) client.WithStartWorkflowOperation {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.pendingWorkflowIDs = append(c.pendingWorkflowIDs, options.ID)
-	return nil
+	c.executions = append(c.executions, recordedExecution{
+		WorkflowID: options.ID,
+		Args:       args,
+	})
+	runNumber := len(c.executions)
+	return recordingWithStartOperation{
+		workflowID: options.ID,
+		runID:      fmt.Sprintf("run-%d", runNumber),
+	}
 }
 
 func (c *recordingTemporalClient) UpdateWorkflow(_ context.Context, options client.UpdateWorkflowOptions) (client.WorkflowUpdateHandle, error) {
@@ -3333,9 +3159,11 @@ func (c *recordingTemporalClient) UpdateWorkflow(_ context.Context, options clie
 		}
 	}
 	update := recordedUpdate{
-		WorkflowID: options.WorkflowID,
-		Name:       options.UpdateName,
-		Args:       options.Args,
+		WorkflowID:   options.WorkflowID,
+		UpdateID:     options.UpdateID,
+		Name:         options.UpdateName,
+		Args:         options.Args,
+		WaitForStage: options.WaitForStage,
 	}
 	c.updates = append(c.updates, update)
 	return recordingUpdateHandle{update: update}, nil
@@ -3345,14 +3173,17 @@ func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, opt
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	workflowID := ""
-	if len(c.pendingWorkflowIDs) > 0 {
-		workflowID = c.pendingWorkflowIDs[0]
-		c.pendingWorkflowIDs = c.pendingWorkflowIDs[1:]
+	if op, ok := options.StartWorkflowOperation.(recordingWithStartOperation); ok {
+		workflowID = op.workflowID
+	} else if op, ok := options.StartWorkflowOperation.(*recordingWithStartOperation); ok {
+		workflowID = op.workflowID
 	}
 	update := recordedUpdate{
-		WorkflowID: workflowID,
-		Name:       options.UpdateOptions.UpdateName,
-		Args:       options.UpdateOptions.Args,
+		WorkflowID:   workflowID,
+		UpdateID:     options.UpdateOptions.UpdateID,
+		Name:         options.UpdateOptions.UpdateName,
+		Args:         options.UpdateOptions.Args,
+		WaitForStage: options.UpdateOptions.WaitForStage,
 	}
 	c.updates = append(c.updates, update)
 	return recordingUpdateHandle{update: update}, nil
@@ -3367,15 +3198,6 @@ func (c *recordingTemporalClient) QueryWorkflow(ctx context.Context, workflowID 
 	c.mu.Lock()
 	c.queries = append(c.queries, query)
 	c.mu.Unlock()
-	if queryType == queryLedgerGet && len(args) > 0 {
-		key, _ := args[0].(string)
-		c.mu.Lock()
-		entry := cloneLedgerEntry(c.ledgerEntries[strings.TrimSpace(key)])
-		c.mu.Unlock()
-		if entry != nil {
-			return recordingEncodedValue{value: entry}, nil
-		}
-	}
 	return recordingEncodedValue{}, nil
 }
 
@@ -3402,22 +3224,6 @@ func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
 	defer c.mu.Unlock()
 	for _, update := range c.updates {
 		if update.WorkflowID == workflowID && update.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *recordingTemporalClient) hasAnyLegacyKeyedUpdate(workflowKey string, backend *temporalBackend) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	laneID := backend.laneWorkflowID(workflowKey)
-	for _, update := range c.updates {
-		if update.WorkflowID == laneID {
-			return true
-		}
-		switch update.Name {
-		case updateLaneSignalOrStart, updateLaneStartRun, updateLaneSignalRun, updateLaneCancelRun, updateLedgerReserve, updateLedgerComplete:
 			return true
 		}
 	}
@@ -3571,13 +3377,22 @@ func (r recordingWorkflowRun) GetWithOptions(context.Context, interface{}, clien
 	return nil
 }
 
+type recordingWithStartOperation struct {
+	workflowID string
+	runID      string
+}
+
+func (o recordingWithStartOperation) Get(context.Context) (client.WorkflowRun, error) {
+	return recordingWorkflowRun{id: o.workflowID, runID: o.runID}, nil
+}
+
 type recordingUpdateHandle struct {
 	update recordedUpdate
 }
 
 func (h recordingUpdateHandle) WorkflowID() string { return h.update.WorkflowID }
 func (h recordingUpdateHandle) RunID() string      { return "" }
-func (h recordingUpdateHandle) UpdateID() string   { return "" }
+func (h recordingUpdateHandle) UpdateID() string   { return h.update.UpdateID }
 
 func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) error {
 	if valuePtr == nil {
@@ -3610,6 +3425,12 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 			}
 			if signal, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowSignal); ok && h.update.Name == updateAddSignal {
 				out.Signal = cloneSignal(signal)
+				if out.Signal.Sequence == 0 {
+					out.Signal.Sequence = 1
+				}
+				if out.Signal.Id == "" {
+					out.Signal.Id = "signal:" + hashID(h.update.WorkflowID, out.Signal.GetName(), fmt.Sprintf("%d", out.Signal.GetSequence()), out.Signal.GetIdempotencyKey())
+				}
 				out.StartedRun = true
 			}
 		}
@@ -3625,10 +3446,6 @@ func (v recordingEncodedValue) HasValue() bool { return true }
 
 func (v recordingEncodedValue) Get(valuePtr interface{}) error {
 	switch out := valuePtr.(type) {
-	case *ownerLedgerEntry:
-		if entry, ok := v.value.(*ownerLedgerEntry); ok {
-			*out = *cloneLedgerEntry(entry)
-		}
 	case *proto.BoundWorkflowRun:
 		if run, ok := v.value.(*proto.BoundWorkflowRun); ok {
 			*out = *cloneRun(run)

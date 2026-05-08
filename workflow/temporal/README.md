@@ -12,7 +12,7 @@ apiVersion: gestaltd.config/v5
 providers:
   workflow:
     temporal:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.8/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.21/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
@@ -38,11 +38,9 @@ providers:
             allowReplaceCurrent: true
 ```
 
-`scopeID` is required and is part of the Temporal workflow IDs used by this
-provider. Reuse the same `scopeID` only for the same logical Gestalt workflow
-environment. `indexShardCount` controls the number of Temporal-owned shards
-used for legacy run projections and owner idempotency ledgers during the
-migration window.
+`scopeID` is required and is part of the Temporal workflow IDs and IndexedDB
+state records used by this provider. Reuse the same `scopeID` only for the same
+logical Gestalt workflow environment.
 
 `versioning` is optional. When omitted or disabled, workers poll the task queue
 as unversioned workers. When enabled, the provider starts Temporal Worker
@@ -87,38 +85,24 @@ update; already-polled tasks cannot be recalled by the provider.
 
 - Temporal Cloud API-key authentication
 - Temporal V4 run workflows invoke the Gestalt workflow host through activities
-  and project run state into IndexedDB for new unkeyed, keyed, scheduled, and
-  event runs; V3 remains registered for existing handles and keyed lane
-  compatibility
+  and project run state into IndexedDB for unkeyed, keyed, scheduled, and event
+  runs
 - native Temporal schedules for cron dispatch with skip overlap policy;
   IndexedDB schedule records are the metadata source for schedule listing
 - keyed `StartRun` and `SignalOrStartRun` route directly to claim-gated V4 run
-  workflows and store workflow-key ownership in IndexedDB; new keyed work no
-  longer performs synchronous legacy lane discovery
-- unkeyed and keyed `StartRun` idempotency for new V4 runs is stored in
-  IndexedDB; signal idempotency for new signal operations requires IndexedDB,
-  with read-through support for completed legacy owner-ledger entries
-- public run IDs are opaque V3 handles that identify the run workflow; legacy
-  keyed runs may also include the owning lane workflow, but signal and cancel
-  operations route directly to the run workflow
-- `ListRuns` reads IndexedDB run projections only; legacy Temporal run-index
-  workflows remain registered for old histories but are no longer queried,
-  compacted, updated, or cleaned up by provider startup
+  workflows and store workflow-key ownership in IndexedDB
+- the first `SignalOrStartRun` signal is delivered with Temporal
+  Update-with-Start, using a deterministic update ID derived from the workflow
+  signal idempotency key
+- unkeyed and keyed `StartRun` idempotency and workflow signal idempotency are
+  stored in IndexedDB; owner-scoped signal idempotency keys coalesce duplicate
+  payloads while explicit signal IDs remain strict
+- public run IDs are opaque V4 handles that identify the run workflow and
+  Temporal run ID
+- `ListRuns` reads IndexedDB run projections only
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
-  ownership metadata; the legacy Temporal owner-ledger path no longer receives
-  new reservations and remains read-through/complete-only for old signal and
-  unkeyed-start idempotency recovery during the migration window
+  ownership metadata; provider startup removes stale records that still contain
+  unsupported old run handles before serving
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked
-
-## Migration Cleanup
-
-The large remaining deletion point is after the migration window:
-
-- delete legacy Temporal lane workflows after all active lane-owned keyed runs
-  have completed and old lane histories no longer need replay
-- delete Temporal owner-ledger workflows after old signal and unkeyed-start
-  ledger entries have expired
-- delete V3 run/index workflows after no public run handles require Temporal V3
-  history fallback and old histories no longer need replay
