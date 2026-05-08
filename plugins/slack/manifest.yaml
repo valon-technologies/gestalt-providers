@@ -69,39 +69,6 @@ spec:
         - name: types
           type: string
           in: query
-      - name: chat.postMessage
-        description: Send a message to a channel
-        method: POST
-        path: /api/chat.postMessage
-        connectionSelector:
-          parameter: actor
-          default: user
-          values:
-            bot: bot
-            user: default
-        parameters:
-        - name: actor
-          type: string
-          description: "Slack credential actor to use: bot or user"
-          in: body
-          internal: true
-        - name: channel
-          type: string
-          in: body
-          required: true
-        - name: text
-          type: string
-          in: body
-          required: true
-        - name: thread_ts
-          type: string
-          in: body
-        - name: unfurl_links
-          type: bool
-          in: body
-        - name: unfurl_media
-          type: bool
-          in: body
       - name: chat.update
         description: Update a message in a channel
         method: POST
