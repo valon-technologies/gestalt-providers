@@ -13,8 +13,6 @@ from http import HTTPStatus
 from typing import Any, Iterable, TypeAlias, cast
 
 import gestalt
-from google.protobuf import json_format
-from google.protobuf import struct_pb2 as _struct_pb2
 
 from .client import SlackAPIError, SlackClientError
 from .config import agent_config_from_provider_config, normalize_suggested_prompts
@@ -62,8 +60,6 @@ from .operations import (
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
-
-struct_pb2: Any = _struct_pb2
 
 logger = logging.getLogger(__name__)
 
@@ -2172,7 +2168,7 @@ def _subject_kind_from_id(subject_id: str) -> str:
 def _subject_display_name(subject: Any) -> str:
     properties = getattr(subject, "properties", None)
     if properties is not None and getattr(properties, "fields", None):
-        data = json_format.MessageToDict(properties)
+        data = gestalt.struct_to_dict(properties)
         for key in ("displayName", "display_name", "email", "name"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -3245,9 +3241,7 @@ def _workflow_publish_provider_selection_available() -> bool:
 
 
 def _dict_to_struct(data: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(data)
-    return struct
+    return gestalt.struct_from_dict(data)
 
 
 def _bad_request(message: str) -> ErrorResponse:

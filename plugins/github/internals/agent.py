@@ -5,7 +5,6 @@ import json
 from typing import Any
 
 import gestalt
-from google.protobuf import struct_pb2 as _struct_pb2
 
 from .config import (
     GitHubWebhookPolicy,
@@ -51,8 +50,6 @@ from .constants import (
 from .policy_metadata import policy_base_metadata
 from .webhook import bounded_text
 from .workflow_dispatch import workflow_signal_data
-
-struct_pb2: Any = _struct_pb2
 
 
 def build_workflow_signal_or_start_request(
@@ -649,6 +646,4 @@ def policy_canonical_metadata(
 
 
 def dict_to_struct(data: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(data)
-    return struct
+    return gestalt.struct_from_dict(data)

@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import gestalt
-from google.protobuf import json_format
 
 from .client import bot_identity_or_none
 from .config import (
@@ -1295,4 +1294,4 @@ def parse_json_object(value: str) -> dict[str, Any]:
 def struct_to_dict(value: Any) -> dict[str, Any]:
     if value is None or not getattr(value, "fields", None):
         return {}
-    return json_format.MessageToDict(value)
+    return gestalt.struct_to_dict(value)

@@ -10,7 +10,6 @@ from typing import Any, Callable, cast
 import gestalt
 import grpc
 from gestalt import telemetry
-from google.protobuf import json_format
 from jsonschema import ValidationError, validate
 
 
@@ -1111,13 +1110,11 @@ def _append_assistant_message(messages: list[dict[str, Any]], output_text: str) 
 
 
 def _message_to_dict(message: Any) -> dict[str, Any]:
-    return json_format.MessageToDict(message, preserving_proto_field_name=True)
+    return cast(dict[str, Any], gestalt.agent_message_to_proto_dict(message))
 
 
 def _message_from_dict(raw_message: dict[str, Any]) -> Any:
-    message = gestalt.AgentMessage()
-    json_format.ParseDict(raw_message, message)
-    return message
+    return gestalt.agent_message_from_proto_dict(raw_message)
 
 
 def _conversation_message_from_agent_message(raw_message: dict[str, Any]) -> dict[str, Any] | None:
