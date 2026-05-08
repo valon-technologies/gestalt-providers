@@ -6,7 +6,7 @@ import json
 import logging
 import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, cast
 
 from claude_agent_sdk import (
@@ -56,6 +56,19 @@ PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", 
 class _ActiveTurn:
     loop: asyncio.AbstractEventLoop
     client: Any | None = None
+
+
+@dataclass(slots=True)
+class _ClaudeResponse:
+    text_blocks: list[str] = field(default_factory=list)
+    tool_blocks: list[str] = field(default_factory=list)
+
+    def output_fallback(self) -> str:
+        if self.text_blocks:
+            return "\n".join(block for block in self.text_blocks if block).strip()
+        if self.tool_blocks:
+            return "\n".join(self.tool_blocks).strip()
+        return ""
 
 
 class ClaudeSDKRunner:
@@ -161,58 +174,15 @@ class ClaudeSDKRunner:
                     logger.exception("failed to disconnect Claude SDK client")
 
     async def _receive_result(self, client: Any, *, turn_id: str) -> str:
-        text_blocks: list[str] = []
-        tool_blocks: list[str] = []
+        response = _ClaudeResponse()
         result_message: Any | None = None
         async for message in client.receive_response():
             self._raise_if_canceled(turn_id)
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        text_blocks.append(block.text)
-                    elif isinstance(block, ToolUseBlock):
-                        tool_blocks.append(
-                            json.dumps(
-                                {"tool_use": {"id": block.id, "name": block.name, "input": block.input}},
-                                sort_keys=True,
-                                separators=(",", ":"),
-                            )
-                        )
-                    elif isinstance(block, ToolResultBlock):
-                        tool_blocks.append(
-                            json.dumps(
-                                {
-                                    "tool_result": {
-                                        "tool_use_id": block.tool_use_id,
-                                        "content": _jsonable(block.content),
-                                        "is_error": block.is_error,
-                                    }
-                                },
-                                sort_keys=True,
-                                separators=(",", ":"),
-                            )
-                        )
-            elif isinstance(message, ResultMessage):
-                result_message = message
+            result_message = _capture_response_message(response, message)
+            if result_message is not None:
                 break
 
-        if result_message is None:
-            raise ClaudeExecutionError("Claude Agent SDK response ended without a result")
-        subtype = str(getattr(result_message, "subtype", "") or "")
-        if bool(getattr(result_message, "is_error", False)) or subtype != "success":
-            detail = str(getattr(result_message, "result", "") or getattr(result_message, "stop_reason", "") or subtype)
-            if self._is_canceled(turn_id) or subtype in {"interrupted", "canceled", "cancelled"}:
-                raise ClaudeExecutionCanceled(_truncate(detail or "Claude Agent SDK turn was canceled"))
-            raise ClaudeExecutionError(_truncate(detail or f"Claude Agent SDK returned {subtype!r}"))
-
-        result_text = str(getattr(result_message, "result", "") or "").strip()
-        if result_text:
-            return result_text
-        if text_blocks:
-            return "\n".join(block for block in text_blocks if block).strip()
-        if tool_blocks:
-            return "\n".join(tool_blocks).strip()
-        return ""
+        return _result_output(response, result_message, canceled=self._is_canceled(turn_id))
 
     def _options(
         self,
@@ -284,6 +254,69 @@ class ClaudeSDKRunner:
     def _is_canceled(self, turn_id: str) -> bool:
         with self._lock:
             return turn_id in self._canceled_turns
+
+
+def _capture_response_message(response: _ClaudeResponse, message: Any) -> Any | None:
+    if isinstance(message, AssistantMessage):
+        _capture_assistant_message(response, message)
+        return None
+    if isinstance(message, ResultMessage):
+        return message
+    return None
+
+
+def _capture_assistant_message(response: _ClaudeResponse, message: AssistantMessage) -> None:
+    for block in message.content:
+        if isinstance(block, TextBlock):
+            response.text_blocks.append(block.text)
+        elif isinstance(block, ToolUseBlock):
+            response.tool_blocks.append(_tool_use_json(block))
+        elif isinstance(block, ToolResultBlock):
+            response.tool_blocks.append(_tool_result_json(block))
+
+
+def _tool_use_json(block: ToolUseBlock) -> str:
+    return json.dumps(
+        {"tool_use": {"id": block.id, "name": block.name, "input": block.input}},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _tool_result_json(block: ToolResultBlock) -> str:
+    return json.dumps(
+        {
+            "tool_result": {
+                "tool_use_id": block.tool_use_id,
+                "content": _jsonable(block.content),
+                "is_error": block.is_error,
+            }
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _result_output(response: _ClaudeResponse, result_message: Any | None, *, canceled: bool) -> str:
+    if result_message is None:
+        raise ClaudeExecutionError("Claude Agent SDK response ended without a result")
+    subtype = _result_subtype(result_message)
+    if bool(getattr(result_message, "is_error", False)) or subtype != "success":
+        _raise_result_error(result_message, subtype=subtype, canceled=canceled)
+
+    result_text = str(getattr(result_message, "result", "") or "").strip()
+    return result_text or response.output_fallback()
+
+
+def _raise_result_error(result_message: Any, *, subtype: str, canceled: bool) -> None:
+    detail = str(getattr(result_message, "result", "") or getattr(result_message, "stop_reason", "") or subtype)
+    if canceled or subtype in {"interrupted", "canceled", "cancelled"}:
+        raise ClaudeExecutionCanceled(_truncate(detail or "Claude Agent SDK turn was canceled"))
+    raise ClaudeExecutionError(_truncate(detail or f"Claude Agent SDK returned {subtype!r}"))
+
+
+def _result_subtype(result_message: Any) -> str:
+    return str(getattr(result_message, "subtype", "") or "")
 
 
 def _messages_to_prompt(messages: list[dict[str, Any]]) -> str:

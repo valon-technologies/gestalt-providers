@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import grpc
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolResultBlock, ToolUseBlock
 from google.protobuf import json_format
 from google.protobuf import empty_pb2 as _empty_pb2
 from google.protobuf import struct_pb2 as _struct_pb2
@@ -214,6 +214,50 @@ class _FakeClaudeSDKClient:
                 num_turns=1,
                 session_id=self.session_id,
                 result="boom",
+            )
+            return
+        if self.mode == "cancelled_result":
+            yield ResultMessage(
+                subtype="cancelled",
+                duration_ms=0,
+                duration_api_ms=0,
+                is_error=True,
+                num_turns=1,
+                session_id=self.session_id,
+                result="cancelled by sdk",
+            )
+            return
+        if self.mode == "no_result":
+            yield AssistantMessage(content=[TextBlock(text="orphan response")], model="fake-claude")
+            return
+        if self.mode == "text_fallback":
+            yield AssistantMessage(content=[TextBlock(text="fallback assistant text")], model="fake-claude")
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=self.session_id,
+                result="",
+            )
+            return
+        if self.mode == "tool_fallback":
+            yield AssistantMessage(
+                content=[
+                    ToolUseBlock(id="tool-1", name="linear__issues", input={"query": "AIT"}),
+                    ToolResultBlock(tool_use_id="tool-1", content="{}", is_error=False),
+                ],
+                model="fake-claude",
+            )
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=self.session_id,
+                result="",
             )
             return
 
@@ -1331,6 +1375,50 @@ class ClaudeProviderTests(unittest.TestCase):
 
         failed = _wait_for_turn(provider_client, "turn-failure", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
         self.assertIn("boom", failed.status_message)
+
+    def test_sdk_empty_result_falls_back_to_assistant_text(self) -> None:
+        _FakeClaudeSDKClient.mode = "text_fallback"
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-text-fallback"))
+        provider_client.CreateTurn(_turn_request(turn_id="turn-text-fallback", session_id="session-text-fallback"))
+
+        turn = _wait_for_turn(provider_client, "turn-text-fallback", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(turn.output_text, "fallback assistant text")
+
+    def test_sdk_empty_result_falls_back_to_tool_json(self) -> None:
+        _FakeClaudeSDKClient.mode = "tool_fallback"
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-tool-fallback"))
+        provider_client.CreateTurn(_turn_request(turn_id="turn-tool-fallback", session_id="session-tool-fallback"))
+
+        turn = _wait_for_turn(provider_client, "turn-tool-fallback", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        use_line, result_line = turn.output_text.splitlines()
+        self.assertEqual(
+            json.loads(use_line), {"tool_use": {"id": "tool-1", "input": {"query": "AIT"}, "name": "linear__issues"}}
+        )
+        self.assertEqual(
+            json.loads(result_line), {"tool_result": {"content": "{}", "is_error": False, "tool_use_id": "tool-1"}}
+        )
+
+    def test_sdk_response_without_result_marks_turn_failed(self) -> None:
+        _FakeClaudeSDKClient.mode = "no_result"
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-no-result"))
+        provider_client.CreateTurn(_turn_request(turn_id="turn-no-result", session_id="session-no-result"))
+
+        failed = _wait_for_turn(provider_client, "turn-no-result", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
+        self.assertIn("ended without a result", failed.status_message)
+
+    def test_sdk_cancelled_result_marks_turn_canceled(self) -> None:
+        _FakeClaudeSDKClient.mode = "cancelled_result"
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-cancelled-result"))
+        provider_client.CreateTurn(_turn_request(turn_id="turn-cancelled-result", session_id="session-cancelled-result"))
+
+        canceled = _wait_for_turn(
+            provider_client, "turn-cancelled-result", agent_pb2.AGENT_EXECUTION_STATUS_CANCELED
+        )
+        self.assertEqual(canceled.status_message, "cancelled by sdk")
 
 
 def setUpModule() -> None:
