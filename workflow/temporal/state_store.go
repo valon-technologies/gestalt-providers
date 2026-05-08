@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	storeTemporalSchedules        = "workflow_temporal_schedules"
-	storeTemporalEventTriggers    = "workflow_temporal_event_triggers"
-	storeTemporalEventTriggerKeys = "workflow_temporal_event_trigger_keys"
-	storeTemporalExecutionRefs    = "workflow_temporal_execution_refs"
-	storeTemporalRunProjections   = "workflow_temporal_v4_run_projections"
-	storeTemporalRunIdempotency   = "workflow_temporal_v4_run_idempotency"
-	storeTemporalWorkflowKeys     = "workflow_temporal_v4_workflow_keys"
+	storeTemporalSchedules         = "workflow_temporal_schedules"
+	storeTemporalEventTriggers     = "workflow_temporal_event_triggers"
+	storeTemporalEventTriggerKeys  = "workflow_temporal_event_trigger_keys"
+	storeTemporalExecutionRefs     = "workflow_temporal_execution_refs"
+	storeTemporalRunProjections    = "workflow_temporal_v4_run_projections"
+	storeTemporalRunIdempotency    = "workflow_temporal_v4_run_idempotency"
+	storeTemporalSignalIdempotency = "workflow_temporal_v4_signal_idempotency"
+	storeTemporalWorkflowKeys      = "workflow_temporal_v4_workflow_keys"
 
 	indexBySubject   = "by_subject"
 	indexByMatchKey  = "by_match_key"
@@ -40,13 +41,14 @@ type workflowStateStore struct {
 	db      *gestalt.IndexedDBClient
 	scopeID string
 
-	schedules        *gestalt.ObjectStoreClient
-	eventTriggers    *gestalt.ObjectStoreClient
-	eventTriggerKeys *gestalt.ObjectStoreClient
-	executionRefs    *gestalt.ObjectStoreClient
-	runProjections   *gestalt.ObjectStoreClient
-	runIdempotency   *gestalt.ObjectStoreClient
-	workflowKeys     *gestalt.ObjectStoreClient
+	schedules         *gestalt.ObjectStoreClient
+	eventTriggers     *gestalt.ObjectStoreClient
+	eventTriggerKeys  *gestalt.ObjectStoreClient
+	executionRefs     *gestalt.ObjectStoreClient
+	runProjections    *gestalt.ObjectStoreClient
+	runIdempotency    *gestalt.ObjectStoreClient
+	signalIdempotency *gestalt.ObjectStoreClient
+	workflowKeys      *gestalt.ObjectStoreClient
 }
 
 func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*workflowStateStore, error) {
@@ -76,15 +78,16 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 		return nil, err
 	}
 	store := &workflowStateStore{
-		scopeID:          scopeID,
-		db:               db,
-		schedules:        db.ObjectStore(storeTemporalSchedules),
-		eventTriggers:    db.ObjectStore(storeTemporalEventTriggers),
-		eventTriggerKeys: db.ObjectStore(storeTemporalEventTriggerKeys),
-		executionRefs:    db.ObjectStore(storeTemporalExecutionRefs),
-		runProjections:   db.ObjectStore(storeTemporalRunProjections),
-		runIdempotency:   db.ObjectStore(storeTemporalRunIdempotency),
-		workflowKeys:     db.ObjectStore(storeTemporalWorkflowKeys),
+		scopeID:           scopeID,
+		db:                db,
+		schedules:         db.ObjectStore(storeTemporalSchedules),
+		eventTriggers:     db.ObjectStore(storeTemporalEventTriggers),
+		eventTriggerKeys:  db.ObjectStore(storeTemporalEventTriggerKeys),
+		executionRefs:     db.ObjectStore(storeTemporalExecutionRefs),
+		runProjections:    db.ObjectStore(storeTemporalRunProjections),
+		runIdempotency:    db.ObjectStore(storeTemporalRunIdempotency),
+		signalIdempotency: db.ObjectStore(storeTemporalSignalIdempotency),
+		workflowKeys:      db.ObjectStore(storeTemporalWorkflowKeys),
 	}
 	return store, nil
 }
@@ -110,6 +113,9 @@ func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient)
 	}
 	if err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow run idempotency store: %w", err)
+	}
+	if err := db.CreateObjectStore(ctx, storeTemporalSignalIdempotency, temporalSignalIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create workflow signal idempotency store: %w", err)
 	}
 	if err := db.CreateObjectStore(ctx, storeTemporalWorkflowKeys, temporalWorkflowKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow key store: %w", err)
@@ -146,6 +152,28 @@ func temporalRunIdempotencySchema() gestalt.ObjectStoreSchema {
 			{Name: "created_at", Type: gestalt.TypeTime},
 			{Name: "updated_at", Type: gestalt.TypeTime},
 			{Name: "expires_at", Type: gestalt.TypeTime},
+			{Name: "run_payload", Type: gestalt.TypeBytes},
+		},
+	}
+}
+
+func temporalSignalIdempotencySchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "idempotency_key", Type: gestalt.TypeString},
+			{Name: "operation", Type: gestalt.TypeString},
+			{Name: "fingerprint", Type: gestalt.TypeString, NotNull: true},
+			{Name: "status", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_key", Type: gestalt.TypeString},
+			{Name: "workflow_key", Type: gestalt.TypeString},
+			{Name: "run_id", Type: gestalt.TypeString},
+			{Name: "signal_id", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+			{Name: "expires_at", Type: gestalt.TypeTime},
+			{Name: "response_payload", Type: gestalt.TypeBytes},
 			{Name: "run_payload", Type: gestalt.TypeBytes},
 		},
 	}
@@ -718,6 +746,223 @@ func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, own
 	return nil
 }
 
+type signalIdempotencyReserveRequest struct {
+	Key         string
+	Operation   string
+	Fingerprint string
+	OwnerKey    string
+	WorkflowKey string
+	RunID       string
+	SignalID    string
+}
+
+type signalIdempotencyRecord struct {
+	ID              string
+	IdempotencyKey  string
+	Operation       string
+	Fingerprint     string
+	Status          string
+	OwnerKey        string
+	WorkflowKey     string
+	RunID           string
+	SignalID        string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ExpiresAt       time.Time
+	ResponsePayload []byte
+	RunPayload      []byte
+}
+
+func (s *workflowStateStore) reserveSignalIdempotency(ctx context.Context, req signalIdempotencyReserveRequest, retention time.Duration, now time.Time) (*signalIdempotencyRecord, bool, error) {
+	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
+		entry, existing, err := s.reserveSignalIdempotencyOnce(ctx, req, retention, now)
+		if err == nil || !isRunIdempotencyRetryableConflict(err) {
+			return entry, existing, err
+		}
+		if err := yieldRunIdempotencyRetry(ctx); err != nil {
+			return nil, false, err
+		}
+	}
+	return nil, false, status.Error(codes.Aborted, "workflow signal idempotency reservation raced too many times")
+}
+
+func (s *workflowStateStore) reserveSignalIdempotencyOnce(ctx context.Context, req signalIdempotencyReserveRequest, retention time.Duration, now time.Time) (*signalIdempotencyRecord, bool, error) {
+	req.Key = strings.TrimSpace(req.Key)
+	req.Fingerprint = strings.TrimSpace(req.Fingerprint)
+	if req.Key == "" || req.Fingerprint == "" {
+		return nil, false, nil
+	}
+	if retention <= 0 {
+		retention = defaultIdempotencyRetention
+	}
+	now = now.UTC()
+	id := s.signalIdempotencyID(req.Key)
+	tx, err := s.db.Transaction(ctx, []string{storeTemporalSignalIdempotency}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
+	if err != nil {
+		return nil, false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Abort(ctx)
+		}
+	}()
+	store := tx.ObjectStore(storeTemporalSignalIdempotency)
+	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	if err != nil {
+		return nil, false, err
+	}
+	replaceExpired := false
+	for _, record := range records {
+		if recordString(record, "id") != id {
+			continue
+		}
+		existing := signalIdempotencyFromRecord(record)
+		if existing.ExpiresAt.IsZero() || existing.ExpiresAt.After(now) {
+			if existing.Fingerprint != req.Fingerprint {
+				return nil, false, &runIdempotencyConflictError{Key: req.Key}
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, false, err
+			}
+			committed = true
+			return &existing, true, nil
+		}
+		replaceExpired = true
+		break
+	}
+	reserved := signalIdempotencyRecord{
+		ID:             id,
+		IdempotencyKey: req.Key,
+		Operation:      strings.TrimSpace(req.Operation),
+		Fingerprint:    req.Fingerprint,
+		Status:         "reserved",
+		OwnerKey:       strings.TrimSpace(req.OwnerKey),
+		WorkflowKey:    strings.TrimSpace(req.WorkflowKey),
+		RunID:          strings.TrimSpace(req.RunID),
+		SignalID:       strings.TrimSpace(req.SignalID),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		ExpiresAt:      now.Add(retention),
+	}
+	if replaceExpired {
+		if err := store.Put(ctx, s.signalIdempotencyRecord(reserved)); err != nil {
+			return nil, false, err
+		}
+	} else {
+		if err := store.Add(ctx, s.signalIdempotencyRecord(reserved)); err != nil {
+			return nil, false, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	committed = true
+	return &reserved, false, nil
+}
+
+func (s *workflowStateStore) completeSignalIdempotency(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse, retention time.Duration, now time.Time) error {
+	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
+		err := s.completeSignalIdempotencyOnce(ctx, key, fingerprint, resp, retention, now)
+		if err == nil || !isRunIdempotencyRetryableConflict(err) {
+			return err
+		}
+		if err := yieldRunIdempotencyRetry(ctx); err != nil {
+			return err
+		}
+	}
+	return status.Error(codes.Aborted, "workflow signal idempotency completion raced too many times")
+}
+
+func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse, retention time.Duration, now time.Time) error {
+	key = strings.TrimSpace(key)
+	fingerprint = strings.TrimSpace(fingerprint)
+	if key == "" || fingerprint == "" || resp == nil {
+		return nil
+	}
+	if retention <= 0 {
+		retention = defaultIdempotencyRetention
+	}
+	now = now.UTC()
+	id := s.signalIdempotencyID(key)
+	tx, err := s.db.Transaction(ctx, []string{storeTemporalSignalIdempotency}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Abort(ctx)
+		}
+	}()
+	store := tx.ObjectStore(storeTemporalSignalIdempotency)
+	createdAt := now
+	var existing signalIdempotencyRecord
+	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	if err != nil {
+		return err
+	}
+	for _, existingRecord := range records {
+		if recordString(existingRecord, "id") != id {
+			continue
+		}
+		existing = signalIdempotencyFromRecord(existingRecord)
+		if existing.Fingerprint != fingerprint {
+			if existing.ExpiresAt.IsZero() || existing.ExpiresAt.After(now) {
+				return &runIdempotencyConflictError{Key: key}
+			}
+			return nil
+		}
+		if existing.Status == "completed" && signalResponseFromPayload(existing.ResponsePayload) != nil {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			committed = true
+			return nil
+		}
+		if !existing.CreatedAt.IsZero() {
+			createdAt = existing.CreatedAt
+		}
+		break
+	}
+	workflowKey := existing.WorkflowKey
+	if workflowKey == "" {
+		workflowKey = resp.GetWorkflowKey()
+	}
+	runID := existing.RunID
+	if runID == "" {
+		runID = resp.GetRun().GetId()
+	}
+	signalID := existing.SignalID
+	if signalID == "" {
+		signalID = resp.GetSignal().GetId()
+	}
+	record := signalIdempotencyRecord{
+		ID:              id,
+		IdempotencyKey:  key,
+		Operation:       existing.Operation,
+		Fingerprint:     fingerprint,
+		Status:          "completed",
+		OwnerKey:        existing.OwnerKey,
+		WorkflowKey:     workflowKey,
+		RunID:           runID,
+		SignalID:        signalID,
+		CreatedAt:       createdAt,
+		UpdatedAt:       now,
+		ExpiresAt:       now.Add(retention),
+		ResponsePayload: protoPayload(resp),
+		RunPayload:      protoPayload(resp.GetRun()),
+	}
+	if err := store.Put(ctx, s.signalIdempotencyRecord(record)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func isRunIdempotencyRetryableConflict(err error) bool {
 	if errors.Is(err, gestalt.ErrAlreadyExists) {
 		return true
@@ -987,6 +1232,10 @@ func (s *workflowStateStore) runIdempotencyID(ownerKey, key string) string {
 	return s.scopedID("start", hashID(ownerKey, key))
 }
 
+func (s *workflowStateStore) signalIdempotencyID(key string) string {
+	return s.scopedID("signal", hashID(key))
+}
+
 func (s *workflowStateStore) workflowKeyID(workflowKey string) string {
 	return s.scopedID("workflow-key", hashID(workflowKey))
 }
@@ -1050,6 +1299,52 @@ func runIdempotencyFromRecord(record gestalt.Record) runIdempotencyRecord {
 		Status:         recordString(record, "status"),
 		RunID:          recordString(record, "run_id"),
 		RunPayload:     recordBytes(record, "run_payload"),
+	}
+	if createdAt := recordTime(record, "created_at"); createdAt != nil {
+		out.CreatedAt = createdAt.UTC()
+	}
+	if updatedAt := recordTime(record, "updated_at"); updatedAt != nil {
+		out.UpdatedAt = updatedAt.UTC()
+	}
+	if expiresAt := recordTime(record, "expires_at"); expiresAt != nil {
+		out.ExpiresAt = expiresAt.UTC()
+	}
+	return out
+}
+
+func (s *workflowStateStore) signalIdempotencyRecord(record signalIdempotencyRecord) gestalt.Record {
+	return gestalt.Record{
+		"id":               strings.TrimSpace(record.ID),
+		"scope_id":         s.scopeID,
+		"idempotency_key":  strings.TrimSpace(record.IdempotencyKey),
+		"operation":        strings.TrimSpace(record.Operation),
+		"fingerprint":      strings.TrimSpace(record.Fingerprint),
+		"status":           strings.TrimSpace(record.Status),
+		"owner_key":        strings.TrimSpace(record.OwnerKey),
+		"workflow_key":     strings.TrimSpace(record.WorkflowKey),
+		"run_id":           strings.TrimSpace(record.RunID),
+		"signal_id":        strings.TrimSpace(record.SignalID),
+		"created_at":       record.CreatedAt.UTC(),
+		"updated_at":       record.UpdatedAt.UTC(),
+		"expires_at":       record.ExpiresAt.UTC(),
+		"response_payload": append([]byte(nil), record.ResponsePayload...),
+		"run_payload":      append([]byte(nil), record.RunPayload...),
+	}
+}
+
+func signalIdempotencyFromRecord(record gestalt.Record) signalIdempotencyRecord {
+	out := signalIdempotencyRecord{
+		ID:              recordString(record, "id"),
+		IdempotencyKey:  recordString(record, "idempotency_key"),
+		Operation:       recordString(record, "operation"),
+		Fingerprint:     recordString(record, "fingerprint"),
+		Status:          recordString(record, "status"),
+		OwnerKey:        recordString(record, "owner_key"),
+		WorkflowKey:     recordString(record, "workflow_key"),
+		RunID:           recordString(record, "run_id"),
+		SignalID:        recordString(record, "signal_id"),
+		ResponsePayload: recordBytes(record, "response_payload"),
+		RunPayload:      recordBytes(record, "run_payload"),
 	}
 	if createdAt := recordTime(record, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()

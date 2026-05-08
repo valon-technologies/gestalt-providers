@@ -1853,6 +1853,65 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	}
 }
 
+func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	req := &proto.SignalOrStartWorkflowProviderRunRequest{
+		WorkflowKey: "thread-1",
+		Target:      pluginTarget("slack", "postMessage"),
+		CreatedBy:   &proto.WorkflowActor{SubjectId: "user-1"},
+		Signal:      &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
+	}
+	first, err := backend.SignalOrStartRun(ctx, req)
+	if err != nil {
+		t.Fatalf("SignalOrStartRun(first): %v", err)
+	}
+	updateCount := len(tc.updates)
+	executionCount := len(tc.executions)
+
+	duplicate, err := backend.SignalOrStartRun(ctx, req)
+	if err != nil {
+		t.Fatalf("SignalOrStartRun(duplicate): %v", err)
+	}
+	if duplicate.GetRun().GetId() != first.GetRun().GetId() || duplicate.GetSignal().GetId() != first.GetSignal().GetId() {
+		t.Fatalf("duplicate response = %#v, want first response %#v", duplicate, first)
+	}
+	if len(tc.executions) != executionCount {
+		t.Fatalf("executions = %d, want %d", len(tc.executions), executionCount)
+	}
+	if len(tc.updates) != updateCount {
+		t.Fatalf("updates = %#v, want no duplicate temporal signal", tc.updates[updateCount:])
+	}
+	if tc.hasAnyLegacyKeyedUpdate("thread-1", backend) {
+		t.Fatalf("legacy keyed updates = %#v, want none", tc.updates)
+	}
+	key := ownerIdempotencyLedgerKey("slack", "signal-1")
+	record, err := state.signalIdempotency.Get(ctx, state.signalIdempotencyID(key))
+	if err != nil {
+		t.Fatalf("load signal idempotency record: %v", err)
+	}
+	if recordString(record, "status") != "completed" || len(recordBytes(record, "response_payload")) == 0 {
+		t.Fatalf("signal idempotency record = %#v, want completed response", record)
+	}
+}
+
 func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -2086,6 +2145,115 @@ func TestSignalOrStartRunMigratesActiveLegacyLaneOwner(t *testing.T) {
 	}
 	if newUpdates[0].WorkflowID == legacyLaneID {
 		t.Fatalf("SignalRun hit lane workflow %q, want direct child update", newUpdates[0].WorkflowID)
+	}
+}
+
+func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	run := workflowKeyClaimRun("signal-idem", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	req := &proto.SignalWorkflowProviderRunRequest{
+		RunId:  run.GetId(),
+		Signal: &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
+	}
+	first, err := backend.SignalRun(ctx, req)
+	if err != nil {
+		t.Fatalf("SignalRun(first): %v", err)
+	}
+	updateCount := len(tc.updates)
+	duplicate, err := backend.SignalRun(ctx, req)
+	if err != nil {
+		t.Fatalf("SignalRun(duplicate): %v", err)
+	}
+	if duplicate.GetSignal().GetId() != first.GetSignal().GetId() {
+		t.Fatalf("duplicate signal = %#v, want first signal %#v", duplicate.GetSignal(), first.GetSignal())
+	}
+	if len(tc.updates) != updateCount {
+		t.Fatalf("updates = %#v, want no duplicate temporal signal", tc.updates[updateCount:])
+	}
+	key := ownerIdempotencyLedgerKey("slack", "signal-1")
+	record, err := state.signalIdempotency.Get(ctx, state.signalIdempotencyID(key))
+	if err != nil {
+		t.Fatalf("load signal idempotency record: %v", err)
+	}
+	if recordString(record, "status") != "completed" || recordString(record, "run_id") != run.GetId() {
+		t.Fatalf("signal idempotency record = %#v, want completed run %q", record, run.GetId())
+	}
+	if tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerReserve) || tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerComplete) {
+		t.Fatalf("legacy ledger updates = %#v, want none", tc.updates)
+	}
+}
+
+func TestSignalRunReturnsCompletedLegacySignalIdempotency(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	run := workflowKeyClaimRun("legacy-signal-idem", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	signal := &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"}
+	normalized, err := normalizeWorkflowSignal(signal, time.Unix(200, 0).UTC())
+	if err != nil {
+		t.Fatalf("normalizeWorkflowSignal: %v", err)
+	}
+	resp := &proto.SignalWorkflowRunResponse{Run: run, Signal: normalized, WorkflowKey: "thread-1"}
+	key := ownerIdempotencyLedgerKey("slack", "signal-1")
+	fingerprint := signalFingerprint("slack", "thread-1"+"\x00"+run.GetId(), normalized)
+	tc := &recordingTemporalClient{ledgerEntries: map[string]*ownerLedgerEntry{
+		key: {
+			Key:             key,
+			Status:          "completed",
+			Fingerprint:     fingerprint,
+			ResponsePayload: protoPayload(resp),
+			RunPayload:      protoPayload(run),
+		},
+	}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, state)
+	got, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{RunId: run.GetId(), Signal: signal})
+	if err != nil {
+		t.Fatalf("SignalRun: %v", err)
+	}
+	if got.GetRun().GetId() != run.GetId() || got.GetSignal().GetIdempotencyKey() != "signal-1" {
+		t.Fatalf("response = %#v, want completed legacy response", got)
+	}
+	if len(tc.updates) != 0 {
+		t.Fatalf("updates = %#v, want no temporal signal", tc.updates)
+	}
+	record, err := state.signalIdempotency.Get(ctx, state.signalIdempotencyID(key))
+	if err != nil {
+		t.Fatalf("load migrated signal idempotency record: %v", err)
+	}
+	if recordString(record, "status") != "completed" || len(recordBytes(record, "response_payload")) == 0 {
+		t.Fatalf("migrated signal idempotency record = %#v, want completed response", record)
 	}
 }
 
