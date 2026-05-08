@@ -41,9 +41,7 @@ def agent_config_from_provider_config(
         agent, "timeoutSeconds", "timeout_seconds"
     )
     agent_tool_sets = _agent_tool_sets_from_config(agent)
-    agent_tool_set_refs = _config_string_tuple(
-        agent, "toolSetRefs", "tool_set_refs"
-    )
+    agent_tool_set_refs = _config_string_tuple(agent, "toolSetRefs", "tool_set_refs")
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
@@ -345,9 +343,7 @@ def _agent_route_from_config(
         agent_model_options=model_options
         or _config_dict(config, "modelOptions", "agentModelOptions"),
         agent_timeout_seconds=timeout_seconds,
-        agent_tool_set_refs=_config_string_tuple(
-            agent, "toolSetRefs", "tool_set_refs"
-        )
+        agent_tool_set_refs=_config_string_tuple(agent, "toolSetRefs", "tool_set_refs")
         or _config_string_tuple(config, "toolSetRefs", "tool_set_refs"),
         agent_tools=_agent_tool_refs_from_config(
             agent, f"agent.routes[{index}].agent.tools"
@@ -363,7 +359,9 @@ def _route_workflow_config_from_config(
     if workflow is None:
         workflow = _config_dict_or_none(config, "workflow")
     workflow_data = workflow or {}
-    provider = _config_string(workflow_data, "provider", "providerName", "provider_name")
+    provider = _config_string(
+        workflow_data, "provider", "providerName", "provider_name"
+    )
     provider = provider or _config_string(
         agent,
         "workflowProvider",
@@ -413,7 +411,9 @@ def _route_assistant_config_from_config(
         suggested_prompts_title=parsed.suggested_prompts_title
         or inherited.suggested_prompts_title,
         suggested_prompts=parsed.suggested_prompts
-        if _config_has_any(assistant, "suggestedPrompts", "suggested_prompts", "prompts")
+        if _config_has_any(
+            assistant, "suggestedPrompts", "suggested_prompts", "prompts"
+        )
         else inherited.suggested_prompts,
     )
 
@@ -463,7 +463,11 @@ def _route_thread_context_config_from_config(
         enabled=_config_bool(thread_context, "enabled", default=inherited.enabled),
         max_messages=parsed.max_messages
         if _config_has_any(
-            thread_context, "maxMessages", "max_messages", "messageLimit", "message_limit"
+            thread_context,
+            "maxMessages",
+            "max_messages",
+            "messageLimit",
+            "message_limit",
         )
         else inherited.max_messages,
         include_user_info=parsed.include_user_info
@@ -476,9 +480,7 @@ def _route_thread_context_config_from_config(
         if _config_has_any(thread_context, "includeFiles", "include_files")
         else inherited.include_files,
         include_file_content=parsed.include_file_content
-        if _config_has_any(
-            thread_context, "includeFileContent", "include_file_content"
-        )
+        if _config_has_any(thread_context, "includeFileContent", "include_file_content")
         else inherited.include_file_content,
         include_image_data=parsed.include_image_data
         if _config_has_any(thread_context, "includeImageData", "include_image_data")
@@ -490,7 +492,7 @@ def _route_thread_context_config_from_config(
 
 
 def _agent_tool_sets_from_config(
-    agent: dict[str, Any]
+    agent: dict[str, Any],
 ) -> dict[str, tuple[SlackAgentToolRef, ...]]:
     raw_tool_sets = _config_mapping(agent, "toolSets", "tool_sets")
     if not raw_tool_sets:
@@ -592,7 +594,9 @@ def _agent_tool_refs_from_config(
             if system != "workflow":
                 raise ValueError(f"{ref_path}.system must be workflow")
             if not operation or operation == "*":
-                raise ValueError(f"{ref_path}.operation must be an exact operation name")
+                raise ValueError(
+                    f"{ref_path}.operation must be an exact operation name"
+                )
             if connection or instance or title or description:
                 raise ValueError(
                     f"{ref_path} system refs cannot include connection, instance, title, or description"
@@ -650,6 +654,17 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
         ),
         user_ids=_config_string_tuple(
             config, "user", "users", "userId", "userIds", "user_id", "user_ids"
+        ),
+        bot_ids=_config_string_tuple(
+            config, "bot", "bots", "botId", "botIds", "bot_id", "bot_ids"
+        ),
+        include_bot_events=_config_bool(
+            config,
+            "includeBotEvents",
+            "include_bot_events",
+            "includeBots",
+            "include_bots",
+            default=False,
         ),
         thread=_config_choice(
             config,
@@ -854,9 +869,7 @@ def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
             if not normalized:
                 return 0
             if not normalized.isdecimal():
-                raise ValueError(
-                    f"{key} must be a positive integer number of seconds"
-                )
+                raise ValueError(f"{key} must be a positive integer number of seconds")
             seconds = int(normalized)
         else:
             raise ValueError(f"{key} must be a positive integer number of seconds")

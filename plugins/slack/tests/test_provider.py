@@ -1439,9 +1439,18 @@ class SlackProviderTests(unittest.TestCase):
         current_message = agent_request["current_message"]
         self.assertEqual(
             set(current_message.keys()),
-            {"text", "user_id", "message_ts", "file_ids"},
+            {
+                "text",
+                "user_id",
+                "bot_id",
+                "is_bot_event",
+                "message_ts",
+                "file_ids",
+            },
         )
         self.assertEqual(current_message["user_id"], "U456")
+        self.assertEqual(current_message["bot_id"], "")
+        self.assertEqual(current_message["is_bot_event"], False)
         self.assertEqual(current_message["message_ts"], "1712161829.000300")
         self.assertEqual(current_message["file_ids"], ["F123"])
         self.assertEqual(signal_payload["slack"]["event_id"], "Ev123")
@@ -2225,6 +2234,75 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, cast(Any, request))
 
         self.assertEqual(response, {"ok": True, "unlinked": True})
+
+    def test_slack_event_handler_allows_configured_bot_route_system_subject(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "alert-bot-messages",
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvLinkedBotRoute",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "subtype": "bot_message",
+                "bot_id": "B123",
+                "channel": "C_ALERTS",
+                "channel_type": "channel",
+                "text": "alert fired",
+                "ts": "1712161829.000300",
+            },
+        }
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="system:http_binding:slack:events")
+        )
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen",
+                side_effect=AssertionError("unexpected Slack notification"),
+            ),
+        ):
+            response = provider_module.slack_events_handle(payload, request)
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        signal_metadata = json_format.MessageToDict(workflow_request.signal.metadata)
+        self.assertEqual(
+            signal_metadata["slack"]["agent_route_id"], "alert-bot-messages"
+        )
+        self.assertEqual(signal_metadata["slack"]["bot_id"], "B123")
 
     def test_slack_event_handler_still_notifies_unlinked_dm_route(self) -> None:
         provider_module.configure(
@@ -5261,11 +5339,9 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.addCleanup(provider_module.configure, "slack", {})
         ignored_events = [
-            {"subtype": "bot_message", "bot_id": "B123"},
             {"subtype": "message_changed"},
             {"subtype": "message_deleted"},
             {"subtype": "message_replied"},
-            {"bot_id": "B123"},
         ]
 
         for index, event_fields in enumerate(ignored_events, start=1):
@@ -5289,6 +5365,168 @@ class SlackProviderTests(unittest.TestCase):
 
                 self.assertEqual(response, {"ok": True, "ignored": "ignored_event"})
                 self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_event_type_route_ignores_bot_message_without_bot_match(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "all-channel-messages",
+                            "match": {"eventTypes": ["message.channels"]},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvBotIgnored",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "subtype": "bot_message",
+                    "bot_id": "B123",
+                    "user": "U_BOT_USER",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "bot alert",
+                    "ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_event_type_route_can_match_configured_bot_message(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "alert-bot-messages",
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                                "thread": "root",
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvBotMatched",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "subtype": "bot_message",
+                    "bot_id": "B123",
+                    "user": "U_BOT_USER",
+                    "channel": "C_ALERTS",
+                    "channel_type": "channel",
+                    "text": "",
+                    "attachments": [
+                        {
+                            "fallback": "Datadog alert: high error rate",
+                            "fields": [
+                                {"title": "Status", "value": "Triggered"},
+                            ],
+                        }
+                    ],
+                    "ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        signal_payload = json_format.MessageToDict(workflow_request.signal.payload)
+        signal_metadata = json_format.MessageToDict(workflow_request.signal.metadata)
+        self.assertEqual(
+            signal_metadata["slack"]["agent_route_id"], "alert-bot-messages"
+        )
+        self.assertEqual(signal_metadata["slack"]["bot_id"], "B123")
+        self.assertEqual(signal_metadata["slack"]["is_bot_event"], True)
+        self.assertIn(
+            "Datadog alert: high error rate",
+            signal_payload["agent_request"]["current_message"]["text"],
+        )
+        self.assertEqual(
+            signal_payload["agent_request"]["current_message"]["bot_id"], "B123"
+        )
+        self.assertEqual(
+            signal_payload["agent_request"]["current_message"]["is_bot_event"], True
+        )
+
+    def test_event_type_route_rejects_unmatched_bot_id(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "alert-bot-messages",
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvBotRejected",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "subtype": "bot_message",
+                    "bot_id": "B999",
+                    "user": "U_BOT_USER",
+                    "channel": "C_ALERTS",
+                    "channel_type": "channel",
+                    "text": "wrong bot",
+                    "ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
         self,

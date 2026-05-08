@@ -106,9 +106,11 @@ class SlackAgentEvent:
     client_msg_id: str = ""
     addressed_to_bot: bool = False
     assistant_context_present: bool = False
+    bot_id: str = ""
     bot_user_id: str = ""
     context_channel_id: str = ""
     files: tuple[dict[str, Any], ...] = ()
+    is_bot_event: bool = False
     subtype: str = ""
 
     @property
@@ -127,6 +129,8 @@ class SlackAgentRouteMatch:
     channel_types: tuple[str, ...] = ()
     event_types: tuple[str, ...] = ()
     user_ids: tuple[str, ...] = ()
+    bot_ids: tuple[str, ...] = ()
+    include_bot_events: bool = False
     subtypes: tuple[str, ...] | None = None
     thread: str = "any"
 
@@ -173,6 +177,10 @@ class SlackAgentRouteMatch:
             return False
         if self.user_ids and event.user_id not in self.user_ids:
             return False
+        if self.bot_ids and event.bot_id not in self.bot_ids:
+            return False
+        if event.is_bot_event and not self.include_bot_events and not self.bot_ids:
+            return False
         return True
 
     def explicitly_matches_slack_message_event(self, event: SlackAgentEvent) -> bool:
@@ -180,9 +188,7 @@ class SlackAgentRouteMatch:
             return False
         if not self.event_types:
             return False
-        event_type = event_type_for_event(
-            event.event_type, event.channel_type
-        )
+        event_type = event_type_for_event(event.event_type, event.channel_type)
         event_types = frozenset(value.strip().lower() for value in self.event_types)
         return bool(event_type and event_type in event_types)
 
