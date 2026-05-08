@@ -2722,6 +2722,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 		t.Fatalf("putRun: %v", err)
 	}
 
+	tc := &recordingTemporalClient{}
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
@@ -2730,13 +2731,16 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-	}, &recordingTemporalClient{}, nil, state)
+	}, tc, nil, state)
 	resp, err := backend.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].GetId() != run.GetId() {
 		t.Fatalf("runs = %#v, want projected run", resp.GetRuns())
+	}
+	if len(tc.queries) != 0 || len(tc.updates) != 0 {
+		t.Fatalf("temporal calls queries=%#v updates=%#v, want indexeddb-only list", tc.queries, tc.updates)
 	}
 }
 

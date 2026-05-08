@@ -306,16 +306,10 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	projected, err := b.listRunProjections(ctx)
+	runs, err := b.listRunProjections(ctx)
 	if err != nil {
 		return nil, err
 	}
-	legacy, err := b.listRunsFromTemporalIndex(ctx)
-	if err != nil {
-		return nil, err
-	}
-	runs := mergeRuns(projected, legacy)
-	sortRuns(runs)
 	return &proto.ListWorkflowProviderRunsResponse{Runs: runs}, nil
 }
 
