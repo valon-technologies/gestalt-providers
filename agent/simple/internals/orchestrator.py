@@ -541,13 +541,14 @@ class SimpleAgentOrchestrator:
 
         with telemetry.tool_execution(tool_name=resolved_tool_id, tool_call_id=tool_call_id):
             with gestalt.AgentHost() as host:
-                tool_response = host.execute_tool(
-                    _execute_tool_request(
-                        checkpoint=checkpoint,
-                        tool_call_id=tool_call_id,
-                        resolved_tool_id=resolved_tool_id,
-                        execution_arguments=execution_arguments,
-                    )
+                tool_response = host.execute_tool_for_turn(
+                    checkpoint.session_id,
+                    checkpoint.turn_id,
+                    tool_call_id=tool_call_id,
+                    tool_id=resolved_tool_id,
+                    arguments=execution_arguments,
+                    run_grant=checkpoint.run_grant,
+                    idempotency_key=_tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id),
                 )
         current = self._store.get_turn(checkpoint.turn_id)
         if current is not None and current.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
@@ -749,21 +750,6 @@ def _uncertain_tool_status_message(pending_tool_call: dict[str, Any] | None) -> 
     if not tool_call_id:
         tool_call_id = "unknown"
     return f"tool call {tool_call_id} may have executed before provider restart; refusing to replay without a durable completed result"
-
-
-def _execute_tool_request(
-    *, checkpoint: StoredTurnCheckpoint, tool_call_id: str, resolved_tool_id: str, execution_arguments: dict[str, Any]
-) -> Any:
-    request = gestalt.ExecuteAgentToolRequest(
-        session_id=checkpoint.session_id,
-        turn_id=checkpoint.turn_id,
-        tool_call_id=tool_call_id,
-        tool_id=resolved_tool_id,
-        arguments=gestalt.struct_from_dict(execution_arguments),
-        run_grant=checkpoint.run_grant,
-    )
-    request.idempotency_key = _tool_invocation_idempotency_key(checkpoint=checkpoint, tool_call_id=tool_call_id)
-    return request
 
 
 def _tool_invocation_idempotency_key(*, checkpoint: StoredTurnCheckpoint, tool_call_id: str) -> str:

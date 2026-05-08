@@ -1998,15 +1998,17 @@ def _build_workflow_publish_event_request(
     route: SlackEventPublishRoute,
     raw_payload: dict[str, Any],
 ) -> Any:
-    workflow_request = gestalt.WorkflowManagerPublishEventRequest()
-    workflow_event = workflow_request.event
-    workflow_event.id = _workflow_event_id(event, route)
-    workflow_event.source = route.source or "slack"
-    workflow_event.spec_version = "1.0"
-    workflow_event.type = route.workflow_event_type or "slack.event.received"
-    workflow_event.subject = route.subject or f"route:{route.id}"
-    workflow_event.datacontenttype = "application/json"
-    workflow_event.data.CopyFrom(_slack_publish_event_data(event, route, raw_payload))
+    workflow_request = gestalt.WorkflowManagerPublishEventRequest(
+        event=gestalt.WorkflowEvent(
+            id=_workflow_event_id(event, route),
+            source=route.source or "slack",
+            spec_version="1.0",
+            type=route.workflow_event_type or "slack.event.received",
+            subject=route.subject or f"route:{route.id}",
+            datacontenttype="application/json",
+            data=_slack_publish_event_data(event, route, raw_payload),
+        )
+    )
     workflow_provider = route.workflow_provider or _agent_config.workflow.provider_name
     if workflow_provider:
         workflow_request.provider_name = workflow_provider
@@ -2017,34 +2019,32 @@ def _slack_publish_event_data(
     event: SlackEventPublishCallback,
     route: SlackEventPublishRoute,
     raw_payload: dict[str, Any],
-) -> Any:
-    return _dict_to_struct(
-        {
-            "routeId": route.id,
-            "slack": {
-                "callback_type": event.callback_type,
-                "event_type": event.event_type,
-                "event_id": event.event_id,
-                "team_id": event.team_id,
-                "enterprise_id": event.enterprise_id,
-                "api_app_id": event.api_app_id,
-                "event_context": event.event_context,
-                "user_id": event.user_id,
-                "bot_id": event.bot_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "subtype": event.subtype,
-                "text": event.text,
-                "message_ts": event.message_ts,
-                "event_ts": event.event_ts,
-                "thread_ts": event.thread_ts,
-                "is_bot_event": event.is_bot_event,
-                "file_ids": _publish_event_file_ids(event),
-                "files": [dict(file_data) for file_data in event.files],
-            },
-            "raw": raw_payload,
-        }
-    )
+) -> dict[str, Any]:
+    return {
+        "routeId": route.id,
+        "slack": {
+            "callback_type": event.callback_type,
+            "event_type": event.event_type,
+            "event_id": event.event_id,
+            "team_id": event.team_id,
+            "enterprise_id": event.enterprise_id,
+            "api_app_id": event.api_app_id,
+            "event_context": event.event_context,
+            "user_id": event.user_id,
+            "bot_id": event.bot_id,
+            "channel_id": event.channel_id,
+            "channel_type": event.channel_type,
+            "subtype": event.subtype,
+            "text": event.text,
+            "message_ts": event.message_ts,
+            "event_ts": event.event_ts,
+            "thread_ts": event.thread_ts,
+            "is_bot_event": event.is_bot_event,
+            "file_ids": _publish_event_file_ids(event),
+            "files": [dict(file_data) for file_data in event.files],
+        },
+        "raw": raw_payload,
+    }
 
 
 def _workflow_event_id(
@@ -2743,12 +2743,10 @@ def _build_workflow_signal_or_start_request(
         signal=gestalt.WorkflowSignal(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
+            payload=_slack_workflow_signal_payload(event, reply_ref, thread_context),
+            metadata=_agent_metadata(event, route),
         ),
     )
-    request.signal.payload.CopyFrom(
-        _slack_workflow_signal_payload(event, reply_ref, thread_context)
-    )
-    request.signal.metadata.CopyFrom(_agent_metadata(event, route))
     return request
 
 
@@ -2766,15 +2764,15 @@ def _build_workflow_agent_target(
         "tool_refs": _agent_event_tool_refs(route),
         "session_ready_delivery": _workflow_session_ready_delivery(),
         "output_delivery": _workflow_output_delivery(),
+        "metadata": _agent_session_metadata(event),
     }
     timeout_seconds = _agent_timeout_seconds(route)
     if timeout_seconds > 0:
         target_kwargs["timeout_seconds"] = timeout_seconds
     agent = gestalt.BoundWorkflowAgentTarget(**target_kwargs)
-    agent.metadata.CopyFrom(_agent_session_metadata(event))
     model_options = _agent_model_options(route)
     if model_options:
-        _agent_options_struct(agent).CopyFrom(_dict_to_struct(model_options))
+        _agent_options_struct(agent).update(model_options)
     return gestalt.BoundWorkflowTarget(agent=agent)
 
 
@@ -2910,7 +2908,7 @@ def _slack_workflow_signal_payload(
     event: SlackAgentEvent,
     reply_ref: str,
     thread_context: dict[str, Any] | None = None,
-) -> Any:
+) -> dict[str, Any]:
     user_prompt = _agent_user_prompt(event, reply_ref, thread_context)
     slack_payload: dict[str, Any] = {
         "callback_type": event.callback_type,
@@ -2941,14 +2939,12 @@ def _slack_workflow_signal_payload(
         error = thread_context.get("thread_context_error")
         if isinstance(error, dict):
             slack_payload["thread_context_error"] = error
-    return _dict_to_struct(
-        {
-            "agent_request": _slack_agent_request(event, user_prompt),
-            "user_prompt": user_prompt,
-            "reply_ref": reply_ref,
-            "slack": slack_payload,
-        }
-    )
+    return {
+        "agent_request": _slack_agent_request(event, user_prompt),
+        "user_prompt": user_prompt,
+        "reply_ref": reply_ref,
+        "slack": slack_payload,
+    }
 
 
 def _slack_agent_request(event: SlackAgentEvent, user_prompt: str) -> dict[str, Any]:
@@ -2976,11 +2972,11 @@ def _build_workflow_interaction_signal_or_start_request(
     signal = gestalt.WorkflowSignal(
         name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
         idempotency_key=_interaction_idempotency_key(payload, selected_action),
+        payload=_slack_interaction_signal_payload(
+            payload, selected_action, interaction_ref
+        ),
+        metadata=_agent_metadata(event, route),
     )
-    signal.payload.CopyFrom(
-        _slack_interaction_signal_payload(payload, selected_action, interaction_ref)
-    )
-    signal.metadata.CopyFrom(_agent_metadata(event, route))
     return gestalt.WorkflowManagerSignalOrStartRunRequest(
         provider_name=_workflow_provider_name(route),
         workflow_key=interaction_ref.workflow_key,
@@ -2994,36 +2990,34 @@ def _slack_interaction_signal_payload(
     payload: dict[str, Any],
     selected_action: dict[str, Any],
     interaction_ref: SlackInteractionRef,
-) -> Any:
+) -> dict[str, Any]:
     view = map_field(payload, "view")
     container = map_field(payload, "container")
-    return _dict_to_struct(
-        {
-            "user_prompt": _interaction_user_prompt(
-                payload, selected_action, interaction_ref
-            ),
-            "reply_ref": interaction_ref.reply_ref,
-            "slack": {
-                "callback_type": str(payload.get("type") or "").strip(),
-                "team_id": interaction_ref.team_id,
-                "user_id": _interaction_user_id(payload),
-                "channel_id": interaction_ref.channel_id,
-                "channel_type": interaction_ref.channel_type,
-                "message_ts": string_field(container, "message_ts")
-                or interaction_ref.message_ts,
-                "thread_ts": interaction_ref.reply_thread_ts,
-                "reply_thread_ts": interaction_ref.reply_thread_ts,
-                "action_id": interaction_ref.action_id,
-                "action_value": interaction_ref.action_value,
-                "action_ts": string_field(selected_action, "action_ts"),
-                "trigger_id": str(payload.get("trigger_id") or "").strip(),
-                "response_url": str(payload.get("response_url") or "").strip(),
-                "view_id": string_field(view, "id"),
-                "view_callback_id": string_field(view, "callback_id"),
-                "workflow_key": interaction_ref.workflow_key,
-            },
-        }
-    )
+    return {
+        "user_prompt": _interaction_user_prompt(
+            payload, selected_action, interaction_ref
+        ),
+        "reply_ref": interaction_ref.reply_ref,
+        "slack": {
+            "callback_type": str(payload.get("type") or "").strip(),
+            "team_id": interaction_ref.team_id,
+            "user_id": _interaction_user_id(payload),
+            "channel_id": interaction_ref.channel_id,
+            "channel_type": interaction_ref.channel_type,
+            "message_ts": string_field(container, "message_ts")
+            or interaction_ref.message_ts,
+            "thread_ts": interaction_ref.reply_thread_ts,
+            "reply_thread_ts": interaction_ref.reply_thread_ts,
+            "action_id": interaction_ref.action_id,
+            "action_value": interaction_ref.action_value,
+            "action_ts": string_field(selected_action, "action_ts"),
+            "trigger_id": str(payload.get("trigger_id") or "").strip(),
+            "response_url": str(payload.get("response_url") or "").strip(),
+            "view_id": string_field(view, "id"),
+            "view_callback_id": string_field(view, "callback_id"),
+            "workflow_key": interaction_ref.workflow_key,
+        },
+    }
 
 
 def _interaction_event(
@@ -3164,53 +3158,48 @@ def _dedupe_agent_tool_refs(
     return deduped
 
 
-def _agent_session_metadata(event: SlackAgentEvent) -> Any:
+def _agent_session_metadata(event: SlackAgentEvent) -> dict[str, Any]:
     root_ts = event.thread_ts or event.message_ts
-    return _dict_to_struct(
-        {
-            "slack": {
-                "team_id": event.team_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "bot_id": event.bot_id,
-                "is_bot_event": event.is_bot_event,
-                "root_message_ts": root_ts,
-                "session_ref": _agent_session_ref(event),
-            }
+    return {
+        "slack": {
+            "team_id": event.team_id,
+            "channel_id": event.channel_id,
+            "channel_type": event.channel_type,
+            "bot_id": event.bot_id,
+            "is_bot_event": event.is_bot_event,
+            "root_message_ts": root_ts,
+            "session_ref": _agent_session_ref(event),
         }
-    )
+    }
 
 
 def _agent_metadata(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
-) -> Any:
-    metadata = _dict_to_struct(
-        {
-            "slack": {
-                "callback_type": event.callback_type,
-                "event_type": event.event_type,
-                "subtype": event.subtype,
-                "event_id": event.event_id,
-                "team_id": event.team_id,
-                "user_id": event.user_id,
-                "bot_id": event.bot_id,
-                "channel_id": event.channel_id,
-                "channel_type": event.channel_type,
-                "message_ts": event.message_ts,
-                "thread_ts": event.thread_ts,
-                "reply_thread_ts": event.reply_thread_ts,
-                "client_msg_id": event.client_msg_id,
-                "addressed_to_bot": event.addressed_to_bot,
-                "assistant_context_present": event.assistant_context_present,
-                "bot_user_id": event.bot_user_id,
-                "is_bot_event": event.is_bot_event,
-                "file_ids": _event_file_ids(event),
-                "agent_route_id": route.id if route is not None else "",
-            }
+) -> dict[str, Any]:
+    return {
+        "slack": {
+            "callback_type": event.callback_type,
+            "event_type": event.event_type,
+            "subtype": event.subtype,
+            "event_id": event.event_id,
+            "team_id": event.team_id,
+            "user_id": event.user_id,
+            "bot_id": event.bot_id,
+            "channel_id": event.channel_id,
+            "channel_type": event.channel_type,
+            "message_ts": event.message_ts,
+            "thread_ts": event.thread_ts,
+            "reply_thread_ts": event.reply_thread_ts,
+            "client_msg_id": event.client_msg_id,
+            "addressed_to_bot": event.addressed_to_bot,
+            "assistant_context_present": event.assistant_context_present,
+            "bot_user_id": event.bot_user_id,
+            "is_bot_event": event.is_bot_event,
+            "file_ids": _event_file_ids(event),
+            "agent_route_id": route.id if route is not None else "",
         }
-    )
-    return metadata
+    }
 
 
 def _agent_provider(route: SlackAgentRoute | None) -> str:
@@ -3432,7 +3421,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except (TypeError, ValueError, AttributeError):
+    except TypeError, ValueError, AttributeError:
         return str(status)
 
 
@@ -3490,10 +3479,6 @@ def _workflow_publish_provider_selection_available() -> bool:
     except Exception:
         return False
     return hasattr(request, "provider_name")
-
-
-def _dict_to_struct(data: dict[str, Any]) -> Any:
-    return gestalt.struct_from_dict(data)
 
 
 def _bad_request(message: str) -> ErrorResponse:

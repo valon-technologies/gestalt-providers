@@ -452,6 +452,8 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             reasoning_summaries: true,
             bounded_list_hydration: true,
             supported_tool_sources: vec![proto::AgentToolSourceMode::McpCatalog as i32],
+            supports_session_start: false,
+            supports_prepared_workspace: false,
         }))
     }
 }
