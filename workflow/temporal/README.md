@@ -41,7 +41,8 @@ providers:
 `scopeID` is required and is part of the Temporal workflow IDs used by this
 provider. Reuse the same `scopeID` only for the same logical Gestalt workflow
 environment. `indexShardCount` controls the number of Temporal-owned shards
-used for run projections and owner idempotency ledgers.
+used for legacy run projections and owner idempotency ledgers during the
+migration window.
 
 `versioning` is optional. When omitted or disabled, workers poll the task queue
 as unversioned workers. When enabled, the provider starts Temporal Worker
@@ -86,22 +87,36 @@ update; already-polled tasks cannot be recalled by the provider.
 
 - Temporal Cloud API-key authentication
 - Temporal V4 run workflows invoke the Gestalt workflow host through activities
-  and project run state into IndexedDB for new unkeyed, scheduled, and event
-  runs; V3 remains registered for existing handles and keyed lane compatibility
+  and project run state into IndexedDB for new unkeyed, keyed, scheduled, and
+  event runs; V3 remains registered for existing handles and keyed lane
+  compatibility
 - native Temporal schedules for cron dispatch with skip overlap policy;
   IndexedDB schedule records are the metadata source for schedule listing
-- keyed `SignalOrStartRun` routes through durable Temporal lane workflows; the
-  active run, signal acknowledgements, and workflow-key ownership are workflow
-  state
-- unkeyed `StartRun` idempotency for new V4 runs is stored in IndexedDB;
-  signal and keyed-run idempotency still use durable Temporal owner ledger
-  workflows
-- public run IDs are opaque V3 handles that identify the run workflow and, for
-  keyed runs, the owning lane workflow
+- keyed `StartRun` and `SignalOrStartRun` route directly to claim-gated V4 run
+  workflows and store workflow-key ownership in IndexedDB; active legacy lane
+  owners are lazily discovered and claimed into IndexedDB before new keyed work
+  starts
+- unkeyed and keyed `StartRun` idempotency for new V4 runs is stored in
+  IndexedDB; signal idempotency still uses durable Temporal owner ledger
+  workflows during the migration window
+- public run IDs are opaque V3 handles that identify the run workflow; legacy
+  keyed runs may also include the owning lane workflow
 - legacy V3 run state is still projected to Temporal run-index workflows for
   compatibility during the migration window
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
-  projection, and V4 unkeyed-start idempotency metadata; workflow-key and
-  signal idempotency ownership still use the legacy Temporal lane/ledger path
+  projection, V4 start idempotency, and workflow-key ownership metadata; signal
+  idempotency ownership still uses the legacy Temporal owner-ledger path
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked
+
+## Migration Cleanup
+
+The large remaining deletion point is after the migration window:
+
+- delete legacy Temporal lane start/signal-or-start compatibility after all
+  active lane-owned keyed runs have either completed or been lazily claimed into
+  IndexedDB ownership
+- delete Temporal owner-ledger workflows after signal idempotency has moved to
+  IndexedDB and old unkeyed-start ledger entries have expired
+- delete V3 run/index workflows after no public run handles require Temporal V3
+  history fallback or legacy run-index listing
