@@ -886,6 +886,24 @@ class ClaudeProviderTests(unittest.TestCase):
                 summary_only=True,
             )
         )
+        exact_session_without_subject = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                session_ids=["session-stream-b"], limit=10, summary_only=True
+            )
+        )
+        subject_mismatch_exact_session = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                subject=agent_pb2.AgentSubjectContext(subject_id="user-456"),
+                session_ids=["session-stream-b"],
+                limit=10,
+                summary_only=True,
+            )
+        )
+        exact_turn_without_subject = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                turn_ids=["turn-stream-a"], limit=10, summary_only=True
+            )
+        )
         bounded_source_session_get_all = (
             indexeddb.operation_count(store=source_session_store, operation="get_all")
             - before_counts[(source_session_store, "get_all")]
@@ -928,6 +946,12 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(full_turns.turns[0].output_text, "Claude completed")
         self.assertEqual(list(running_turns.turns), [])
         self.assertEqual([turn.id for turn in succeeded_turns.turns], ["turn-stream-a"])
+        self.assertEqual(
+            [session.id for session in exact_session_without_subject.sessions],
+            ["session-stream-b"],
+        )
+        self.assertEqual(list(subject_mismatch_exact_session.sessions), [])
+        self.assertEqual([turn.id for turn in exact_turn_without_subject.turns], ["turn-stream-a"])
         self.assertEqual([session.id for session in active_sessions.sessions], ["session-stream-a"])
         self.assertEqual([session.id for session in archived_sessions.sessions], ["session-stream-b"])
         self.assertEqual(bounded_source_session_get_all, 0)

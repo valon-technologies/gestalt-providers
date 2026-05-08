@@ -38,6 +38,7 @@ import {
   openAgentTurnEventStream,
   resolveAgentInteraction,
 } from "@/lib/api";
+import { agentSessionHref } from "@/lib/agentLinks";
 import {
   appendInteraction,
   appendOptimisticUserMessage,
@@ -417,10 +418,7 @@ export default function AgentsPage() {
   }, [loadInteractions, selectedTurn, streamNonce, transcriptReady]);
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (selectedSessionID) params.set("session", selectedSessionID);
-    if (selectedTurnID) params.set("turn", selectedTurnID);
-    const next = params.toString() ? `/agents?${params}` : "/agents";
+    const next = agentSessionHref(selectedSessionID, selectedTurnID);
     if (window.location.pathname + window.location.search !== next) {
       window.history.replaceState(null, "", next);
     }
