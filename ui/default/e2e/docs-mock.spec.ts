@@ -18,7 +18,9 @@ test.describe("Docs page", () => {
     page,
   }) => {
     const pageErrors = trackPageErrors(page);
-    const expectedOrigin = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8080";
+    const expectedOrigin =
+      process.env.PLAYWRIGHT_BASE_URL ||
+      `http://localhost:${process.env.API_PORT || 8080}`;
     const leftNav = page.locator("aside").first();
     await page.addInitScript(() => {
       localStorage.clear();
@@ -49,7 +51,7 @@ test.describe("Docs page", () => {
     ).toHaveAttribute("href", "/docs/mcp");
     await expect(page.getByText("Base URL", { exact: true })).toBeVisible();
     await expect(page.getByText("Current Host")).toHaveCount(0);
-    await expect(page.locator("article")).not.toContainText("gestaltd");
+    await expect(page.locator("article")).not.toContainText("gestaltd --version");
 
     await leftNav.getByRole("link", { name: "Getting Started" }).click();
     await expect(page).toHaveURL(/\/docs\/getting-started/);
@@ -74,6 +76,75 @@ test.describe("Docs page", () => {
       "export GESTALT_API_KEY=gst_api_your_token_here",
     );
     await expect(page.getByText("gestalt plugins list", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Configure cloud environments" }),
+    ).toBeVisible();
+    const agentTabs = page.getByRole("tablist", {
+      name: "Cloud environment configuration",
+    });
+    await expect(
+      agentTabs.getByRole("tab", { name: "Claude Code web" }),
+    ).toBeVisible();
+    await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
+    await expect(
+      agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
+    ).toBeVisible();
+    await expect(agentTabs.getByRole("tab")).toHaveText([
+      "Claude Code web",
+      "Codex Cloud",
+      "Cursor Cloud Agents",
+    ]);
+    await expect(
+      page.getByRole("link", { name: "claude.ai/code" }),
+    ).toHaveAttribute("href", "https://claude.ai/code");
+    await expect(
+      page.getByAltText(
+        "Claude Code web environment picker with the settings control highlighted",
+      ),
+    ).toBeVisible();
+    await expect(page.locator("#agent-claude-code-panel")).toContainText(
+      `GESTALT_URL=${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-claude-code-panel")).not.toContainText("BASE_URL");
+    await expect(page.locator("#agent-claude-code-panel")).not.toContainText(
+      "dedicated secrets store",
+    );
+    await agentTabs.getByRole("tab", { name: "Codex Cloud" }).click();
+    await expect(
+      page.getByRole("link", { name: "Codex environment settings" }),
+    ).toHaveAttribute("href", "https://chatgpt.com/codex/settings/environments");
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+    );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText("BASE_URL");
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      `GESTALT_URL=${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
+    );
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      "Codex secrets are only available during setup",
+    );
+    await agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }).click();
+    await expect(
+      page.getByRole("link", { name: "Cursor Cloud Agents settings" }),
+    ).toHaveAttribute("href", "https://cursor.com/dashboard/cloud-agents#environments");
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      ".cursor/environment.json",
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      `Set GESTALT_URL to ${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      "GESTALT_API_KEY as a Cursor Cloud Agent secret",
+    );
+    await expect(page.locator("#agent-cursor-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
+    );
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
     await expect(page).toHaveURL(/\/docs\/invoke/);
@@ -103,6 +174,9 @@ test.describe("Docs page", () => {
     await expect(
       page.getByText("claude mcp add --transport http").first(),
     ).toBeVisible();
+    await expect(page.locator("article")).toContainText(
+      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+    );
     await expect(
       page.getByRole("tab", { name: "Claude Code" }),
     ).toBeVisible();
@@ -112,7 +186,7 @@ test.describe("Docs page", () => {
     await expect(
       page.locator("#mcp-codex-panel"),
     ).toContainText(
-      `codex mcp add gestalt --url ${expectedOrigin}/mcp --bearer-token-env-var GESTALT_API_KEY`,
+      'codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY',
     );
     await page.getByRole("tab", { name: "Cursor" }).click();
     await expect(

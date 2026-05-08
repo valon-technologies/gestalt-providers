@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
@@ -13,10 +14,29 @@ const mcpTabs = [
   { id: "mcp-other", label: "Other Clients" },
 ] as const;
 
+const agentEnvironmentTabs = [
+  { id: "agent-claude-code", label: "Claude Code web" },
+  { id: "agent-codex", label: "Codex Cloud" },
+  { id: "agent-cursor", label: "Cursor Cloud Agents" },
+] as const;
+
 type McpTabId = (typeof mcpTabs)[number]["id"];
+type AgentEnvironmentTabId = (typeof agentEnvironmentTabs)[number]["id"];
 
 const mcpTabIds = mcpTabs.map((tab) => tab.id);
 const defaultMcpTabId: McpTabId = "mcp-claude-code";
+
+const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
+const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
+
+function agentStartupScript() {
+  return "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh";
+}
+
+function cloudEnvironmentVariables(origin: string) {
+  return `GESTALT_URL=${origin}
+GESTALT_API_KEY=gst_api_your_token_here`;
+}
 
 export function GettingStartedDocsPage() {
   const origin = useDeploymentOrigin();
@@ -51,36 +71,12 @@ export function GettingStartedDocsPage() {
           <code className="font-mono text-sm text-primary">gestalt</code> CLI.
         </p>
         <p className="doc-copy">
-          The recommended way to install is with{" "}
-          <a
-            href="https://brew.sh"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Homebrew
-          </a>
-          , a free package manager for macOS and Linux. If you do not have
-          Homebrew yet, visit{" "}
-          <a
-            href="https://brew.sh"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            brew.sh
-          </a>{" "}
-          to install it first.
+          The recommended way to install is the Gestalt installer script.
         </p>
+        <CodeBlock code="curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh" />
         <p className="doc-copy">
-          Tap the Gestalt Homebrew repository first, then install the CLI.
-        </p>
-        <CodeBlock
-          code={`brew tap valon-technologies/gestalt
-brew install valon-technologies/gestalt/gestalt`}
-        />
-        <p className="doc-copy">
-          If you prefer a direct download, use the{" "}
+          If you prefer a package manager, use Homebrew. Manual archives are
+          also available on the{" "}
           <a
             href="https://github.com/valon-technologies/gestalt/releases"
             target="_blank"
@@ -88,10 +84,18 @@ brew install valon-technologies/gestalt/gestalt`}
             className="doc-link"
           >
             GitHub releases page
-          </a>{" "}
-          and place the binary on your{" "}
+          </a>
+          .
+        </p>
+        <CodeBlock
+          code={`brew tap valon-technologies/gestalt
+brew install valon-technologies/gestalt/gestalt`}
+        />
+        <p className="doc-copy">
+          Then verify the CLI is on your{" "}
           <code className="font-mono text-sm text-primary">PATH</code>.
         </p>
+        <CodeBlock code="gestalt --version" />
 
         <Subheading id="point-cli" title="Point the CLI at this workspace" />
         <p className="doc-copy">
@@ -184,6 +188,17 @@ brew install valon-technologies/gestalt/gestalt`}
         />
         <p className="doc-copy">Then verify access:</p>
         <CodeBlock code="gestalt plugins list" />
+
+        <Subheading
+          id="agent-environments"
+          title="Configure cloud environments"
+        />
+        <p className="doc-copy">
+          Configure the hosted coding environment before starting cloud tasks.
+          Set the workspace URL and API token in that environment, then install
+          the CLI in the platform setup or startup script.
+        </p>
+        <AgentEnvironmentTabs origin={origin} />
 
         <Subheading id="workflows" title="Inspect workflows" />
         <p className="doc-copy">
@@ -407,6 +422,11 @@ export function McpDocsPage() {
           On workspaces with authentication disabled, omit the bearer-token flag
           and header blocks shown below.
         </p>
+        <p className="doc-copy">
+          These examples assume the agent environment runs this startup script
+          before the MCP client starts.
+        </p>
+        <CodeBlock code={agentStartupScript()} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -759,6 +779,205 @@ curl \\
   );
 }
 
+function AgentEnvironmentTabs({ origin }: { origin: string }) {
+  const [activeTabId, setActiveTabId] = useHashTab(
+    agentEnvironmentTabIds,
+    defaultAgentEnvironmentTabId,
+  );
+
+  return (
+    <div className="space-y-5">
+      <div
+        role="tablist"
+        aria-label="Cloud environment configuration"
+        className="flex flex-wrap gap-5 border-b border-alpha"
+      >
+        {agentEnvironmentTabs.map((tab) => {
+          const isActive = tab.id === activeTabId;
+          return (
+            <button
+              key={tab.id}
+              id={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`${tab.id}-panel`}
+              onClick={() => setActiveTabId(tab.id)}
+              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
+                isActive
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <section
+        id="agent-codex-panel"
+        role="tabpanel"
+        aria-labelledby="agent-codex"
+        hidden={activeTabId !== "agent-codex"}
+        className={
+          activeTabId === "agent-codex"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
+      >
+        <p className="doc-copy">
+          Navigate to{" "}
+          <a
+            href="https://chatgpt.com/codex/settings/environments"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Codex environment settings
+          </a>
+          , open the cloud environment, and add these environment variables.
+          Use a scoped API token for the cloud agent.
+        </p>
+        <CodeBlock code={cloudEnvironmentVariables(origin)} />
+        <p className="doc-copy">
+          Then add this to the environment setup script.
+        </p>
+        <CodeBlock code={agentStartupScript()} />
+        <p className="doc-copy">
+          Keep the values above in the cloud environment variables, not in the
+          setup script. Codex secrets are only available during setup.
+        </p>
+        <p className="doc-copy">
+          Reference:{" "}
+          <a
+            href="https://developers.openai.com/codex/cloud/environments"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Codex cloud environments
+          </a>
+          .
+        </p>
+      </section>
+
+      <section
+        id="agent-cursor-panel"
+        role="tabpanel"
+        aria-labelledby="agent-cursor"
+        hidden={activeTabId !== "agent-cursor"}
+        className={
+          activeTabId === "agent-cursor"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
+      >
+        <p className="doc-copy">
+          Navigate to{" "}
+          <a
+            href="https://cursor.com/dashboard/cloud-agents#environments"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Cursor Cloud Agents settings
+          </a>
+          , configure the workspace URL as an environment variable, and add the
+          API token as a Cursor secret. Put the install command in{" "}
+          <code className="font-mono text-sm text-primary">
+            .cursor/environment.json
+          </code>
+          .
+        </p>
+        <CodeBlock
+          code={`{
+  "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"
+}`}
+        />
+        <p className="doc-copy">
+          Set{" "}
+          <code className="font-mono text-sm text-primary">GESTALT_URL</code>{" "}
+          to{" "}
+          <code className="font-mono text-sm text-primary">{origin}</code> and{" "}
+          <code className="font-mono text-sm text-primary">
+            GESTALT_API_KEY
+          </code>{" "}
+          as a Cursor Cloud Agent secret containing a Gestalt API token. Cursor
+          provides the secret to the agent environment at runtime under that
+          variable name.
+        </p>
+        <p className="doc-copy">
+          Reference:{" "}
+          <a
+            href="https://cursor.com/docs/cloud-agent"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Cursor Cloud Agents
+          </a>
+          .
+        </p>
+      </section>
+
+      <section
+        id="agent-claude-code-panel"
+        role="tabpanel"
+        aria-labelledby="agent-claude-code"
+        hidden={activeTabId !== "agent-claude-code"}
+        className={
+          activeTabId === "agent-claude-code"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
+            : "hidden"
+        }
+      >
+        <p className="doc-copy">
+          Navigate to{" "}
+          <a
+            href="https://claude.ai/code"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            claude.ai/code
+          </a>
+          , choose the cloud environment, and open its settings.
+        </p>
+        <Image
+          src="/docs/claude-code-web-environment.png"
+          alt="Claude Code web environment picker with the settings control highlighted"
+          width={1170}
+          height={558}
+          unoptimized
+          className="w-full rounded-lg border border-alpha"
+        />
+        <p className="doc-copy">
+          Add environment variables in the cloud environment editor. Values use{" "}
+          <code className="font-mono text-sm text-primary">.env</code> format.
+        </p>
+        <CodeBlock code={cloudEnvironmentVariables(origin)} />
+        <p className="doc-copy">
+          Then add this to the cloud environment setup script.
+        </p>
+        <CodeBlock code={agentStartupScript()} />
+        <p className="doc-copy">
+          Reference:{" "}
+          <a
+            href="https://code.claude.com/docs/en/claude-code-on-the-web"
+            target="_blank"
+            rel="noreferrer"
+            className="doc-link"
+          >
+            Claude Code web
+          </a>
+          .
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function McpClientTabs({ origin }: { origin: string }) {
   const [activeTabId, setActiveTabId] = useHashTab(mcpTabIds, defaultMcpTabId);
 
@@ -815,7 +1034,7 @@ function McpClientTabs({ origin }: { origin: string }) {
   "mcpServers": {
     "gestalt": {
       "type": "http",
-      "url": "${origin}/mcp",
+      "url": "\${GESTALT_URL}/mcp",
       "headers": {
         "Authorization": "Bearer \${GESTALT_API_KEY}"
       }
@@ -825,7 +1044,9 @@ function McpClientTabs({ origin }: { origin: string }) {
         />
         <p className="doc-copy">Or add it from the CLI:</p>
         <CodeBlock
-          code={`claude mcp add --transport http --scope project --header "Authorization: Bearer $GESTALT_API_KEY" gestalt ${origin}/mcp`}
+          code={`claude mcp add --transport http --scope project \\
+  --header "Authorization: Bearer $GESTALT_API_KEY" \\
+  gestalt "$GESTALT_URL/mcp"`}
         />
       </section>
 
@@ -844,7 +1065,7 @@ function McpClientTabs({ origin }: { origin: string }) {
           Codex can register the workspace directly from the CLI:
         </p>
         <CodeBlock
-          code={`codex mcp add gestalt --url ${origin}/mcp --bearer-token-env-var GESTALT_API_KEY`}
+          code={`codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY`}
         />
         <p className="doc-copy">
           If authentication is disabled, omit{" "}
@@ -877,7 +1098,7 @@ function McpClientTabs({ origin }: { origin: string }) {
           code={`{
   "mcpServers": {
     "gestalt": {
-      "url": "${origin}/mcp",
+      "url": "\${env:GESTALT_URL}/mcp",
       "headers": {
         "Authorization": "Bearer \${env:GESTALT_API_KEY}"
       }
