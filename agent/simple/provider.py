@@ -246,25 +246,22 @@ class SimpleAgentRuntimeProvider(
 
 
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
-    proto = gestalt.AgentSession(
+    return gestalt.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
         model=session.model,
         client_ref=session.client_ref,
         state=session.state,
         metadata=None if summary_only else session.metadata,
+        created_by=session.created_by or None,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        last_turn_at=session.last_turn_at,
     )
-    if session.created_by:
-        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(session.created_by))
-    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(session.created_at))
-    proto.updated_at.CopyFrom(gestalt.timestamp_from_datetime(session.updated_at))
-    if session.last_turn_at is not None:
-        proto.last_turn_at.CopyFrom(gestalt.timestamp_from_datetime(session.last_turn_at))
-    return proto
 
 
 def _turn_event_to_proto(event: Any) -> Any:
-    proto = gestalt.AgentTurnEvent(
+    return gestalt.AgentTurnEvent(
         id=event.event_id,
         turn_id=event.turn_id,
         seq=event.seq,
@@ -272,9 +269,8 @@ def _turn_event_to_proto(event: Any) -> Any:
         source=event.source,
         visibility=event.visibility,
         data=event.data,
+        created_at=event.created_at,
     )
-    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(event.created_at))
-    return proto
 
 
 def _subject_id(request: Any) -> str:

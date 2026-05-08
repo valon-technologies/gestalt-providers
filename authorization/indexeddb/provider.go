@@ -157,11 +157,7 @@ func (p *Provider) WriteModel(ctx context.Context, req *gestalt.WriteModelReques
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal authorization model: %v", err)
 	}
-	ref := &gestalt.AuthorizationModelRef{
-		Id:        modelID,
-		Version:   model.Version,
-		CreatedAt: gestalt.TimestampFromTime(p.now().UTC()),
-	}
+	ref := gestalt.NewAuthorizationModelRef(modelID, model.Version, p.now().UTC())
 	if err := st.writeModel(ctx, ref, modelJSON); err != nil {
 		return nil, err
 	}

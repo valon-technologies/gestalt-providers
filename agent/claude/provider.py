@@ -383,48 +383,40 @@ def _abort(context: grpc.ServicerContext, code: grpc.StatusCode, message: str) -
 
 
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
-    proto = gestalt.AgentSession(
+    return gestalt.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
         model=session.model,
         client_ref=session.client_ref,
         state=session.state,
         metadata=None if summary_only else session.metadata,
+        created_by=session.created_by or None,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        last_turn_at=session.last_turn_at,
     )
-    if session.created_by:
-        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(session.created_by))
-    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(session.created_at))
-    proto.updated_at.CopyFrom(gestalt.timestamp_from_datetime(session.updated_at))
-    if session.last_turn_at is not None:
-        proto.last_turn_at.CopyFrom(gestalt.timestamp_from_datetime(session.last_turn_at))
-    return proto
 
 
 def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
-    proto = gestalt.AgentTurn(
+    return gestalt.AgentTurn(
         id=turn.turn_id,
         session_id=turn.session_id,
         provider_name=turn.provider_name,
         model=turn.model,
         status=turn.status,
+        messages=[] if summary_only else gestalt.agent_messages_from_dicts(turn.messages),
         output_text="" if summary_only else turn.output_text,
         status_message=turn.status_message,
         execution_ref=turn.execution_ref,
+        created_by=turn.created_by or None,
+        created_at=turn.created_at,
+        started_at=turn.started_at,
+        completed_at=turn.completed_at,
     )
-    if not summary_only:
-        proto.messages.extend(gestalt.agent_messages_from_dicts(turn.messages))
-    if turn.created_by:
-        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(turn.created_by))
-    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(turn.created_at))
-    if turn.started_at is not None:
-        proto.started_at.CopyFrom(gestalt.timestamp_from_datetime(turn.started_at))
-    if turn.completed_at is not None:
-        proto.completed_at.CopyFrom(gestalt.timestamp_from_datetime(turn.completed_at))
-    return proto
 
 
 def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
-    proto = gestalt.AgentTurnEvent(
+    return gestalt.AgentTurnEvent(
         id=event.event_id,
         turn_id=event.turn_id,
         seq=event.seq,
@@ -432,9 +424,8 @@ def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
         source=event.source,
         visibility=event.visibility,
         data=event.data,
+        created_at=event.created_at,
     )
-    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(event.created_at))
-    return proto
 
 
 def _resolve_claude_cli(config: ClaudeAgentConfig) -> str | None:

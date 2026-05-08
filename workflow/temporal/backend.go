@@ -512,17 +512,17 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 		createdAt = existing.GetCreatedAt().AsTime()
 		createdBy = createdByForUpsert(existing.GetCreatedBy(), req.GetRequestedBy())
 	}
-	schedule := &proto.BoundWorkflowSchedule{
-		Id:           scheduleID,
+	schedule := gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowScheduleInput{
+		ID:           scheduleID,
 		Cron:         cron,
 		Timezone:     timezone,
 		Target:       cloneTarget(target.Target),
 		Paused:       req.GetPaused(),
-		CreatedAt:    gestalt.TimestampFromTime(createdAt),
-		UpdatedAt:    gestalt.TimestampFromTime(now),
+		CreatedAt:    createdAt,
+		UpdatedAt:    now,
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-	}
+	})
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -678,16 +678,16 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.Ups
 		createdAt = existing.GetCreatedAt().AsTime()
 		createdBy = createdByForUpsert(existing.GetCreatedBy(), req.GetRequestedBy())
 	}
-	trigger := &proto.BoundWorkflowEventTrigger{
-		Id:           triggerID,
+	trigger := gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
+		ID:           triggerID,
 		Match:        &proto.WorkflowEventMatch{Type: strings.TrimSpace(match.GetType()), Source: strings.TrimSpace(match.GetSource()), Subject: strings.TrimSpace(match.GetSubject())},
 		Target:       cloneTarget(target.Target),
 		Paused:       req.GetPaused(),
-		CreatedAt:    gestalt.TimestampFromTime(createdAt),
-		UpdatedAt:    gestalt.TimestampFromTime(now),
+		CreatedAt:    createdAt,
+		UpdatedAt:    now,
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-	}
+	})
 	if err := b.putTriggerIndex(ctx, trigger); err != nil {
 		return nil, err
 	}

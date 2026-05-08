@@ -44,16 +44,16 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
-	state := &proto.BoundWorkflowRun{
-		Id:           publicID,
+	state := gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
+		ID:           publicID,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:       targetFromPayload(input.TargetPayload),
 		Trigger:      triggerFromPayload(input.TriggerPayload),
-		CreatedAt:    gestalt.TimestampFromTime(now),
+		CreatedAt:    now,
 		CreatedBy:    actorFromPayload(input.CreatedByPayload),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
-	}
+	})
 	pendingSignals := make([]*proto.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
 	signalCount := 0

@@ -3120,28 +3120,29 @@ func normalizeWorkflowEvent(event *proto.WorkflowEvent, now time.Time) (*proto.W
 	if eventType == "" {
 		return nil, errors.New("event.type is required")
 	}
-	normalized := &proto.WorkflowEvent{
-		Id:              strings.TrimSpace(event.GetId()),
+	id := strings.TrimSpace(event.GetId())
+	if id == "" {
+		id = uuid.NewString()
+	}
+	specVersion := strings.TrimSpace(event.GetSpecVersion())
+	if specVersion == "" {
+		specVersion = defaultSpecVersion
+	}
+	eventTime := now.UTC()
+	if ts := event.GetTime(); ts != nil && ts.IsValid() {
+		eventTime = ts.AsTime().UTC()
+	}
+	return gestalt.NewWorkflowEvent(gestalt.WorkflowEventInput{
+		ID:              id,
 		Source:          strings.TrimSpace(event.GetSource()),
-		SpecVersion:     strings.TrimSpace(event.GetSpecVersion()),
+		SpecVersion:     specVersion,
 		Type:            eventType,
 		Subject:         strings.TrimSpace(event.GetSubject()),
-		Datacontenttype: strings.TrimSpace(event.GetDatacontenttype()),
-		Data:            cloneStruct(event.GetData()),
-		Extensions:      cloneExtensions(event.GetExtensions()),
-	}
-	if normalized.Id == "" {
-		normalized.Id = uuid.NewString()
-	}
-	if normalized.SpecVersion == "" {
-		normalized.SpecVersion = defaultSpecVersion
-	}
-	if ts := event.GetTime(); ts != nil && ts.IsValid() {
-		normalized.Time = gestalt.TimestampFromTime(ts.AsTime().UTC())
-	} else {
-		normalized.Time = gestalt.TimestampFromTime(now.UTC())
-	}
-	return normalized, nil
+		Time:            eventTime,
+		DataContentType: strings.TrimSpace(event.GetDatacontenttype()),
+		Data:            gestalt.MapFromStruct(event.GetData()),
+		Extensions:      gestalt.MapFromValues(event.GetExtensions()),
+	})
 }
 
 func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*proto.WorkflowSignal, error) {
@@ -3152,21 +3153,20 @@ func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*prot
 	if name == "" {
 		return nil, errors.New("signal.name is required")
 	}
-	normalized := &proto.WorkflowSignal{
-		Id:             strings.TrimSpace(signal.GetId()),
+	createdAt := now.UTC()
+	if ts := signal.GetCreatedAt(); ts != nil && ts.IsValid() {
+		createdAt = ts.AsTime().UTC()
+	}
+	return gestalt.NewWorkflowSignal(gestalt.WorkflowSignalInput{
+		ID:             strings.TrimSpace(signal.GetId()),
 		Name:           name,
-		Payload:        cloneStruct(signal.GetPayload()),
-		Metadata:       cloneStruct(signal.GetMetadata()),
+		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
+		Metadata:       gestalt.MapFromStruct(signal.GetMetadata()),
 		CreatedBy:      cloneActor(signal.GetCreatedBy()),
+		CreatedAt:      createdAt,
 		IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
 		Sequence:       signal.GetSequence(),
-	}
-	if ts := signal.GetCreatedAt(); ts != nil && ts.IsValid() {
-		normalized.CreatedAt = gestalt.TimestampFromTime(ts.AsTime().UTC())
-	} else {
-		normalized.CreatedAt = gestalt.TimestampFromTime(now.UTC())
-	}
-	return normalized, nil
+	})
 }
 
 func workflowRunTerminal(status proto.WorkflowRunStatus) bool {
@@ -4200,18 +4200,18 @@ func publishedEventExecutionReference(providerName, runID string, trigger workfl
 		return nil, err
 	}
 	subjectID := strings.TrimSpace(actor.GetSubjectId())
-	return &proto.WorkflowExecutionReference{
-		Id:                  eventExecutionRefID(runID),
+	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+		ID:                  eventExecutionRefID(runID),
 		ProviderName:        strings.TrimSpace(providerName),
 		Target:              cloneTarget(target),
-		SubjectId:           subjectID,
+		SubjectID:           subjectID,
+		CredentialSubjectID: subjectID,
+		Permissions:         permissions,
+		CreatedAt:           createdAt.UTC(),
 		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
 		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
 		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
-		CredentialSubjectId: subjectID,
-		Permissions:         permissions,
-		CreatedAt:           gestalt.TimestampFromTime(createdAt.UTC()),
-	}, nil
+	}), nil
 }
 
 func eventExecutionReferencePermissions(trigger workflowEventTriggerRecord) ([]*proto.WorkflowAccessPermission, error) {
@@ -4804,18 +4804,18 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 }
 
 func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) {
-	return &proto.BoundWorkflowSchedule{
-		Id:           r.ID,
+	return gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowScheduleInput{
+		ID:           r.ID,
 		Cron:         r.Cron,
 		Timezone:     r.Timezone,
 		Target:       cloneTarget(r.Target),
 		Paused:       r.Paused,
-		CreatedAt:    gestalt.TimestampFromTime(r.CreatedAt),
-		UpdatedAt:    gestalt.TimestampFromTime(r.UpdatedAt),
-		NextRunAt:    timeToProto(r.NextRunAt),
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
+		NextRunAt:    r.NextRunAt,
 		CreatedBy:    cloneActor(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
-	}, nil
+	}), nil
 }
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
@@ -4860,8 +4860,8 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 }
 
 func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger, error) {
-	return &proto.BoundWorkflowEventTrigger{
-		Id: r.ID,
+	return gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
+		ID: r.ID,
 		Match: &proto.WorkflowEventMatch{
 			Type:    r.MatchType,
 			Source:  r.MatchSource,
@@ -4869,11 +4869,11 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 		},
 		Target:       cloneTarget(r.Target),
 		Paused:       r.Paused,
-		CreatedAt:    gestalt.TimestampFromTime(r.CreatedAt),
-		UpdatedAt:    gestalt.TimestampFromTime(r.UpdatedAt),
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
 		CreatedBy:    cloneActor(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
-	}, nil
+	}), nil
 }
 
 func (r workflowRunRecord) toRecord() gestalt.Record {
@@ -4943,33 +4943,30 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 }
 
 func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
-	return &proto.BoundWorkflowRun{
-		Id:            r.ID,
+	return gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
+		ID:            r.ID,
 		Status:        r.Status,
 		Target:        cloneTarget(r.Target),
 		Trigger:       r.triggerProto(),
-		CreatedAt:     gestalt.TimestampFromTime(r.CreatedAt),
-		StartedAt:     timeToProto(r.StartedAt),
-		CompletedAt:   timeToProto(r.CompletedAt),
+		CreatedAt:     r.CreatedAt,
+		StartedAt:     r.StartedAt,
+		CompletedAt:   r.CompletedAt,
 		StatusMessage: r.StatusMessage,
 		ResultBody:    r.ResultBody,
 		CreatedBy:     cloneActor(r.CreatedBy),
 		ExecutionRef:  r.ExecutionRef,
 		WorkflowKey:   r.WorkflowKey,
-	}, nil
+	}), nil
 }
 
 func (r workflowRunRecord) triggerProto() *proto.WorkflowRunTrigger {
 	switch r.TriggerKind {
 	case triggerKindSchedule:
-		return &proto.WorkflowRunTrigger{
-			Kind: &proto.WorkflowRunTrigger_Schedule{
-				Schedule: &proto.WorkflowScheduleTrigger{
-					ScheduleId:   r.TriggerScheduleID,
-					ScheduledFor: timeToProto(r.TriggerScheduledFor),
-				},
-			},
+		var scheduledFor time.Time
+		if r.TriggerScheduledFor != nil {
+			scheduledFor = r.TriggerScheduledFor.UTC()
 		}
+		return gestalt.NewWorkflowScheduleTrigger(r.TriggerScheduleID, scheduledFor)
 	case triggerKindEvent:
 		return &proto.WorkflowRunTrigger{
 			Kind: &proto.WorkflowRunTrigger_Event{
@@ -5256,21 +5253,21 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 	if err != nil {
 		return nil, err
 	}
-	return &proto.WorkflowExecutionReference{
-		Id:                  r.ID,
+	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+		ID:                  r.ID,
 		ProviderName:        r.ProviderName,
 		Target:              cloneTarget(r.Target),
-		SubjectId:           r.SubjectID,
+		SubjectID:           r.SubjectID,
+		CredentialSubjectID: r.CredentialSubjectID,
+		Permissions:         permissions,
+		CreatedAt:           r.CreatedAt,
+		RevokedAt:           r.RevokedAt,
 		SubjectKind:         r.SubjectKind,
 		DisplayName:         r.DisplayName,
 		AuthSource:          r.AuthSource,
-		CredentialSubjectId: r.CredentialSubjectID,
-		RunAs:               runAs,
-		Permissions:         permissions,
 		CallerPluginName:    r.CallerPluginName,
-		CreatedAt:           gestalt.TimestampFromTime(r.CreatedAt),
-		RevokedAt:           timeToProto(r.RevokedAt),
-	}, nil
+		RunAs:               runAs,
+	}), nil
 }
 
 func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord) bool {
@@ -5451,13 +5448,6 @@ func cloneAccessPermissions(values []*proto.WorkflowAccessPermission) []*proto.W
 		})
 	}
 	return out
-}
-
-func timeToProto(value *time.Time) *timestamppb.Timestamp {
-	if value == nil {
-		return nil
-	}
-	return gestalt.TimestampFromTime(value.UTC())
 }
 
 var _ gestalt.MetadataProvider = (*Provider)(nil)

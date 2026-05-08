@@ -468,16 +468,16 @@ func gestaltWorkflowKeyLaneV1(ctx workflow.Context, snapshot laneWorkflowSnapsho
 		if active == nil {
 			return nil
 		}
-		return &proto.BoundWorkflowRun{
-			Id:           active.RunID,
+		return gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
+			ID:           active.RunID,
 			Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Target:       targetFromPayload(active.TargetPayload),
 			Trigger:      triggerFromPayload(active.TriggerPayload),
-			CreatedAt:    gestalt.TimestampFromTime(active.CreatedAt),
+			CreatedAt:    active.CreatedAt,
 			CreatedBy:    actorFromPayload(active.CreatedByPayload),
 			ExecutionRef: strings.TrimSpace(active.ExecutionRef),
 			WorkflowKey:  state.Input.WorkflowKey,
-		}
+		})
 	}
 	if err := workflow.SetQueryHandler(ctx, queryLaneRun, func() (*proto.BoundWorkflowRun, error) {
 		return runFromActive(state.Active), nil
@@ -676,16 +676,16 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
-	state := &proto.BoundWorkflowRun{
-		Id:           publicID,
+	state := gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
+		ID:           publicID,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:       targetFromPayload(input.TargetPayload),
 		Trigger:      triggerFromPayload(input.TriggerPayload),
-		CreatedAt:    gestalt.TimestampFromTime(now),
+		CreatedAt:    now,
 		CreatedBy:    actorFromPayload(input.CreatedByPayload),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
-	}
+	})
 	pendingSignals := make([]*proto.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
 	signalCount := 0

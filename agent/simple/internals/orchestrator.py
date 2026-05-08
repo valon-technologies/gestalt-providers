@@ -629,7 +629,7 @@ class SimpleAgentOrchestrator:
             return
 
     def turn_to_proto(self, run: StoredRun, *, summary_only: bool = False) -> Any:
-        proto = gestalt.AgentTurn(
+        return gestalt.AgentTurn(
             id=run.run_id,
             session_id=run.session_ref,
             provider_name=run.provider_name,
@@ -640,15 +640,11 @@ class SimpleAgentOrchestrator:
             status_message=run.status_message,
             execution_ref=run.execution_ref,
             structured_output=None if summary_only else run.structured_output,
+            created_by=run.created_by or None,
+            created_at=run.created_at,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
         )
-        if run.created_by:
-            proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(run.created_by))
-        proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(run.created_at))
-        if run.started_at is not None:
-            proto.started_at.CopyFrom(gestalt.timestamp_from_datetime(run.started_at))
-        if run.completed_at is not None:
-            proto.completed_at.CopyFrom(gestalt.timestamp_from_datetime(run.completed_at))
-        return proto
 
 
 @dataclass(frozen=True, slots=True)

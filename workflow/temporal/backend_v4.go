@@ -439,16 +439,16 @@ func (b *temporalBackend) executeRunV4(ctx context.Context, workflowID string, i
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
-	out := &proto.BoundWorkflowRun{
-		Id:           publicID,
+	out := gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
+		ID:           publicID,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:       targetFromPayload(input.TargetPayload),
 		Trigger:      triggerFromPayload(input.TriggerPayload),
-		CreatedAt:    gestalt.TimestampFromTime(now),
+		CreatedAt:    now,
 		CreatedBy:    actorFromPayload(input.CreatedByPayload),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
-	}
+	})
 	if b.state != nil && !input.RequireClaim {
 		_ = b.state.putRun(ctx, out)
 	}

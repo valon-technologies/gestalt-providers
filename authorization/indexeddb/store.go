@@ -170,11 +170,7 @@ func modelFromRecord(record gestalt.Record) (*storedModel, error) {
 		version = modelVersionString(normalized)
 	}
 	return &storedModel{
-		ref: &gestalt.AuthorizationModelRef{
-			Id:        id,
-			Version:   version,
-			CreatedAt: gestalt.TimestampFromTime(createdAt.UTC()),
-		},
+		ref:      gestalt.NewAuthorizationModelRef(id, version, createdAt.UTC()),
 		model:    normalized,
 		compiled: compiled,
 	}, nil
