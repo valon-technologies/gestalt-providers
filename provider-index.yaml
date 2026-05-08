@@ -3498,6 +3498,12 @@ packages:
     displayName: "Default UI"
     description: "Default Gestalt UI bundle served at /."
     versions:
+      "0.0.1-alpha.37":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.37/provider-release.yaml"
+        kind: "ui"
+        runtime: "ui"
+        platforms:
+          - "generic"
       "0.0.1-alpha.35":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.35/provider-release.yaml"
         kind: "ui"
