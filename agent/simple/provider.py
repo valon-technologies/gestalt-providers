@@ -1,20 +1,14 @@
 import logging
 import os
 import threading
-from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 import grpc
-from google.protobuf import json_format
-from google.protobuf import struct_pb2 as _struct_pb2
-from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
 from internals import SimpleAgentConfig, SimpleAgentOrchestrator, SimpleRunStore
 from internals.store import StoredSession
 
-struct_pb2: Any = _struct_pb2
-timestamp_pb2: Any = _timestamp_pb2
 logger = logging.getLogger(__name__)
 
 
@@ -67,8 +61,8 @@ class SimpleAgentRuntimeProvider(
                 provider_name=self._name,
                 model=resolved_model,
                 client_ref=str(request.client_ref or "").strip(),
-                metadata=_struct_to_dict(request.metadata),
-                created_by=_actor_to_dict(request.created_by),
+                metadata=gestalt.struct_to_dict(request.metadata),
+                created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
             )
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -107,7 +101,7 @@ class SimpleAgentRuntimeProvider(
             session_id=str(request.session_id or "").strip(),
             client_ref=str(request.client_ref or "").strip(),
             state=int(request.state or 0),
-            metadata=_struct_to_dict(request.metadata) if request.HasField("metadata") else None,
+            metadata=gestalt.struct_to_dict(request.metadata) if gestalt.has_field(request, "metadata") else None,
         )
         if session is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
@@ -260,20 +254,13 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         state=session.state,
     )
     if session.metadata and not summary_only:
-        proto.metadata.CopyFrom(_dict_to_struct(session.metadata))
+        proto.metadata.CopyFrom(gestalt.struct_from_dict(session.metadata))
     if session.created_by:
-        proto.created_by.CopyFrom(
-            gestalt.AgentActor(
-                subject_id=session.created_by.get("subject_id", ""),
-                subject_kind=session.created_by.get("subject_kind", ""),
-                display_name=session.created_by.get("display_name", ""),
-                auth_source=session.created_by.get("auth_source", ""),
-            )
-        )
-    proto.created_at.CopyFrom(_datetime_to_timestamp(session.created_at))
-    proto.updated_at.CopyFrom(_datetime_to_timestamp(session.updated_at))
+        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(session.created_by))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(session.created_at))
+    proto.updated_at.CopyFrom(gestalt.timestamp_from_datetime(session.updated_at))
     if session.last_turn_at is not None:
-        proto.last_turn_at.CopyFrom(_datetime_to_timestamp(session.last_turn_at))
+        proto.last_turn_at.CopyFrom(gestalt.timestamp_from_datetime(session.last_turn_at))
     return proto
 
 
@@ -287,41 +274,14 @@ def _turn_event_to_proto(event: Any) -> Any:
         visibility=event.visibility,
     )
     if event.data:
-        proto.data.CopyFrom(_dict_to_struct(event.data))
-    proto.created_at.CopyFrom(_datetime_to_timestamp(event.created_at))
+        proto.data.CopyFrom(gestalt.struct_from_dict(event.data))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(event.created_at))
     return proto
 
 
-def _dict_to_struct(value: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(value)
-    return struct
-
-
-def _struct_to_dict(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    return json_format.MessageToDict(value)
-
-
-def _actor_to_dict(actor: Any) -> dict[str, str]:
-    return {
-        "subject_id": str(getattr(actor, "subject_id", "") or ""),
-        "subject_kind": str(getattr(actor, "subject_kind", "") or ""),
-        "display_name": str(getattr(actor, "display_name", "") or ""),
-        "auth_source": str(getattr(actor, "auth_source", "") or ""),
-    }
-
-
 def _subject_id(request: Any) -> str:
-    subject = getattr(request, "subject", None)
-    return str(getattr(subject, "subject_id", "") or "").strip()
-
-
-def _datetime_to_timestamp(value: datetime) -> Any:
-    stamp = timestamp_pb2.Timestamp()
-    stamp.FromDatetime(value.astimezone(UTC))
-    return stamp
+    subject = gestalt.agent_subject_context_to_dict(getattr(request, "subject", None))
+    return str(subject.get("subject_id") or "").strip()
 
 
 provider = SimpleAgentRuntimeProvider()

@@ -180,7 +180,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#1e8ff91d870d9c3a985be2ca2d8f0c5b023baa42" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#4fb5412030a781765cd5f659c3a49bc934328870" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
