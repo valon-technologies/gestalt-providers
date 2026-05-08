@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 import grpc
-from google.protobuf import json_format
-from google.protobuf import struct_pb2 as _struct_pb2
-
-struct_pb2: Any = _struct_pb2
 
 
 class ProviderRequestError(ValueError):
@@ -34,18 +30,18 @@ class CreateSessionInput:
         if not session_id:
             raise _invalid("session_id is required")
         try:
-            prepared_workspace = prepared_workspace_to_dict(optional_field(request, "prepared_workspace"))
+            prepared_workspace = _prepared_workspace_to_dict(_optional_field(request, "prepared_workspace"))
         except ValueError as exc:
             raise _invalid(str(exc)) from exc
         return cls(
             session_id=session_id,
             requested_model=_text(getattr(request, "model", "")),
-            metadata=struct_to_dict(getattr(request, "metadata", None)),
+            metadata=gestalt.struct_to_dict(getattr(request, "metadata", None)),
             prepared_workspace=prepared_workspace,
             idempotency_key=_text(getattr(request, "idempotency_key", "")),
-            session_start=optional_field(request, "session_start"),
+            session_start=_optional_field(request, "session_start"),
             client_ref=_text(getattr(request, "client_ref", "")),
-            created_by=actor_to_dict(getattr(request, "created_by", None)),
+            created_by=_actor_to_dict(getattr(request, "created_by", None)),
         )
 
     @property
@@ -64,12 +60,12 @@ class UpdateSessionInput:
 
     @classmethod
     def from_proto(cls, request: Any) -> UpdateSessionInput:
-        metadata_field = optional_field(request, "metadata")
+        metadata_field = _optional_field(request, "metadata")
         return cls(
             session_id=_text(getattr(request, "session_id", "")),
             client_ref=_text(getattr(request, "client_ref", "")),
             state=int(getattr(request, "state", 0) or 0),
-            metadata=None if metadata_field is None else struct_to_dict(metadata_field),
+            metadata=None if metadata_field is None else gestalt.struct_to_dict(metadata_field),
         )
 
 
@@ -88,7 +84,7 @@ class ListSessionsInput:
             raise _invalid("limit must be non-negative")
         return cls(
             session_ids=[_text(value) for value in getattr(request, "session_ids", [])],
-            subject_id=subject_id(request),
+            subject_id=_subject_id(request),
             state=int(getattr(request, "state", 0) or 0),
             limit=limit,
             summary_only=bool(getattr(request, "summary_only", False)),
@@ -114,8 +110,8 @@ class CreateTurnInput:
             session_id=_text(getattr(request, "session_id", "")),
             idempotency_key=_text(getattr(request, "idempotency_key", "")),
             requested_model=_text(getattr(request, "model", "")),
-            messages=messages_to_dicts(getattr(request, "messages", [])),
-            created_by=actor_to_dict(getattr(request, "created_by", None)),
+            messages=gestalt.agent_messages_to_dicts(getattr(request, "messages", [])),
+            created_by=_actor_to_dict(getattr(request, "created_by", None)),
             execution_ref=_text(getattr(request, "execution_ref", "")),
             run_grant=_text(getattr(request, "run_grant", "")),
         )
@@ -138,7 +134,7 @@ class ListTurnsInput:
         return cls(
             session_id=_text(getattr(request, "session_id", "")),
             turn_ids=[_text(value) for value in getattr(request, "turn_ids", [])],
-            subject_id=subject_id(request),
+            subject_id=_subject_id(request),
             status=int(getattr(request, "status", 0) or 0),
             limit=limit,
             summary_only=bool(getattr(request, "summary_only", False)),
@@ -170,58 +166,6 @@ class ListTurnEventsInput:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class ToolRefInput:
-    plugin: str
-    system: str
-    operation: str
-    connection: str
-    instance: str
-    title: str
-    description: str
-
-    @classmethod
-    def from_proto(cls, ref: Any) -> ToolRefInput:
-        return cls(
-            plugin=_text(getattr(ref, "plugin", "")),
-            system=_text(getattr(ref, "system", "")),
-            operation=_text(getattr(ref, "operation", "")),
-            connection=_text(getattr(ref, "connection", "")),
-            instance=_text(getattr(ref, "instance", "")),
-            title=_text(getattr(ref, "title", "")),
-            description=_text(getattr(ref, "description", "")),
-        )
-
-    def validate(self, index: int) -> None:
-        if "*" in {self.system, self.operation, self.connection, self.instance}:
-            raise _invalid("wildcard tool_refs are not supported")
-        if self.plugin == "*":
-            self._validate_global_ref(index)
-            return
-        if self.system:
-            self._validate_system_ref(index)
-            return
-        if not self.plugin:
-            raise _invalid(f"tool_refs[{index}].plugin is required")
-
-    def _validate_global_ref(self, index: int) -> None:
-        if any([self.system, self.operation, self.connection, self.instance, self.title, self.description]):
-            raise _invalid(
-                f"tool_refs[{index}] global search ref cannot include operation, connection, instance, "
-                "title, or description"
-            )
-
-    def _validate_system_ref(self, index: int) -> None:
-        if self.plugin:
-            raise _invalid(f"tool_refs[{index}] must set exactly one of plugin or system")
-        if self.system != "workflow":
-            raise _invalid(f"tool_refs[{index}].system {self.system!r} is not supported")
-        if not self.operation:
-            raise _invalid(f"tool_refs[{index}].operation is required for system tool refs")
-        if any([self.connection, self.instance, self.title, self.description]):
-            raise _invalid(f"tool_refs[{index}] system refs cannot include connection, instance, title, or description")
-
-
 def validate_create_turn_contract(request: Any) -> None:
     if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise _invalid("agent/claude requires toolSource mcp_catalog")
@@ -229,105 +173,16 @@ def validate_create_turn_contract(request: Any) -> None:
         raise _invalid("run_grant is required")
     if len(list(getattr(request, "tools", []))) > 0:
         raise _invalid("resolved tools are not supported; use tool_refs with mcp_catalog")
-    if struct_to_dict(getattr(request, "response_schema", None)):
+    if gestalt.struct_to_dict(getattr(request, "response_schema", None)):
         raise _invalid("response_schema is not supported by agent/claude")
-    if struct_to_dict(getattr(request, "model_options", None)):
+    if gestalt.struct_to_dict(getattr(request, "model_options", None)):
         raise _invalid("model_options are not supported by agent/claude")
     validate_tool_refs(list(getattr(request, "tool_refs", [])))
 
 
 def validate_tool_refs(tool_refs: list[Any]) -> None:
     for index, ref in enumerate(tool_refs, start=1):
-        ToolRefInput.from_proto(ref).validate(index)
-
-
-def messages_to_dicts(messages: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for message in messages:
-        item: dict[str, Any] = {"role": str(message.role or ""), "text": str(message.text or "")}
-        parts: list[dict[str, Any]] = []
-        for part in message.parts:
-            part_item: dict[str, Any] = {"type": int(part.type or 0)}
-            if part.text:
-                part_item["text"] = part.text
-            if part.HasField("json"):
-                part_item["json"] = json_format.MessageToDict(part.json)
-            if part.HasField("tool_call"):
-                part_item["tool_call"] = {
-                    "id": part.tool_call.id,
-                    "tool_id": part.tool_call.tool_id,
-                    "arguments": json_format.MessageToDict(part.tool_call.arguments),
-                }
-            if part.HasField("tool_result"):
-                part_item["tool_result"] = {
-                    "tool_call_id": part.tool_result.tool_call_id,
-                    "status": part.tool_result.status,
-                    "content": part.tool_result.content,
-                    "output": json_format.MessageToDict(part.tool_result.output),
-                }
-            if part.HasField("image_ref"):
-                part_item["image_ref"] = {"uri": part.image_ref.uri, "mime_type": part.image_ref.mime_type}
-            parts.append(part_item)
-        if parts:
-            item["parts"] = parts
-        out.append(item)
-    return out
-
-
-def messages_from_dicts(messages: list[dict[str, Any]]) -> list[Any]:
-    out = []
-    for message in messages:
-        proto = gestalt.AgentMessage(role=str(message.get("role") or ""), text=str(message.get("text") or ""))
-        for part in message.get("parts") or []:
-            if not isinstance(part, dict):
-                continue
-            part_proto = gestalt.AgentMessagePart(type=int(part.get("type") or 0), text=str(part.get("text") or ""))
-            if isinstance(part.get("json"), dict):
-                part_proto.json.CopyFrom(dict_to_struct(part["json"]))
-            if isinstance(part.get("tool_call"), dict):
-                call = part["tool_call"]
-                part_proto.tool_call.id = str(call.get("id") or "")
-                part_proto.tool_call.tool_id = str(call.get("tool_id") or "")
-                if isinstance(call.get("arguments"), dict):
-                    part_proto.tool_call.arguments.CopyFrom(dict_to_struct(call["arguments"]))
-            if isinstance(part.get("tool_result"), dict):
-                result = part["tool_result"]
-                part_proto.tool_result.tool_call_id = str(result.get("tool_call_id") or "")
-                part_proto.tool_result.status = int(result.get("status") or 0)
-                part_proto.tool_result.content = str(result.get("content") or "")
-                if isinstance(result.get("output"), dict):
-                    part_proto.tool_result.output.CopyFrom(dict_to_struct(result["output"]))
-            if isinstance(part.get("image_ref"), dict):
-                image = part["image_ref"]
-                part_proto.image_ref.uri = str(image.get("uri") or "")
-                part_proto.image_ref.mime_type = str(image.get("mime_type") or "")
-            proto.parts.append(part_proto)
-        out.append(proto)
-    return out
-
-
-def dict_to_struct(value: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(value)
-    return struct
-
-
-def struct_to_dict(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    return json_format.MessageToDict(value)
-
-
-def prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
-    if value is None:
-        return None
-    root = _text(getattr(value, "root", ""))
-    cwd = _text(getattr(value, "cwd", ""))
-    if not root and not cwd:
-        return None
-    if not root or not cwd:
-        raise ValueError("prepared_workspace root and cwd are required")
-    return {"root": root, "cwd": cwd}
+        _validate_tool_ref(gestalt.agent_tool_ref_to_dict(ref), index)
 
 
 def prepared_workspace_cwd(value: dict[str, str] | None) -> str:
@@ -336,31 +191,68 @@ def prepared_workspace_cwd(value: dict[str, str] | None) -> str:
     return _text(value.get("cwd"))
 
 
-def optional_field(message: Any, field_name: str) -> Any | None:
+def _validate_tool_ref(tool_ref: dict[str, Any], index: int) -> None:
+    plugin = _text(tool_ref.get("plugin"))
+    system = _text(tool_ref.get("system"))
+    operation = _text(tool_ref.get("operation"))
+    connection = _text(tool_ref.get("connection"))
+    instance = _text(tool_ref.get("instance"))
+    title = _text(tool_ref.get("title"))
+    description = _text(tool_ref.get("description"))
+
+    if "*" in {system, operation, connection, instance}:
+        raise _invalid("wildcard tool_refs are not supported")
+    if plugin == "*":
+        if any([system, operation, connection, instance, title, description]):
+            raise _invalid(
+                f"tool_refs[{index}] global search ref cannot include operation, connection, instance, "
+                "title, or description"
+            )
+        return
+    if system:
+        if plugin:
+            raise _invalid(f"tool_refs[{index}] must set exactly one of plugin or system")
+        if system != "workflow":
+            raise _invalid(f"tool_refs[{index}].system {system!r} is not supported")
+        if not operation:
+            raise _invalid(f"tool_refs[{index}].operation is required for system tool refs")
+        if any([connection, instance, title, description]):
+            raise _invalid(f"tool_refs[{index}] system refs cannot include connection, instance, title, or description")
+        return
+    if not plugin:
+        raise _invalid(f"tool_refs[{index}].plugin is required")
+
+
+def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
+    if value is None:
+        return None
+    workspace = gestalt.prepared_workspace_to_dict(value)
+    root = _text(workspace.get("root"))
+    cwd = _text(workspace.get("cwd"))
+    if not root and not cwd:
+        return None
+    if not root or not cwd:
+        raise ValueError("prepared_workspace root and cwd are required")
+    return {"root": root, "cwd": cwd}
+
+
+def _optional_field(message: Any, field_name: str) -> Any | None:
     if message is None or not hasattr(message, field_name):
         return None
     has_field = getattr(message, "HasField", None)
     if callable(has_field):
-        try:
-            if not has_field(field_name):
-                return None
-        except ValueError:
+        if not gestalt.has_field(message, field_name):
             return None
     return getattr(message, field_name)
 
 
-def actor_to_dict(actor: Any) -> dict[str, str]:
-    return {
-        "subject_id": str(getattr(actor, "subject_id", "") or ""),
-        "subject_kind": str(getattr(actor, "subject_kind", "") or ""),
-        "display_name": str(getattr(actor, "display_name", "") or ""),
-        "auth_source": str(getattr(actor, "auth_source", "") or ""),
-    }
+def _actor_to_dict(actor: Any) -> dict[str, str]:
+    return cast(dict[str, str], gestalt.agent_actor_to_dict(actor))
 
 
-def subject_id(request: Any) -> str:
-    subject = getattr(request, "subject", None)
-    return _text(getattr(subject, "subject_id", ""))
+def _subject_id(request: Any) -> str:
+    subject = gestalt.agent_subject_context_to_dict(getattr(request, "subject", None))
+    return _text(subject.get("subject_id"))
 
 
 def _invalid(message: str) -> ProviderRequestError:

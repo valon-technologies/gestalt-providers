@@ -4,12 +4,10 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import Any, Never, TypeVar, cast
+from typing import Any, Never, TypeVar
 
 import gestalt
 import grpc
-from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
 from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
 from internals.claude_code_config import ClaudeCodeTurnOptions
@@ -23,8 +21,6 @@ from internals.provider_io import (
     ListTurnsInput,
     ProviderRequestError,
     UpdateSessionInput,
-    dict_to_struct,
-    messages_from_dicts,
     prepared_workspace_cwd,
 )
 from internals.session_start import (
@@ -34,7 +30,6 @@ from internals.session_start import (
 )
 from internals.store import StoreConflictError, StoreUnavailableError, StoredSession, StoredTurn, StoredTurnEvent
 
-timestamp_pb2: Any = cast(Any, _timestamp_pb2)
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
@@ -167,10 +162,7 @@ class ClaudeCodeAgentProvider(
         session = self._store_call(
             context,
             lambda: store.update_session(
-                session_id=update.session_id,
-                client_ref=update.client_ref,
-                state=update.state,
-                metadata=update.metadata,
+                session_id=update.session_id, client_ref=update.client_ref, state=update.state, metadata=update.metadata
             ),
         )
         if session is None:
@@ -263,10 +255,7 @@ class ClaudeCodeAgentProvider(
     def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, _ = self._require_runtime(context)
         cancel = CancelTurnInput.from_proto(request)
-        turn = self._store_call(
-            context,
-            lambda: store.cancel_turn(turn_id=cancel.turn_id, reason=cancel.reason),
-        )
+        turn = self._store_call(context, lambda: store.cancel_turn(turn_id=cancel.turn_id, reason=cancel.reason))
         if turn is None:
             _abort(context, grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
         if turn.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
@@ -281,11 +270,7 @@ class ClaudeCodeAgentProvider(
                 _turn_event_to_proto(event)
                 for event in self._store_call(
                     context,
-                    lambda: store.list_turn_events(
-                        turn_id=query.turn_id,
-                        after_seq=query.after_seq,
-                        limit=query.limit,
-                    ),
+                    lambda: store.list_turn_events(turn_id=query.turn_id, after_seq=query.after_seq, limit=query.limit),
                 )
             ]
         )
@@ -406,20 +391,13 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         state=session.state,
     )
     if session.metadata and not summary_only:
-        proto.metadata.CopyFrom(dict_to_struct(session.metadata))
+        proto.metadata.CopyFrom(gestalt.struct_from_dict(session.metadata))
     if session.created_by:
-        proto.created_by.CopyFrom(
-            gestalt.AgentActor(
-                subject_id=session.created_by.get("subject_id", ""),
-                subject_kind=session.created_by.get("subject_kind", ""),
-                display_name=session.created_by.get("display_name", ""),
-                auth_source=session.created_by.get("auth_source", ""),
-            )
-        )
-    proto.created_at.CopyFrom(_datetime_to_timestamp(session.created_at))
-    proto.updated_at.CopyFrom(_datetime_to_timestamp(session.updated_at))
+        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(session.created_by))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(session.created_at))
+    proto.updated_at.CopyFrom(gestalt.timestamp_from_datetime(session.updated_at))
     if session.last_turn_at is not None:
-        proto.last_turn_at.CopyFrom(_datetime_to_timestamp(session.last_turn_at))
+        proto.last_turn_at.CopyFrom(gestalt.timestamp_from_datetime(session.last_turn_at))
     return proto
 
 
@@ -435,21 +413,14 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
         execution_ref=turn.execution_ref,
     )
     if not summary_only:
-        proto.messages.extend(messages_from_dicts(turn.messages))
+        proto.messages.extend(gestalt.agent_messages_from_dicts(turn.messages))
     if turn.created_by:
-        proto.created_by.CopyFrom(
-            gestalt.AgentActor(
-                subject_id=turn.created_by.get("subject_id", ""),
-                subject_kind=turn.created_by.get("subject_kind", ""),
-                display_name=turn.created_by.get("display_name", ""),
-                auth_source=turn.created_by.get("auth_source", ""),
-            )
-        )
-    proto.created_at.CopyFrom(_datetime_to_timestamp(turn.created_at))
+        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(turn.created_by))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(turn.created_at))
     if turn.started_at is not None:
-        proto.started_at.CopyFrom(_datetime_to_timestamp(turn.started_at))
+        proto.started_at.CopyFrom(gestalt.timestamp_from_datetime(turn.started_at))
     if turn.completed_at is not None:
-        proto.completed_at.CopyFrom(_datetime_to_timestamp(turn.completed_at))
+        proto.completed_at.CopyFrom(gestalt.timestamp_from_datetime(turn.completed_at))
     return proto
 
 
@@ -463,8 +434,8 @@ def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
         visibility=event.visibility,
     )
     if event.data:
-        proto.data.CopyFrom(dict_to_struct(event.data))
-    proto.created_at.CopyFrom(_datetime_to_timestamp(event.created_at))
+        proto.data.CopyFrom(gestalt.struct_from_dict(event.data))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(event.created_at))
     return proto
 
 
@@ -495,12 +466,6 @@ def _existing_session_for_create(
     if not idempotency_key:
         return None
     return store.get_session_by_idempotency_key(idempotency_key)
-
-
-def _datetime_to_timestamp(value: datetime) -> Any:
-    stamp = timestamp_pb2.Timestamp()
-    stamp.FromDatetime(value.astimezone(UTC))
-    return stamp
 
 
 provider = ClaudeCodeAgentProvider()
