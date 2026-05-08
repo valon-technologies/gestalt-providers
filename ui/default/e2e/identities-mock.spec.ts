@@ -1,5 +1,6 @@
 import { expect, mockAuthInfo, test } from "./fixtures";
 import type {
+  AccessPermission,
   APIToken,
   Integration,
   ManagedIdentity,
@@ -174,7 +175,7 @@ async function wireIdentityRoutes(
       if (parts.length === 6 && request.method() === "POST") {
         const body = request.postDataJSON() as {
           name: string;
-          permissions: { plugin: string; operations?: string[] }[];
+          permissions?: AccessPermission[];
         };
         opts?.onCreateToken?.(body as Record<string, unknown>);
         const token: APIToken = {
@@ -453,6 +454,22 @@ test.describe("Managed identities", () => {
         permissions: [{ plugin: "slack", operations: ["channels.read"] }],
         createdAt: isoDate(3),
       },
+      {
+        id: "tok-2",
+        name: "action-token",
+        permissions: [{ plugin: "github", actions: ["provider_dev.attach"] }],
+        createdAt: isoDate(4),
+      },
+      {
+        id: "tok-3",
+        name: "mixed-token",
+        permissions: [{
+          plugin: "github",
+          operations: ["issues.read"],
+          actions: ["provider_dev.attach"],
+        }],
+        createdAt: isoDate(5),
+      },
     ];
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
@@ -463,6 +480,8 @@ test.describe("Managed identities", () => {
     await expect(page.getByRole("button", { name: "Delete Identity" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add or Update Member" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Set Grant" })).toHaveCount(0);
+    await expect(page.getByRole("cell", { name: "github: actions: provider_dev.attach" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "github: issues.read; actions: provider_dev.attach" })).toBeVisible();
     await page.getByRole("button", { name: "Slack settings" }).click();
     await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
@@ -484,7 +503,7 @@ test.describe("Managed identities", () => {
     await page.getByRole("button", { name: "Add or Update Member" }).click();
     await expect(page.getByRole("cell", { name: "viewer@example.test", exact: true })).toBeVisible();
 
-    await page.getByLabel("Plugin").fill("git");
+    await page.getByRole("combobox", { name: "Plugin" }).fill("git");
     await page.getByRole("option", { name: /GitHub/ }).click();
     await page.getByLabel("Grant role").selectOption("viewer");
     await page.getByRole("button", { name: "Set Grant" }).click();
@@ -495,6 +514,7 @@ test.describe("Managed identities", () => {
     await expect(githubGrantRow.getByRole("cell", { name: "viewer" })).toBeVisible();
 
     await page.getByLabel("Token name").fill("release-token");
+    await page.getByRole("radio", { name: /Restrict this token/ }).check();
     await page.getByLabel("Operations for slack").fill("channels.read");
     await page.getByRole("button", { name: "Create Token" }).click();
     await expect(page.getByText("Copy this token now")).toBeVisible();
@@ -552,6 +572,75 @@ test.describe("Managed identities", () => {
     await expect(page.getByText("Release Bot")).toHaveCount(0);
   });
 
+  test("creates all-authorized tokens without visible plugin grants", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    state.grantsByIdentityID["service_account:agent-1"] = [];
+    let createTokenBody: Record<string, unknown> | null = null;
+
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, {
+      onCreateToken: (body) => {
+        createTokenBody = body;
+      },
+    });
+
+    await page.goto("/identities?id=agent-1");
+    await expect(page.getByRole("radio", { name: /All authorized access/ })).toBeChecked();
+    await page.getByLabel("Token name").fill("brain-ingest");
+    await page.getByRole("button", { name: "Create Token" }).click();
+
+    await expect.poll(() => createTokenBody).toEqual({
+      name: "brain-ingest",
+    });
+    const tokenRow = page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "brain-ingest", exact: true }),
+    });
+    await expect(tokenRow.getByRole("cell", { name: "All authorized access" })).toBeVisible();
+  });
+
+  test("ignores stale token limits when all-authorized access is selected", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    let createTokenBody: Record<string, unknown> | null = null;
+
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, {
+      onCreateToken: (body) => {
+        createTokenBody = body;
+      },
+    });
+
+    await page.goto("/identities?id=agent-1");
+    await page.getByLabel("Token name").fill("all-token");
+    await page.getByRole("radio", { name: /Restrict this token/ }).check();
+    await page.getByLabel("Operations for slack").fill("channels.read");
+    await page.getByRole("radio", { name: /All authorized access/ }).check();
+    await page.getByRole("button", { name: "Create Token" }).click();
+
+    await expect.poll(() => createTokenBody).toEqual({
+      name: "all-token",
+    });
+  });
+
+  test("does not post empty permissions in restricted mode", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    let createTokenBody: Record<string, unknown> | null = null;
+
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, {
+      onCreateToken: (body) => {
+        createTokenBody = body;
+      },
+    });
+
+    await page.goto("/identities?id=agent-1");
+    await page.getByLabel("Token name").fill("empty-restricted-token");
+    await page.getByRole("radio", { name: /Restrict this token/ }).check();
+    await page.getByRole("button", { name: "Create Token" }).click();
+
+    await expect(page.getByText("Choose at least one token limit")).toBeVisible();
+    expect(createTokenBody).toBeNull();
+  });
+
   test("allows operation-scoped tokens from role-based plugin grants", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     state.grantsByIdentityID["service_account:agent-1"] = [
@@ -573,6 +662,7 @@ test.describe("Managed identities", () => {
 
     await page.goto("/identities?id=agent-1");
     await page.getByLabel("Token name").fill("github-token");
+    await page.getByRole("radio", { name: /Restrict this token/ }).check();
     await page.getByLabel("Operations for github").fill("issues.read, repos.read");
     await page.getByRole("button", { name: "Create Token" }).click();
 
@@ -601,7 +691,8 @@ test.describe("Managed identities", () => {
 
     await page.goto("/identities?id=agent-1");
     await page.getByLabel("Token name").fill("slack-token");
-    await page.getByLabel("Grant full access to slack").check();
+    await page.getByRole("radio", { name: /Restrict this token/ }).check();
+    await page.getByRole("checkbox", { name: "Limit this token to all authorized slack operations" }).check();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect.poll(() => createTokenBody).toEqual({

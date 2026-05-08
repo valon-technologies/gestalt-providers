@@ -1464,11 +1464,15 @@ export async function getManagedIdentityTokens(
 export async function createManagedIdentityToken(
   id: string,
   name: string,
-  permissions: AccessPermission[],
+  permissions?: AccessPermission[],
 ): Promise<CreateTokenResponse> {
+  const body: { name: string; permissions?: AccessPermission[] } = { name };
+  if (permissions !== undefined) {
+    body.permissions = permissions;
+  }
   return fetchAPI(`${managedSubjectPath(id)}/tokens`, {
     method: "POST",
-    body: JSON.stringify({ name, permissions }),
+    body: JSON.stringify(body),
   });
 }
 
