@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
@@ -158,6 +159,102 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 	signals := host.calls[0].GetSignals()
 	if len(signals) != 1 || signals[0].GetIdempotencyKey() != "signal-1" {
 		t.Fatalf("signals = %#v, want initial signal", signals)
+	}
+}
+
+func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	activities := &workflowActivities{host: host}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(activities)
+
+	var mu sync.Mutex
+	var projectedStatuses []proto.WorkflowRunStatus
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run *proto.BoundWorkflowRun) error {
+		mu.Lock()
+		defer mu.Unlock()
+		projectedStatuses = append(projectedStatuses, run.GetStatus())
+		return nil
+	}).Maybe()
+
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		WorkflowKey:                   "thread-1",
+		OwnerKey:                      "slack",
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()}),
+		RequireSignal:                 true,
+		RequireClaim:                  true,
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(projectedStatuses) != 3 ||
+		projectedStatuses[0] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
+		projectedStatuses[1] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING ||
+		projectedStatuses[2] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("projected statuses = %v, want pending/running/succeeded", projectedStatuses)
+	}
+}
+
+func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	activities := &workflowActivities{host: host}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(activities)
+
+	var mu sync.Mutex
+	var projectedStatuses []proto.WorkflowRunStatus
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run *proto.BoundWorkflowRun) error {
+		mu.Lock()
+		defer mu.Unlock()
+		projectedStatuses = append(projectedStatuses, run.GetStatus())
+		return nil
+	}).Maybe()
+
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), &proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ProviderName:                  "temporal",
+		ScopeID:                       "scope",
+		ExecutionRef:                  "ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		WorkflowKey:                   "thread-1",
+		OwnerKey:                      "slack",
+		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
+		TriggerPayload:                protoPayload(newManualTrigger()),
+		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		RequireSignal:                 true,
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(projectedStatuses) != 3 ||
+		projectedStatuses[0] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
+		projectedStatuses[1] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING ||
+		projectedStatuses[2] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("projected statuses = %v, want pending/running/succeeded", projectedStatuses)
 	}
 }
 
@@ -1533,6 +1630,23 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateAddSignal) || !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) {
 		t.Fatalf("updates = %#v, want UpdateWithStart add-signal and claim on v4 run", tc.updates)
 	}
+	addSignalUpdateFound := false
+	for _, update := range tc.updates {
+		if update.WorkflowID == tc.executions[0].WorkflowID && update.Name == updateAddSignal {
+			addSignalUpdateFound = true
+			if update.WaitForStage != client.WorkflowUpdateStageCompleted {
+				t.Fatalf("signal update wait stage = %v, want completed", update.WaitForStage)
+			}
+		}
+		if update.WorkflowID == tc.executions[0].WorkflowID && update.Name == updateClaimRun {
+			if update.WaitForStage != client.WorkflowUpdateStageCompleted {
+				t.Fatalf("claim update wait stage = %v, want completed", update.WaitForStage)
+			}
+		}
+	}
+	if !addSignalUpdateFound {
+		t.Fatalf("updates = %#v, want add-signal update", tc.updates)
+	}
 	if len(tc.queries) != 0 {
 		t.Fatalf("queries = %#v, want no temporal lookup", tc.queries)
 	}
@@ -1733,6 +1847,9 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	}
 	if newUpdates[0].WorkflowID != handle.RunWorkflowID || newUpdates[0].Name != updateAddSignal {
 		t.Fatalf("update = %#v, want updateAddSignal on run workflow %q", newUpdates[0], handle.RunWorkflowID)
+	}
+	if newUpdates[0].WaitForStage != client.WorkflowUpdateStageCompleted {
+		t.Fatalf("signal update wait stage = %v, want completed", newUpdates[0].WaitForStage)
 	}
 }
 
@@ -2968,10 +3085,11 @@ func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHand
 }
 
 type recordedUpdate struct {
-	WorkflowID string
-	UpdateID   string
-	Name       string
-	Args       []any
+	WorkflowID   string
+	UpdateID     string
+	Name         string
+	Args         []any
+	WaitForStage client.WorkflowUpdateStage
 }
 
 type recordedQuery struct {
@@ -3041,10 +3159,11 @@ func (c *recordingTemporalClient) UpdateWorkflow(_ context.Context, options clie
 		}
 	}
 	update := recordedUpdate{
-		WorkflowID: options.WorkflowID,
-		UpdateID:   options.UpdateID,
-		Name:       options.UpdateName,
-		Args:       options.Args,
+		WorkflowID:   options.WorkflowID,
+		UpdateID:     options.UpdateID,
+		Name:         options.UpdateName,
+		Args:         options.Args,
+		WaitForStage: options.WaitForStage,
 	}
 	c.updates = append(c.updates, update)
 	return recordingUpdateHandle{update: update}, nil
@@ -3060,10 +3179,11 @@ func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, opt
 		workflowID = op.workflowID
 	}
 	update := recordedUpdate{
-		WorkflowID: workflowID,
-		UpdateID:   options.UpdateOptions.UpdateID,
-		Name:       options.UpdateOptions.UpdateName,
-		Args:       options.UpdateOptions.Args,
+		WorkflowID:   workflowID,
+		UpdateID:     options.UpdateOptions.UpdateID,
+		Name:         options.UpdateOptions.UpdateName,
+		Args:         options.UpdateOptions.Args,
+		WaitForStage: options.UpdateOptions.WaitForStage,
 	}
 	c.updates = append(c.updates, update)
 	return recordingUpdateHandle{update: update}, nil
