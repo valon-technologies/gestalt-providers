@@ -698,6 +698,74 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fetched_turn.id, "turn-durable")
         _wait_for_turn(client_b, "turn-durable", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
+    def test_provider_hydrates_existing_indexeddb_records(self) -> None:
+        indexeddb = _indexeddb_servicer
+        assert indexeddb is not None
+        _, provider_client = _configure_provider()
+        store = provider_module.provider._store
+        assert store is not None
+        created_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        updated_at = datetime(2026, 1, 2, 4, 5, 6, tzinfo=UTC)
+        completed_at = datetime(2026, 1, 2, 4, 6, 7, tzinfo=UTC)
+
+        indexeddb.put_record(
+            store._session_store_name,
+            {
+                "id": "session-seeded",
+                "idempotency_key": "session-seeded-idem",
+                "provider_name": "claude",
+                "model": "sonnet-seeded",
+                "client_ref": "client-seeded",
+                "state": agent_pb2.AGENT_SESSION_STATE_ACTIVE,
+                "metadata": {"source": "seeded", "count": 1},
+                "prepared_workspace": {"root": "/workspace/session-seeded", "cwd": "/workspace/session-seeded/repo"},
+                "created_by": {"subject_id": "user-seeded", "subject_kind": "human"},
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "last_turn_at": completed_at,
+            },
+        )
+        indexeddb.put_record(
+            store._run_store_name,
+            {
+                "id": "turn-seeded",
+                "session_id": "session-seeded",
+                "idempotency_key": "turn-seeded-idem",
+                "provider_name": "claude",
+                "model": "sonnet-seeded",
+                "status": agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+                "messages": [{"role": "user", "text": "seeded message"}],
+                "output_text": "seeded output",
+                "status_message": "",
+                "created_by": {"subject_id": "user-seeded", "subject_kind": "human"},
+                "created_at": updated_at,
+                "started_at": updated_at,
+                "completed_at": completed_at,
+                "execution_ref": "exec-seeded",
+            },
+        )
+
+        fetched_session = provider_client.GetSession(agent_pb2.GetAgentProviderSessionRequest(session_id="session-seeded"))
+        listed_sessions = provider_client.ListSessions(agent_pb2.ListAgentProviderSessionsRequest())
+        fetched_turn = provider_client.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-seeded"))
+        listed_turns = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(session_id="session-seeded")
+        )
+
+        self.assertEqual(fetched_session.id, "session-seeded")
+        self.assertEqual(fetched_session.model, "sonnet-seeded")
+        self.assertEqual(fetched_session.client_ref, "client-seeded")
+        self.assertEqual(fetched_session.created_by.subject_id, "user-seeded")
+        self.assertEqual(json_format.MessageToDict(fetched_session.metadata), {"source": "seeded", "count": 1.0})
+        self.assertEqual([session.id for session in listed_sessions.sessions], ["session-seeded"])
+        self.assertEqual(fetched_turn.id, "turn-seeded")
+        self.assertEqual(fetched_turn.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched_turn.messages[0].role, "user")
+        self.assertEqual(fetched_turn.messages[0].text, "seeded message")
+        self.assertEqual(fetched_turn.output_text, "seeded output")
+        self.assertEqual(fetched_turn.execution_ref, "exec-seeded")
+        self.assertEqual([turn.id for turn in listed_turns.turns], ["turn-seeded"])
+
     def test_list_paths_stream_projection_records_through_provider_rpc(self) -> None:
         indexeddb = _indexeddb_servicer
         assert indexeddb is not None
