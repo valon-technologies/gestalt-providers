@@ -628,6 +628,20 @@ def reply_slack_event_session_started(
     normalized_session_id = session_id.strip()
     if not normalized_session_id:
         return _bad_request("session_id is required")
+
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+    except ValueError as err:
+        return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
+
+    if _reply_ref_is_thread_reply(verified_ref):
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "thread_reply",
+            "thread_ts": verified_ref.reply_thread_ts,
+        }
+
     base_url = str(
         getattr(getattr(req, "host", None), "public_base_url", "") or ""
     ).strip()
@@ -639,9 +653,7 @@ def reply_slack_event_session_started(
     session_url = f"{base_url.rstrip('/')}/agents?{urllib.parse.urlencode({'session': normalized_session_id})}"
     text = f"Started a Gestalt session: <{session_url}|open session>"
 
-    verified_ref: SlackReplyRef | None = None
     try:
-        verified_ref = _event_reply_ref(reply_ref, req)
         result = post_message(
             _agent_config.bot.token,
             channel=verified_ref.channel_id,
@@ -665,6 +677,10 @@ def reply_slack_event_session_started(
         "thread_ts": verified_ref.reply_thread_ts,
         "session_url": session_url,
     }
+
+
+def _reply_ref_is_thread_reply(ref: SlackReplyRef) -> bool:
+    return bool(ref.reply_thread_ts and ref.reply_thread_ts != ref.message_ts)
 
 
 def set_slack_event_status(

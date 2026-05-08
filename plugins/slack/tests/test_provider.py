@@ -3093,6 +3093,47 @@ class SlackProviderTests(unittest.TestCase):
             {"error": "host.public_base_url is required"},
         )
 
+    def test_slack_events_reply_session_started_skips_thread_replies(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> follow up",
+            message_ts="1712161835.000500",
+            thread_ts="1712161829.000300",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen",
+            side_effect=AssertionError("thread replies should not post session links"),
+        ):
+            result = provider_module.slack_events_reply_session_started(
+                provider_module.SlackEventSessionStartedInput(
+                    reply_ref=reply_ref, session_id="agent-session-123"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "skipped": True,
+                "reason": "thread_reply",
+                "thread_ts": "1712161829.000300",
+            },
+        )
+
     def test_slack_interaction_request_posts_buttons_and_handler_signals_workflow(
         self,
     ) -> None:
