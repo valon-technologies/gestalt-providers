@@ -14,6 +14,11 @@ from typing import Any, Iterable, TypeAlias, cast
 
 import gestalt
 
+try:
+    from gestalt.protocol.v1 import authorization_pb2 as _authorization_pb2
+except ModuleNotFoundError:
+    from gestalt._gen.v1 import authorization_pb2 as _authorization_pb2
+
 from .client import SlackAPIError, SlackClientError
 from .config import agent_config_from_provider_config, normalize_suggested_prompts
 from .helpers import map_field, map_slice, string_field
@@ -74,6 +79,9 @@ SLACK_STATUS_OPERATION = "events.setStatus"
 SLACK_DELETE_STATUS_OPERATION = "events.deleteStatus"
 SLACK_ADD_REACTION_OPERATION = "events.addReaction"
 SLACK_REMOVE_REACTION_OPERATION = "events.removeReaction"
+AUTHORIZATION_SUBJECT_TYPE_SUBJECT = "subject"
+AGENT_SESSION_RESOURCE_TYPE = "agent_session"
+AGENT_SESSION_RELATION_EDITOR = "editor"
 SLACK_ASSISTANT_STATUS_OPERATION = "events.setAssistantStatus"
 SLACK_ASSISTANT_CLEAR_STATUS_OPERATION = "events.clearAssistantStatus"
 SLACK_ASSISTANT_TITLE_OPERATION = "events.setThreadTitle"
@@ -654,7 +662,29 @@ def reply_slack_event_session_started(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "host.public_base_url is required"},
         )
-    session_url = f"{base_url.rstrip('/')}/agents?{urllib.parse.urlencode({'session': normalized_session_id})}"
+    try:
+        _grant_agent_session_editor(
+            req.authorization(), verified_ref.subject_id, normalized_session_id
+        )
+    except RuntimeError:
+        logger.warning(
+            "slack: missing authorization provider for agent session share",
+            exc_info=True,
+        )
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "authorization provider is required to share agent session"},
+        )
+    except Exception:
+        logger.warning(
+            "slack: failed to share agent session before posting link", exc_info=True
+        )
+        return gestalt.Response(
+            status=HTTPStatus.BAD_GATEWAY,
+            body={"error": "failed to share agent session"},
+        )
+
+    session_url = _agent_session_url(base_url, normalized_session_id)
     text = f"Started a Gestalt session: <{session_url}|open session>"
 
     try:
@@ -685,6 +715,66 @@ def reply_slack_event_session_started(
 
 def _reply_ref_is_thread_reply(ref: SlackReplyRef) -> bool:
     return bool(ref.reply_thread_ts and ref.reply_thread_ts != ref.message_ts)
+
+
+def _agent_session_url(base_url: str, session_id: str) -> str:
+    return f"{base_url.rstrip('/')}/agents?{urllib.parse.urlencode({'session': session_id})}"
+
+
+def _grant_agent_session_editor(
+    authorization: Any, subject_id: str, session_id: str
+) -> None:
+    normalized_subject_id = subject_id.strip()
+    normalized_session_id = session_id.strip()
+    if not normalized_subject_id or not normalized_session_id:
+        raise RuntimeError("agent session share requires subject and session")
+    request = _agent_session_editor_write_request(
+        normalized_subject_id, normalized_session_id
+    )
+    write_relationships = getattr(authorization, "write_relationships", None)
+    if callable(write_relationships):
+        write_relationships(request)
+        return
+    stub = getattr(authorization, "_stub", None)
+    write = getattr(stub, "WriteRelationships", None)
+    if callable(write):
+        write(request)
+        return
+    raise RuntimeError("authorization client does not support write_relationships")
+
+
+def _agent_session_editor_write_request(subject_id: str, session_id: str) -> Any:
+    try:
+        subject = gestalt.AuthorizationSubject(
+            type=AUTHORIZATION_SUBJECT_TYPE_SUBJECT,
+            id=subject_id,
+        )
+        resource = gestalt.AuthorizationResource(
+            type=AGENT_SESSION_RESOURCE_TYPE,
+            id=session_id,
+        )
+        relationship = gestalt.Relationship(
+            subject=subject,
+            relation=AGENT_SESSION_RELATION_EDITOR,
+            resource=resource,
+        )
+        return gestalt.WriteRelationshipsRequest(writes=[relationship])
+    except AttributeError:
+        return _authorization_pb2.WriteRelationshipsRequest(
+            writes=[
+                _authorization_pb2.Relationship(
+                    subject=_authorization_pb2.Subject(
+                        type=AUTHORIZATION_SUBJECT_TYPE_SUBJECT,
+                        id=subject_id,
+                    ),
+                    relation=AGENT_SESSION_RELATION_EDITOR,
+                    resource=_authorization_pb2.Resource(
+                        type=AGENT_SESSION_RESOURCE_TYPE,
+                        id=session_id,
+                    ),
+                )
+            ]
+        )
 
 
 def set_slack_event_status(
@@ -2108,7 +2198,9 @@ def _resolve_slack_subject(
     )
 
 
-def _agent_route_run_as_subject(route: SlackAgentRoute | None) -> gestalt.Subject | None:
+def _agent_route_run_as_subject(
+    route: SlackAgentRoute | None,
+) -> gestalt.Subject | None:
     if route is None or not route.run_as_subject_id:
         return None
     return gestalt.Subject(

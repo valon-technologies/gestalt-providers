@@ -33,6 +33,7 @@ type MockAgentRunsController = {
 type MockAgentSessionsData = {
   providers?: AgentProvider[];
   sessions: AgentSession[];
+  sessionDetails?: AgentSession[];
   turns: Record<string, AgentTurn[]>;
   events?: Record<string, AgentTurnEvent[]>;
   interactions?: Record<string, AgentInteraction[]>;
@@ -215,6 +216,9 @@ export async function mockAgentSessions(
   opts?: MockAgentSessionsOptions,
 ): Promise<MockAgentSessionsController> {
   let currentSessions = data.sessions.map((session) => structuredClone(session));
+  let detailSessions = (data.sessionDetails ?? []).map((session) =>
+    structuredClone(session),
+  );
   let turnsBySession = cloneRecordArray(data.turns);
   let eventsByTurn = cloneRecordArray(data.events ?? {});
   let interactionsByTurn = cloneRecordArray(data.interactions ?? {});
@@ -242,7 +246,10 @@ export async function mockAgentSessions(
   }
 
   function sessionByID(id: string) {
-    return currentSessions.find((session) => session.id === id);
+    return (
+      currentSessions.find((session) => session.id === id) ??
+      detailSessions.find((session) => session.id === id)
+    );
   }
 
   function turnByID(id: string) {

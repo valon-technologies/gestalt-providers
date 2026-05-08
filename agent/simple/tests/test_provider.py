@@ -1768,6 +1768,14 @@ class SimpleAgentProviderTests(unittest.TestCase):
                 summary_only=True,
             )
         )
+        exact_session_without_subject = provider_client.ListSessions(
+            agent_pb2.ListAgentProviderSessionsRequest(
+                session_ids=["session-other-user"], limit=10, summary_only=True
+            )
+        )
+        exact_turn_without_subject = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(turn_ids=["turn-success"], summary_only=True)
+        )
         with self.assertRaises(grpc.RpcError) as negative_session_limit:
             provider_client.ListSessions(agent_pb2.ListAgentProviderSessionsRequest(limit=-1, summary_only=True))
         with self.assertRaises(grpc.RpcError) as negative_turn_limit:
@@ -1848,6 +1856,11 @@ class SimpleAgentProviderTests(unittest.TestCase):
         self.assertEqual(len(empty_session_turns.turns), 0)
         self.assertEqual([turn.id for turn in exact_turn_without_session.turns], ["turn-success"])
         self.assertEqual([session.id for session in subject_filtered_sessions.sessions], ["session-success"])
+        self.assertEqual(
+            [session.id for session in exact_session_without_subject.sessions],
+            ["session-other-user"],
+        )
+        self.assertEqual([turn.id for turn in exact_turn_without_subject.turns], ["turn-success"])
         self.assertEqual(_rpc_error_code(negative_session_limit.exception), grpc.StatusCode.INVALID_ARGUMENT)
         self.assertEqual(_rpc_error_details(negative_session_limit.exception), "limit must be non-negative")
         self.assertEqual(_rpc_error_code(negative_turn_limit.exception), grpc.StatusCode.INVALID_ARGUMENT)

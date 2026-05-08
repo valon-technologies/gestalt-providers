@@ -41,6 +41,47 @@ test.describe("Agents", () => {
     await expect(page.getByRole("heading", { name: "Agent Sessions" })).toBeVisible();
   });
 
+  test("opens a query-selected shared session that is not in the list", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAgentSessions(page, {
+      sessions: [],
+      sessionDetails: [
+        {
+          id: "agent_session_shared",
+          provider: "simple",
+          model: "fast",
+          clientRef: "shared-session",
+          state: "active",
+          createdAt: "2026-04-23T00:00:00Z",
+          updatedAt: "2026-04-23T00:00:00Z",
+          lastTurnAt: "2026-04-23T00:02:00Z",
+        },
+      ],
+      turns: {
+        agent_session_shared: [
+          {
+            id: "agent_turn_shared",
+            sessionId: "agent_session_shared",
+            provider: "simple",
+            model: "fast",
+            status: "succeeded",
+            messages: [{ role: "user", text: "Read the shared context." }],
+            outputText: "Shared context loaded.",
+            createdAt: "2026-04-23T00:00:00Z",
+            completedAt: "2026-04-23T00:02:00Z",
+          },
+        ],
+      },
+    });
+
+    await page.goto("/agents?session=agent_session_shared&turn=agent_turn_shared");
+
+    await expect(page.getByRole("heading", { name: "shared-session" })).toBeVisible();
+    await expect(page.getByText("Read the shared context.").first()).toBeVisible();
+    await expect(page).toHaveURL(/\/agents\?session=agent_session_shared&turn=agent_turn_shared/);
+  });
+
   test("opens a deep-linked session console with transcript and public events", async ({
     authenticatedPage: page,
   }) => {
