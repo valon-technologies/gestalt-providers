@@ -290,7 +290,7 @@ operations:
   visible: false
 - id: chat.postMessage
   method: POST
-  description: Send a Slack message with a visible Gestalt context footer
+  description: Send a Slack message with a visible Gestalt attribution footer
   parameters:
   - name: channel
     type: string
@@ -316,7 +316,7 @@ operations:
     default: null
   - name: blocks
     type: array
-    description: Optional Slack Block Kit blocks. Gestalt appends a context footer.
+    description: Optional Slack Block Kit blocks. Gestalt appends an attribution context footer.
   - name: metadata
     type: object
     description: Optional Slack message metadata. Omit for default Gestalt metadata;

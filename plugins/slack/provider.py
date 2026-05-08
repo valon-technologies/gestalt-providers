@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any, TypeAlias
 
@@ -70,7 +71,7 @@ OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 plugin = gestalt.Plugin("slack")
 SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID = "service_account:slack-bot"
-SLACK_POST_MESSAGE_FOOTER = "Sent with Gestalt"
+SLACK_POST_MESSAGE_FOOTER_APP_NAME = "Gestalt"
 SLACK_MAX_BLOCKS = 50
 SLACK_MAX_SECTION_TEXT_CHARS = 3000
 SLACK_MAX_SYNTHESIZED_TEXT_BLOCKS = SLACK_MAX_BLOCKS - 1
@@ -112,7 +113,7 @@ class ChatPostMessageInput(gestalt.Model):
         description="Whether Slack should unfurl media", default=None, required=False
     )
     blocks: list[dict[str, Any]] | None = gestalt.field(
-        description="Optional Slack Block Kit blocks. Gestalt appends a context footer.",
+        description="Optional Slack Block Kit blocks. Gestalt appends an attribution context footer.",
         default_factory=list,
         required=False,
     )
@@ -676,7 +677,7 @@ def slack_events_stop_stream(
 @gestalt.operation(
     id="chat.postMessage",
     method="POST",
-    description="Send a Slack message with a visible Gestalt context footer",
+    description="Send a Slack message with a visible Gestalt attribution footer",
 )
 def chat_post_message(
     input: ChatPostMessageInput, req: gestalt.Request
@@ -689,7 +690,7 @@ def chat_post_message(
     if input.text is None:
         return _bad_request("text is required")
 
-    blocks_or_error = _chat_post_message_blocks(input.text, input.blocks)
+    blocks_or_error = _chat_post_message_blocks(input.text, input.blocks, req)
     if isinstance(blocks_or_error, gestalt.Response):
         return blocks_or_error
     metadata = _chat_post_message_metadata(input.metadata)
@@ -893,15 +894,57 @@ def _chat_post_message_token(req: gestalt.Request) -> str | ErrorResponse:
     return req.token
 
 
-def _chat_post_message_footer_block() -> dict[str, Any]:
+def _chat_post_message_gestalt_label() -> str:
+    bot_user_id = _agent._agent_config.bot.user_id.strip()
+    if bot_user_id:
+        return f"<@{bot_user_id}>"
+    return SLACK_POST_MESSAGE_FOOTER_APP_NAME
+
+
+def _external_identity_field(identity: Any, field: str) -> str:
+    if isinstance(identity, Mapping):
+        value = identity.get(field)
+    else:
+        value = getattr(identity, field, None)
+    return str(value or "").strip()
+
+
+def _slack_user_id_from_external_identity(identity: Any) -> str:
+    if identity is None:
+        return ""
+    if (
+        _external_identity_field(identity, "type")
+        != _agent.SLACK_EXTERNAL_IDENTITY_TYPE
+    ):
+        return ""
+    identity_id = _external_identity_field(identity, "id")
+    parts = identity_id.split(":")
+    if len(parts) != 4 or parts[0] != "team" or parts[2] != "user":
+        return ""
+    return parts[3].strip()
+
+
+def _chat_post_message_footer_text(req: gestalt.Request) -> str:
+    gestalt_label = _chat_post_message_gestalt_label()
+    subject_id = str(getattr(req.subject, "id", "") or "").strip()
+    if subject_id == SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID:
+        user_id = _slack_user_id_from_external_identity(
+            getattr(req, "agent_external_identity", None)
+        )
+        if user_id:
+            return f"Sent by <@{user_id}> with {gestalt_label}"
+    return f"Sent with {gestalt_label}"
+
+
+def _chat_post_message_footer_block(req: gestalt.Request) -> dict[str, Any]:
     return {
         "type": "context",
-        "elements": [{"type": "mrkdwn", "text": SLACK_POST_MESSAGE_FOOTER}],
+        "elements": [{"type": "mrkdwn", "text": _chat_post_message_footer_text(req)}],
     }
 
 
 def _chat_post_message_blocks(
-    text: str, blocks: list[dict[str, Any]] | None
+    text: str, blocks: list[dict[str, Any]] | None, req: gestalt.Request
 ) -> list[dict[str, Any]] | ErrorResponse:
     if blocks:
         if not isinstance(blocks, list) or not all(
@@ -910,7 +953,7 @@ def _chat_post_message_blocks(
             return _bad_request("blocks must be an array of Slack block objects")
         if len(blocks) >= SLACK_MAX_BLOCKS:
             return _bad_request("blocks must leave room for the Gestalt footer")
-        return [*blocks, _chat_post_message_footer_block()]
+        return [*blocks, _chat_post_message_footer_block(req)]
     if blocks is not None and not isinstance(blocks, list):
         return _bad_request("blocks must be an array of Slack block objects")
 
@@ -925,7 +968,7 @@ def _chat_post_message_blocks(
         for chunk in chunks
         if chunk
     ]
-    return [*synthesized, _chat_post_message_footer_block()]
+    return [*synthesized, _chat_post_message_footer_block(req)]
 
 
 def _chat_post_message_metadata(
