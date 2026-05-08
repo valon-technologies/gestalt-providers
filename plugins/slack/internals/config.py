@@ -19,6 +19,7 @@ from .models import (
     SlackThreadContextConfig,
     SlackWorkflowConfig,
     SUPPORTED_AGENT_ROUTE_EVENT_TYPES,
+    SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
 )
 
 MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS = 2_147_483_647
@@ -650,6 +651,12 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
         user_ids=_config_string_tuple(
             config, "user", "users", "userId", "userIds", "user_id", "user_ids"
         ),
+        thread=_config_choice(
+            config,
+            SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
+            "thread",
+            default="any",
+        ),
     )
 
 
@@ -930,6 +937,28 @@ def _config_choice_tuple(
             values.append(normalized)
         return tuple(dict.fromkeys(values))
     return ()
+
+
+def _config_choice(
+    config: dict[str, Any],
+    allowed_values: frozenset[str],
+    *keys: str,
+    default: str = "",
+) -> str:
+    for key in keys:
+        if key not in config:
+            continue
+        value = config.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{key} must not be empty")
+        if normalized not in allowed_values:
+            allowed = ", ".join(sorted(allowed_values))
+            raise ValueError(f"{key} must be one of: {allowed}; got {normalized!r}")
+        return normalized
+    return default
 
 
 def _lower_tuple(values: tuple[str, ...]) -> tuple[str, ...]:

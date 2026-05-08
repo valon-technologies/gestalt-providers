@@ -232,18 +232,26 @@ plugins:
           - plugin: tickets
             operation: search
         routes:
-          - id: team-help
+          - id: team-help-new-messages
+            match:
+              channels:
+                - C0123456789
+              eventTypes:
+                - message.channels
+              thread: root
+            agent:
+              acknowledgement:
+                reaction: eyes
+              timeoutSeconds: 900
+              systemPrompt: Help with team questions.
+          - id: team-help-mentions
             match:
               channels:
                 - C0123456789
               eventTypes:
                 - app_mention
-                - message.channels
-              subtypes: []
+              thread: any
             agent:
-              acknowledgement:
-                reaction: eyes
-              timeoutSeconds: 900
               systemPrompt: Help with team questions.
           - id: operations-help
             match:
@@ -306,10 +314,17 @@ Slack delivers `message.*` subscriptions as payloads whose inner event type is
 `message`, so `match.eventTypes` remains the payload-type matcher.
 `eventTypes: [message]` does not opt a non-DM route into all plain channel
 messages. To make every public-channel message trigger an agent reply for a
-channel, use `eventTypes: [message.channels]` on that route. Message routes can
-set `subtypes`: omitted means all non-ignored subtypes can match,
+channel, use `eventTypes: [message.channels]` on that route. By default this
+also matches normal thread replies. Slack does not provide a top-level-only
+subscription; configure `thread: root` to match only messages with no
+`thread_ts` or with `thread_ts` equal to the message `ts`, and configure a
+separate `app_mention` route with `thread: any` or `thread: reply` when the
+agent should still answer explicit mentions inside threads. `thread: reply`
+matches messages whose `thread_ts` is present and differs from the message
+`ts`; omitted `thread` behaves as `thread: any`. Message routes can set
+`subtypes`: omitted means all non-ignored subtypes can match,
 `subtypes: []` means only normal messages with no subtype match, and a non-empty
-list matches those Slack message subtypes. Bot, edit, delete, and thread-reply
+list matches those Slack message subtypes. Bot, edit, delete, and `message_replied`
 notification message events remain ignored before route matching.
 
 ## Event Publishing

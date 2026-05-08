@@ -468,19 +468,27 @@ plugins:
           - plugin: tickets
             operation: search
         routes:
-          - id: team-help
+          - id: team-help-new-messages
             match:
               channels:
                 - C0123456789
               eventTypes:
-                - app_mention
                 - message.channels
-              subtypes: []
+              thread: root
             agent:
               systemPrompt: Help with team questions.
               timeoutSeconds: 900
               acknowledgement:
                 reaction: eyes
+          - id: team-help-mentions
+            match:
+              channels:
+                - C0123456789
+              eventTypes:
+                - app_mention
+              thread: any
+            agent:
+              systemPrompt: Help with team questions.
           - id: operations-help
             match:
               channels:
@@ -545,7 +553,8 @@ channel internally.
 
 When `agent.routes` is present, only matching routes start or signal a workflow
 run. Match rules support singular or plural forms of `team`, `channel`,
-`channelType`, `eventType`, `subtype`, and `user`. `match.eventTypes` accepts
+`channelType`, `eventType`, `subtype`, and `user`, plus scalar `thread`.
+`match.eventTypes` accepts
 Slack Events API subscription literals: `app_mention`, `message.channels`,
 `message.groups`, `message.im`, `message.mpim`, `message.app_home`,
 `assistant_thread_started`, and `assistant_thread_context_changed`. Values must
@@ -558,10 +567,17 @@ route into every plain channel message. A non-DM `message` event that does not
 mention the bot or include assistant context starts an agent only when the
 selected route explicitly matches the corresponding `message.*` Slack event
 literal. Configure `eventTypes: [message.channels]` for a public channel
-where every incoming message should trigger the agent. Message routes can also
+where incoming channel messages should trigger the agent. By default this also
+matches normal thread replies. Slack does not provide a top-level-only
+subscription; configure `thread: root` to match only messages with no
+`thread_ts` or with `thread_ts` equal to the message `ts`, and configure a
+separate `app_mention` route with `thread: any` or `thread: reply` when the
+agent should still answer explicit mentions inside threads. `thread: reply`
+matches messages whose `thread_ts` is present and differs from the message
+`ts`; omitted `thread` behaves as `thread: any`. Message routes can also
 set `subtypes`: omitted means all non-ignored subtypes can match, `subtypes: []`
 means only normal messages with no subtype match, and a non-empty list matches
-those Slack message subtypes. Bot, edit, delete, and thread-reply notification
+those Slack message subtypes. Bot, edit, delete, and `message_replied`
 message events remain ignored before route matching.
 
 Route-level `agent` fields override or extend the top-level agent settings,
