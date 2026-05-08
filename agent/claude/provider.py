@@ -3,18 +3,30 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Never, TypeVar, cast
 
 import gestalt
 import grpc
-from google.protobuf import json_format
-from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
 from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
 from internals.claude_code_config import ClaudeCodeTurnOptions
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
+from internals.provider_io import (
+    CancelTurnInput,
+    CreateSessionInput,
+    CreateTurnInput,
+    ListSessionsInput,
+    ListTurnEventsInput,
+    ListTurnsInput,
+    ProviderRequestError,
+    UpdateSessionInput,
+    dict_to_struct,
+    messages_from_dicts,
+    prepared_workspace_cwd,
+)
 from internals.session_start import (
     prepend_session_start_context,
     run_session_start_hooks,
@@ -22,9 +34,9 @@ from internals.session_start import (
 )
 from internals.store import StoreConflictError, StoreUnavailableError, StoredSession, StoredTurn, StoredTurnEvent
 
-struct_pb2: Any = cast(Any, _struct_pb2)
 timestamp_pb2: Any = cast(Any, _timestamp_pb2)
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 class ClaudeCodeAgentProvider(
@@ -70,63 +82,50 @@ class ClaudeCodeAgentProvider(
 
     def CreateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, config = self._require_runtime(context)
-        session_id = str(request.session_id or "").strip()
-        if not session_id:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
+        create = _parse_request(context, lambda: CreateSessionInput.from_proto(request))
         try:
-            model = config.resolve_model(str(request.model or ""))
+            model = config.resolve_model(create.requested_model)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        metadata = _struct_to_dict(request.metadata)
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         try:
-            validate_session_start_user_metadata(metadata)
+            validate_session_start_user_metadata(create.metadata)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
-        try:
-            prepared_workspace = _prepared_workspace_to_dict(_optional_field(request, "prepared_workspace"))
-        except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
-        idempotency_key = str(request.idempotency_key or "").strip()
-        session_start = _optional_field(request, "session_start")
-        if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        metadata = create.metadata
+        if create.has_session_start_hooks:
             with self._session_start_lock:
                 existing = self._store_call(
-                    context, lambda: _existing_session_for_create(store, session_id, idempotency_key)
+                    context, lambda: _existing_session_for_create(store, create.session_id, create.idempotency_key)
                 )
                 if existing is not None:
                     return _session_to_proto(existing)
                 try:
-                    metadata = run_session_start_hooks(session_start, metadata)
+                    metadata = run_session_start_hooks(create.session_start, metadata)
                 except Exception as exc:
-                    context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-                    raise RuntimeError("unreachable after context.abort") from exc
-                session, _ = self._store_call(
-                    context,
-                    lambda: store.create_session(
-                        session_id=session_id,
-                        idempotency_key=idempotency_key,
-                        provider_name=self._name,
-                        model=model,
-                        client_ref=str(request.client_ref or "").strip(),
-                        metadata=metadata,
-                        prepared_workspace=prepared_workspace,
-                        created_by=_actor_to_dict(request.created_by),
-                    ),
-                )
-                return _session_to_proto(session)
+                    _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+                return self._create_session(context=context, store=store, create=create, model=model, metadata=metadata)
+        return self._create_session(context=context, store=store, create=create, model=model, metadata=metadata)
+
+    def _create_session(
+        self,
+        *,
+        context: grpc.ServicerContext,
+        store: IndexedDBRunStore,
+        create: CreateSessionInput,
+        model: str,
+        metadata: dict[str, Any],
+    ) -> Any:
         session, _ = self._store_call(
             context,
             lambda: store.create_session(
-                session_id=session_id,
-                idempotency_key=idempotency_key,
+                session_id=create.session_id,
+                idempotency_key=create.idempotency_key,
                 provider_name=self._name,
                 model=model,
-                client_ref=str(request.client_ref or "").strip(),
+                client_ref=create.client_ref,
                 metadata=metadata,
-                prepared_workspace=prepared_workspace,
-                created_by=_actor_to_dict(request.created_by),
+                prepared_workspace=create.prepared_workspace,
+                created_by=create.created_by,
             ),
         )
         return _session_to_proto(session)
@@ -141,21 +140,18 @@ class ClaudeCodeAgentProvider(
 
     def ListSessions(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        limit = int(getattr(request, "limit", 0) or 0)
-        if limit < 0:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
-        summary_only = bool(getattr(request, "summary_only", False))
+        query = _parse_request(context, lambda: ListSessionsInput.from_proto(request))
         return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
-                _session_to_proto(session, summary_only=summary_only)
+                _session_to_proto(session, summary_only=query.summary_only)
                 for session in self._store_call(
                     context,
                     lambda: store.list_sessions(
-                        session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
-                        subject_id=_subject_id(request),
-                        state=int(getattr(request, "state", 0) or 0),
-                        limit=limit,
-                        summary_only=summary_only,
+                        session_ids=query.session_ids,
+                        subject_id=query.subject_id,
+                        state=query.state,
+                        limit=query.limit,
+                        summary_only=query.summary_only,
                     ),
                 )
             ]
@@ -163,67 +159,61 @@ class ClaudeCodeAgentProvider(
 
     def UpdateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        metadata = _struct_to_dict(request.metadata) if request.HasField("metadata") else None
+        update = _parse_request(context, lambda: UpdateSessionInput.from_proto(request))
         try:
-            validate_session_start_user_metadata(metadata)
+            validate_session_start_user_metadata(update.metadata)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         session = self._store_call(
             context,
             lambda: store.update_session(
-                session_id=str(request.session_id or "").strip(),
-                client_ref=str(request.client_ref or "").strip(),
-                state=int(request.state or 0),
-                metadata=metadata,
+                session_id=update.session_id,
+                client_ref=update.client_ref,
+                state=update.state,
+                metadata=update.metadata,
             ),
         )
         if session is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
+            _abort(context, grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
         return _session_to_proto(session)
 
     def CreateTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, config = self._require_runtime(context)
-        _validate_create_turn_request(request, context)
-        session = self._store_call(context, lambda: store.get_session(str(request.session_id or "").strip()))
+        create = _parse_request(context, lambda: CreateTurnInput.from_proto(request))
+        session = self._store_call(context, lambda: store.get_session(create.session_id))
         if session is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
-        if len(list(request.messages)) == 0:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
+            _abort(context, grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
+        if not create.messages:
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
         try:
-            model = config.resolve_model(str(request.model or "").strip() or session.model)
+            model = config.resolve_model(create.requested_model or session.model)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
-        messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
-        cwd = _prepared_workspace_cwd(session.prepared_workspace)
+        messages = prepend_session_start_context(create.messages, session.metadata)
+        cwd = prepared_workspace_cwd(session.prepared_workspace)
         try:
             claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         try:
             turn, created = self._store_call(
                 context,
                 lambda: store.begin_turn(
-                    turn_id=str(request.turn_id or "").strip(),
-                    session_id=str(request.session_id or "").strip(),
-                    idempotency_key=str(request.idempotency_key or "").strip(),
+                    turn_id=create.turn_id,
+                    session_id=create.session_id,
+                    idempotency_key=create.idempotency_key,
                     provider_name=self._name,
                     model=model,
                     messages=messages,
-                    created_by=_actor_to_dict(request.created_by),
-                    execution_ref=str(request.execution_ref or "").strip(),
+                    created_by=create.created_by,
+                    execution_ref=create.execution_ref,
                 ),
             )
         except StoreConflictError as exc:
-            context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
-            raise RuntimeError("unreachable after context.abort")
+            _abort(context, grpc.StatusCode.ALREADY_EXISTS, str(exc))
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort")
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         if created:
             threading.Thread(
                 target=self._complete_turn,
@@ -234,7 +224,7 @@ class ClaudeCodeAgentProvider(
                     "session_id": turn.session_id,
                     "model": model,
                     "messages": list(turn.messages),
-                    "run_grant": str(request.run_grant or "").strip(),
+                    "run_grant": create.run_grant,
                     "claude_code_options": claude_code_options,
                     "cwd": cwd,
                 },
@@ -252,22 +242,19 @@ class ClaudeCodeAgentProvider(
 
     def ListTurns(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        limit = int(getattr(request, "limit", 0) or 0)
-        if limit < 0:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
-        summary_only = bool(getattr(request, "summary_only", False))
+        query = _parse_request(context, lambda: ListTurnsInput.from_proto(request))
         return gestalt.ListAgentProviderTurnsResponse(
             turns=[
-                _turn_to_proto(turn, summary_only=summary_only)
+                _turn_to_proto(turn, summary_only=query.summary_only)
                 for turn in self._store_call(
                     context,
                     lambda: store.list_turns(
-                        session_id=str(request.session_id or "").strip(),
-                        turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
-                        subject_id=_subject_id(request),
-                        status=int(getattr(request, "status", 0) or 0),
-                        limit=limit,
-                        summary_only=summary_only,
+                        session_id=query.session_id,
+                        turn_ids=query.turn_ids,
+                        subject_id=query.subject_id,
+                        status=query.status,
+                        limit=query.limit,
+                        summary_only=query.summary_only,
                     ),
                 )
             ]
@@ -275,30 +262,29 @@ class ClaudeCodeAgentProvider(
 
     def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, _ = self._require_runtime(context)
+        cancel = CancelTurnInput.from_proto(request)
         turn = self._store_call(
             context,
-            lambda: store.cancel_turn(
-                turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip()
-            ),
+            lambda: store.cancel_turn(turn_id=cancel.turn_id, reason=cancel.reason),
         )
         if turn is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
+            _abort(context, grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
         if turn.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
             runner.cancel_turn(turn.turn_id)
         return _turn_to_proto(turn)
 
     def ListTurnEvents(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
+        query = ListTurnEventsInput.from_proto(request)
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 _turn_event_to_proto(event)
                 for event in self._store_call(
                     context,
                     lambda: store.list_turn_events(
-                        turn_id=str(request.turn_id or "").strip(),
-                        after_seq=int(request.after_seq or 0),
-                        limit=int(request.limit or 0),
+                        turn_id=query.turn_id,
+                        after_seq=query.after_seq,
+                        limit=query.limit,
                     ),
                 )
             ]
@@ -399,6 +385,18 @@ class ClaudeCodeAgentProvider(
         return warnings
 
 
+def _parse_request(context: grpc.ServicerContext, parse: Callable[[], T]) -> T:
+    try:
+        return parse()
+    except ProviderRequestError as exc:
+        _abort(context, exc.code, str(exc))
+
+
+def _abort(context: grpc.ServicerContext, code: grpc.StatusCode, message: str) -> Never:
+    context.abort(code, message)
+    raise RuntimeError("unreachable after context.abort")
+
+
 def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
     proto = gestalt.AgentSession(
         id=session.session_id,
@@ -408,7 +406,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         state=session.state,
     )
     if session.metadata and not summary_only:
-        proto.metadata.CopyFrom(_dict_to_struct(session.metadata))
+        proto.metadata.CopyFrom(dict_to_struct(session.metadata))
     if session.created_by:
         proto.created_by.CopyFrom(
             gestalt.AgentActor(
@@ -437,7 +435,7 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
         execution_ref=turn.execution_ref,
     )
     if not summary_only:
-        proto.messages.extend(_messages_from_dicts(turn.messages))
+        proto.messages.extend(messages_from_dicts(turn.messages))
     if turn.created_by:
         proto.created_by.CopyFrom(
             gestalt.AgentActor(
@@ -465,7 +463,7 @@ def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
         visibility=event.visibility,
     )
     if event.data:
-        proto.data.CopyFrom(_dict_to_struct(event.data))
+        proto.data.CopyFrom(dict_to_struct(event.data))
     proto.created_at.CopyFrom(_datetime_to_timestamp(event.created_at))
     return proto
 
@@ -488,172 +486,6 @@ def _which(binary: str) -> str | None:
     return None
 
 
-def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -> None:
-    if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/claude requires toolSource mcp_catalog")
-    if not str(request.run_grant or "").strip():
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "run_grant is required")
-    if len(list(getattr(request, "tools", []))) > 0:
-        context.abort(
-            grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
-        )
-    if _struct_to_dict(getattr(request, "response_schema", None)):
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "response_schema is not supported by agent/claude")
-    if _struct_to_dict(getattr(request, "model_options", None)):
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "model_options are not supported by agent/claude")
-    _validate_tool_refs(list(getattr(request, "tool_refs", [])), context)
-
-
-def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> None:
-    for index, ref in enumerate(tool_refs, start=1):
-        plugin = str(getattr(ref, "plugin", "") or "").strip()
-        system = str(getattr(ref, "system", "") or "").strip()
-        operation = str(getattr(ref, "operation", "") or "").strip()
-        connection = str(getattr(ref, "connection", "") or "").strip()
-        instance = str(getattr(ref, "instance", "") or "").strip()
-        title = str(getattr(ref, "title", "") or "").strip()
-        description = str(getattr(ref, "description", "") or "").strip()
-        if "*" in {system, operation, connection, instance}:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "wildcard tool_refs are not supported")
-        if plugin == "*":
-            if any([system, operation, connection, instance, title, description]):
-                context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT,
-                    f"tool_refs[{index}] global search ref cannot include operation, connection, instance, "
-                    "title, or description",
-                )
-            continue
-        if system:
-            if plugin:
-                context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}] must set exactly one of plugin or system"
-                )
-            if system != "workflow":
-                context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported"
-                )
-            if not operation:
-                context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].operation is required for system tool refs"
-                )
-            if any([connection, instance, title, description]):
-                context.abort(
-                    grpc.StatusCode.INVALID_ARGUMENT,
-                    f"tool_refs[{index}] system refs cannot include connection, instance, title, or description",
-                )
-            continue
-        if not plugin:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].plugin is required")
-
-
-def _messages_to_dicts(messages: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for message in messages:
-        item: dict[str, Any] = {"role": str(message.role or ""), "text": str(message.text or "")}
-        parts: list[dict[str, Any]] = []
-        for part in message.parts:
-            part_item: dict[str, Any] = {"type": int(part.type or 0)}
-            if part.text:
-                part_item["text"] = part.text
-            if part.HasField("json"):
-                part_item["json"] = json_format.MessageToDict(part.json)
-            if part.HasField("tool_call"):
-                part_item["tool_call"] = {
-                    "id": part.tool_call.id,
-                    "tool_id": part.tool_call.tool_id,
-                    "arguments": json_format.MessageToDict(part.tool_call.arguments),
-                }
-            if part.HasField("tool_result"):
-                part_item["tool_result"] = {
-                    "tool_call_id": part.tool_result.tool_call_id,
-                    "status": part.tool_result.status,
-                    "content": part.tool_result.content,
-                    "output": json_format.MessageToDict(part.tool_result.output),
-                }
-            if part.HasField("image_ref"):
-                part_item["image_ref"] = {"uri": part.image_ref.uri, "mime_type": part.image_ref.mime_type}
-            parts.append(part_item)
-        if parts:
-            item["parts"] = parts
-        out.append(item)
-    return out
-
-
-def _messages_from_dicts(messages: list[dict[str, Any]]) -> list[Any]:
-    out = []
-    for message in messages:
-        proto = gestalt.AgentMessage(role=str(message.get("role") or ""), text=str(message.get("text") or ""))
-        for part in message.get("parts") or []:
-            if not isinstance(part, dict):
-                continue
-            part_proto = gestalt.AgentMessagePart(type=int(part.get("type") or 0), text=str(part.get("text") or ""))
-            if isinstance(part.get("json"), dict):
-                part_proto.json.CopyFrom(_dict_to_struct(part["json"]))
-            if isinstance(part.get("tool_call"), dict):
-                call = part["tool_call"]
-                part_proto.tool_call.id = str(call.get("id") or "")
-                part_proto.tool_call.tool_id = str(call.get("tool_id") or "")
-                if isinstance(call.get("arguments"), dict):
-                    part_proto.tool_call.arguments.CopyFrom(_dict_to_struct(call["arguments"]))
-            if isinstance(part.get("tool_result"), dict):
-                result = part["tool_result"]
-                part_proto.tool_result.tool_call_id = str(result.get("tool_call_id") or "")
-                part_proto.tool_result.status = int(result.get("status") or 0)
-                part_proto.tool_result.content = str(result.get("content") or "")
-                if isinstance(result.get("output"), dict):
-                    part_proto.tool_result.output.CopyFrom(_dict_to_struct(result["output"]))
-            if isinstance(part.get("image_ref"), dict):
-                image = part["image_ref"]
-                part_proto.image_ref.uri = str(image.get("uri") or "")
-                part_proto.image_ref.mime_type = str(image.get("mime_type") or "")
-            proto.parts.append(part_proto)
-        out.append(proto)
-    return out
-
-
-def _dict_to_struct(value: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(value)
-    return struct
-
-
-def _struct_to_dict(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    return json_format.MessageToDict(value)
-
-
-def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
-    if value is None:
-        return None
-    root = str(getattr(value, "root", "") or "").strip()
-    cwd = str(getattr(value, "cwd", "") or "").strip()
-    if not root and not cwd:
-        return None
-    if not root or not cwd:
-        raise ValueError("prepared_workspace root and cwd are required")
-    return {"root": root, "cwd": cwd}
-
-
-def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
-    if not value:
-        return ""
-    return str(value.get("cwd") or "").strip()
-
-
-def _optional_field(message: Any, field_name: str) -> Any | None:
-    if message is None or not hasattr(message, field_name):
-        return None
-    has_field = getattr(message, "HasField", None)
-    if callable(has_field):
-        try:
-            if not has_field(field_name):
-                return None
-        except ValueError:
-            return None
-    return getattr(message, field_name)
-
-
 def _existing_session_for_create(
     store: IndexedDBRunStore, session_id: str, idempotency_key: str
 ) -> StoredSession | None:
@@ -663,20 +495,6 @@ def _existing_session_for_create(
     if not idempotency_key:
         return None
     return store.get_session_by_idempotency_key(idempotency_key)
-
-
-def _actor_to_dict(actor: Any) -> dict[str, str]:
-    return {
-        "subject_id": str(getattr(actor, "subject_id", "") or ""),
-        "subject_kind": str(getattr(actor, "subject_kind", "") or ""),
-        "display_name": str(getattr(actor, "display_name", "") or ""),
-        "auth_source": str(getattr(actor, "auth_source", "") or ""),
-    }
-
-
-def _subject_id(request: Any) -> str:
-    subject = getattr(request, "subject", None)
-    return str(getattr(subject, "subject_id", "") or "").strip()
 
 
 def _datetime_to_timestamp(value: datetime) -> Any:
