@@ -29,8 +29,10 @@ class CreateSessionInput:
         session_id = _text(getattr(request, "session_id", ""))
         if not session_id:
             raise _invalid("session_id is required")
+        prepared_workspace = None
         try:
-            prepared_workspace = _prepared_workspace_to_dict(_optional_field(request, "prepared_workspace"))
+            if gestalt.has_field(request, "prepared_workspace"):
+                prepared_workspace = _prepared_workspace_to_dict(request.prepared_workspace)
         except ValueError as exc:
             raise _invalid(str(exc)) from exc
         return cls(
@@ -39,9 +41,9 @@ class CreateSessionInput:
             metadata=gestalt.struct_to_dict(getattr(request, "metadata", None)),
             prepared_workspace=prepared_workspace,
             idempotency_key=_text(getattr(request, "idempotency_key", "")),
-            session_start=_optional_field(request, "session_start"),
+            session_start=request.session_start if gestalt.has_field(request, "session_start") else None,
             client_ref=_text(getattr(request, "client_ref", "")),
-            created_by=_actor_to_dict(getattr(request, "created_by", None)),
+            created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
         )
 
     @property
@@ -60,12 +62,11 @@ class UpdateSessionInput:
 
     @classmethod
     def from_proto(cls, request: Any) -> UpdateSessionInput:
-        metadata_field = _optional_field(request, "metadata")
         return cls(
             session_id=_text(getattr(request, "session_id", "")),
             client_ref=_text(getattr(request, "client_ref", "")),
             state=int(getattr(request, "state", 0) or 0),
-            metadata=None if metadata_field is None else gestalt.struct_to_dict(metadata_field),
+            metadata=gestalt.struct_to_dict(request.metadata) if gestalt.has_field(request, "metadata") else None,
         )
 
 
@@ -111,7 +112,7 @@ class CreateTurnInput:
             idempotency_key=_text(getattr(request, "idempotency_key", "")),
             requested_model=_text(getattr(request, "model", "")),
             messages=gestalt.agent_messages_to_dicts(getattr(request, "messages", [])),
-            created_by=_actor_to_dict(getattr(request, "created_by", None)),
+            created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
             execution_ref=_text(getattr(request, "execution_ref", "")),
             run_grant=_text(getattr(request, "run_grant", "")),
         )
@@ -234,20 +235,6 @@ def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
     if not root or not cwd:
         raise ValueError("prepared_workspace root and cwd are required")
     return {"root": root, "cwd": cwd}
-
-
-def _optional_field(message: Any, field_name: str) -> Any | None:
-    if message is None or not hasattr(message, field_name):
-        return None
-    has_field = getattr(message, "HasField", None)
-    if callable(has_field):
-        if not gestalt.has_field(message, field_name):
-            return None
-    return getattr(message, field_name)
-
-
-def _actor_to_dict(actor: Any) -> dict[str, str]:
-    return cast(dict[str, str], gestalt.agent_actor_to_dict(actor))
 
 
 def _subject_id(request: Any) -> str:

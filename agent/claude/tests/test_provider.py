@@ -324,29 +324,21 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_provider_runs_session_start_once_and_prepends_context(self) -> None:
         _, provider_client = _configure_provider()
-        session_start = py_types.SimpleNamespace(
-            hooks=[
-                py_types.SimpleNamespace(
-                    id="load-memory",
-                    type="command",
-                    command=[sys.executable, "-c", "print('session context from provider')"],
-                    cwd="",
-                    timeout="5s",
-                    env={},
-                    output=py_types.SimpleNamespace(additional_context=True, metadata=True),
-                )
-            ]
-        )
+        session_start = agent_pb2.AgentSessionStartConfig()
+        hook = session_start.hooks.add()
+        hook.id = "load-memory"
+        hook.type = "command"
+        hook.command.extend([sys.executable, "-c", "print('session context from provider')"])
+        hook.timeout = "5s"
+        hook.output.additional_context = True
+        hook.output.metadata = True
 
         session = provider_module.provider.CreateSession(
-            py_types.SimpleNamespace(
+            agent_pb2.CreateAgentProviderSessionRequest(
                 session_id="session-start-provider",
                 idempotency_key="session-start-idem",
-                model="",
-                metadata=None,
                 session_start=session_start,
-                client_ref="",
-                created_by=py_types.SimpleNamespace(subject_id="user-123", subject_kind="human"),
+                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
             ),
             cast(grpc.ServicerContext, _FakeProviderContext()),
         )
@@ -356,27 +348,18 @@ class ClaudeProviderTests(unittest.TestCase):
             "session context from provider\n",
         )
 
+        replay_session_start = agent_pb2.AgentSessionStartConfig()
+        replay_hook = replay_session_start.hooks.add()
+        replay_hook.id = "should-not-run"
+        replay_hook.type = "command"
+        replay_hook.command.extend([sys.executable, "-c", "import sys; sys.exit(7)"])
+
         replay = provider_module.provider.CreateSession(
-            py_types.SimpleNamespace(
+            agent_pb2.CreateAgentProviderSessionRequest(
                 session_id="session-start-provider-replay",
                 idempotency_key="session-start-idem",
-                model="",
-                metadata=None,
-                session_start=py_types.SimpleNamespace(
-                    hooks=[
-                        py_types.SimpleNamespace(
-                            id="should-not-run",
-                            type="command",
-                            command=[sys.executable, "-c", "import sys; sys.exit(7)"],
-                            cwd="",
-                            timeout="",
-                            env={},
-                            output=py_types.SimpleNamespace(additional_context=False, metadata=False),
-                        )
-                    ]
-                ),
-                client_ref="",
-                created_by=py_types.SimpleNamespace(subject_id="user-123", subject_kind="human"),
+                session_start=replay_session_start,
+                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
             ),
             cast(grpc.ServicerContext, _FakeProviderContext()),
         )
