@@ -1573,38 +1573,6 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 	}
 }
 
-func TestStartRunWithWorkflowKeyFailsClosedWhenLegacyLaneQueryUnavailable(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
-
-	tc := &recordingTemporalClient{queryErrs: []error{errors.New("unknown query handler")}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
-	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
-		WorkflowKey: "thread-1",
-		Target:      pluginTarget("slack", "postMessage"),
-		CreatedBy:   &proto.WorkflowActor{SubjectId: "user-1"},
-	})
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("StartRun error = %v, want FailedPrecondition", err)
-	}
-	if len(tc.executions) != 0 {
-		t.Fatalf("executions = %d, want none", len(tc.executions))
-	}
-}
-
 func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -1838,14 +1806,17 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	if !ok {
 		t.Fatalf("execution input = %T, want runWorkflowV4Input", tc.executions[0].Args[0])
 	}
-	if input.WorkflowKey != "thread-1" || !input.RequireSignal || !input.RequireClaim || len(input.InitialSignalPayload) != 0 {
-		t.Fatalf("v4 input = %#v, want claimed keyed run waiting for signal", input)
+	if input.WorkflowKey != "thread-1" || !input.RequireSignal || !input.RequireClaim || len(input.InitialSignalPayload) == 0 {
+		t.Fatalf("v4 input = %#v, want claimed keyed run with initial signal", input)
 	}
-	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) || !tc.hasUpdate(tc.executions[0].WorkflowID, updateAddSignal) {
-		t.Fatalf("updates = %#v, want claim and add-signal on v4 run", tc.updates)
+	if !tc.hasUpdate(tc.executions[0].WorkflowID, updateClaimRun) || tc.hasUpdate(tc.executions[0].WorkflowID, updateAddSignal) {
+		t.Fatalf("updates = %#v, want claim without add-signal on new v4 run", tc.updates)
 	}
 	if tc.hasAnyLegacyKeyedUpdate("thread-1", backend) {
 		t.Fatalf("legacy keyed updates = %#v, want none", tc.updates)
+	}
+	if len(tc.queries) != 0 {
+		t.Fatalf("queries = %#v, want no legacy lane lookup", tc.queries)
 	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
 	if err != nil || !found || owned.GetId() != resp.GetRun().GetId() {
@@ -2067,84 +2038,6 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
 	if err != nil || !found || owned.GetId() != resp.GetRun().GetId() {
 		t.Fatalf("owned found=%v run=%#v err=%v, want replacement", found, owned, err)
-	}
-}
-
-func TestSignalOrStartRunMigratesActiveLegacyLaneOwner(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
-
-	workflowKey := "thread-legacy"
-	legacyLaneID := workflowID("scope", "key-lane-v3", workflowKey)
-	legacy := &proto.BoundWorkflowRun{
-		Id: encodeV3RunHandle(v3RunHandle{
-			Kind:             runHandleKindV3,
-			LaneWorkflowID:   legacyLaneID,
-			RunWorkflowID:    "legacy-run-workflow",
-			RunTemporalRunID: "legacy-run-id",
-			LogicalRunKey:    "00000000000000000001",
-			WorkflowKey:      workflowKey,
-			OwnerKey:         "slack",
-		}),
-		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:      pluginTarget("slack", "postMessage"),
-		WorkflowKey: workflowKey,
-		CreatedAt:   timestamppb.New(time.Unix(100, 0).UTC()),
-	}
-	tc := &recordingTemporalClient{queryRuns: map[string]*proto.BoundWorkflowRun{
-		legacyLaneID: legacy,
-	}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
-	resp, err := backend.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
-		WorkflowKey: workflowKey,
-		Target:      pluginTarget("slack", "sendMessage"),
-		CreatedBy:   &proto.WorkflowActor{SubjectId: "user-2"},
-		Signal:      &proto.WorkflowSignal{Name: "slack.event"},
-	})
-	if err != nil {
-		t.Fatalf("SignalOrStartRun: %v", err)
-	}
-	if resp.GetStartedRun() || resp.GetRun().GetId() != legacy.GetId() {
-		t.Fatalf("response = %#v, want existing legacy run", resp)
-	}
-	if len(tc.executions) != 0 {
-		t.Fatalf("executions = %d, want no replacement execution", len(tc.executions))
-	}
-	if !tc.hasUpdate("legacy-run-workflow", updateAddSignal) {
-		t.Fatalf("updates = %#v, want direct signal to legacy child", tc.updates)
-	}
-	owned, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
-	if err != nil || !found || owned.GetId() != legacy.GetId() {
-		t.Fatalf("owned found=%v run=%#v err=%v, want migrated legacy owner", found, owned, err)
-	}
-
-	updateStart := len(tc.updates)
-	_, err = backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
-		RunId:  legacy.GetId(),
-		Signal: &proto.WorkflowSignal{Name: "slack.event"},
-	})
-	if err != nil {
-		t.Fatalf("SignalRun migrated legacy run: %v", err)
-	}
-	newUpdates := tc.updates[updateStart:]
-	if len(newUpdates) != 1 || newUpdates[0].WorkflowID != "legacy-run-workflow" || newUpdates[0].Name != updateAddSignal {
-		t.Fatalf("SignalRun updates = %#v, want direct child add-signal", newUpdates)
-	}
-	if newUpdates[0].WorkflowID == legacyLaneID {
-		t.Fatalf("SignalRun hit lane workflow %q, want direct child update", newUpdates[0].WorkflowID)
 	}
 }
 
@@ -3309,13 +3202,9 @@ type recordingTemporalClient struct {
 	updates            []recordedUpdate
 	updateErrs         []error
 	queries            []recordedQuery
-	queryErrs          []error
-	queryStarted       chan<- recordedQuery
-	releaseQueries     <-chan struct{}
 	scheduleClient     client.ScheduleClient
 	deploymentClient   *fakeWorkerDeploymentClient
 	ledgerEntries      map[string]*ownerLedgerEntry
-	queryRuns          map[string]*proto.BoundWorkflowRun
 	afterExecute       func()
 }
 
@@ -3388,44 +3277,17 @@ func (c *recordingTemporalClient) QueryWorkflow(ctx context.Context, workflowID 
 	}
 	c.mu.Lock()
 	c.queries = append(c.queries, query)
-	if len(c.queryErrs) > 0 {
-		err := c.queryErrs[0]
-		c.queryErrs = c.queryErrs[1:]
-		c.mu.Unlock()
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		c.mu.Unlock()
-	}
-	if c.queryStarted != nil {
-		c.queryStarted <- query
-	}
-	if c.releaseQueries != nil {
-		select {
-		case <-c.releaseQueries:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
+	c.mu.Unlock()
 	if queryType == queryLedgerGet && len(args) > 0 {
 		key, _ := args[0].(string)
 		c.mu.Lock()
 		entry := cloneLedgerEntry(c.ledgerEntries[strings.TrimSpace(key)])
 		c.mu.Unlock()
 		if entry != nil {
-			return recordingEncodedValue{query: query, value: entry}, nil
+			return recordingEncodedValue{value: entry}, nil
 		}
 	}
-	if queryType == queryLaneRun {
-		c.mu.Lock()
-		run := cloneRun(c.queryRuns[workflowID])
-		c.mu.Unlock()
-		if run != nil {
-			return recordingEncodedValue{query: query, value: run}, nil
-		}
-	}
-	return recordingEncodedValue{query: query}, nil
+	return recordingEncodedValue{}, nil
 }
 
 func (c *recordingTemporalClient) TerminateWorkflow(_ context.Context, workflowID string, runID string, reason string, details ...interface{}) error {
@@ -3471,29 +3333,6 @@ func (c *recordingTemporalClient) hasAnyLegacyKeyedUpdate(workflowKey string, ba
 		}
 	}
 	return false
-}
-
-func (c *recordingTemporalClient) hasQuery(workflowID, name string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, query := range c.queries {
-		if query.WorkflowID == workflowID && query.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *recordingTemporalClient) queryCount(name string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	count := 0
-	for _, query := range c.queries {
-		if query.Name == name {
-			count++
-		}
-	}
-	return count
 }
 
 type fakeTemporalWorker struct {
@@ -3690,7 +3529,6 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 }
 
 type recordingEncodedValue struct {
-	query recordedQuery
 	value any
 }
 

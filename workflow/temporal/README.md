@@ -93,9 +93,8 @@ update; already-polled tasks cannot be recalled by the provider.
 - native Temporal schedules for cron dispatch with skip overlap policy;
   IndexedDB schedule records are the metadata source for schedule listing
 - keyed `StartRun` and `SignalOrStartRun` route directly to claim-gated V4 run
-  workflows and store workflow-key ownership in IndexedDB; active legacy lane
-  owners are lazily discovered and claimed into IndexedDB before new keyed work
-  starts
+  workflows and store workflow-key ownership in IndexedDB; new keyed work no
+  longer performs synchronous legacy lane discovery
 - unkeyed and keyed `StartRun` idempotency for new V4 runs is stored in
   IndexedDB; signal idempotency for new signal operations requires IndexedDB,
   with read-through support for completed legacy owner-ledger entries
@@ -116,8 +115,7 @@ update; already-polled tasks cannot be recalled by the provider.
 The large remaining deletion point is after the migration window:
 
 - delete legacy Temporal lane start/signal-or-start compatibility after all
-  active lane-owned keyed runs have either completed or been lazily claimed into
-  IndexedDB ownership
+  active lane-owned keyed runs have completed
 - delete Temporal owner-ledger workflows after old signal and unkeyed-start
   ledger entries have expired
 - delete V3 run/index workflows after no public run handles require Temporal V3
