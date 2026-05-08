@@ -8,11 +8,8 @@ from typing import Any, cast
 
 import gestalt
 import grpc
-from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
 
-
-struct_pb2: Any = _struct_pb2
 
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_HOST_RPC_TIMEOUT_SECONDS = 30.0
@@ -141,15 +138,13 @@ def execute_tool(
     arguments: dict[str, Any],
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
 ) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(arguments or {})
     with gestalt.AgentHost() as host:
         request = gestalt.ExecuteAgentToolRequest(
             session_id=session_id,
             turn_id=turn_id,
             tool_call_id=tool_call_id,
             tool_id=entry.tool_id,
-            arguments=struct,
+            arguments=gestalt.struct_from_dict(arguments or {}),
             run_grant=run_grant,
             idempotency_key=idempotency_key,
         )
@@ -199,11 +194,7 @@ def tool_annotations(annotations_proto: Any, *, title: str) -> mcp_types.ToolAnn
         ("destructive_hint", "destructiveHint"),
         ("open_world_hint", "openWorldHint"),
     ):
-        try:
-            has_field = annotations_proto.HasField(proto_name)
-        except ValueError:
-            has_field = False
-        if has_field:
+        if gestalt.has_field(annotations_proto, proto_name):
             values[sdk_name] = bool(getattr(annotations_proto, proto_name))
     return mcp_types.ToolAnnotations(**values) if values else None
 
