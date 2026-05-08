@@ -10,6 +10,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -31,6 +32,8 @@ const (
 	signalLaneRunDone    = "gestalt.workflow_key.run_done"
 	signalLedgerCompact  = "gestalt.ledger.compact"
 	signalRunIndexBestV3 = "gestalt.run.index_best_effort_v3"
+
+	workflowInvokeMetadataWorkflowKey = "workflow_key"
 )
 
 type runWorkflowV3Input struct {
@@ -860,6 +863,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 			Target:       cloneTarget(state.GetTarget()),
 			RunId:        state.GetId(),
 			Trigger:      cloneRunTrigger(state.GetTrigger()),
+			Metadata:     workflowInvokeMetadata(state.GetWorkflowKey()),
 			CreatedBy:    cloneActor(state.GetCreatedBy()),
 			ExecutionRef: strings.TrimSpace(state.GetExecutionRef()),
 			Signals:      cloneSignals(batch),
@@ -897,6 +901,18 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 	sendDone(ctx)
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
 	return cloneRun(state), nil
+}
+
+func workflowInvokeMetadata(workflowKey string) *structpb.Struct {
+	workflowKey = strings.TrimSpace(workflowKey)
+	if workflowKey == "" {
+		return nil
+	}
+	return &structpb.Struct{
+		Fields: map[string]*structpb.Value{
+			workflowInvokeMetadataWorkflowKey: structpb.NewStringValue(workflowKey),
+		},
+	}
 }
 
 func cloneLedgerEntry(entry *ownerLedgerEntry) *ownerLedgerEntry {

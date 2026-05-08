@@ -123,6 +123,9 @@ func TestGestaltRunWorkflowV3AcksLaneSignalWithoutSelectorBlocking(t *testing.T)
 	if len(signals) != 1 || signals[0].GetIdempotencyKey() != "evt-1" {
 		t.Fatalf("host signals = %#v, want evt-1", signals)
 	}
+	if host.calls[0].GetMetadata() == nil || host.calls[0].GetMetadata().AsMap()["workflow_key"] != "slack:T:C:1778164397.804829" {
+		t.Fatalf("host metadata = %#v, want workflow_key", host.calls[0].GetMetadata())
+	}
 }
 
 func TestGestaltWorkflowKeyLaneV1DedupesDuplicateSignalOrStart(t *testing.T) {
