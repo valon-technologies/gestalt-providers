@@ -12,9 +12,11 @@ import (
 
 const (
 	queryRunState = "gestalt.run_state"
+	queryLaneRun  = "gestalt.workflow_key.active_run"
 
 	updateAddSignal         = "gestalt.add_signal"
 	updateCancelRun         = "gestalt.cancel_run"
+	updateClaimRun          = "gestalt.claim_run"
 	updateEnsureScope       = "gestalt.ensure_scope"
 	updatePutRun            = "gestalt.index.put_run"
 	updateGetRun            = "gestalt.index.get_run"

@@ -479,6 +479,11 @@ func gestaltWorkflowKeyLaneV1(ctx workflow.Context, snapshot laneWorkflowSnapsho
 			WorkflowKey:  state.Input.WorkflowKey,
 		}
 	}
+	if err := workflow.SetQueryHandler(ctx, queryLaneRun, func() (*proto.BoundWorkflowRun, error) {
+		return runFromActive(state.Active), nil
+	}); err != nil {
+		return err
+	}
 
 	deliverSignal := func(ctx workflow.Context, active *laneActiveRun, reqID string, signal *proto.WorkflowSignal) (*proto.SignalWorkflowRunResponse, error) {
 		if active == nil {

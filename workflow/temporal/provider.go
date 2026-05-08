@@ -49,7 +49,7 @@ type workflowBackend interface {
 }
 
 type Provider struct {
-	proto.UnimplementedWorkflowProviderServer
+	gestalt.UnimplementedWorkflowProvider
 
 	mu      sync.RWMutex
 	name    string
@@ -211,12 +211,13 @@ func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowPro
 	return backend.ListSchedules(ctx, req)
 }
 
-func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) (*emptypb.Empty, error) {
+func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) error {
 	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return backend.DeleteSchedule(ctx, req)
+	_, err = backend.DeleteSchedule(ctx, req)
+	return err
 }
 
 func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
@@ -259,12 +260,13 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflo
 	return backend.ListEventTriggers(ctx, req)
 }
 
-func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) (*emptypb.Empty, error) {
+func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) error {
 	backend, err := p.requireBackend()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return backend.DeleteEventTrigger(ctx, req)
+	_, err = backend.DeleteEventTrigger(ctx, req)
+	return err
 }
 
 func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
@@ -307,12 +309,13 @@ func (p *Provider) ListExecutionReferences(ctx context.Context, req *proto.ListW
 	return backend.ListExecutionReferences(ctx, req)
 }
 
-func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
+func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) error {
 	backend, err := p.requireBackendStatus(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return backend.PublishEvent(ctx, req)
+	_, err = backend.PublishEvent(ctx, req)
+	return err
 }
 
 func (p *Provider) providerName() string {

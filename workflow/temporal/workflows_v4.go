@@ -28,6 +28,7 @@ type runWorkflowV4Input struct {
 	CreatedByPayload              []byte        `json:"created_by_payload,omitempty"`
 	InitialSignalPayload          []byte        `json:"initial_signal_payload,omitempty"`
 	RequireSignal                 bool          `json:"require_signal,omitempty"`
+	RequireClaim                  bool          `json:"require_claim,omitempty"`
 }
 
 func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*proto.BoundWorkflowRun, error) {
@@ -57,6 +58,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	nextSignalSequence := int64(1)
 	signalCount := 0
 	runMutex := workflow.NewMutex(ctx)
+	claimed := !input.RequireClaim
 
 	project := func(ctx workflow.Context) {
 		activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -97,6 +99,9 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		defer runMutex.Unlock()
+		if !claimed {
+			return nil, fmt.Errorf("failed_precondition: workflow run %q is not claimed", state.GetId())
+		}
 		if workflowRunTerminal(state.GetStatus()) {
 			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())
 		}
@@ -108,6 +113,17 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			StartedRun:  signalCount == 1 && state.GetStartedAt() == nil,
 			WorkflowKey: strings.TrimSpace(state.GetWorkflowKey()),
 		}, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := workflow.SetUpdateHandler(ctx, updateClaimRun, func(ctx workflow.Context, _ *proto.BoundWorkflowRun) (*proto.BoundWorkflowRun, error) {
+		if err := runMutex.Lock(ctx); err != nil {
+			return nil, err
+		}
+		defer runMutex.Unlock()
+		claimed = true
+		project(ctx)
+		return cloneRun(state), nil
 	}); err != nil {
 		return nil, err
 	}
@@ -132,6 +148,11 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		return nil, err
 	}
 
+	if input.RequireClaim {
+		_ = workflow.Await(ctx, func() bool {
+			return claimed || workflowRunTerminal(state.GetStatus())
+		})
+	}
 	project(ctx)
 	if input.RequireSignal {
 		_ = workflow.Await(ctx, func() bool {

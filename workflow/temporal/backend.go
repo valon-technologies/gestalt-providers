@@ -270,64 +270,17 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 	key := strings.TrimSpace(req.GetIdempotencyKey())
 	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
 	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.GetExecutionRef(), target.Target, req.GetCreatedBy())
-	ledgerKey := startLedgerKey(target.OwnerKey, key)
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
 	}
-	if key != "" {
-		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
-			Operation:   "start",
-			Fingerprint: fingerprint,
-			OwnerKey:    target.OwnerKey,
-			WorkflowKey: workflowKey,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if entry != nil && entry.Status == "completed" {
-			if run := runFromPayload(entry.RunPayload); run != nil {
-				return run, nil
-			}
-		}
-	}
 	if workflowKey != "" {
-		updateID := "start:" + uuid.NewString()
-		if key != "" {
-			updateID = "start:" + hashID(target.OwnerKey, key, workflowKey)
-		}
-		run, err := b.startKeyedRunInLane(ctx, workflowKey, updateID, laneStartRequest{
-			OwnerKey:         target.OwnerKey,
-			TargetPayload:    protoPayload(target.Target),
-			ExecutionRef:     strings.TrimSpace(req.GetExecutionRef()),
-			CreatedByPayload: protoPayload(req.GetCreatedBy()),
-			RequestID:        updateID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if key != "" {
-			if err := b.completeLedger(ctx, ledgerKey, fingerprint, &proto.SignalWorkflowRunResponse{Run: run}, run); err != nil {
-				return nil, err
-			}
-		}
-		return run, nil
+		return b.startKeyedRunV4(ctx, target, req, key, fingerprint)
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
-	if key != "" {
-		temporalWorkflowID = workflowID(b.cfg.ScopeID, "manual-v3", target.OwnerKey, key)
-	}
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	if key != "" {
-		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
-	}
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), nil, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
-	}
-	if key != "" {
-		if err := b.completeLedger(ctx, ledgerKey, fingerprint, &proto.SignalWorkflowRunResponse{Run: run}, run); err != nil {
-			return nil, err
-		}
 	}
 	return run, nil
 }
@@ -453,7 +406,19 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	}
 	var resp *proto.SignalWorkflowRunResponse
 	if handle.LaneWorkflowID != "" {
-		resp, err = b.updateLaneSignalRun(ctx, handle, signal, updateID)
+		if b.state != nil && handle.WorkflowKey != "" {
+			owner, found, loadErr := b.state.getWorkflowKeyRun(ctx, handle.WorkflowKey)
+			if loadErr != nil {
+				return nil, status.Errorf(codes.Internal, "load workflow key: %v", loadErr)
+			}
+			if found && owner.GetId() == req.GetRunId() {
+				resp, err = b.signalExistingWorkflowKeyRunV4(ctx, handle.WorkflowKey, owner, signal, updateID)
+			} else {
+				resp, err = b.updateLaneSignalRun(ctx, handle, signal, updateID)
+			}
+		} else {
+			resp, err = b.updateLaneSignalRun(ctx, handle, signal, updateID)
+		}
 	} else {
 		update, updateErr := b.client.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
 			WorkflowID:   handle.RunWorkflowID,
@@ -510,13 +475,11 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
 	if ledgerKey != "" {
 		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
-			Operation:      "signal_or_start",
-			Fingerprint:    fingerprint,
-			OwnerKey:       ownerKey,
-			WorkflowKey:    workflowKey,
-			SignalID:       signal.GetId(),
-			LaneWorkflowID: b.laneWorkflowID(workflowKey),
-			LaneUpdateID:   updateID,
+			Operation:   "signal_or_start",
+			Fingerprint: fingerprint,
+			OwnerKey:    ownerKey,
+			WorkflowKey: workflowKey,
+			SignalID:    signal.GetId(),
 		})
 		if err != nil {
 			return nil, err
@@ -529,13 +492,11 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	}
 	if sigKey := explicitSignalLedgerKey(signal); sigKey != "" {
 		if entry, _, err := b.reserveLedger(ctx, sigKey, ownerLedgerReserveRequest{
-			Operation:      "signal-id",
-			Fingerprint:    fingerprint,
-			OwnerKey:       ownerKey,
-			WorkflowKey:    workflowKey,
-			SignalID:       signal.GetId(),
-			LaneWorkflowID: b.laneWorkflowID(workflowKey),
-			LaneUpdateID:   updateID,
+			Operation:   "signal-id",
+			Fingerprint: fingerprint,
+			OwnerKey:    ownerKey,
+			WorkflowKey: workflowKey,
+			SignalID:    signal.GetId(),
 		}); err != nil {
 			return nil, err
 		} else if entry != nil && entry.Status == "completed" {
@@ -544,15 +505,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 			}
 		}
 	}
-	resp, err := b.signalOrStartLane(ctx, workflowKey, updateID, laneSignalRequest{
-		OwnerKey:         ownerKey,
-		TargetPayload:    protoPayload(target.Target),
-		ExecutionRef:     strings.TrimSpace(req.GetExecutionRef()),
-		CreatedByPayload: protoPayload(req.GetCreatedBy()),
-		SignalPayload:    protoPayload(signal),
-		RequestID:        updateID,
-		IdempotencyKey:   strings.TrimSpace(signal.GetIdempotencyKey()),
-	})
+	resp, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
 	if err != nil {
 		return nil, err
 	}
