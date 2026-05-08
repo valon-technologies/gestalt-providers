@@ -27,6 +27,7 @@ from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge
+from internals.provider_io import prepared_workspace_to_dict
 from internals.session_start import ADDITIONAL_CONTEXT_KEY, prepend_session_start_context, run_session_start_hooks
 from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 
@@ -660,7 +661,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_prepared_workspace_requires_root_and_cwd(self) -> None:
         with self.assertRaisesRegex(ValueError, "root and cwd are required"):
-            provider_module._prepared_workspace_to_dict(py_types.SimpleNamespace(root="/workspace", cwd=""))
+            prepared_workspace_to_dict(py_types.SimpleNamespace(root="/workspace", cwd=""))
 
     def test_indexeddb_persists_session_for_new_provider_instance(self) -> None:
         provider_a = provider_module.ClaudeCodeAgentProvider()
