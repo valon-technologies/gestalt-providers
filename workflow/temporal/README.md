@@ -88,7 +88,8 @@ update; already-polled tasks cannot be recalled by the provider.
 - Temporal V4 run workflows invoke the Gestalt workflow host through activities
   and project run state into IndexedDB for new unkeyed, scheduled, and event
   runs; V3 remains registered for existing handles and keyed lane compatibility
-- native Temporal schedules for cron dispatch with skip overlap policy
+- native Temporal schedules for cron dispatch with skip overlap policy;
+  IndexedDB schedule records are the metadata source for schedule listing
 - keyed `SignalOrStartRun` routes through durable Temporal lane workflows; the
   active run, signal acknowledgements, and workflow-key ownership are workflow
   state

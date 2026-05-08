@@ -1200,6 +1200,66 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	}
 }
 
+func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	nextRunAt := time.Unix(200, 0).UTC()
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, state)
+	scheduleClient := newFakeScheduleClient(map[string]*client.ScheduleDescription{
+		backend.temporalScheduleID("schedule-1"): {
+			Schedule: client.Schedule{
+				Action: &client.ScheduleWorkflowAction{},
+				Spec:   &client.ScheduleSpec{CronExpressions: []string{"0 * * * *"}, TimeZoneName: "America/New_York"},
+				State:  &client.ScheduleState{},
+			},
+			Info: client.ScheduleInfo{NextActionTimes: []time.Time{nextRunAt}},
+		},
+	})
+	tc.scheduleClient = scheduleClient
+	if err := state.putSchedule(ctx, &proto.BoundWorkflowSchedule{
+		Id:        "schedule-1",
+		Cron:      "0 * * * *",
+		Timezone:  "America/New_York",
+		Target:    pluginTarget("slack", "postMessage"),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}); err != nil {
+		t.Fatalf("putSchedule: %v", err)
+	}
+
+	resp, err := backend.ListSchedules(ctx, &proto.ListWorkflowProviderSchedulesRequest{})
+	if err != nil {
+		t.Fatalf("ListSchedules: %v", err)
+	}
+	if len(resp.GetSchedules()) != 1 || resp.GetSchedules()[0].GetId() != "schedule-1" {
+		t.Fatalf("schedules = %#v, want schedule-1", resp.GetSchedules())
+	}
+	if got := resp.GetSchedules()[0].GetNextRunAt().AsTime(); !got.Equal(nextRunAt) {
+		t.Fatalf("next_run_at = %v, want %v", got, nextRunAt)
+	}
+	if scheduleClient.listCount != 0 {
+		t.Fatalf("Temporal schedule list calls = %d, want 0", scheduleClient.listCount)
+	}
+	if len(tc.queries) != 0 || len(tc.updates) != 0 {
+		t.Fatalf("ListSchedules touched temporal index queries=%#v updates=%#v", tc.queries, tc.updates)
+	}
+}
+
 func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -2528,8 +2588,9 @@ func (v recordingEncodedValue) Get(valuePtr interface{}) error {
 }
 
 type fakeScheduleClient struct {
-	handles map[string]*fakeScheduleHandle
-	order   []string
+	handles   map[string]*fakeScheduleHandle
+	order     []string
+	listCount int
 }
 
 func newFakeScheduleClient(descriptions map[string]*client.ScheduleDescription) *fakeScheduleClient {
@@ -2556,6 +2617,7 @@ func (c *fakeScheduleClient) Create(_ context.Context, options client.ScheduleOp
 }
 
 func (c *fakeScheduleClient) List(context.Context, client.ScheduleListOptions) (client.ScheduleListIterator, error) {
+	c.listCount++
 	entries := make([]*client.ScheduleListEntry, 0, len(c.order))
 	for _, id := range c.order {
 		entries = append(entries, &client.ScheduleListEntry{ID: id})
