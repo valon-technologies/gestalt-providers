@@ -271,6 +271,9 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
 	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.GetExecutionRef(), target.Target, req.GetCreatedBy())
 	ledgerKey := startLedgerKey(target.OwnerKey, key)
+	if key != "" && workflowKey == "" {
+		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
+	}
 	if key != "" {
 		entry, _, err := b.reserveLedger(ctx, ledgerKey, ownerLedgerReserveRequest{
 			Operation:   "start",
