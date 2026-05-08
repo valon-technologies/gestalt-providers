@@ -370,10 +370,12 @@ it does not repost the same issue on every delivery. By default, after a
 successful current review, or after an agent run produces zero valid findings,
 it resolves older marked threads whose fingerprint is no longer present in the
 current findings. Set `autoResolveStaleFindings: false` on the
-`reviewPullRequest` input to leave old marked threads open. Set
-`publishCheckRun: true` to publish an in-progress check run and complete it as
-success, skipped, action required, or failure with the review result. The
-low-level `bot.createPullRequestReview` operation never adds hidden markers
+`reviewPullRequest` input to leave old marked threads open. `reviewPullRequest`
+always publishes a GitHub check run and completes it as success, skipped, or
+failure with the review result. For webhook-backed built-in review targets, the
+provider creates the in-progress check run before enqueueing the workflow so the
+GitHub pull request shows a pending review job while the workflow waits or runs.
+The low-level `bot.createPullRequestReview` operation never adds hidden markers
 unless the caller supplies them explicitly, and
 `bot.resolvePullRequestReviewThread` is not included in any default policy mode;
 expose it with `allowedOperations` only for workflows that should be able to
@@ -408,6 +410,13 @@ GitHub's delivery timeout is 10 seconds, so webhook handlers must keep the
 enqueue path small and avoid starting agents inline. Treat non-2xx delivery
 responses as retryable enqueue failures.
 
+For `workflow.target.plugin.operation: reviewPullRequest`, `events.handle`
+creates or reuses the review check run before calling
+`WorkflowManager.SignalOrStartRun`. If the check run cannot be created, the
+workflow is not enqueued. If enqueueing fails after creating the check run, the
+provider best-effort completes that check as failure before returning the
+retryable error.
+
 ```json
 {
   "github_event": "pull_request",
@@ -440,6 +449,14 @@ responses as retryable enqueue failures.
     "status": "completed",
     "conclusion": "failure",
     "html_url": "https://github.com/acme/widgets/runs/123"
+  },
+  "review_check_run": {
+    "id": 456,
+    "name": "Gestalt Review",
+    "status": "in_progress",
+    "external_id": "gestalt-review:<hash>",
+    "head_sha": "abc123",
+    "html_url": "https://github.com/acme/widgets/runs/456"
   },
   "payload_sha256": "<payload digest>",
   "payload_omitted": true

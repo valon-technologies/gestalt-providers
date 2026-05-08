@@ -48,13 +48,9 @@ operations:
     description: Resolve prior provider-owned inline comments when the latest review
       no longer reports the same finding
     default: true
-  - name: publishCheckRun
-    type: boolean
-    description: Publish a GitHub check run for the review result
-    default: false
   - name: checkRunName
     type: string
-    description: GitHub check run name to create when publishCheckRun is enabled
+    description: GitHub check run name to create for the review
     default: Gestalt Review
   - name: turnTimeoutMs
     type: integer

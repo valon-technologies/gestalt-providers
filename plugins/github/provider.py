@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from http import HTTPStatus
 from typing import Any, TypeAlias
@@ -73,6 +74,7 @@ from internals.operations import (
     GitHubCreatePullRequestReviewRequest,
     GitHubUserCreatePullRequestRequest,
     GitHubFileChange,
+    GitHubListCheckRunsForRefRequest,
     GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
@@ -105,6 +107,7 @@ from internals.operations import (
     issue_comment_summary,
     installation_resolution_dict,
     label_summary,
+    list_check_runs_for_ref,
     list_check_suite_check_runs,
     list_check_run_annotations,
     list_pull_request_files,
@@ -124,6 +127,7 @@ from internals.operations import (
     workflow_run_job_summary,
     workflow_run_summary,
 )
+from internals.helpers import int_field, map_field, str_field
 from internals.policy import select_webhook_policy, webhook_event_type_for_policy
 from internals.preferences import (
     apply_action_preferences,
@@ -133,7 +137,12 @@ from internals.preferences import (
     reset_action_preference_store,
     set_action_preference,
 )
-from internals.review import review_pull_request
+from internals.review import (
+    SUPPORTED_PULL_REQUEST_ACTIONS,
+    manual_command_body_matches,
+    review_pull_request,
+    utc_timestamp,
+)
 from internals.webhook import (
     event_summary,
     installation_id_from_payload,
@@ -162,6 +171,7 @@ _SELF_FIX_OPERATIONS = {
     BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
 }
+_REVIEW_DISPATCH_FAILED_TITLE = "Review dispatch failed"
 
 OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, Any]]
 PostConnectMetadata: TypeAlias = dict[str, str]
@@ -536,13 +546,8 @@ class ReviewPullRequestInput(gestalt.Model):
         default=True,
         required=False,
     )
-    publishCheckRun: bool = gestalt.field(
-        description="Publish a GitHub check run for the review result",
-        default=False,
-        required=False,
-    )
     checkRunName: str = gestalt.field(
-        description="GitHub check run name to create when publishCheckRun is enabled",
+        description="GitHub check run name to create for the review",
         default="Gestalt Review",
         required=False,
     )
@@ -755,7 +760,9 @@ class CreateCheckRunInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
     name: str = gestalt.field(description="Check run name")
-    head_sha: str = gestalt.field(description="Git commit SHA to attach the check run to")
+    head_sha: str = gestalt.field(
+        description="Git commit SHA to attach the check run to"
+    )
     status: str = gestalt.field(
         description="Check run status: queued, in_progress, or completed",
         default="in_progress",
@@ -1031,11 +1038,37 @@ def _signal_or_start_webhook_workflow(
     policy: Any,
 ) -> OperationResult:
     workflow_key = ""
+    workflow_request = build_workflow_signal_or_start_request(input, summary, policy)
+    workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
+    review_check_run: dict[str, Any] | None = None
+    if _policy_targets_review_pull_request(policy):
+        try:
+            review_check_run = _ensure_review_check_run_for_workflow(
+                input,
+                req,
+                summary=summary,
+                policy=policy,
+                workflow_request=workflow_request,
+            )
+        except ValueError as err:
+            return _bad_request(str(err))
+        except GitHubAuthorizationError as err:
+            return _forbidden(str(err))
+        except GitHubConfigError as err:
+            return _server_error(str(err))
+        except GitHubAPIError as err:
+            return _github_error(err)
+        if review_check_run is not None:
+            workflow_request = build_workflow_signal_or_start_request(
+                input,
+                summary,
+                policy,
+                extra_signal_data={
+                    "review_check_run": check_run_summary(review_check_run)
+                },
+            )
+            workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
     try:
-        workflow_request = build_workflow_signal_or_start_request(
-            input, summary, policy
-        )
-        workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
         logger.info(
             "dispatching GitHub webhook workflow",
             extra={
@@ -1052,6 +1085,9 @@ def _signal_or_start_webhook_workflow(
         with workflow_manager_factory() as workflow_manager:
             response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
+        _complete_review_check_run_dispatch_failed(
+            review_check_run, req, summary=summary
+        )
         logger.exception(
             "failed to dispatch GitHub webhook workflow",
             extra={
@@ -1101,6 +1137,261 @@ def _signal_or_start_webhook_workflow(
         "workflow_signal_id": str(getattr(signal, "id", "")),
         "workflow_started_run": bool(getattr(response, "started_run", False)),
     }
+
+
+def _policy_targets_review_pull_request(policy: Any) -> bool:
+    target = getattr(policy, "workflow_target", None)
+    return (
+        target is not None
+        and getattr(target, "plugin_name", "") == "github"
+        and getattr(target, "operation", "") == REVIEW_PULL_REQUEST_OPERATION
+    )
+
+
+def _ensure_review_check_run_for_workflow(
+    input: dict[str, Any],
+    req: gestalt.Request,
+    *,
+    summary: dict[str, Any],
+    policy: Any,
+    workflow_request: Any,
+) -> dict[str, Any] | None:
+    if _review_target_dry_run(policy):
+        return None
+    context = _review_check_run_context(input, req, summary=summary, policy=policy)
+    if context is None:
+        return None
+    external_id = _review_check_run_external_id(
+        str(getattr(workflow_request, "idempotency_key", "")).strip()
+    )
+    existing = _find_reusable_review_check_run(
+        req,
+        owner=context["owner"],
+        repo=context["repo"],
+        head_sha=context["head_sha"],
+        check_run_name=context["check_run_name"],
+        external_id=external_id,
+        installation_id=context["installation_id"],
+    )
+    if existing is not None:
+        if str_field(existing, "status") != "completed" or (
+            _review_check_run_was_dispatch_failed(existing)
+        ):
+            return update_check_run(
+                GitHubUpdateCheckRunRequest(
+                    owner=context["owner"],
+                    repo=context["repo"],
+                    check_run_id=int_field(existing, "id"),
+                    status="in_progress",
+                    output=_review_check_run_running_output(),
+                    installation_id=context["installation_id"],
+                ),
+                subject=req.subject,
+                external_identity=_request_external_identity(req),
+            )
+        return existing
+    return create_check_run(
+        GitHubCreateCheckRunRequest(
+            owner=context["owner"],
+            repo=context["repo"],
+            name=context["check_run_name"],
+            head_sha=context["head_sha"],
+            status="in_progress",
+            external_id=external_id,
+            output=_review_check_run_running_output(),
+            installation_id=context["installation_id"],
+        ),
+        subject=req.subject,
+        external_identity=_request_external_identity(req),
+    )
+
+
+def _review_target_dry_run(policy: Any) -> bool:
+    target = getattr(policy, "workflow_target", None)
+    target_input = getattr(target, "input", {}) if target is not None else {}
+    return isinstance(target_input, dict) and target_input.get("dryRun") is True
+
+
+def _review_check_run_context(
+    input: dict[str, Any],
+    req: gestalt.Request,
+    *,
+    summary: dict[str, Any],
+    policy: Any,
+) -> dict[str, Any] | None:
+    event_type = str(summary.get("event_type", "")).strip()
+    action = str(summary.get("action", "")).strip()
+    owner = str(summary.get("repository_owner", "")).strip()
+    repo = str(summary.get("repository_name", "")).strip()
+    installation_id = int(summary.get("installation_id", 0) or 0)
+    if not owner or not repo or installation_id <= 0:
+        raise ValueError("review check run requires repository and installation")
+    pull_number = int(summary.get("number", 0) or 0)
+    head_sha = str(summary.get("head_sha", "")).strip()
+    if event_type == "pull_request":
+        if action not in SUPPORTED_PULL_REQUEST_ACTIONS:
+            return None
+        if pull_number <= 0 or not head_sha:
+            raise ValueError(
+                "review check run requires pull request number and head SHA"
+            )
+    elif event_type == "issue_comment":
+        if action != "created":
+            return None
+        issue = map_field(input, "issue")
+        if not map_field(issue, "pull_request"):
+            return None
+        commands = getattr(getattr(policy, "trigger", None), "manual_commands", ())
+        if not commands:
+            return None
+        comment_body = str_field(map_field(input, "comment"), "body")
+        match_mode = getattr(
+            getattr(policy, "trigger", None), "manual_command_match", ""
+        )
+        if not manual_command_body_matches(
+            comment_body, commands, match_mode=match_mode
+        ):
+            return None
+        if pull_number <= 0:
+            raise ValueError("review check run requires pull request number")
+        pull = get_pull_request(
+            GitHubPullRequestRequest(
+                owner=owner,
+                repo=repo,
+                pull_number=pull_number,
+                installation_id=installation_id,
+            ),
+            subject=req.subject,
+            external_identity=_request_external_identity(req),
+        )
+        pull_summary = pull_request_summary(pull)
+        head_sha = str(pull_summary.get("head_sha", "")).strip()
+        if not head_sha:
+            raise ValueError("review check run requires pull request head SHA")
+    else:
+        return None
+    return {
+        "owner": owner,
+        "repo": repo,
+        "pull_number": pull_number,
+        "head_sha": head_sha,
+        "installation_id": installation_id,
+        "check_run_name": _review_check_run_name(policy),
+    }
+
+
+def _review_check_run_name(policy: Any) -> str:
+    target = getattr(policy, "workflow_target", None)
+    target_input = getattr(target, "input", {}) if target is not None else {}
+    if isinstance(target_input, dict):
+        name = target_input.get("checkRunName")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return "Gestalt Review"
+
+
+def _review_check_run_external_id(idempotency_key: str) -> str:
+    return (
+        "gestalt-review:" + hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    )
+
+
+def _find_reusable_review_check_run(
+    req: gestalt.Request,
+    *,
+    owner: str,
+    repo: str,
+    head_sha: str,
+    check_run_name: str,
+    external_id: str,
+    installation_id: int,
+) -> dict[str, Any] | None:
+    matching: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        data = list_check_runs_for_ref(
+            GitHubListCheckRunsForRefRequest(
+                owner=owner,
+                repo=repo,
+                ref=head_sha,
+                check_name=check_run_name,
+                filter="all",
+                per_page=100,
+                page=page,
+                installation_id=installation_id,
+            ),
+            subject=req.subject,
+            external_identity=_request_external_identity(req),
+        )
+        raw_check_runs = data.get("check_runs")
+        if not isinstance(raw_check_runs, list):
+            raw_check_runs = []
+        for check_run in raw_check_runs:
+            if (
+                isinstance(check_run, dict)
+                and str_field(check_run, "external_id") == external_id
+            ):
+                matching.append(check_run)
+        if len(raw_check_runs) < 100:
+            break
+    for check_run in matching:
+        if str_field(check_run, "status") != "completed":
+            return check_run
+    return matching[0] if matching else None
+
+
+def _review_check_run_was_dispatch_failed(check_run: dict[str, Any]) -> bool:
+    output = map_field(check_run, "output")
+    return str_field(output, "title") == _REVIEW_DISPATCH_FAILED_TITLE
+
+
+def _review_check_run_running_output() -> GitHubCheckRunOutput:
+    return GitHubCheckRunOutput(
+        title="Review running",
+        summary="Gestalt is reviewing this pull request.",
+    )
+
+
+def _complete_review_check_run_dispatch_failed(
+    check_run: dict[str, Any] | None,
+    req: gestalt.Request,
+    *,
+    summary: dict[str, Any],
+) -> None:
+    if check_run is None or str_field(check_run, "status") == "completed":
+        return
+    owner = str(summary.get("repository_owner", "")).strip()
+    repo = str(summary.get("repository_name", "")).strip()
+    installation_id = int(summary.get("installation_id", 0) or 0)
+    check_run_id = int_field(check_run, "id")
+    if not owner or not repo or installation_id <= 0 or check_run_id <= 0:
+        return
+    try:
+        update_check_run(
+            GitHubUpdateCheckRunRequest(
+                owner=owner,
+                repo=repo,
+                check_run_id=check_run_id,
+                conclusion="failure",
+                completed_at=utc_timestamp(),
+                output=GitHubCheckRunOutput(
+                    title=_REVIEW_DISPATCH_FAILED_TITLE,
+                    summary="Gestalt could not enqueue the pull request review workflow.",
+                ),
+                installation_id=installation_id,
+            ),
+            subject=req.subject,
+            external_identity=_request_external_identity(req),
+        )
+    except Exception:
+        logger.exception(
+            "failed to mark GitHub review check run dispatch failure",
+            extra={
+                "github_event": summary.get("event_type", ""),
+                "github_delivery_id": summary.get("delivery_id", ""),
+                "github_repository": summary.get("repository", ""),
+                "check_run_id": check_run_id,
+            },
+        )
 
 
 def _stale_ci_head_ignored_reason(
@@ -2588,9 +2879,7 @@ def _action_preference_control_summary(
     }
 
 
-def _raw_stored_preference_value(
-    field: str, preference: dict[str, Any] | None
-) -> Any:
+def _raw_stored_preference_value(field: str, preference: dict[str, Any] | None) -> Any:
     if preference is None:
         return None
     if field == "self_fix_mode" and preference.get("allow_self_fix") is False:

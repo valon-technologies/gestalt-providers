@@ -13,7 +13,11 @@ import gestalt
 from google.protobuf import json_format
 
 from .client import bot_identity_or_none
-from .config import get_github_config
+from .config import (
+    WEBHOOK_MANUAL_COMMAND_CONTAINS,
+    WEBHOOK_MANUAL_COMMAND_EXACT,
+    get_github_config,
+)
 from .operations import (
     GitHubCheckRunOutput,
     GitHubCreateCheckRunRequest,
@@ -83,7 +87,6 @@ class ReviewSettings:
     changed_lines_only: bool
     dry_run: bool
     auto_resolve_stale_findings: bool
-    publish_check_run: bool
     check_run_name: str
     turn_timeout_ms: int
     poll_interval_ms: int
@@ -152,22 +155,22 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
     if subject is None:
         return skipped_result("missing_pull_request_subject")
 
-    check_run: Mapping[str, Any] | None = None
+    check_run: Mapping[str, Any] | None = signal_review_check_run(signal)
     identity_kwargs = request_external_identity_kwargs(req)
-    pull_request = get_pull_request(
-        GitHubPullRequestRequest(
-            owner=subject.owner,
-            repo=subject.repo,
-            pull_number=subject.pull_number,
-            installation_id=subject.installation_id,
-        ),
-        subject=req.subject,
-        **identity_kwargs,
-    )
-    pull_summary = pull_request_summary(pull_request)
-    if settings.publish_check_run and not settings.dry_run:
-        check_run = create_review_check_run(subject, req, settings, pull_summary)
     try:
+        pull_request = get_pull_request(
+            GitHubPullRequestRequest(
+                owner=subject.owner,
+                repo=subject.repo,
+                pull_number=subject.pull_number,
+                installation_id=subject.installation_id,
+            ),
+            subject=req.subject,
+            **identity_kwargs,
+        )
+        pull_summary = pull_request_summary(pull_request)
+        if check_run is None and not settings.dry_run:
+            check_run = create_review_check_run(subject, req, settings, pull_summary)
         if pull_request.get("draft") is True:
             result = review_result(
                 subject, posted=False, comments=0, reason="draft_pull_request"
@@ -353,8 +356,8 @@ def _review_pull_request_after_fetch(
         check_run,
         subject,
         req,
-        conclusion="action_required",
-        title="Findings require review",
+        conclusion="success",
+        title="Review complete",
         summary=(
             f"Gestalt review found {len(findings)} concrete "
             f"issue{'' if len(findings) == 1 else 's'}."
@@ -372,7 +375,9 @@ def normalize_review_settings(input: Any) -> ReviewSettings:
         ),
         model=string_setting(input, "model", config.agent_model or DEFAULT_MODEL),
         system_prompt=string_setting(input, "systemPrompt", DEFAULT_SYSTEM_PROMPT),
-        max_comments=bounded_int_setting(input, "maxComments", DEFAULT_MAX_COMMENTS, 1, 25),
+        max_comments=bounded_int_setting(
+            input, "maxComments", DEFAULT_MAX_COMMENTS, 1, 25
+        ),
         max_files=bounded_int_setting(input, "maxFiles", DEFAULT_MAX_FILES, 1, 100),
         max_patch_chars=bounded_int_setting(
             input, "maxPatchChars", DEFAULT_MAX_PATCH_CHARS, 4_000, 200_000
@@ -382,7 +387,6 @@ def normalize_review_settings(input: Any) -> ReviewSettings:
         auto_resolve_stale_findings=bool_setting(
             input, "autoResolveStaleFindings", True
         ),
-        publish_check_run=bool_setting(input, "publishCheckRun", False),
         check_run_name=string_setting(input, "checkRunName", "Gestalt Review"),
         turn_timeout_ms=bounded_int_setting(
             input, "turnTimeoutMs", DEFAULT_TURN_TIMEOUT_MS, 10_000, 600_000
@@ -403,9 +407,13 @@ def bool_setting(input: Any, key: str, fallback: bool) -> bool:
     return value if isinstance(value, bool) else fallback
 
 
-def bounded_int_setting(input: Any, key: str, fallback: int, minimum: int, maximum: int) -> int:
+def bounded_int_setting(
+    input: Any, key: str, fallback: int, minimum: int, maximum: int
+) -> int:
     value = input_value(input, key)
-    parsed = value if isinstance(value, int) and not isinstance(value, bool) else fallback
+    parsed = (
+        value if isinstance(value, int) and not isinstance(value, bool) else fallback
+    )
     return max(minimum, min(maximum, parsed))
 
 
@@ -434,7 +442,7 @@ def create_review_check_run(
 ) -> Mapping[str, Any] | None:
     head_sha = string_value(pull_request.get("head_sha"))
     if not head_sha:
-        return None
+        raise ValueError("review check run requires pull request head SHA")
     return create_check_run(
         GitHubCreateCheckRunRequest(
             owner=subject.owner,
@@ -489,6 +497,11 @@ def add_check_run_result(
         result["checkRun"] = check_run_summary(check_run)
 
 
+def signal_review_check_run(signal: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    check_run = object_value(signal.get("review_check_run"))
+    return check_run if check_run and int_value(check_run.get("id")) > 0 else None
+
+
 def utc_timestamp() -> str:
     return (
         dt.datetime.now(dt.UTC)
@@ -524,23 +537,38 @@ def unsupported_review_signal_reason(signal: Mapping[str, Any]) -> str:
         return "not_pull_request_comment"
     commands = [
         str(command)
-        for command in nested_value(signal, "webhook_policy", "trigger", "manual_commands")
+        for command in nested_value(
+            signal, "webhook_policy", "trigger", "manual_commands"
+        )
         or []
         if str(command).strip()
     ]
     if not commands:
         return "missing_manual_command"
+    match_mode = string_value(
+        nested_value(signal, "webhook_policy", "trigger", "manual_command_match")
+    )
     if not manual_command_body_matches(
         string_value(nested_value(signal, "agent_request", "comment", "body")),
         commands,
+        match_mode=match_mode,
     ):
         return "manual_command_mismatch"
     return ""
 
 
-def manual_command_body_matches(body: str, commands: Sequence[str]) -> bool:
-    normalized_body = normalize_manual_command(body)
-    return any(normalize_manual_command(command) == normalized_body for command in commands)
+def manual_command_body_matches(
+    body: str,
+    commands: Sequence[str],
+    *,
+    match_mode: str = WEBHOOK_MANUAL_COMMAND_CONTAINS,
+) -> bool:
+    if match_mode == WEBHOOK_MANUAL_COMMAND_EXACT:
+        normalized_body = normalize_manual_command(body)
+        return any(
+            normalize_manual_command(command) == normalized_body for command in commands
+        )
+    return any(command in body for command in commands)
 
 
 def normalize_manual_command(value: str) -> str:
@@ -653,7 +681,9 @@ def ask_agent_for_findings(
         )
 
     structured = struct_to_dict(getattr(turn, "structured_output", None))
-    fallback = {} if structured else parse_json_object(str(getattr(turn, "output_text", "")))
+    fallback = (
+        {} if structured else parse_json_object(str(getattr(turn, "output_text", "")))
+    )
     findings = (structured or fallback).get("findings")
     if not isinstance(findings, list):
         return []
@@ -809,7 +839,9 @@ def validate_findings(
             continue
         seen.add(key)
         findings.append(
-            ValidatedFinding(path=path, line=raw.line, body=format_comment_body(raw, body))
+            ValidatedFinding(
+                path=path, line=raw.line, body=format_comment_body(raw, body)
+            )
         )
         if len(findings) >= settings.max_comments:
             dropped += len(raw_findings) - (len(findings) + dropped)
@@ -891,9 +923,7 @@ def normalized_finding_body(body: str) -> str:
 
 
 def sha256_payload(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode(
-        "utf-8"
-    )
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -1063,9 +1093,7 @@ def auto_resolve_stale_findings(
                 **identity_kwargs,
             )
         except Exception as err:
-            skipped_reasons.append(
-                {"threadId": "", "reason": f"list_failed: {err}"}
-            )
+            skipped_reasons.append({"threadId": "", "reason": f"list_failed: {err}"})
             break
 
         raw_threads = response.get("threads")
@@ -1075,9 +1103,7 @@ def auto_resolve_stale_findings(
                 continue
             thread_id = string_value(thread.get("id"))
             if not thread_id:
-                skipped_reasons.append(
-                    {"threadId": "", "reason": "missing_thread_id"}
-                )
+                skipped_reasons.append({"threadId": "", "reason": "missing_thread_id"})
                 continue
             decision = review_thread_resolution_decision(
                 thread,
@@ -1085,9 +1111,7 @@ def auto_resolve_stale_findings(
                 current_fingerprints=current_fingerprints,
             )
             if decision:
-                skipped_reasons.append(
-                    {"threadId": thread_id, "reason": decision}
-                )
+                skipped_reasons.append({"threadId": thread_id, "reason": decision})
                 continue
             try:
                 resolved = resolve_pull_request_review_thread(

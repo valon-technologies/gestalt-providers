@@ -59,6 +59,7 @@ def build_workflow_signal_or_start_request(
     payload: dict[str, Any],
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
+    extra_signal_data: dict[str, Any] | None = None,
 ) -> Any:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
     request = gestalt.WorkflowManagerSignalOrStartRunRequest(
@@ -71,7 +72,9 @@ def build_workflow_signal_or_start_request(
             idempotency_key=idempotency_key,
         ),
     )
-    request.signal.payload.CopyFrom(workflow_signal_payload(payload, summary, policy))
+    request.signal.payload.CopyFrom(
+        workflow_signal_payload(payload, summary, policy, extra_signal_data)
+    )
     request.signal.metadata.CopyFrom(agent_turn_metadata(summary, policy))
     return request
 
@@ -129,8 +132,11 @@ def workflow_signal_payload(
     payload: dict[str, Any],
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
+    extra_signal_data: dict[str, Any] | None = None,
 ) -> Any:
     data = workflow_signal_data(payload, summary, policy)
+    if extra_signal_data:
+        data.update(extra_signal_data)
     if policy is not None:
         metadata = policy_metadata(policy, summary)
         data["webhook_policy"] = metadata
@@ -380,9 +386,7 @@ def agent_user_prompt(
         lines.append(f"timeline_policy: {policy.comments.timeline_policy}")
         lines.append(f"inline_policy: {policy.comments.inline_policy}")
         lines.append(f"suppress_stale_head: {policy.comments.suppress_stale_head}")
-        lines.append(
-            f"allow_code_review_comments: {policy.allow_code_review_comments}"
-        )
+        lines.append(f"allow_code_review_comments: {policy.allow_code_review_comments}")
         lines.append(f"allow_self_fix: {policy.allow_self_fix}")
         lines.append(f"self_fix_mode: {policy.self_fix_mode}")
         if policy.action_preferences is not None:

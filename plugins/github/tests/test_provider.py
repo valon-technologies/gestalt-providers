@@ -409,6 +409,39 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         self.addCleanup(provider_module.configure, "github", {})
+        create_check_patch = mock.patch(
+            "internals.review.create_check_run",
+            side_effect=self._default_create_review_check_run,
+        )
+        update_check_patch = mock.patch(
+            "internals.review.update_check_run",
+            side_effect=self._default_update_review_check_run,
+        )
+        create_check_patch.start()
+        update_check_patch.start()
+        self.addCleanup(create_check_patch.stop)
+        self.addCleanup(update_check_patch.stop)
+
+    def _default_create_review_check_run(
+        self, request: Any, *, subject: Any, external_identity: Any = None
+    ) -> dict[str, Any]:
+        return {
+            "id": 501,
+            "name": request.name,
+            "status": request.status or "in_progress",
+            "head_sha": request.head_sha,
+            "external_id": request.external_id,
+        }
+
+    def _default_update_review_check_run(
+        self, request: Any, *, subject: Any, external_identity: Any = None
+    ) -> dict[str, Any]:
+        return {
+            "id": request.check_run_id,
+            "name": request.name or "Gestalt Review",
+            "status": "completed",
+            "conclusion": request.conclusion,
+        }
 
     def test_resolve_repository_installation_discovers_and_validates_repo(self) -> None:
         client = RecordingGitHubClient()
@@ -520,7 +553,8 @@ class GitHubProviderTests(unittest.TestCase):
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
         )
         self.assertEqual(
-            ["owner", "repo"], [parameter["name"] for parameter in resolve["parameters"]]
+            ["owner", "repo"],
+            [parameter["name"] for parameter in resolve["parameters"]],
         )
         self.assertIn(
             "per_page",
@@ -1658,8 +1692,12 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         disabled = self._workflow_signal_request(payload)
-        disabled_operations = [tool.operation for tool in disabled.target.agent.tool_refs]
-        self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, disabled_operations)
+        disabled_operations = [
+            tool.operation for tool in disabled.target.agent.tool_refs
+        ]
+        self.assertNotIn(
+            provider_module.BOT_COMMIT_FILES_OPERATION, disabled_operations
+        )
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, disabled_operations
         )
@@ -1680,7 +1718,9 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         branch_only = self._workflow_signal_request(payload)
-        branch_operations = [tool.operation for tool in branch_only.target.agent.tool_refs]
+        branch_operations = [
+            tool.operation for tool in branch_only.target.agent.tool_refs
+        ]
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, branch_operations)
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, branch_operations
@@ -1860,9 +1900,7 @@ class GitHubProviderTests(unittest.TestCase):
             data["webhook_policy"]["action_preferences"]["source"], "subject_id"
         )
         self.assertEqual(
-            data["webhook_policy"]["action_preferences"]["effective"][
-                "self_fix_mode"
-            ],
+            data["webhook_policy"]["action_preferences"]["effective"]["self_fix_mode"],
             "disabled",
         )
 
@@ -2410,9 +2448,7 @@ class GitHubProviderTests(unittest.TestCase):
             controls[("review-policy", "allow_code_review_comments")]["identity_kind"],
             "external_subject_id",
         )
-        self.assertEqual(
-            controls[("self-fix-policy", "self_fix_mode")]["stored"], None
-        )
+        self.assertEqual(controls[("self-fix-policy", "self_fix_mode")]["stored"], None)
         self.assertEqual(
             controls[("self-fix-policy", "self_fix_mode")]["effective"], "pull_request"
         )
@@ -3025,6 +3061,7 @@ class GitHubProviderTests(unittest.TestCase):
                         "input": {
                             "maxComments": 10,
                             "changedLinesOnly": True,
+                            "dryRun": True,
                         },
                     }
                 },
@@ -3061,12 +3098,610 @@ class GitHubProviderTests(unittest.TestCase):
         target_input = json_format.MessageToDict(plugin.input)
         self.assertEqual(target_input["maxComments"], 10)
         self.assertEqual(target_input["changedLinesOnly"], True)
+        self.assertEqual(target_input["dryRun"], True)
         self.assertNotIn("pull_request", target_input)
         self.assertNotIn("repository", target_input)
 
         signal_payload = json_format.MessageToDict(plugin_request.signal.payload)
         self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
         self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
+
+    def test_builtin_review_policy_creates_check_run_before_workflow_enqueue(
+        self,
+    ) -> None:
+        events: list[str] = []
+
+        class RecordingWorkflowManager(FakeWorkflowManager):
+            def signal_or_start_run(self, request: Any) -> Any:
+                events.append("workflow")
+                return super().signal_or_start_run(request)
+
+        workflow_manager = RecordingWorkflowManager()
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookPolicies": [
+                    {
+                        "id": "pr-review",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["synchronize"],
+                        },
+                        "workflow": {
+                            "target": {
+                                "plugin": {
+                                    "plugin": "github",
+                                    "operation": "reviewPullRequest",
+                                    "input": {"checkRunName": "Bugbot Review"},
+                                }
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                events.append("check-list")
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer checks-read-token")
+                self.assertEqual(
+                    urllib.parse.parse_qs(
+                        urllib.parse.urlparse(request.full_url).query
+                    ),
+                    {
+                        "check_name": ["Bugbot Review"],
+                        "filter": ["all"],
+                        "per_page": ["100"],
+                        "page": ["1"],
+                    },
+                )
+                return FakeHTTPResponse({"total_count": 0, "check_runs": []})
+            if path == "/repos/acme/widgets/check-runs":
+                events.append("check-create")
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer checks-write-token")
+                self.assertEqual(body["name"], "Bugbot Review")
+                self.assertEqual(body["head_sha"], "abc123")
+                self.assertEqual(body["status"], "in_progress")
+                self.assertTrue(body["external_id"].startswith("gestalt-review:"))
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": body["name"],
+                        "status": body["status"],
+                        "external_id": body["external_id"],
+                        "head_sha": body["head_sha"],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._review_pull_request_payload(), github_request()
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(events, ["check-list", "check-create", "workflow"])
+        self.assertEqual(len(workflow_manager.requests), 1)
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.requests[0].signal.payload
+        )
+        self.assertEqual(signal_payload["review_check_run"]["id"], 456)
+        self.assertEqual(signal_payload["review_check_run"]["name"], "Bugbot Review")
+
+    def test_builtin_review_policy_check_run_failure_prevents_workflow_enqueue(
+        self,
+    ) -> None:
+        workflow_manager = FakeWorkflowManager()
+        self._configure_builtin_review_policy()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                return FakeHTTPResponse({"total_count": 0, "check_runs": []})
+            if path == "/repos/acme/widgets/check-runs":
+                raise http_error(
+                    request.full_url,
+                    HTTPStatus.FORBIDDEN,
+                    '{"message":"Checks write denied"}',
+                )
+            self.fail(f"unexpected request {request.get_method()} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._review_pull_request_payload(), github_request()
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, Any]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(workflow_manager.requests, [])
+
+    def test_builtin_review_policy_marks_check_run_failed_when_enqueue_fails(
+        self,
+    ) -> None:
+        events: list[str] = []
+        workflow_manager = FakeWorkflowManager(fail=True)
+        self._configure_builtin_review_policy()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                return FakeHTTPResponse({"total_count": 0, "check_runs": []})
+            if path == "/repos/acme/widgets/check-runs" and method == "POST":
+                events.append("check-create")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": body["name"],
+                        "status": body["status"],
+                        "external_id": body["external_id"],
+                        "head_sha": body["head_sha"],
+                    }
+                )
+            if path == "/repos/acme/widgets/check-runs/456" and method == "PATCH":
+                events.append("check-failure")
+                self.assertEqual(body["conclusion"], "failure")
+                self.assertEqual(body["output"]["title"], "Review dispatch failed")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": "Gestalt Review",
+                        "status": "completed",
+                        "conclusion": "failure",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._review_pull_request_payload(), github_request()
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, Any]], result)
+        self.assertEqual(response.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(events, ["check-create", "check-failure"])
+
+    def test_builtin_review_policy_reuses_matching_active_check_run(self) -> None:
+        events: list[str] = []
+        workflow_manager = FakeWorkflowManager()
+        self._configure_builtin_review_policy()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                external_id = "gestalt-review:" + "a" * 64
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 456,
+                                "name": "Gestalt Review",
+                                "status": "in_progress",
+                                "external_id": external_id,
+                                "head_sha": "abc123",
+                            }
+                        ],
+                    }
+                )
+            if path == "/repos/acme/widgets/check-runs/456" and method == "PATCH":
+                events.append("check-update")
+                self.assertEqual(body["status"], "in_progress")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": "Gestalt Review",
+                        "status": "in_progress",
+                        "external_id": "gestalt-review:" + "a" * 64,
+                        "head_sha": "abc123",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch(
+                "provider._review_check_run_external_id",
+                return_value="gestalt-review:" + "a" * 64,
+            ),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._review_pull_request_payload(), github_request()
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(events, ["check-update"])
+        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        self.assertEqual(payload["review_check_run"]["id"], 456)
+
+    def test_builtin_review_policy_reuses_matching_failed_completed_check_run(
+        self,
+    ) -> None:
+        events: list[str] = []
+        workflow_manager = FakeWorkflowManager()
+        self._configure_builtin_review_policy()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    raise AssertionError("completed check should not be updated")
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                events.append("check-list")
+                external_id = "gestalt-review:" + "a" * 64
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 456,
+                                "name": "Gestalt Review",
+                                "status": "completed",
+                                "conclusion": "failure",
+                                "external_id": external_id,
+                                "head_sha": "abc123",
+                            }
+                        ],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch(
+                "provider._review_check_run_external_id",
+                return_value="gestalt-review:" + "a" * 64,
+            ),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._review_pull_request_payload(), github_request()
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(events, ["check-list"])
+        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        self.assertEqual(payload["review_check_run"]["id"], 456)
+        self.assertEqual(payload["review_check_run"]["status"], "completed")
+        self.assertEqual(payload["review_check_run"]["conclusion"], "failure")
+
+    def test_builtin_review_policy_restarts_matching_dispatch_failed_check_run(
+        self,
+    ) -> None:
+        events: list[str] = []
+        workflow_manager = FakeWorkflowManager()
+        self._configure_builtin_review_policy()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                events.append("check-list")
+                external_id = "gestalt-review:" + "a" * 64
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 456,
+                                "name": "Gestalt Review",
+                                "status": "completed",
+                                "conclusion": "failure",
+                                "external_id": external_id,
+                                "head_sha": "abc123",
+                                "output": {"title": "Review dispatch failed"},
+                            }
+                        ],
+                    }
+                )
+            if path == "/repos/acme/widgets/check-runs/456" and method == "PATCH":
+                events.append("check-update")
+                self.assertEqual(body["status"], "in_progress")
+                self.assertEqual(body["output"]["title"], "Review running")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": "Gestalt Review",
+                        "status": "in_progress",
+                        "external_id": "gestalt-review:" + "a" * 64,
+                        "head_sha": "abc123",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch(
+                "provider._review_check_run_external_id",
+                return_value="gestalt-review:" + "a" * 64,
+            ),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                self._review_pull_request_payload(), github_request()
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(events, ["check-list", "check-update"])
+        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        self.assertEqual(payload["review_check_run"]["id"], 456)
+        self.assertEqual(payload["review_check_run"]["status"], "in_progress")
+
+    def test_manual_review_comment_fetches_pr_head_before_check_run_creation(
+        self,
+    ) -> None:
+        events: list[str] = []
+        workflow_manager = FakeWorkflowManager()
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookPolicies": [
+                    {
+                        "id": "manual-review",
+                        "match": {
+                            "events": ["issue_comment"],
+                            "actions": ["created"],
+                        },
+                        "trigger": {
+                            "frequency": "manual_only",
+                            "manualCommands": ["gestalt review"],
+                        },
+                        "workflow": {
+                            "target": {
+                                "plugin": {
+                                    "plugin": "github",
+                                    "operation": "reviewPullRequest",
+                                }
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"pull_requests": "read"}:
+                    return FakeHTTPResponse({"token": "pull-token"})
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/pulls/7":
+                events.append("pull")
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "head": {"ref": "feature", "sha": "abc123"},
+                        "base": {"ref": "main", "sha": "def456"},
+                    }
+                )
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                events.append("check-list")
+                return FakeHTTPResponse({"total_count": 0, "check_runs": []})
+            if path == "/repos/acme/widgets/check-runs" and method == "POST":
+                events.append("check-create")
+                self.assertEqual(body["head_sha"], "abc123")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": body["name"],
+                        "status": body["status"],
+                        "external_id": body["external_id"],
+                        "head_sha": body["head_sha"],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            payload = self._manual_review_comment_payload()
+            payload["comment"]["body"] = "please gestalt review"
+            result = provider_module.github_events_handle(payload, github_request())
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(events, ["pull", "check-list", "check-create"])
+        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
+
+    def test_review_comment_event_does_not_create_check_run(self) -> None:
+        workflow_manager = FakeWorkflowManager()
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookPolicies": [
+                    {
+                        "id": "review-comment",
+                        "match": {
+                            "events": ["pull_request_review_comment"],
+                            "actions": ["created"],
+                        },
+                        "workflow": {
+                            "target": {
+                                "plugin": {
+                                    "plugin": "github",
+                                    "operation": "reviewPullRequest",
+                                }
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen",
+                side_effect=AssertionError("GitHub should not be called"),
+            ),
+        ):
+            result = provider_module.github_events_handle(
+                {
+                    "action": "created",
+                    "installation": {"id": 99},
+                    "repository": {
+                        "full_name": "acme/widgets",
+                        "name": "widgets",
+                        "owner": {"login": "acme"},
+                    },
+                    "pull_request": {
+                        "number": 7,
+                        "head": {"ref": "feature", "sha": "abc123"},
+                        "base": {"ref": "main", "sha": "def456"},
+                    },
+                    "comment": {"id": 10, "body": "gestalt review"},
+                    "headers": {"X-GitHub-Event": "pull_request_review_comment"},
+                    "sender": {"login": "octocat"},
+                },
+                github_request(),
+            )
+
+        self.assertEqual(result["ok"], True)
+        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        self.assertNotIn("review_check_run", payload)
 
     def test_review_pull_request_posts_validated_inline_comments(self) -> None:
         agent_manager = FakeAgentManager(
@@ -3208,7 +3843,7 @@ class GitHubProviderTests(unittest.TestCase):
             r"source=github\.reviewPullRequest -->$",
         )
 
-    def test_review_pull_request_accepts_exact_issue_comment_and_updates_check(
+    def test_review_pull_request_accepts_contains_issue_comment_and_updates_check(
         self,
     ) -> None:
         agent_manager = FakeAgentManager(findings=[])
@@ -3227,12 +3862,11 @@ class GitHubProviderTests(unittest.TestCase):
                         "webhook_policy": {
                             "trigger": {
                                 "manual_commands": ["gestalt review"],
-                                "manual_command_match": "exact",
                             }
                         },
                         "agent_request": {
                             "issue": {"number": 7, "is_pull_request": True},
-                            "comment": {"id": 10, "body": "gestalt review"},
+                            "comment": {"id": 10, "body": "please gestalt review"},
                         },
                     }
                 }
@@ -3283,12 +3917,15 @@ class GitHubProviderTests(unittest.TestCase):
                     }
                 ],
             ),
-            mock.patch("internals.review.create_check_run", side_effect=fake_create_check),
-            mock.patch("internals.review.update_check_run", side_effect=fake_update_check),
+            mock.patch(
+                "internals.review.create_check_run", side_effect=fake_create_check
+            ),
+            mock.patch(
+                "internals.review.update_check_run", side_effect=fake_update_check
+            ),
         ):
             result = provider_module.github_review_pull_request(
                 provider_module.ReviewPullRequestInput(
-                    publishCheckRun=True,
                     autoResolveStaleFindings=False,
                 ),
                 request,
@@ -3299,6 +3936,137 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["checkRun"]["conclusion"], "success")
         self.assertEqual(created_checks[0][0].head_sha, "abc123")
         self.assertEqual(updated_checks[0][0].conclusion, "success")
+
+    def test_review_pull_request_adopts_signal_check_run(self) -> None:
+        agent_manager = FakeAgentManager(findings=[])
+        updated_checks: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "review_check_run": {
+                            "id": 777,
+                            "name": "Gestalt Review",
+                            "status": "in_progress",
+                            "head_sha": "abc123",
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+            updated_checks.append((request, subject))
+            return {
+                "id": request.check_run_id,
+                "name": "Gestalt Review",
+                "status": "completed",
+                "conclusion": request.conclusion,
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "draft": False,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+ok = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_check_run",
+                side_effect=AssertionError("signal check run should be adopted"),
+            ),
+            mock.patch(
+                "internals.review.update_check_run", side_effect=fake_update_check
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["checkRun"]["id"], 777)
+        self.assertEqual(data["checkRun"]["conclusion"], "success")
+        self.assertEqual(updated_checks[0][0].check_run_id, 777)
+
+    def test_review_pull_request_marks_signal_check_failed_when_pull_fetch_fails(
+        self,
+    ) -> None:
+        updated_checks: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "review_check_run": {
+                            "id": 777,
+                            "name": "Gestalt Review",
+                            "status": "in_progress",
+                            "head_sha": "abc123",
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+            updated_checks.append((request, subject))
+            return {
+                "id": request.check_run_id,
+                "name": "Gestalt Review",
+                "status": "completed",
+                "conclusion": request.conclusion,
+            }
+
+        with (
+            mock.patch(
+                "internals.review.get_pull_request",
+                side_effect=GitHubAPIError(502, "GitHub unavailable"),
+            ),
+            mock.patch(
+                "internals.review.update_check_run", side_effect=fake_update_check
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
+                request,
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, Any]], result)
+        self.assertEqual(response.status, 502)
+        self.assertEqual(updated_checks[0][0].check_run_id, 777)
+        self.assertEqual(updated_checks[0][0].conclusion, "failure")
 
     def test_review_pull_request_resolves_stale_marked_bot_thread(self) -> None:
         agent_manager = FakeAgentManager(
@@ -4616,6 +5384,81 @@ class GitHubProviderTests(unittest.TestCase):
             json_format.MessageToDict(request.signal.payload),
         )
 
+    def _configure_builtin_review_policy(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookPolicies": [
+                    {
+                        "id": "pr-review",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["synchronize"],
+                        },
+                        "workflow": {
+                            "target": {
+                                "plugin": {
+                                    "plugin": "github",
+                                    "operation": "reviewPullRequest",
+                                }
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+    def _review_pull_request_payload(self) -> dict[str, Any]:
+        return {
+            "action": "synchronize",
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "pull_request": {
+                "number": 7,
+                "title": "Fix widgets",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            },
+            "headers": {
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "delivery-pr-review",
+            },
+            "sender": {"login": "octocat"},
+        }
+
+    def _manual_review_comment_payload(self) -> dict[str, Any]:
+        return {
+            "action": "created",
+            "installation": {"id": 99},
+            "repository": {
+                "full_name": "acme/widgets",
+                "name": "widgets",
+                "owner": {"login": "acme"},
+            },
+            "issue": {
+                "number": 7,
+                "title": "Fix widgets",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/issues/7",
+                "pull_request": {"html_url": "https://github.com/acme/widgets/pull/7"},
+            },
+            "comment": {"id": 10, "body": "gestalt review"},
+            "headers": {
+                "X-GitHub-Event": "issue_comment",
+                "X-GitHub-Delivery": "delivery-manual-review",
+            },
+            "sender": {"login": "octocat"},
+        }
+
     def _action_preferences_config(
         self,
         *,
@@ -5127,7 +5970,9 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertEqual(auth_header(request), "")
                 return FakeHTTPResponse({"id": 12345678, "login": "example-app[bot]"})
             if "/access_tokens" in path:
-                self.fail(f"user-auth operation must not mint installation token {path}")
+                self.fail(
+                    f"user-auth operation must not mint installation token {path}"
+                )
             if path == "/repos/acme/widgets/git/ref/heads/feature":
                 self.assertEqual(auth_header(request), "Bearer user-token")
                 raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
@@ -5248,9 +6093,13 @@ class GitHubProviderTests(unittest.TestCase):
                     }
                 )
             if path == "/app":
-                self.fail("bot identity should not be loaded when bot coauthor is disabled")
+                self.fail(
+                    "bot identity should not be loaded when bot coauthor is disabled"
+                )
             if "/access_tokens" in path:
-                self.fail(f"user-auth operation must not mint installation token {path}")
+                self.fail(
+                    f"user-auth operation must not mint installation token {path}"
+                )
             if path == "/repos/acme/widgets/git/ref/heads/feature":
                 raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
             if path == "/repos/acme/widgets/git/ref/heads/main":
@@ -7054,7 +7903,9 @@ class GitHubProviderTests(unittest.TestCase):
             request: urllib.request.Request, timeout: float = 30
         ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
-            calls.append((request.get_method(), request_path(request), auth_header(request)))
+            calls.append(
+                (request.get_method(), request_path(request), auth_header(request))
+            )
             if request_path(request) == "/repos/acme/widgets/installation":
                 self.assertEqual(request.get_method(), "GET")
                 self.assertEqual(auth_header(request), "Bearer app-jwt")
@@ -7064,7 +7915,9 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertEqual(auth_header(request), "Bearer app-jwt")
                 self.assertEqual(request_json(request)["repositories"], ["widgets"])
                 return FakeHTTPResponse({"token": "install-token"})
-            self.fail(f"unexpected request {request.get_method()} {request_path(request)}")
+            self.fail(
+                f"unexpected request {request.get_method()} {request_path(request)}"
+            )
 
         with (
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
@@ -7341,7 +8194,9 @@ class GitHubProviderTests(unittest.TestCase):
             calls.append(request_path(request))
             if request_path(request) == "/repos/acme/widgets/installation":
                 raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
-            self.fail(f"unexpected request {request.get_method()} {request_path(request)}")
+            self.fail(
+                f"unexpected request {request.get_method()} {request_path(request)}"
+            )
 
         with (
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
@@ -7376,7 +8231,9 @@ class GitHubProviderTests(unittest.TestCase):
             calls.append(request_path(request))
             if request_path(request) == "/repos/acme/widgets/installation":
                 return FakeHTTPResponse({"id": 99})
-            self.fail(f"unexpected request {request.get_method()} {request_path(request)}")
+            self.fail(
+                f"unexpected request {request.get_method()} {request_path(request)}"
+            )
 
         with (
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
