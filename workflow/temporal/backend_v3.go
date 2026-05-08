@@ -45,47 +45,6 @@ func (b *temporalBackend) queryOrGetV3Run(ctx context.Context, handle *v3RunHand
 	return nil, status.Errorf(codes.NotFound, "workflow run %q not found; workflow history may have expired and projection is missing", encodeV3RunHandle(*handle))
 }
 
-func (b *temporalBackend) listRunsFromTemporalIndex(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
-	var runs []*proto.BoundWorkflowRun
-	err := b.updateAllIndexes(ctx, updateListRuns, func() any {
-		return &proto.ListWorkflowProviderRunsResponse{}
-	}, func(out any) error {
-		resp, ok := out.(*proto.ListWorkflowProviderRunsResponse)
-		if !ok || resp == nil {
-			return nil
-		}
-		for _, run := range resp.GetRuns() {
-			runs = append(runs, cloneRun(run))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return runs, nil
-}
-
-func (b *temporalBackend) putRunTemporalIndex(ctx context.Context, run *proto.BoundWorkflowRun) error {
-	run = cloneRun(run)
-	if run == nil || strings.TrimSpace(run.GetId()) == "" {
-		return nil
-	}
-	shard := shardFor(run.GetId(), b.cfg.IndexShardCount)
-	var out proto.BoundWorkflowRun
-	if err := b.updateIndexShard(ctx, shard, updatePutRun, []any{cloneRun(run)}, &out); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (b *temporalBackend) ensureTemporalRunIndexes(ctx context.Context) error {
-	return b.updateAllIndexes(ctx, updateListRuns, func() any {
-		return &proto.ListWorkflowProviderRunsResponse{}
-	}, func(any) error {
-		return nil
-	})
-}
-
 func (b *temporalBackend) deleteDeprecatedTemporalIndexState(ctx context.Context) error {
 	for shard := 0; shard < b.cfg.IndexShardCount; shard++ {
 		workflowID := indexWorkflowID(b.cfg.ScopeID, shard)

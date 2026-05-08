@@ -101,8 +101,8 @@ update; already-polled tasks cannot be recalled by the provider.
 - public run IDs are opaque V3 handles that identify the run workflow; legacy
   keyed runs may also include the owning lane workflow, but signal and cancel
   operations route directly to the run workflow
-- legacy V3 run state is still projected to Temporal run-index workflows for
-  compatibility during the migration window
+- `ListRuns` reads IndexedDB run projections only; legacy Temporal run-index
+  workflows remain registered for old histories but no longer serve run listing
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
   ownership metadata; the legacy Temporal owner-ledger path no longer receives
@@ -120,4 +120,4 @@ The large remaining deletion point is after the migration window:
 - delete Temporal owner-ledger workflows after old signal and unkeyed-start
   ledger entries have expired
 - delete V3 run/index workflows after no public run handles require Temporal V3
-  history fallback or legacy run-index listing
+  history fallback and old histories no longer need replay
