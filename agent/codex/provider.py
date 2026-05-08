@@ -3,14 +3,10 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from datetime import UTC, datetime
 from typing import Any, cast
 
 import gestalt
 import grpc
-from google.protobuf import json_format
-from google.protobuf import struct_pb2 as _struct_pb2
-from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
 from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError
 from internals.codex_runner import CodexMCPRunner
@@ -24,8 +20,6 @@ from internals.session_start import (
 from internals.store import StoreConflictError, StoredSession, StoredTurn, StoredTurnEvent
 from internals.store import InMemoryRunStore
 
-struct_pb2: Any = cast(Any, _struct_pb2)
-timestamp_pb2: Any = cast(Any, _timestamp_pb2)
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +71,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             model = config.resolve_model(str(request.model or ""))
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        metadata = _struct_to_dict(request.metadata)
+        metadata = gestalt.struct_to_dict(request.metadata)
         try:
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
@@ -150,7 +144,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def UpdateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        metadata = _struct_to_dict(request.metadata) if request.HasField("metadata") else None
+        metadata = gestalt.struct_to_dict(request.metadata) if gestalt.has_field(request, "metadata") else None
         try:
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
@@ -181,7 +175,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         except ValueError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
-        messages = prepend_session_start_context(_messages_to_dicts(request.messages), session.metadata)
+        messages = prepend_session_start_context(gestalt.agent_messages_to_dicts(request.messages), session.metadata)
         skill_roots = session_start_metadata_paths(
             session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
         )
@@ -366,20 +360,13 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         state=session.state,
     )
     if session.metadata and not summary_only:
-        proto.metadata.CopyFrom(_dict_to_struct(session.metadata))
+        proto.metadata.CopyFrom(gestalt.struct_from_dict(session.metadata))
     if session.created_by:
-        proto.created_by.CopyFrom(
-            gestalt.AgentActor(
-                subject_id=session.created_by.get("subject_id", ""),
-                subject_kind=session.created_by.get("subject_kind", ""),
-                display_name=session.created_by.get("display_name", ""),
-                auth_source=session.created_by.get("auth_source", ""),
-            )
-        )
-    proto.created_at.CopyFrom(_datetime_to_timestamp(session.created_at))
-    proto.updated_at.CopyFrom(_datetime_to_timestamp(session.updated_at))
+        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(session.created_by))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(session.created_at))
+    proto.updated_at.CopyFrom(gestalt.timestamp_from_datetime(session.updated_at))
     if session.last_turn_at is not None:
-        proto.last_turn_at.CopyFrom(_datetime_to_timestamp(session.last_turn_at))
+        proto.last_turn_at.CopyFrom(gestalt.timestamp_from_datetime(session.last_turn_at))
     return proto
 
 
@@ -395,21 +382,14 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
         execution_ref=turn.execution_ref,
     )
     if not summary_only:
-        proto.messages.extend(_messages_from_dicts(turn.messages))
+        proto.messages.extend(gestalt.agent_messages_from_dicts(turn.messages))
     if turn.created_by:
-        proto.created_by.CopyFrom(
-            gestalt.AgentActor(
-                subject_id=turn.created_by.get("subject_id", ""),
-                subject_kind=turn.created_by.get("subject_kind", ""),
-                display_name=turn.created_by.get("display_name", ""),
-                auth_source=turn.created_by.get("auth_source", ""),
-            )
-        )
-    proto.created_at.CopyFrom(_datetime_to_timestamp(turn.created_at))
+        proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(turn.created_by))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(turn.created_at))
     if turn.started_at is not None:
-        proto.started_at.CopyFrom(_datetime_to_timestamp(turn.started_at))
+        proto.started_at.CopyFrom(gestalt.timestamp_from_datetime(turn.started_at))
     if turn.completed_at is not None:
-        proto.completed_at.CopyFrom(_datetime_to_timestamp(turn.completed_at))
+        proto.completed_at.CopyFrom(gestalt.timestamp_from_datetime(turn.completed_at))
     return proto
 
 
@@ -423,8 +403,8 @@ def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
         visibility=event.visibility,
     )
     if event.data:
-        proto.data.CopyFrom(_dict_to_struct(event.data))
-    proto.created_at.CopyFrom(_datetime_to_timestamp(event.created_at))
+        proto.data.CopyFrom(gestalt.struct_from_dict(event.data))
+    proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(event.created_at))
     return proto
 
 
@@ -455,9 +435,9 @@ def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -
         context.abort(
             grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
         )
-    if _struct_to_dict(getattr(request, "response_schema", None)):
+    if gestalt.struct_to_dict(getattr(request, "response_schema", None)):
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "response_schema is not supported by agent/codex")
-    if _struct_to_dict(getattr(request, "model_options", None)):
+    if gestalt.struct_to_dict(getattr(request, "model_options", None)):
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "model_options are not supported by agent/codex")
     _validate_tool_refs(list(getattr(request, "tool_refs", [])), context)
 
@@ -466,11 +446,12 @@ def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> 
     if not tool_refs:
         context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_refs are required for mcp_catalog turns")
     for index, ref in enumerate(tool_refs, start=1):
-        plugin = str(getattr(ref, "plugin", "") or "").strip()
-        system = str(getattr(ref, "system", "") or "").strip()
-        operation = str(getattr(ref, "operation", "") or "").strip()
-        connection = str(getattr(ref, "connection", "") or "").strip()
-        instance = str(getattr(ref, "instance", "") or "").strip()
+        tool_ref = gestalt.agent_tool_ref_to_dict(ref)
+        plugin = _text(tool_ref.get("plugin"))
+        system = _text(tool_ref.get("system"))
+        operation = _text(tool_ref.get("operation"))
+        connection = _text(tool_ref.get("connection"))
+        instance = _text(tool_ref.get("instance"))
         if not operation:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].operation is required")
         if "*" in {plugin, system, operation, connection, instance}:
@@ -483,88 +464,12 @@ def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> 
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported")
 
 
-def _messages_to_dicts(messages: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for message in messages:
-        item: dict[str, Any] = {"role": str(message.role or ""), "text": str(message.text or "")}
-        parts: list[dict[str, Any]] = []
-        for part in message.parts:
-            part_item: dict[str, Any] = {"type": int(part.type or 0)}
-            if part.text:
-                part_item["text"] = part.text
-            if part.HasField("json"):
-                part_item["json"] = json_format.MessageToDict(part.json)
-            if part.HasField("tool_call"):
-                part_item["tool_call"] = {
-                    "id": part.tool_call.id,
-                    "tool_id": part.tool_call.tool_id,
-                    "arguments": json_format.MessageToDict(part.tool_call.arguments),
-                }
-            if part.HasField("tool_result"):
-                part_item["tool_result"] = {
-                    "tool_call_id": part.tool_result.tool_call_id,
-                    "status": part.tool_result.status,
-                    "content": part.tool_result.content,
-                    "output": json_format.MessageToDict(part.tool_result.output),
-                }
-            if part.HasField("image_ref"):
-                part_item["image_ref"] = {"uri": part.image_ref.uri, "mime_type": part.image_ref.mime_type}
-            parts.append(part_item)
-        if parts:
-            item["parts"] = parts
-        out.append(item)
-    return out
-
-
-def _messages_from_dicts(messages: list[dict[str, Any]]) -> list[Any]:
-    out = []
-    for message in messages:
-        proto = gestalt.AgentMessage(role=str(message.get("role") or ""), text=str(message.get("text") or ""))
-        for part in message.get("parts") or []:
-            if not isinstance(part, dict):
-                continue
-            part_proto = gestalt.AgentMessagePart(type=int(part.get("type") or 0), text=str(part.get("text") or ""))
-            if isinstance(part.get("json"), dict):
-                part_proto.json.CopyFrom(_dict_to_struct(part["json"]))
-            if isinstance(part.get("tool_call"), dict):
-                call = part["tool_call"]
-                part_proto.tool_call.id = str(call.get("id") or "")
-                part_proto.tool_call.tool_id = str(call.get("tool_id") or "")
-                if isinstance(call.get("arguments"), dict):
-                    part_proto.tool_call.arguments.CopyFrom(_dict_to_struct(call["arguments"]))
-            if isinstance(part.get("tool_result"), dict):
-                result = part["tool_result"]
-                part_proto.tool_result.tool_call_id = str(result.get("tool_call_id") or "")
-                part_proto.tool_result.status = int(result.get("status") or 0)
-                part_proto.tool_result.content = str(result.get("content") or "")
-                if isinstance(result.get("output"), dict):
-                    part_proto.tool_result.output.CopyFrom(_dict_to_struct(result["output"]))
-            if isinstance(part.get("image_ref"), dict):
-                image = part["image_ref"]
-                part_proto.image_ref.uri = str(image.get("uri") or "")
-                part_proto.image_ref.mime_type = str(image.get("mime_type") or "")
-            proto.parts.append(part_proto)
-        out.append(proto)
-    return out
-
-
-def _dict_to_struct(value: dict[str, Any]) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(value)
-    return struct
-
-
-def _struct_to_dict(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    return json_format.MessageToDict(value)
-
-
 def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
     if value is None:
         return None
-    root = str(getattr(value, "root", "") or "").strip()
-    cwd = str(getattr(value, "cwd", "") or "").strip()
+    workspace = gestalt.prepared_workspace_to_dict(value)
+    root = _text(workspace.get("root"))
+    cwd = _text(workspace.get("cwd"))
     if not root and not cwd:
         return None
     if not root or not cwd:
@@ -575,7 +480,7 @@ def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
 def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
     if not value:
         return ""
-    return str(value.get("cwd") or "").strip()
+    return _text(value.get("cwd"))
 
 
 def _optional_field(message: Any, field_name: str) -> Any | None:
@@ -583,10 +488,7 @@ def _optional_field(message: Any, field_name: str) -> Any | None:
         return None
     has_field = getattr(message, "HasField", None)
     if callable(has_field):
-        try:
-            if not has_field(field_name):
-                return None
-        except ValueError:
+        if not gestalt.has_field(message, field_name):
             return None
     return getattr(message, field_name)
 
@@ -603,23 +505,16 @@ def _existing_session_for_create(
 
 
 def _actor_to_dict(actor: Any) -> dict[str, str]:
-    return {
-        "subject_id": str(getattr(actor, "subject_id", "") or ""),
-        "subject_kind": str(getattr(actor, "subject_kind", "") or ""),
-        "display_name": str(getattr(actor, "display_name", "") or ""),
-        "auth_source": str(getattr(actor, "auth_source", "") or ""),
-    }
+    return cast(dict[str, str], gestalt.agent_actor_to_dict(actor))
 
 
 def _subject_id(request: Any) -> str:
-    subject = getattr(request, "subject", None)
-    return str(getattr(subject, "subject_id", "") or "").strip()
+    subject = gestalt.agent_subject_context_to_dict(getattr(request, "subject", None))
+    return _text(subject.get("subject_id"))
 
 
-def _datetime_to_timestamp(value: datetime) -> Any:
-    stamp = timestamp_pb2.Timestamp()
-    stamp.FromDatetime(value.astimezone(UTC))
-    return stamp
+def _text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 provider = CodexMCPAgentProvider()

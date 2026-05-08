@@ -7,7 +7,6 @@ import socket
 import sys
 import tempfile
 import time
-import types as py_types
 import unittest
 from concurrent import futures
 from typing import Any, cast
@@ -308,8 +307,14 @@ class CodexProviderTests(unittest.TestCase):
         )
 
     def test_prepared_workspace_requires_root_and_cwd(self) -> None:
-        with self.assertRaisesRegex(ValueError, "root and cwd are required"):
-            provider_module._prepared_workspace_to_dict(py_types.SimpleNamespace(root="/workspace", cwd=""))
+        _, provider_client = _configure_provider()
+        request = agent_pb2.CreateAgentProviderSessionRequest(session_id="bad-workspace")
+        request.prepared_workspace.root = "/workspace"
+        with self.assertRaises(grpc.RpcError) as raised:
+            provider_client.CreateSession(request)
+        error = cast(Any, raised.exception)
+        self.assertEqual(error.code(), grpc.StatusCode.INVALID_ARGUMENT)
+        self.assertIn("root and cwd are required", error.details())
 
     def test_provider_materializes_session_start_skills_for_codex_home(self) -> None:
         _, provider_client = _configure_provider()
