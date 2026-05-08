@@ -45,31 +45,6 @@ func (b *temporalBackend) queryOrGetV3Run(ctx context.Context, handle *v3RunHand
 	return nil, status.Errorf(codes.NotFound, "workflow run %q not found; workflow history may have expired and projection is missing", encodeV3RunHandle(*handle))
 }
 
-func (b *temporalBackend) deleteDeprecatedTemporalIndexState(ctx context.Context) error {
-	for shard := 0; shard < b.cfg.IndexShardCount; shard++ {
-		workflowID := indexWorkflowID(b.cfg.ScopeID, shard)
-		if _, err := b.client.DescribeWorkflowExecution(ctx, workflowID, ""); err != nil {
-			if isNotFoundLike(err) {
-				continue
-			}
-			return status.Errorf(codes.Internal, "describe temporal index shard %d: %v", shard, err)
-		}
-		var removed int
-		if err := b.updateIndexShard(ctx, shard, updatePruneRuns, []any{b.cfg.IndexShardCount}, &removed); err != nil {
-			if terminateErr := b.client.TerminateWorkflow(ctx, workflowID, "", "delete deprecated temporal index state"); terminateErr != nil && !isNotFoundLike(terminateErr) {
-				return status.Errorf(codes.Internal, "terminate deprecated temporal index shard %d after cleanup failure %v: %v", shard, err, terminateErr)
-			}
-			continue
-		}
-		if err := b.compactIndexShard(ctx, shard); err != nil {
-			if terminateErr := b.client.TerminateWorkflow(ctx, workflowID, "", "delete deprecated temporal index state"); terminateErr != nil && !isNotFoundLike(terminateErr) {
-				return status.Errorf(codes.Internal, "terminate deprecated temporal index shard %d after compaction failure %v: %v", shard, err, terminateErr)
-			}
-		}
-	}
-	return nil
-}
-
 func (b *temporalBackend) completeLedger(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse, run *proto.BoundWorkflowRun) error {
 	key = strings.TrimSpace(key)
 	if key == "" {

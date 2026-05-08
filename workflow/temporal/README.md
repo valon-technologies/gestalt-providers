@@ -54,7 +54,7 @@ processes may not inherit every environment variable from the parent runtime, so
 config interpolation into `buildID` is usually the safer deployment interface.
 
 `promotion.mode: current` updates the Temporal worker deployment current version
-before the provider runs startup workflow maintenance. This is the mode required
+before the provider finishes startup. This is the mode required
 when a deploy contains incompatible workflow or activity behavior, such as new
 provider operations that old workers cannot execute. `allowReplaceCurrent` must
 be set when replacing an existing current version. `promotion.mode: ramping`
@@ -102,7 +102,8 @@ update; already-polled tasks cannot be recalled by the provider.
   keyed runs may also include the owning lane workflow, but signal and cancel
   operations route directly to the run workflow
 - `ListRuns` reads IndexedDB run projections only; legacy Temporal run-index
-  workflows remain registered for old histories but no longer serve run listing
+  workflows remain registered for old histories but are no longer queried,
+  compacted, updated, or cleaned up by provider startup
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
   ownership metadata; the legacy Temporal owner-ledger path no longer receives

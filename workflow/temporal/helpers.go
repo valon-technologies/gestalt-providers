@@ -195,10 +195,6 @@ func indexWorkflowID(scopeID string, shard int) string {
 	return fmt.Sprintf("gestalt/%s/index/%04d", scopeHash(scopeID), shard)
 }
 
-func metadataWorkflowID(scopeID string) string {
-	return "gestalt/" + scopeHash(scopeID) + "/metadata"
-}
-
 func shardFor(key string, count int) int {
 	if count <= 1 {
 		return 0

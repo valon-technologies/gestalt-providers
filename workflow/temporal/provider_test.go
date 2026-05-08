@@ -804,16 +804,11 @@ func TestTemporalBackendStartKeepsLegacyWorkerUnversionedWhenConfigOmitted(t *te
 		}
 		return fw
 	}
-	backend.startupCleanup = func(context.Context) error {
-		order = append(order, "cleanup")
-		return nil
-	}
-
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if got := strings.Join(order, ","); got != "start,cleanup" {
-		t.Fatalf("startup order = %s, want start,cleanup", got)
+	if got := strings.Join(order, ","); got != "start" {
+		t.Fatalf("startup order = %s, want start", got)
 	}
 	if len(tc.deploymentClient.handle.describeCalls) != 0 || len(tc.deploymentClient.handle.setCurrentCalls) != 0 {
 		t.Fatalf("legacy config touched worker deployments: %#v", tc.deploymentClient.handle)
@@ -823,7 +818,33 @@ func TestTemporalBackendStartKeepsLegacyWorkerUnversionedWhenConfigOmitted(t *te
 	}
 }
 
-func TestTemporalBackendStartPromotesCurrentBeforeStartupCleanup(t *testing.T) {
+func TestTemporalBackendStartSkipsLegacyIndexCleanupByDefault(t *testing.T) {
+	order := []string{}
+	fw := &fakeTemporalWorker{order: &order}
+	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             8,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+	}, tc, nil, nil)
+	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
+
+	if err := backend.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got := strings.Join(order, ","); got != "start" {
+		t.Fatalf("startup order = %s, want start", got)
+	}
+	if len(tc.updates) != 0 || len(tc.queries) != 0 {
+		t.Fatalf("startup touched legacy temporal index queries=%#v updates=%#v", tc.queries, tc.updates)
+	}
+}
+
+func TestTemporalBackendStartPromotesCurrentAfterWorkerStart(t *testing.T) {
 	t.Setenv("TEMPORAL_BUILD_ID", "revision-1")
 	raw := baseTemporalConfigRaw()
 	raw["versioning"] = map[string]any{
@@ -863,16 +884,11 @@ func TestTemporalBackendStartPromotesCurrentBeforeStartupCleanup(t *testing.T) {
 		}
 		return fw
 	}
-	backend.startupCleanup = func(context.Context) error {
-		order = append(order, "cleanup")
-		return nil
-	}
-
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if got := strings.Join(order, ","); got != "start,describe,set-current,cleanup" {
-		t.Fatalf("startup order = %s, want start,describe,set-current,cleanup", got)
+	if got := strings.Join(order, ","); got != "start,describe,set-current" {
+		t.Fatalf("startup order = %s, want start,describe,set-current", got)
 	}
 	if len(handle.setCurrentCalls) != 1 {
 		t.Fatalf("SetCurrent calls = %d, want 1", len(handle.setCurrentCalls))
@@ -902,7 +918,7 @@ func TestTemporalBackendStartRampingPromotion(t *testing.T) {
 		},
 	}
 	handle := &fakeWorkerDeploymentHandle{describeResponse: client.WorkerDeploymentDescribeResponse{}}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
 
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -937,10 +953,7 @@ func TestTemporalBackendStartPromotionFailureStopsWorker(t *testing.T) {
 		describeResponse: client.WorkerDeploymentDescribeResponse{},
 		setCurrentErrs:   []error{errors.New("permission denied")},
 	}
-	backend := newTestTemporalBackendForStart(cfg, handle, fw, func(context.Context) error {
-		t.Fatalf("startup cleanup should not run after promotion failure")
-		return nil
-	})
+	backend := newTestTemporalBackendForStart(cfg, handle, fw)
 
 	err := backend.Start(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "permission denied") {
@@ -971,7 +984,7 @@ func TestTemporalBackendStartRetriesPromotionConflict(t *testing.T) {
 		describeResponse: client.WorkerDeploymentDescribeResponse{},
 		setCurrentErrs:   []error{serviceerror.NewFailedPrecondition("conflict token mismatch"), nil},
 	}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
 
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -998,7 +1011,7 @@ func TestTemporalBackendStartRetriesPromotionDescribeNotFound(t *testing.T) {
 		describeResponse: client.WorkerDeploymentDescribeResponse{},
 		describeErrs:     []error{serviceerror.NewNotFound("worker deployment not found"), nil},
 	}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
 
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -1030,7 +1043,7 @@ func TestTemporalBackendStartTreatsRampingTargetAlreadyCurrentAsSuccess(t *testi
 			}},
 		},
 	}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{}, nil)
+	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
 
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -1061,7 +1074,7 @@ func TestTemporalBackendStartDoesNotReplaceDifferentCurrentByDefault(t *testing.
 			}},
 		},
 	}
-	backend := newTestTemporalBackendForStart(cfg, handle, fw, nil)
+	backend := newTestTemporalBackendForStart(cfg, handle, fw)
 
 	err := backend.Start(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "allowReplaceCurrent") {
@@ -3235,7 +3248,7 @@ func withoutMapKey(in map[string]any, key string) map[string]any {
 	return out
 }
 
-func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHandle, fw *fakeTemporalWorker, cleanup func(context.Context) error) *temporalBackend {
+func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHandle, fw *fakeTemporalWorker) *temporalBackend {
 	if handle == nil {
 		handle = &fakeWorkerDeploymentHandle{}
 	}
@@ -3250,10 +3263,6 @@ func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHand
 		nil,
 	)
 	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
-	if cleanup == nil {
-		cleanup = func(context.Context) error { return nil }
-	}
-	backend.startupCleanup = cleanup
 	return backend
 }
 

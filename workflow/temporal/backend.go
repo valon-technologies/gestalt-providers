@@ -47,8 +47,7 @@ type temporalBackend struct {
 	host         workflowHost
 	state        *workflowStateStore
 
-	newWorker      temporalWorkerFactory
-	startupCleanup func(context.Context) error
+	newWorker temporalWorkerFactory
 
 	mu      sync.Mutex
 	started bool
@@ -94,20 +93,9 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 		w.Stop()
 		return err
 	}
-	if err := b.runStartupCleanup(ctx); err != nil {
-		w.Stop()
-		return err
-	}
 	b.worker = w
 	b.started = true
 	return nil
-}
-
-func (b *temporalBackend) runStartupCleanup(ctx context.Context) error {
-	if b.startupCleanup != nil {
-		return b.startupCleanup(ctx)
-	}
-	return b.deleteDeprecatedTemporalIndexState(ctx)
 }
 
 func (b *temporalBackend) workerOptions() worker.Options {
