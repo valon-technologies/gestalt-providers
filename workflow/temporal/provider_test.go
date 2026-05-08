@@ -2201,6 +2201,37 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	}
 }
 
+func TestSignalRunRejectsSignalIdempotencyWithoutIndexedDB(t *testing.T) {
+	ctx := context.Background()
+	run := workflowKeyClaimRun("missing-state", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	tc := &recordingTemporalClient{}
+	backend := newTemporalBackend("temporal", config{
+		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
+		IndexShardCount:             4,
+		WorkflowRunTimeout:          time.Minute,
+		WorkflowTaskTimeout:         time.Second,
+		ActivityStartToCloseTimeout: time.Minute,
+		ScheduleCatchupWindow:       time.Minute,
+		IdempotencyRetention:        time.Hour,
+	}, tc, nil, nil)
+
+	_, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+		RunId:  run.GetId(),
+		Signal: &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("SignalRun error = %v, want FailedPrecondition", err)
+	}
+	key := ownerIdempotencyLedgerKey("slack", "signal-1")
+	if tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerReserve) || tc.hasUpdate(backend.ownerLedgerWorkflowID(key), updateLedgerComplete) {
+		t.Fatalf("legacy ledger updates = %#v, want none", tc.updates)
+	}
+	if len(tc.updates) != 0 {
+		t.Fatalf("updates = %#v, want no temporal signal after idempotency failure", tc.updates)
+	}
+}
+
 func TestSignalRunReturnsCompletedLegacySignalIdempotency(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
