@@ -1494,6 +1494,263 @@ func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
 	}
 }
 
+func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	workflowKey := "slack:T:C:1778164397.804829"
+	now := time.Unix(200, 0).UTC()
+	run := workflowKeyClaimRun("first", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, now)
+	if err != nil {
+		t.Fatalf("claimWorkflowKeyRun: %v", err)
+	}
+	if !claimed || owner.GetId() != run.GetId() {
+		t.Fatalf("claim owner=%q claimed=%v, want caller", owner.GetId(), claimed)
+	}
+	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
+	if err != nil || !found || got.GetId() != run.GetId() {
+		t.Fatalf("getWorkflowKeyRun found=%v run=%#v err=%v, want first run", found, got, err)
+	}
+	record, err := state.workflowKeys.Get(ctx, state.workflowKeyID(workflowKey))
+	if err != nil {
+		t.Fatalf("load workflow key record: %v", err)
+	}
+	handle, err := decodeV3RunHandle(run.GetId())
+	if err != nil {
+		t.Fatalf("decode run handle: %v", err)
+	}
+	if recordString(record, "id") != state.workflowKeyID(workflowKey) ||
+		recordString(record, "scope_id") != "scope" ||
+		recordString(record, "workflow_key") != workflowKey ||
+		recordString(record, "owner_key") != "slack" ||
+		recordString(record, "run_id") != run.GetId() ||
+		recordString(record, "temporal_workflow_id") != handle.RunWorkflowID ||
+		recordString(record, "temporal_run_id") != handle.RunTemporalRunID ||
+		recordInt64(record, "status") != int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING) {
+		t.Fatalf("workflow key record = %#v, want routing metadata for first run", record)
+	}
+	if createdAt, updatedAt := recordTime(record, "created_at"), recordTime(record, "updated_at"); createdAt == nil || updatedAt == nil || !createdAt.Equal(now) || !updatedAt.Equal(now) {
+		t.Fatalf("record timestamps created=%v updated=%v, want %v", createdAt, updatedAt, now)
+	}
+
+	running := cloneRun(run)
+	running.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, running, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claimWorkflowKeyRun(same run): %v", err)
+	}
+	if !claimed || owner.GetId() != run.GetId() || owner.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+		t.Fatalf("same-run claim owner=%#v claimed=%v, want running caller", owner, claimed)
+	}
+	other := workflowKeyClaimRun("other", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, other, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("claimWorkflowKeyRun(conflict): %v", err)
+	}
+	if claimed || owner.GetId() != run.GetId() {
+		t.Fatalf("conflict owner=%q claimed=%v, want existing run", owner.GetId(), claimed)
+	}
+
+	cleared, err := state.clearWorkflowKeyRun(ctx, workflowKey, other.GetId())
+	if err != nil {
+		t.Fatalf("clearWorkflowKeyRun(wrong run): %v", err)
+	}
+	if cleared {
+		t.Fatalf("clearWorkflowKeyRun(wrong run) = true, want false")
+	}
+	cleared, err = state.clearWorkflowKeyRun(ctx, workflowKey, run.GetId())
+	if err != nil {
+		t.Fatalf("clearWorkflowKeyRun: %v", err)
+	}
+	if !cleared {
+		t.Fatalf("clearWorkflowKeyRun = false, want true")
+	}
+	if _, found, err := state.getWorkflowKeyRun(ctx, workflowKey); err != nil || found {
+		t.Fatalf("getWorkflowKeyRun after clear found=%v err=%v, want not found", found, err)
+	}
+}
+
+func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	workflowKey := "thread-terminal"
+	terminal := workflowKeyClaimRun("terminal", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED)
+	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, terminal, time.Unix(100, 0).UTC()); err != nil || !claimed {
+		t.Fatalf("claim terminal claimed=%v err=%v", claimed, err)
+	}
+	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
+	if err != nil || !found || got.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("get terminal found=%v run=%#v err=%v, want terminal owner", found, got, err)
+	}
+	stale := cloneRun(terminal)
+	stale.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, stale, time.Unix(150, 0).UTC())
+	if err != nil {
+		t.Fatalf("claim stale terminal owner: %v", err)
+	}
+	if !claimed || owner.GetId() != terminal.GetId() || owner.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		t.Fatalf("stale terminal owner=%#v claimed=%v, want terminal projection", owner, claimed)
+	}
+	replacement := workflowKeyClaimRun("replacement", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, replacement, time.Unix(200, 0).UTC())
+	if err != nil {
+		t.Fatalf("claim replacement: %v", err)
+	}
+	if !claimed || owner.GetId() != replacement.GetId() {
+		t.Fatalf("replacement owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
+	}
+
+	missingKey := "thread-missing"
+	missingRun := workflowKeyClaimRun("missing", missingKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	missingHandle, err := decodeV3RunHandle(missingRun.GetId())
+	if err != nil {
+		t.Fatalf("decode missing run handle: %v", err)
+	}
+	if err := state.workflowKeys.Put(ctx, state.workflowKeyRecord(workflowKeyRecord{
+		ID:                 state.workflowKeyID(missingKey),
+		WorkflowKey:        missingKey,
+		OwnerKey:           "slack",
+		RunID:              missingRun.GetId(),
+		TemporalWorkflowID: missingHandle.RunWorkflowID,
+		TemporalRunID:      missingHandle.RunTemporalRunID,
+		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		CreatedAt:          time.Unix(300, 0).UTC(),
+		UpdatedAt:          time.Unix(300, 0).UTC(),
+	})); err != nil {
+		t.Fatalf("seed missing workflow key: %v", err)
+	}
+	missingReplacement := workflowKeyClaimRun("missing-replacement", missingKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, missingKey, missingReplacement, time.Unix(400, 0).UTC())
+	if err != nil {
+		t.Fatalf("claim missing replacement: %v", err)
+	}
+	if !claimed || owner.GetId() != missingReplacement.GetId() {
+		t.Fatalf("missing replacement owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
+	}
+}
+
+func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	scopeA, err := openWorkflowStateStore(ctx, "", "scope-a")
+	if err != nil {
+		t.Fatalf("open scope-a: %v", err)
+	}
+	t.Cleanup(func() { _ = scopeA.Close() })
+	scopeB, err := openWorkflowStateStore(ctx, "", "scope-b")
+	if err != nil {
+		t.Fatalf("open scope-b: %v", err)
+	}
+	t.Cleanup(func() { _ = scopeB.Close() })
+
+	valid := workflowKeyClaimRun("valid", "thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	for name, tc := range map[string]struct {
+		workflowKey string
+		run         *proto.BoundWorkflowRun
+	}{
+		"empty workflow key": {workflowKey: "", run: valid},
+		"nil run":            {workflowKey: "thread", run: nil},
+		"empty run id":       {workflowKey: "thread", run: &proto.BoundWorkflowRun{}},
+		"malformed run id":   {workflowKey: "thread", run: &proto.BoundWorkflowRun{Id: "not-a-handle", WorkflowKey: "thread", Target: pluginTarget("slack", "postMessage")}},
+		"missing temporal run id": {
+			workflowKey: "thread",
+			run: &proto.BoundWorkflowRun{
+				Id:          encodeV3RunHandle(v3RunHandle{Kind: runHandleKindV3, RunWorkflowID: "workflow-without-run-id", WorkflowKey: "thread", OwnerKey: "slack"}),
+				WorkflowKey: "thread",
+				Target:      pluginTarget("slack", "postMessage"),
+			},
+		},
+	} {
+		if _, _, err := scopeA.claimWorkflowKeyRun(ctx, tc.workflowKey, tc.run, time.Unix(100, 0).UTC()); err == nil {
+			t.Fatalf("%s claim succeeded, want error", name)
+		}
+	}
+
+	runA := workflowKeyClaimRun("scope-a", "shared-thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	runB := workflowKeyClaimRun("scope-b", "shared-thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	if _, claimed, err := scopeA.claimWorkflowKeyRun(ctx, "shared-thread", runA, time.Unix(200, 0).UTC()); err != nil || !claimed {
+		t.Fatalf("scopeA claim claimed=%v err=%v", claimed, err)
+	}
+	if _, claimed, err := scopeB.claimWorkflowKeyRun(ctx, "shared-thread", runB, time.Unix(200, 0).UTC()); err != nil || !claimed {
+		t.Fatalf("scopeB claim claimed=%v err=%v", claimed, err)
+	}
+	gotA, found, err := scopeA.getWorkflowKeyRun(ctx, "shared-thread")
+	if err != nil || !found || gotA.GetId() != runA.GetId() {
+		t.Fatalf("scopeA get found=%v run=%#v err=%v, want runA", found, gotA, err)
+	}
+	gotB, found, err := scopeB.getWorkflowKeyRun(ctx, "shared-thread")
+	if err != nil || !found || gotB.GetId() != runB.GetId() {
+		t.Fatalf("scopeB get found=%v run=%#v err=%v, want runB", found, gotB, err)
+	}
+}
+
+func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	workflowKey := "thread-race"
+	runs := []*proto.BoundWorkflowRun{
+		workflowKeyClaimRun("race-a", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
+		workflowKeyClaimRun("race-b", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
+	}
+	type claimResult struct {
+		owner   *proto.BoundWorkflowRun
+		claimed bool
+		err     error
+	}
+	start := make(chan struct{})
+	results := make(chan claimResult, len(runs))
+	for _, run := range runs {
+		run := run
+		go func() {
+			<-start
+			owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, time.Unix(500, 0).UTC())
+			results <- claimResult{owner: owner, claimed: claimed, err: err}
+		}()
+	}
+	close(start)
+
+	claimedCount := 0
+	var winner string
+	for range runs {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("concurrent claim error: %v", result.err)
+		}
+		if result.owner == nil || result.owner.GetId() == "" {
+			t.Fatalf("concurrent claim owner = %#v, want owner", result.owner)
+		}
+		if result.claimed {
+			claimedCount++
+			winner = result.owner.GetId()
+		}
+	}
+	if claimedCount != 1 {
+		t.Fatalf("claimed count = %d, want 1", claimedCount)
+	}
+	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
+	if err != nil || !found || got.GetId() != winner {
+		t.Fatalf("stored owner found=%v run=%#v err=%v, want winner %q", found, got, err, winner)
+	}
+}
+
 func TestStartRunReturnsCompletedLegacyIdempotentRun(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -1967,6 +2224,22 @@ func (h *capturingHost) InvokeOperation(_ context.Context, req *proto.InvokeWork
 }
 
 func (h *capturingHost) Close() error { return nil }
+
+func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunStatus) *proto.BoundWorkflowRun {
+	return &proto.BoundWorkflowRun{
+		Id: encodeV3RunHandle(v3RunHandle{
+			Kind:             runHandleKindV3,
+			RunWorkflowID:    "temporal-workflow-" + strings.TrimSpace(suffix),
+			RunTemporalRunID: "temporal-run-" + strings.TrimSpace(suffix),
+			WorkflowKey:      strings.TrimSpace(workflowKey),
+			OwnerKey:         "slack",
+		}),
+		Status:      status,
+		Target:      pluginTarget("slack", "postMessage"),
+		WorkflowKey: strings.TrimSpace(workflowKey),
+		CreatedAt:   timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+}
 
 type blockingHost struct {
 	mu           sync.Mutex
