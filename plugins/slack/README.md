@@ -217,10 +217,12 @@ route even when it is enabled globally.
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
 declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
-with `SLACK_SIGNING_SECRET`, and resolve the Slack team/user through the managed
-`external_identity` authorization relationship. Workflow-started agent runs use
-exact Slack event helper refs plus the exact `agent.tools` refs configured for
-the resolved Gestalt user.
+with `SLACK_SIGNING_SECRET`, and by default resolve the Slack team/user through
+the managed `external_identity` authorization relationship. Matching
+bot-selected agent routes with `runAs.subject` can instead resolve to the
+configured service account before external identity lookup. Workflow-started
+agent runs use exact Slack event helper refs plus the exact `agent.tools` refs
+configured for the resolved Gestalt subject.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,
@@ -528,6 +530,12 @@ longer exists in the provider configuration, the provider rejects the callback
 instead of silently falling back to global behavior.
 Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
 Slack events and signed Slack interaction callbacks generated from that route.
+Route `runAs.subject` can name a managed service-account subject, such as
+`service_account:slack-bot`; matching Slack events then resolve to that subject
+instead of requiring the Slack bot user to have a linked external identity. This
+is only allowed for trusted bot-originated routes selected with `botIds`. Signed
+Slack interaction callbacks generated from that route use `runAs.subject` only
+when the signed ref subject ID already equals the configured runAs subject.
 
 Tool sets are named groups under `agent.toolSets`. The workflow agent target
 expands tool references in this order and deduplicates by exact

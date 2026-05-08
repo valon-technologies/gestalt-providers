@@ -397,6 +397,8 @@ def signed_route_block_action_payload(
     route_id: str,
     *,
     subject_id: str = "user:gestalt-123",
+    event_user_id: str = "U456",
+    interaction_user_id: str = "U456",
     channel_id: str = "C_ROUTE",
 ) -> dict[str, Any]:
     event = provider_module.SlackAgentEvent(
@@ -404,7 +406,7 @@ def signed_route_block_action_payload(
         event_type="app_mention",
         event_id="EvRouteInteraction",
         team_id="T123",
-        user_id="U456",
+        user_id=event_user_id,
         channel_id=channel_id,
         channel_type="channel",
         text="<@UBOT> approve operation",
@@ -424,7 +426,7 @@ def signed_route_block_action_payload(
     return {
         "type": "block_actions",
         "team": {"id": "T123"},
-        "user": {"id": "U456"},
+        "user": {"id": interaction_user_id},
         "channel": {"id": channel_id},
         "container": {
             "type": "message",
@@ -659,6 +661,101 @@ class SlackProviderTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_agent_routes_require_service_account_run_as_subjects(self) -> None:
+        invalid_run_as = [
+            {"subject": {"id": "system:http_binding:slack:events"}},
+            {"subject": {"id": "user:gestalt-123"}},
+            {"subject": {"id": "service_account:"}},
+            {"subject": {"id": "automation-without-kind"}},
+            {
+                "subject": {
+                    "id": "automation-with-kind",
+                    "kind": "service_account",
+                }
+            },
+            {"subject": {"id": "bot:gestalt-alerts", "kind": "bot"}},
+        ]
+
+        for run_as in invalid_run_as:
+            with self.subTest(run_as=run_as):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "runAs.subject must identify a service_account subject",
+                ):
+                    provider_module.configure(
+                        "slack",
+                        {
+                            "agent": {
+                                "routes": [
+                                    {
+                                        "id": "alerts",
+                                        "runAs": run_as,
+                                        "match": {"channel": "C_ALERTS"},
+                                    }
+                                ]
+                            }
+                        },
+                    )
+
+    def test_agent_routes_validate_run_as_shape(self) -> None:
+        invalid_run_as = [
+            ("user", "runAs must be an object"),
+            ({}, "runAs.subject is required"),
+            ({"subject": "service_account:slack-bot"}, "runAs.subject is required"),
+            ({"subject": {}}, "runAs.subject.id is required"),
+            (
+                {"subject": {"kind": "service_account"}},
+                "runAs.subject.id is required",
+            ),
+        ]
+
+        for run_as, error in invalid_run_as:
+            with self.subTest(run_as=run_as):
+                with self.assertRaisesRegex(ValueError, error):
+                    provider_module.configure(
+                        "slack",
+                        {
+                            "agent": {
+                                "routes": [
+                                    {
+                                        "id": "alerts",
+                                        "runAs": run_as,
+                                        "match": {"channel": "C_ALERTS"},
+                                    }
+                                ]
+                            }
+                        },
+                    )
+
+    def test_agent_routes_require_bot_ids_for_run_as_subjects(self) -> None:
+        invalid_matches = [
+            {"channel": "C_ALERTS"},
+            {"channel": "C_ALERTS", "botIds": []},
+            {"channel": "C_ALERTS", "includeBotEvents": True},
+        ]
+
+        for match in invalid_matches:
+            with self.subTest(match=match):
+                with self.assertRaisesRegex(ValueError, "runAs requires match.botIds"):
+                    provider_module.configure(
+                        "slack",
+                        {
+                            "agent": {
+                                "routes": [
+                                    {
+                                        "id": "alerts",
+                                        "runAs": {
+                                            "subject": {
+                                                "id": "service_account:slack-bot"
+                                            }
+                                        },
+                                        "match": match,
+                                    }
+                                ]
+                            }
+                        },
+                    )
 
     def test_agent_routes_validate_event_type_literals(self) -> None:
         invalid_match_configs = [
@@ -1246,6 +1343,244 @@ class SlackProviderTests(unittest.TestCase):
         assert resolved is not None
         self.assertEqual(resolved.id, "user:gestalt-123")
         self.assertEqual(resolved.kind, "user")
+        self.assertEqual(len(authorization.requests), 1)
+
+    def test_http_subject_uses_matching_route_run_as_before_slack_identity_lookup(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alert-bot-messages",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:slack-bot",
+                                    "displayName": "Platform Slack Bot",
+                                },
+                            },
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                                "thread": "root",
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        authorization = FakeAuthorization([])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvBotRouteSubject",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "subtype": "bot_message",
+                "bot_id": "B123",
+                "user": "U_BOT_USER",
+                "channel": "C_ALERTS",
+                "channel_type": "channel",
+                "text": "alert fired",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "service_account:slack-bot")
+        self.assertEqual(resolved.kind, "service_account")
+        self.assertEqual(resolved.display_name, "Platform Slack Bot")
+        self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
+        self.assertEqual(authorization.requests, [])
+
+    def test_http_subject_does_not_use_route_run_as_for_route_mismatches(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alert-bot-messages",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:slack-bot",
+                                },
+                            },
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                                "thread": "root",
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        base_event = {
+            "type": "message",
+            "subtype": "bot_message",
+            "bot_id": "B123",
+            "user": "U_BOT_USER",
+            "channel": "C_ALERTS",
+            "channel_type": "channel",
+            "text": "alert fired",
+            "ts": "1712161829.000300",
+        }
+        cases = [
+            ("wrong_channel", {"channel": "C_OTHER"}),
+            ("wrong_bot_id", {"bot_id": "B999"}),
+            ("thread_reply", {"thread_ts": "1712161800.000100"}),
+        ]
+
+        for name, overrides in cases:
+            with self.subTest(name=name):
+                authorization = FakeAuthorization([])
+                event = {**base_event, **overrides}
+                payload = {
+                    "type": "event_callback",
+                    "event_id": f"EvBotRouteMismatch{name}",
+                    "team_id": "T123",
+                    "event": event,
+                }
+
+                with mock.patch.object(
+                    gestalt.Request, "authorization", return_value=authorization
+                ):
+                    resolved = provider_module.resolve_http_subject(
+                        gestalt.HTTPSubjectRequest(params=payload),
+                        gestalt.Request(),
+                    )
+
+                self.assertIsNone(resolved)
+                self.assertEqual(authorization.requests, [])
+
+    def test_http_subject_uses_signed_interaction_route_run_as_before_slack_identity_lookup(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alert-actions",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:slack-bot",
+                                    "kind": "service_account",
+                                    "displayName": "Platform Slack Bot",
+                                },
+                            },
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        authorization = FakeAuthorization([])
+        payload = {
+            "payload": json.dumps(
+                signed_route_block_action_payload(
+                    "alert-actions",
+                    subject_id="service_account:slack-bot",
+                    channel_id="C_ALERTS",
+                )
+            )
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "service_account:slack-bot")
+        self.assertEqual(resolved.kind, "service_account")
+        self.assertEqual(resolved.display_name, "Platform Slack Bot")
+        self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
+        self.assertEqual(authorization.requests, [])
+
+    def test_http_subject_uses_slack_identity_for_user_signed_interaction_on_run_as_route(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alert-actions",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:slack-bot",
+                                    "kind": "service_account",
+                                },
+                            },
+                            "match": {
+                                "channel": "C_ALERTS",
+                                "eventTypes": ["message.channels"],
+                                "botIds": ["B123"],
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        subject = authorization_pb2.Subject(type="subject", id="user:gestalt-123")
+        subject.properties.update({"email": "ada@example.com"})
+        authorization = FakeAuthorization([subject])
+        payload = {
+            "payload": json.dumps(
+                signed_route_block_action_payload(
+                    "alert-actions",
+                    subject_id="user:gestalt-123",
+                    channel_id="C_ALERTS",
+                )
+            )
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "user:gestalt-123")
+        self.assertEqual(resolved.kind, "user")
+        self.assertEqual(resolved.auth_source, "authorization")
         self.assertEqual(len(authorization.requests), 1)
 
     def test_slack_event_handler_signals_workflow_with_exact_tools(self) -> None:
@@ -4082,6 +4417,101 @@ class SlackProviderTests(unittest.TestCase):
             workflow_manager.signal_or_start_requests[0].provider_name,
             "route-provider",
         )
+
+    def test_user_scoped_interaction_rejects_different_slack_user(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [{"id": "route-local", "match": {"channel": "C_ROUTE"}}],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        interaction_payload = signed_route_block_action_payload(
+            "route-local",
+            subject_id="user:gestalt-123",
+            event_user_id="U456",
+            interaction_user_id="U_OTHER",
+        )
+
+        response = provider_module.slack_interactions_handle(
+            {"payload": json.dumps(interaction_payload)},
+            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123", kind="user")),
+        )
+
+        self.assertIsInstance(response, gestalt.Response)
+        forbidden = cast(gestalt.Response[dict[str, str]], response)
+        self.assertEqual(forbidden.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            forbidden.body,
+            {"error": "interaction_ref user does not match Slack payload"},
+        )
+
+    def test_agent_route_run_as_subject_handles_interactions(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "alert-actions",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:slack-bot",
+                                    "kind": "service_account",
+                                    "displayName": "Platform Slack Bot",
+                                },
+                            },
+                            "match": {"channel": "C_ALERTS", "botIds": ["B123"]},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        interaction_payload = signed_route_block_action_payload(
+            "alert-actions",
+            subject_id="service_account:slack-bot",
+            event_user_id="U_BOT_USER",
+            interaction_user_id="U_HUMAN",
+            channel_id="C_ALERTS",
+        )
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(
+                        id="service_account:slack-bot", kind="service_account"
+                    )
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        signal_payload = json_format.MessageToDict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        self.assertEqual(signal_payload["slack"]["user_id"], "U_HUMAN")
 
     def test_signed_interaction_rejects_route_id_that_no_longer_resolves(self) -> None:
         provider_module.configure(
