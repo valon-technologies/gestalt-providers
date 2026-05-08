@@ -92,14 +92,12 @@ test.describe("Docs page", () => {
     await expect(page.locator("#agent-codex-panel")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
     );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText("BASE_URL");
     await expect(page.locator("#agent-codex-panel")).toContainText(
-      `BASE_URL=${expectedOrigin}`,
+      `GESTALT_URL=${expectedOrigin}`,
     );
-    await expect(page.locator("#agent-codex-panel")).toContainText(
-      `export GESTALT_URL="${expectedOrigin}"`,
-    );
-    await expect(page.locator("#agent-codex-panel")).toContainText(
-      'export GESTALT_API_KEY="${GESTALT_API_KEY}"',
+    await expect(page.locator("#agent-codex-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
     );
     await expect(page.locator("#agent-codex-panel")).toContainText(
       "Codex secrets are only available during setup",
@@ -112,15 +110,16 @@ test.describe("Docs page", () => {
       '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
     );
     await expect(page.locator("#agent-cursor-panel")).toContainText(
-      `export GESTALT_URL=\\"${expectedOrigin}\\"`,
+      `Set GESTALT_URL to ${expectedOrigin}`,
     );
-    await expect(page.locator("#agent-cursor-panel")).toContainText(
-      `Set BASE_URL to ${expectedOrigin}`,
+    await expect(page.locator("#agent-cursor-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
     );
     await agentTabs.getByRole("tab", { name: "Claude Code on the web" }).click();
     await expect(page.locator("#agent-claude-code-panel")).toContainText(
-      `BASE_URL=${expectedOrigin}`,
+      `GESTALT_URL=${expectedOrigin}`,
     );
+    await expect(page.locator("#agent-claude-code-panel")).not.toContainText("BASE_URL");
     await expect(page.locator("#agent-claude-code-panel")).toContainText(
       "Claude Code on the web does not have a dedicated secrets store yet",
     );

@@ -28,15 +28,12 @@ const defaultMcpTabId: McpTabId = "mcp-claude-code";
 const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
 const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-codex";
 
-function agentStartupScript(origin: string) {
-  return `curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh
-export GESTALT_URL="${origin}"
-export GESTALT_API_KEY="\${GESTALT_API_KEY}"`;
+function agentStartupScript() {
+  return "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh";
 }
 
 function cloudEnvironmentVariables(origin: string) {
-  return `BASE_URL=${origin}
-GESTALT_URL=${origin}
+  return `GESTALT_URL=${origin}
 GESTALT_API_KEY=gst_api_your_token_here`;
 }
 
@@ -428,7 +425,7 @@ export function McpDocsPage() {
           These examples assume the agent environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
+        <CodeBlock code={agentStartupScript()} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -836,11 +833,10 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         <p className="doc-copy">
           Then add this to the environment setup script.
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
+        <CodeBlock code={agentStartupScript()} />
         <p className="doc-copy">
-          Codex setup script exports do not persist into the agent phase, so the
-          values above must also be configured as environment variables in the
-          cloud environment. Codex secrets are only available during setup.
+          Keep the values above in the cloud environment variables, not in the
+          setup script. Codex secrets are only available during setup.
         </p>
         <p className="doc-copy">
           Reference:{" "}
@@ -878,13 +874,13 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         </p>
         <CodeBlock
           code={`{
-  "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
-  "start": "export GESTALT_URL=\\"${origin}\\" && export GESTALT_API_KEY=\\"\${GESTALT_API_KEY}\\""
+  "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"
 }`}
         />
         <p className="doc-copy">
           Set{" "}
-          <code className="font-mono text-sm text-primary">BASE_URL</code> to{" "}
+          <code className="font-mono text-sm text-primary">GESTALT_URL</code>{" "}
+          to{" "}
           <code className="font-mono text-sm text-primary">{origin}</code> and{" "}
           <code className="font-mono text-sm text-primary">
             GESTALT_API_KEY
@@ -925,7 +921,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         <p className="doc-copy">
           Then add this to the cloud environment setup script.
         </p>
-        <CodeBlock code={agentStartupScript(origin)} />
+        <CodeBlock code={agentStartupScript()} />
         <p className="doc-copy">
           Claude Code on the web does not have a dedicated secrets store yet;
           environment variables and setup scripts are visible to users who can
