@@ -679,6 +679,26 @@ class SlackProviderTests(unittest.TestCase):
                         {"agent": {"routes": [{"id": "bad", "match": match_config}]}},
                     )
 
+    def test_agent_routes_validate_thread_literals(self) -> None:
+        invalid_match_configs = [
+            {"thread": "Root"},
+            {"thread": ""},
+            {"thread": ["root"]},
+            {"thread": True},
+            {"thread": 123},
+        ]
+
+        for match_config in invalid_match_configs:
+            with self.subTest(match=match_config):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "thread|must be one of|must be a string|must not be empty",
+                ):
+                    provider_module.configure(
+                        "slack",
+                        {"agent": {"routes": [{"id": "bad", "match": match_config}]}},
+                    )
+
     def test_agent_routes_accept_event_type_aliases(self) -> None:
         self.addCleanup(provider_module.configure, "slack", {})
         alias_cases = [
@@ -4693,6 +4713,226 @@ class SlackProviderTests(unittest.TestCase):
             signal_payload["reply_ref"], "user:gestalt-123"
         )
         self.assertEqual(verified_ref.reply_thread_ts, "1712161829.000300")
+
+    def test_event_type_route_thread_root_filters_channel_messages(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "channel-roots",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["message.channels"],
+                                "thread": "root",
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        root_cases = [
+            ("without_thread_ts", {}),
+            ("with_parent_thread_ts", {"thread_ts": "1712161829.000300"}),
+        ]
+        for name, extra_fields in root_cases:
+            with self.subTest(name=name):
+                response, workflow_manager = self._handle_event_with_workflow(
+                    {
+                        "type": "event_callback",
+                        "event_id": f"EvRoot{name}",
+                        "team_id": "T123",
+                        "event": {
+                            "type": "message",
+                            "user": "U456",
+                            "channel": "C_SUPPORT",
+                            "channel_type": "channel",
+                            "text": "please triage this",
+                            "ts": "1712161829.000300",
+                            **extra_fields,
+                        },
+                    }
+                )
+
+                self.assertEqual(response["ok"], True)
+                self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+                signal_metadata = json_format.MessageToDict(
+                    workflow_manager.signal_or_start_requests[0].signal.metadata
+                )
+                self.assertEqual(
+                    signal_metadata["slack"]["agent_route_id"], "channel-roots"
+                )
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvRootIgnoresReply",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "user": "U456",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "thread reply",
+                    "ts": "1712161835.000400",
+                    "thread_ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_event_type_route_thread_reply_filters_channel_messages(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "channel-replies",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["message.channels"],
+                                "thread": "reply",
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvReplyIgnoresRoot",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "user": "U456",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "top-level message",
+                    "ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvReplyMatches",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "user": "U456",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "thread reply",
+                    "ts": "1712161835.000400",
+                    "thread_ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        self.assertEqual(
+            workflow_request.workflow_key,
+            "slack:T123:C_SUPPORT:1712161829.000300",
+        )
+        signal_metadata = json_format.MessageToDict(workflow_request.signal.metadata)
+        self.assertEqual(signal_metadata["slack"]["agent_route_id"], "channel-replies")
+
+    def test_app_mention_routes_respect_thread_filter(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "root-mentions",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["app_mention"],
+                                "thread": "root",
+                            },
+                        },
+                        {
+                            "id": "any-mentions",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["app_mention"],
+                                "thread": "any",
+                            },
+                        },
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        for route_id, event in (
+            (
+                "root-mentions",
+                {
+                    "type": "app_mention",
+                    "user": "U456",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "<@UBOT> top-level question",
+                    "ts": "1712161829.000300",
+                },
+            ),
+            (
+                "any-mentions",
+                {
+                    "type": "app_mention",
+                    "user": "U456",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "<@UBOT> thread question",
+                    "ts": "1712161835.000400",
+                    "thread_ts": "1712161829.000300",
+                },
+            ),
+        ):
+            with self.subTest(route_id=route_id):
+                response, workflow_manager = self._handle_event_with_workflow(
+                    {
+                        "type": "event_callback",
+                        "event_id": f"Ev{route_id}",
+                        "team_id": "T123",
+                        "event": event,
+                    }
+                )
+
+                self.assertEqual(response["ok"], True)
+                self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+                signal_metadata = json_format.MessageToDict(
+                    workflow_manager.signal_or_start_requests[0].signal.metadata
+                )
+                self.assertEqual(signal_metadata["slack"]["agent_route_id"], route_id)
 
     def test_event_type_route_ordering_skips_legacy_message_route(self) -> None:
         provider_module.configure(

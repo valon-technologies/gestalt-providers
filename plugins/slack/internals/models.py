@@ -43,6 +43,7 @@ SUPPORTED_SLACK_EVENT_TYPES = frozenset(
     }
 )
 SUPPORTED_AGENT_ROUTE_EVENT_TYPES = SUPPORTED_EVENT_TYPES | SUPPORTED_SLACK_EVENT_TYPES
+SUPPORTED_AGENT_ROUTE_THREAD_MATCHES = frozenset({"any", "root", "reply"})
 DIRECT_MESSAGE_CHANNEL_TYPES = frozenset(
     channel.value
     for channel in (
@@ -110,6 +111,14 @@ class SlackAgentEvent:
     files: tuple[dict[str, Any], ...] = ()
     subtype: str = ""
 
+    @property
+    def is_thread_reply(self) -> bool:
+        return bool(self.thread_ts and self.thread_ts != self.message_ts)
+
+    @property
+    def is_thread_root(self) -> bool:
+        return not self.is_thread_reply
+
 
 @dataclass(frozen=True, slots=True)
 class SlackAgentRouteMatch:
@@ -119,6 +128,7 @@ class SlackAgentRouteMatch:
     event_types: tuple[str, ...] = ()
     user_ids: tuple[str, ...] = ()
     subtypes: tuple[str, ...] | None = None
+    thread: str = "any"
 
     def matches(self, event: SlackAgentEvent) -> bool:
         if self.team_ids and event.team_id not in self.team_ids:
@@ -153,6 +163,14 @@ class SlackAgentRouteMatch:
                     return False
             elif subtype not in self.subtypes:
                 return False
+        if self.thread == "root":
+            if not event.is_thread_root:
+                return False
+        elif self.thread == "reply":
+            if not event.is_thread_reply:
+                return False
+        elif self.thread != "any":
+            return False
         if self.user_ids and event.user_id not in self.user_ids:
             return False
         return True
