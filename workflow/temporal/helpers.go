@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -382,7 +382,7 @@ func normalizeWorkflowEvent(event *proto.WorkflowEvent, now func() time.Time) (*
 		out.SpecVersion = defaultSpecVersion
 	}
 	if out.GetTime() == nil || !out.GetTime().IsValid() {
-		out.Time = timestamppb.New(now().UTC())
+		out.Time = gestalt.TimestampFromTime(now().UTC())
 	}
 	out.Data = cloneStruct(out.GetData())
 	return out, nil
@@ -400,7 +400,7 @@ func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*prot
 		return nil, errors.New("signal.name is required")
 	}
 	if out.GetCreatedAt() == nil || !out.GetCreatedAt().IsValid() {
-		out.CreatedAt = timestamppb.New(now.UTC())
+		out.CreatedAt = gestalt.TimestampFromTime(now.UTC())
 	}
 	out.Payload = cloneStruct(out.GetPayload())
 	out.Metadata = cloneStruct(out.GetMetadata())
@@ -470,10 +470,7 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 }
 
 func cloneStruct(value *structpb.Struct) *structpb.Struct {
-	if value == nil {
-		return nil
-	}
-	return gproto.Clone(value).(*structpb.Struct)
+	return gestalt.CloneStruct(value)
 }
 
 func eventMatchesTrigger(event *proto.WorkflowEvent, trigger *proto.BoundWorkflowEventTrigger) bool {
@@ -554,7 +551,7 @@ func newManualTrigger() *proto.WorkflowRunTrigger {
 func scheduleTrigger(scheduleID string, scheduledFor time.Time) *proto.WorkflowRunTrigger {
 	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Schedule{Schedule: &proto.WorkflowScheduleTrigger{
 		ScheduleId:   strings.TrimSpace(scheduleID),
-		ScheduledFor: timestamppb.New(scheduledFor.UTC()),
+		ScheduledFor: gestalt.TimestampFromTime(scheduledFor.UTC()),
 	}}}
 }
 

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type runWorkflowV4Input struct {
@@ -49,7 +49,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:       targetFromPayload(input.TargetPayload),
 		Trigger:      triggerFromPayload(input.TriggerPayload),
-		CreatedAt:    timestamppb.New(now),
+		CreatedAt:    gestalt.TimestampFromTime(now),
 		CreatedBy:    actorFromPayload(input.CreatedByPayload),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
@@ -70,7 +70,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	appendSignal := func(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 		signal = cloneSignal(signal)
 		if signal.GetCreatedAt() == nil {
-			signal.CreatedAt = timestamppb.New(workflow.Now(ctx).UTC())
+			signal.CreatedAt = gestalt.TimestampFromTime(workflow.Now(ctx).UTC())
 		}
 		if signal.GetSequence() <= 0 {
 			signal.Sequence = nextSignalSequence
@@ -137,7 +137,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		completedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		state.CompletedAt = timestamppb.New(completedAt)
+		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
 		state.StatusMessage = strings.TrimSpace(reason)
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
@@ -173,7 +173,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		startedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-		state.StartedAt = timestamppb.New(startedAt)
+		state.StartedAt = gestalt.TimestampFromTime(startedAt)
 		state.CompletedAt = nil
 		state.StatusMessage = ""
 		project(ctx)
@@ -201,7 +201,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		state.CompletedAt = timestamppb.New(completedAt)
+		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
 		if invokeErr != nil {
 			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 			state.StatusMessage = invokeErr.Error()

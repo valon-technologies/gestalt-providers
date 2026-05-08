@@ -11,7 +11,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const providerVersion = "0.0.1-alpha.2"
@@ -161,7 +160,7 @@ func (p *Provider) WriteModel(ctx context.Context, req *gestalt.WriteModelReques
 	ref := &gestalt.AuthorizationModelRef{
 		Id:        modelID,
 		Version:   model.Version,
-		CreatedAt: timestamppb.New(p.now().UTC()),
+		CreatedAt: gestalt.TimestampFromTime(p.now().UTC()),
 	}
 	if err := st.writeModel(ctx, ref, modelJSON); err != nil {
 		return nil, err

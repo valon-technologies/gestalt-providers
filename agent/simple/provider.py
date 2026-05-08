@@ -252,9 +252,8 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
         model=session.model,
         client_ref=session.client_ref,
         state=session.state,
+        metadata=None if summary_only else session.metadata,
     )
-    if session.metadata and not summary_only:
-        proto.metadata.CopyFrom(gestalt.struct_from_dict(session.metadata))
     if session.created_by:
         proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(session.created_by))
     proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(session.created_at))
@@ -272,9 +271,8 @@ def _turn_event_to_proto(event: Any) -> Any:
         type=event.event_type,
         source=event.source,
         visibility=event.visibility,
+        data=event.data,
     )
-    if event.data:
-        proto.data.CopyFrom(gestalt.struct_from_dict(event.data))
     proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(event.created_at))
     return proto
 

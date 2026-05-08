@@ -230,7 +230,7 @@ class SimpleAgentOrchestrator:
             if claimed:
                 try:
                     self._store.release_turn_lease(turn_id, owner=self._worker_id)
-                except (grpc.RpcError, RuntimeError):
+                except grpc.RpcError, RuntimeError:
                     pass
             with self._scheduled_lock:
                 self._scheduled_turns.discard(turn_id)
@@ -245,7 +245,7 @@ class SimpleAgentOrchestrator:
                 try:
                     if not self._store.renew_turn_lease(turn_id, owner=self._worker_id, lease_seconds=lease_seconds):
                         return
-                except (grpc.RpcError, RuntimeError):
+                except grpc.RpcError, RuntimeError:
                     return
 
         thread = threading.Thread(target=renew_loop, daemon=True)
@@ -639,9 +639,8 @@ class SimpleAgentOrchestrator:
             output_text="" if summary_only else run.output_text,
             status_message=run.status_message,
             execution_ref=run.execution_ref,
+            structured_output=None if summary_only else run.structured_output,
         )
-        if run.structured_output and not summary_only:
-            proto.structured_output.CopyFrom(gestalt.struct_from_dict(run.structured_output))
         if run.created_by:
             proto.created_by.CopyFrom(gestalt.agent_actor_from_dict(run.created_by))
         proto.created_at.CopyFrom(gestalt.timestamp_from_datetime(run.created_at))
@@ -836,14 +835,12 @@ def _list_matching_tools_for_model(
         if page_token in seen_tokens:
             return matched, True
         seen_tokens.add(page_token)
-        response = host.list_tools(
-            gestalt.ListAgentToolsRequest(
-                session_id=prepared.session_id,
-                turn_id=prepared.turn_id,
-                page_size=TOOL_LIST_DEFAULT_PAGE_SIZE,
-                page_token=page_token,
-                run_grant=prepared.run_grant,
-            )
+        response = host.list_tools_for_turn(
+            prepared.session_id,
+            prepared.turn_id,
+            page_size=TOOL_LIST_DEFAULT_PAGE_SIZE,
+            page_token=page_token,
+            run_grant=prepared.run_grant,
         )
         page_tools = list(response.tools)
         next_page_token = str(getattr(response, "next_page_token", "") or "").strip()
@@ -936,7 +933,7 @@ def _tool_result_message(*, tool_call_id: str, content: str, is_error: bool = Fa
 def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool = False) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if value < 0:
         return default
@@ -948,7 +945,7 @@ def _tool_search_max_results(raw_value: Any, *, default: int, allow_zero: bool =
 def _tool_search_candidate_limit(raw_value: Any, *, default: int) -> int:
     try:
         value = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     if value <= 0:
         return 0

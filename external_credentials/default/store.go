@@ -434,13 +434,14 @@ func timeToProto(value *time.Time) *timestamppb.Timestamp {
 	if value == nil || value.IsZero() {
 		return nil
 	}
-	return timestamppb.New(value.UTC())
+	return gestalt.TimestampFromTime(value.UTC())
 }
 
 func timeFromProto(value *timestamppb.Timestamp) *time.Time {
-	if value == nil {
+	asTime, err := gestalt.TimePtrFromTimestamp(value)
+	if err != nil || asTime == nil {
 		return nil
 	}
-	asTime := value.AsTime().UTC()
-	return &asTime
+	utc := asTime.UTC()
+	return &utc
 }

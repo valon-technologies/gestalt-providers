@@ -1495,16 +1495,17 @@ func (s *workflowStateStore) unscopedID(id string) string {
 }
 
 func timeFromProto(value *timestamppb.Timestamp) *time.Time {
-	if value == nil || !value.IsValid() {
+	asTime, err := gestalt.TimePtrFromTimestamp(value)
+	if err != nil || asTime == nil {
 		return nil
 	}
-	asTime := value.AsTime().UTC()
-	return &asTime
+	utc := asTime.UTC()
+	return &utc
 }
 
 func timeFromProtoOrNow(value *timestamppb.Timestamp, fallback time.Time) time.Time {
-	if value == nil || !value.IsValid() {
-		return fallback.UTC()
+	if asTime := timeFromProto(value); asTime != nil {
+		return *asTime
 	}
-	return value.AsTime().UTC()
+	return fallback.UTC()
 }

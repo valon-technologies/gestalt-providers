@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -473,7 +473,7 @@ func gestaltWorkflowKeyLaneV1(ctx workflow.Context, snapshot laneWorkflowSnapsho
 			Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 			Target:       targetFromPayload(active.TargetPayload),
 			Trigger:      triggerFromPayload(active.TriggerPayload),
-			CreatedAt:    timestamppb.New(active.CreatedAt),
+			CreatedAt:    gestalt.TimestampFromTime(active.CreatedAt),
 			CreatedBy:    actorFromPayload(active.CreatedByPayload),
 			ExecutionRef: strings.TrimSpace(active.ExecutionRef),
 			WorkflowKey:  state.Input.WorkflowKey,
@@ -681,7 +681,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:       targetFromPayload(input.TargetPayload),
 		Trigger:      triggerFromPayload(input.TriggerPayload),
-		CreatedAt:    timestamppb.New(now),
+		CreatedAt:    gestalt.TimestampFromTime(now),
 		CreatedBy:    actorFromPayload(input.CreatedByPayload),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
@@ -753,7 +753,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		}
 		completedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		state.CompletedAt = timestamppb.New(completedAt)
+		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
 		state.StatusMessage = strings.TrimSpace(msg.Reason)
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
@@ -822,7 +822,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		}
 		completedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		state.CompletedAt = timestamppb.New(completedAt)
+		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
 		state.StatusMessage = strings.TrimSpace(reason)
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
@@ -853,7 +853,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 		}
 		startedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-		state.StartedAt = timestamppb.New(startedAt)
+		state.StartedAt = gestalt.TimestampFromTime(startedAt)
 		state.CompletedAt = nil
 		state.StatusMessage = ""
 		project(ctx)
@@ -879,7 +879,7 @@ func gestaltRunWorkflowV3(ctx workflow.Context, input runWorkflowV3Input) (*prot
 			return nil, err
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		state.CompletedAt = timestamppb.New(completedAt)
+		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
 		if invokeErr != nil {
 			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 			state.StatusMessage = invokeErr.Error()

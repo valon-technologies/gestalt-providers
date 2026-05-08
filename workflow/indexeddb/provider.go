@@ -3137,9 +3137,9 @@ func normalizeWorkflowEvent(event *proto.WorkflowEvent, now time.Time) (*proto.W
 		normalized.SpecVersion = defaultSpecVersion
 	}
 	if ts := event.GetTime(); ts != nil && ts.IsValid() {
-		normalized.Time = timestamppb.New(ts.AsTime().UTC())
+		normalized.Time = gestalt.TimestampFromTime(ts.AsTime().UTC())
 	} else {
-		normalized.Time = timestamppb.New(now.UTC())
+		normalized.Time = gestalt.TimestampFromTime(now.UTC())
 	}
 	return normalized, nil
 }
@@ -3162,9 +3162,9 @@ func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*prot
 		Sequence:       signal.GetSequence(),
 	}
 	if ts := signal.GetCreatedAt(); ts != nil && ts.IsValid() {
-		normalized.CreatedAt = timestamppb.New(ts.AsTime().UTC())
+		normalized.CreatedAt = gestalt.TimestampFromTime(ts.AsTime().UTC())
 	} else {
-		normalized.CreatedAt = timestamppb.New(now.UTC())
+		normalized.CreatedAt = gestalt.TimestampFromTime(now.UTC())
 	}
 	return normalized, nil
 }
@@ -4210,7 +4210,7 @@ func publishedEventExecutionReference(providerName, runID string, trigger workfl
 		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
 		CredentialSubjectId: subjectID,
 		Permissions:         permissions,
-		CreatedAt:           timestamppb.New(createdAt.UTC()),
+		CreatedAt:           gestalt.TimestampFromTime(createdAt.UTC()),
 	}, nil
 }
 
@@ -4447,11 +4447,7 @@ func cloneMap(value map[string]any) map[string]any {
 }
 
 func cloneStruct(value *structpb.Struct) *structpb.Struct {
-	if value == nil {
-		return nil
-	}
-	cloned, _ := structpb.NewStruct(value.AsMap())
-	return cloned
+	return gestalt.CloneStruct(value)
 }
 
 func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
@@ -4500,10 +4496,7 @@ func cloneSignal(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 }
 
 func cloneTimestamp(ts *timestamppb.Timestamp) *timestamppb.Timestamp {
-	if ts == nil {
-		return nil
-	}
-	return timestamppb.New(ts.AsTime())
+	return gestalt.CloneTimestamp(ts)
 }
 
 func cloneExtensions(values map[string]*structpb.Value) map[string]*structpb.Value {
@@ -4649,21 +4642,14 @@ func eventFromAny(value any) *proto.WorkflowEvent {
 	}
 	if raw := stringField(data, "time"); raw != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			event.Time = timestamppb.New(parsed.UTC())
+			event.Time = gestalt.TimestampFromTime(parsed.UTC())
 		}
 	}
 	return event
 }
 
 func structFromAny(value any) *structpb.Struct {
-	if value == nil {
-		return nil
-	}
-	m, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-	out, err := structpb.NewStruct(m)
+	out, err := gestalt.StructFromAny(value)
 	if err != nil {
 		return nil
 	}
@@ -4691,7 +4677,7 @@ func mapToExtensions(values map[string]any) map[string]*structpb.Value {
 	}
 	out := make(map[string]*structpb.Value, len(values))
 	for key, value := range values {
-		pbValue, err := structpb.NewValue(value)
+		pbValue, err := gestalt.ValueFromAny(value)
 		if err != nil {
 			continue
 		}
@@ -4824,8 +4810,8 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 		Timezone:     r.Timezone,
 		Target:       cloneTarget(r.Target),
 		Paused:       r.Paused,
-		CreatedAt:    timestamppb.New(r.CreatedAt),
-		UpdatedAt:    timestamppb.New(r.UpdatedAt),
+		CreatedAt:    gestalt.TimestampFromTime(r.CreatedAt),
+		UpdatedAt:    gestalt.TimestampFromTime(r.UpdatedAt),
 		NextRunAt:    timeToProto(r.NextRunAt),
 		CreatedBy:    cloneActor(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
@@ -4883,8 +4869,8 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 		},
 		Target:       cloneTarget(r.Target),
 		Paused:       r.Paused,
-		CreatedAt:    timestamppb.New(r.CreatedAt),
-		UpdatedAt:    timestamppb.New(r.UpdatedAt),
+		CreatedAt:    gestalt.TimestampFromTime(r.CreatedAt),
+		UpdatedAt:    gestalt.TimestampFromTime(r.UpdatedAt),
 		CreatedBy:    cloneActor(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
 	}, nil
@@ -4962,7 +4948,7 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 		Status:        r.Status,
 		Target:        cloneTarget(r.Target),
 		Trigger:       r.triggerProto(),
-		CreatedAt:     timestamppb.New(r.CreatedAt),
+		CreatedAt:     gestalt.TimestampFromTime(r.CreatedAt),
 		StartedAt:     timeToProto(r.StartedAt),
 		CompletedAt:   timeToProto(r.CompletedAt),
 		StatusMessage: r.StatusMessage,
@@ -5151,7 +5137,7 @@ func (r workflowSignalRecord) signalProto() *proto.WorkflowSignal {
 		signal.Sequence = r.Sequence
 	}
 	if signal.CreatedAt == nil && !r.CreatedAt.IsZero() {
-		signal.CreatedAt = timestamppb.New(r.CreatedAt)
+		signal.CreatedAt = gestalt.TimestampFromTime(r.CreatedAt)
 	}
 	return signal
 }
@@ -5282,7 +5268,7 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 		RunAs:               runAs,
 		Permissions:         permissions,
 		CallerPluginName:    r.CallerPluginName,
-		CreatedAt:           timestamppb.New(r.CreatedAt),
+		CreatedAt:           gestalt.TimestampFromTime(r.CreatedAt),
 		RevokedAt:           timeToProto(r.RevokedAt),
 	}, nil
 }
@@ -5471,10 +5457,9 @@ func timeToProto(value *time.Time) *timestamppb.Timestamp {
 	if value == nil {
 		return nil
 	}
-	return timestamppb.New(value.UTC())
+	return gestalt.TimestampFromTime(value.UTC())
 }
 
-var _ gestalt.WorkflowProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.Starter = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
