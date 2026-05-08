@@ -9,7 +9,6 @@ from typing import Any, cast
 
 import gestalt
 from claude_agent_sdk.types import McpSdkServerConfig, PermissionResultAllow, PermissionResultDeny
-from google.protobuf import struct_pb2 as _struct_pb2
 from mcp.server import Server
 from mcp.types import (
     CallToolResult,
@@ -24,7 +23,6 @@ from mcp.types import (
 from .claude_code_config import ClaudeCodeToolPermissions
 
 
-struct_pb2: Any = _struct_pb2
 logger = logging.getLogger(__name__)
 
 MCP_SERVER_NAME = "gestalt"
@@ -169,14 +167,12 @@ class GestaltMCPBridge:
 
     def _list_entries(self, page_token: str) -> tuple[list[ToolEntry], str]:
         with gestalt.AgentHost() as host:
-            response = host.list_tools(
-                gestalt.ListAgentToolsRequest(
-                    session_id=self._session_id,
-                    turn_id=self._turn_id,
-                    page_size=DEFAULT_PAGE_SIZE,
-                    page_token=page_token,
-                    run_grant=self._run_grant,
-                )
+            response = host.list_tools_for_turn(
+                self._session_id,
+                self._turn_id,
+                page_size=DEFAULT_PAGE_SIZE,
+                page_token=page_token,
+                run_grant=self._run_grant,
             )
         return [_tool_entry(tool) for tool in response.tools], str(response.next_page_token or "").strip()
 
@@ -384,19 +380,15 @@ def _string_list(value: Any) -> list[str]:
 def _execute_tool(
     *, session_id: str, turn_id: str, run_grant: str, entry: ToolEntry, tool_call_id: str, arguments: dict[str, Any]
 ) -> Any:
-    struct = struct_pb2.Struct()
-    struct.update(arguments or {})
     with gestalt.AgentHost() as host:
-        return host.execute_tool(
-            gestalt.ExecuteAgentToolRequest(
-                session_id=session_id,
-                turn_id=turn_id,
-                tool_call_id=tool_call_id,
-                tool_id=entry.tool_id,
-                arguments=struct,
-                run_grant=run_grant,
-                idempotency_key=f"agent/claude-sdk:{turn_id}:{tool_call_id}:{entry.mcp_name}",
-            )
+        return host.execute_tool_for_turn(
+            session_id,
+            turn_id,
+            tool_call_id=tool_call_id,
+            tool_id=entry.tool_id,
+            arguments=arguments or {},
+            run_grant=run_grant,
+            idempotency_key=f"agent/claude-sdk:{turn_id}:{tool_call_id}:{entry.mcp_name}",
         )
 
 
@@ -425,23 +417,6 @@ def _annotations(value: Any, *, title: str) -> ToolAnnotations | None:
         ("idempotent_hint", "idempotentHint"),
         ("open_world_hint", "openWorldHint"),
     ):
-        hint = _optional_bool(value, proto_name)
-        if hint is not None:
-            payload[sdk_name] = hint
+        if gestalt.has_field(value, proto_name):
+            payload[sdk_name] = bool(getattr(value, proto_name))
     return ToolAnnotations.model_validate({k: v for k, v in payload.items() if v is not None})
-
-
-def _optional_bool(value: Any, field_name: str) -> bool | None:
-    has_field = getattr(value, "HasField", None)
-    if callable(has_field):
-        try:
-            if not has_field(field_name):
-                return None
-        except ValueError:
-            pass
-    raw = getattr(value, field_name, None)
-    if raw is None:
-        return None
-    if not callable(has_field) and raw is False:
-        return None
-    return bool(raw)
