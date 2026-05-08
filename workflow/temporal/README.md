@@ -97,15 +97,16 @@ update; already-polled tasks cannot be recalled by the provider.
   owners are lazily discovered and claimed into IndexedDB before new keyed work
   starts
 - unkeyed and keyed `StartRun` idempotency for new V4 runs is stored in
-  IndexedDB; signal idempotency for new signal operations is also stored in
-  IndexedDB, with read-through support for completed legacy owner-ledger entries
+  IndexedDB; signal idempotency for new signal operations requires IndexedDB,
+  with read-through support for completed legacy owner-ledger entries
 - public run IDs are opaque V3 handles that identify the run workflow; legacy
   keyed runs may also include the owning lane workflow
 - legacy V3 run state is still projected to Temporal run-index workflows for
   compatibility during the migration window
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
-  ownership metadata; the legacy Temporal owner-ledger path remains for old
+  ownership metadata; the legacy Temporal owner-ledger path no longer receives
+  new reservations and remains read-through/complete-only for old signal and
   unkeyed-start idempotency recovery during the migration window
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked
