@@ -6,7 +6,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from google.protobuf import struct_pb2 as _struct_pb2
+import gestalt
 
 from .constants import (
     BOT_COMMIT_FILES_OPERATION,
@@ -101,8 +101,6 @@ SELF_FIX_MODES = (
 
 ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT = "config_default"
 ACTION_PREFERENCES_FAILURE_MODES = (ACTION_PREFERENCES_FAILURE_CONFIG_DEFAULT,)
-
-struct_pb2: Any = _struct_pb2
 
 
 @dataclass(frozen=True, slots=True)
@@ -784,7 +782,7 @@ def enum_string(
 
 def validate_struct_compatible(input_value: dict[str, Any], path: str) -> None:
     try:
-        struct_pb2.Struct().update(input_value)
+        gestalt.struct_from_dict(input_value)
     except Exception as err:
         raise ValueError(f"{path} must be JSON-compatible") from err
 
