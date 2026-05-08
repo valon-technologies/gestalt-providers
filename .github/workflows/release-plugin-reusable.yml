@@ -161,6 +161,8 @@ jobs:
           cd "${{ inputs.plugin-dir }}" && cargo test
       - name: Validate Python plugin
         if: needs.metadata.outputs.source-language == 'python'
+        env:
+          GESTALT_CHECKOUT: ${{ github.workspace }}/../gestalt
         run: python3 .github/scripts/validate_python_plugin.py "${{ inputs.plugin-dir }}"
       - name: Test TypeScript plugin
         if: needs.metadata.outputs.source-language == 'typescript'
