@@ -114,8 +114,8 @@ Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent run
 budget to Gestalt. When omitted, Gestalt's workflow-agent default applies.
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
-reaction to the source Slack message only after the workflow signal-or-start
-call succeeds. Emoji names may be written with or without colons, and Slack's
+reaction to the source Slack message before thread-context prefetch and workflow
+handoff. Emoji names may be written with or without colons, and Slack's
 `already_reacted` response is treated as idempotent success.
 
 For workflow-dispatched `message` and `app_mention` events that include
@@ -146,10 +146,10 @@ acknowledges the Slack callback. If the workflow handoff fails, the handler
 returns an error so Slack can retry the same event. The workflow provider owns
 run state, signal idempotency, retries, and output delivery.
 
-After the workflow has accepted the event, Slack-visible acknowledgement
-reactions and native assistant loading status updates are best effort. Failures
-there are reported in the response body but do not block the Slack callback,
-because the durable workflow has already accepted the event.
+Slack-visible acknowledgement reactions and native assistant loading status
+updates are best effort and run before thread-context prefetch and workflow
+handoff. Failures there are reported in the response body but do not block the
+durable workflow path.
 
 ## HTTP Routes
 

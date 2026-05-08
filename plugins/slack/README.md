@@ -171,8 +171,8 @@ plugins:
 ```
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
-reaction to the source Slack message after the workflow provider accepts the
-event. Emoji names may be written with or without colons, and Slack's
+reaction to the source Slack message before thread-context prefetch and workflow
+handoff. Emoji names may be written with or without colons, and Slack's
 `already_reacted` response is treated as idempotent success.
 
 `events.handle` calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,

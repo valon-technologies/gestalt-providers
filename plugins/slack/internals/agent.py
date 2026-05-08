@@ -479,6 +479,9 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             message = "Slack event handling requires a Gestalt SDK/runtime with workflow manager support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
+        acknowledgement_reaction_error, assistant_status_error = (
+            _mark_slack_event_handoff_started(event, route, log_context)
+        )
         with workflow_manager_factory() as workflow_manager:
             workflow_request = _build_workflow_signal_or_start_request(
                 event, route, reply_ref
@@ -507,42 +510,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         if publish_response is not None:
             return publish_response
         response = _workflow_dispatched_ack_fallback()
-    try:
-        _add_acknowledgement_reaction(event, route)
-    except SlackAPIError as err:
-        error = str(err.body.get("error") or err.body)
-        if error != "already_reacted":
-            acknowledgement_reaction_error = error
-            logger.warning(
-                "failed to add Slack event acknowledgement reaction %s error=%s",
-                log_context,
-                error,
-            )
-    except SlackClientError as err:
-        acknowledgement_reaction_error = str(err)
-        logger.warning(
-            "failed to add Slack event acknowledgement reaction %s error=%s",
-            log_context,
-            acknowledgement_reaction_error,
-        )
-    assistant = _assistant_config(route)
-    if assistant.enabled:
-        try:
-            _set_initial_assistant_status(event, route)
-        except SlackAPIError as err:
-            assistant_status_error = str(err.body.get("error") or err.body)
-            logger.warning(
-                "failed to set initial Slack assistant status %s error=%s",
-                log_context,
-                assistant_status_error,
-            )
-        except SlackClientError as err:
-            assistant_status_error = str(err)
-            logger.warning(
-                "failed to set initial Slack assistant status %s error=%s",
-                log_context,
-                assistant_status_error,
-            )
     if acknowledgement_reaction_error:
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
@@ -1360,6 +1327,52 @@ def _set_initial_assistant_status(
         icon_url=assistant.icon_url,
         username=assistant.username,
     )
+
+
+def _mark_slack_event_handoff_started(
+    event: SlackAgentEvent,
+    route: SlackAgentRoute | None,
+    log_context: str,
+) -> tuple[str, str]:
+    acknowledgement_reaction_error = ""
+    assistant_status_error = ""
+    try:
+        _add_acknowledgement_reaction(event, route)
+    except SlackAPIError as err:
+        error = str(err.body.get("error") or err.body)
+        if error != "already_reacted":
+            acknowledgement_reaction_error = error
+            logger.warning(
+                "failed to add Slack event acknowledgement reaction %s error=%s",
+                log_context,
+                error,
+            )
+    except SlackClientError as err:
+        acknowledgement_reaction_error = str(err)
+        logger.warning(
+            "failed to add Slack event acknowledgement reaction %s error=%s",
+            log_context,
+            acknowledgement_reaction_error,
+        )
+    assistant = _assistant_config(route)
+    if assistant.enabled:
+        try:
+            _set_initial_assistant_status(event, route)
+        except SlackAPIError as err:
+            assistant_status_error = str(err.body.get("error") or err.body)
+            logger.warning(
+                "failed to set initial Slack assistant status %s error=%s",
+                log_context,
+                assistant_status_error,
+            )
+        except SlackClientError as err:
+            assistant_status_error = str(err)
+            logger.warning(
+                "failed to set initial Slack assistant status %s error=%s",
+                log_context,
+                assistant_status_error,
+            )
+    return acknowledgement_reaction_error, assistant_status_error
 
 
 def _add_acknowledgement_reaction(

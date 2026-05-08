@@ -2729,6 +2729,88 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
+    def test_slack_event_signal_failure_still_adds_acknowledgement_reaction(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agentProvider": "simple",
+                "agentModel": "deep",
+                "acknowledgement": {"reaction": "eyes"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_manager.signal_or_start_error = RuntimeError("signal failed")
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvSignalFailAck",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> summarize deploy status",
+                "ts": "1712161829.000300",
+            },
+        }
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            calls.append((parsed.path, request_json(request)))
+            return FakeHTTPResponse('{"ok": true}')
+
+        request = gestalt.Request(
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+        )
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.slack_events_handle(payload, request)
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(
+            response.body,
+            {"error": "failed to signal workflow run: signal failed"},
+        )
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/reactions.add",
+                    {
+                        "channel": "C789",
+                        "timestamp": "1712161829.000300",
+                        "name": "eyes",
+                    },
+                )
+            ],
+        )
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+
     def test_slack_event_handler_notifies_unlinked_user(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
         self.addCleanup(provider_module.configure, "slack", {})
@@ -3162,7 +3244,7 @@ class SlackProviderTests(unittest.TestCase):
             ],
         )
 
-    def test_slack_event_handler_adds_acknowledgement_reaction_after_workflow(
+    def test_slack_event_handler_adds_acknowledgement_reaction_before_workflow(
         self,
     ) -> None:
         provider_module.configure(
@@ -3234,7 +3316,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("acknowledgement_reaction_error", response)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
-            sequence, [("workflow", "signal"), ("slack", "/api/reactions.add")]
+            sequence, [("slack", "/api/reactions.add"), ("workflow", "signal")]
         )
         self.assertEqual(
             calls,
