@@ -58,14 +58,15 @@ const (
 	triggerKindSchedule = "schedule"
 	triggerKindEvent    = "event"
 
-	gestaltInputKey              = "_gestalt"
-	eventRunPermissionsKey       = "eventRunPermissions"
-	configManagedWorkflowSubject = "system:config"
-	configManagedWorkflowAuth    = "config"
-	configManagedWorkflowKind    = "system"
-	workflowMetadataKey          = "workflow"
-	dispatchPriorityMetadataKey  = "dispatchPriority"
-	staleRunStatusMessage        = "workflow provider restarted while run was in progress"
+	gestaltInputKey                   = "_gestalt"
+	eventRunPermissionsKey            = "eventRunPermissions"
+	configManagedWorkflowSubject      = "system:config"
+	configManagedWorkflowAuth         = "config"
+	configManagedWorkflowKind         = "system"
+	workflowMetadataKey               = "workflow"
+	workflowInvokeMetadataWorkflowKey = "workflow_key"
+	dispatchPriorityMetadataKey       = "dispatchPriority"
+	staleRunStatusMessage             = "workflow provider restarted while run was in progress"
 
 	signalStatePending   = "pending"
 	signalStateClaimed   = "claimed"
@@ -2058,6 +2059,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		Target:       cloneTarget(pending.Target),
 		RunId:        pending.ID,
 		Trigger:      pending.triggerProto(),
+		Metadata:     workflowInvokeMetadata(pending.WorkflowKey),
 		CreatedBy:    cloneActor(pending.CreatedBy),
 		ExecutionRef: pending.ExecutionRef,
 		Signals:      signalProtos(claimedSignals),
@@ -2866,6 +2868,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func workflowInvokeMetadata(workflowKey string) *structpb.Struct {
+	workflowKey = strings.TrimSpace(workflowKey)
+	if workflowKey == "" {
+		return nil
+	}
+	return structFromAny(map[string]any{
+		workflowInvokeMetadataWorkflowKey: workflowKey,
+	})
 }
 
 func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore *gestalt.ObjectStoreClient, signalStore *gestalt.ObjectStoreClient, run workflowRunRecord, workflowKey string, now time.Time) error {

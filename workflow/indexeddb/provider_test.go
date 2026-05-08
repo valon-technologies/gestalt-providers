@@ -292,8 +292,9 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 
 	target := protoAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
 	changedTarget := protoAgentTarget("managed", "gpt-5.5-latest", "Updated prompt")
+	workflowKey := "slack:T123:C123:1700000000.000001"
 	first, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
-		WorkflowKey:  "slack:T123:C123:1700000000.000001",
+		WorkflowKey:  workflowKey,
 		Target:       target,
 		ExecutionRef: "agent-ref",
 		Signal:       protoWorkflowSignal(t, "", "evt-1", "first"),
@@ -327,9 +328,12 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if len(firstCall.GetSignals()) != 1 || firstCall.GetSignals()[0].GetIdempotencyKey() != "evt-1" {
 		t.Fatalf("first call signals = %#v", firstCall.GetSignals())
 	}
+	if firstCall.GetMetadata() == nil || firstCall.GetMetadata().AsMap()["workflow_key"] != workflowKey {
+		t.Fatalf("first call metadata = %#v, want workflow_key %q", firstCall.GetMetadata(), workflowKey)
+	}
 
 	second, err := provider.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
-		WorkflowKey:  "slack:T123:C123:1700000000.000001",
+		WorkflowKey:  workflowKey,
 		Target:       changedTarget,
 		ExecutionRef: "ignored-new-ref",
 		Signal:       protoWorkflowSignal(t, "", "evt-2", "second"),
@@ -363,6 +367,9 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	}
 	if secondCall.GetExecutionRef() != "agent-ref" {
 		t.Fatalf("second call execution_ref = %q, want original agent-ref", secondCall.GetExecutionRef())
+	}
+	if secondCall.GetMetadata() == nil || secondCall.GetMetadata().AsMap()["workflow_key"] != workflowKey {
+		t.Fatalf("second call metadata = %#v, want workflow_key %q", secondCall.GetMetadata(), workflowKey)
 	}
 
 	waitForCondition(t, time.Second, func() bool {
