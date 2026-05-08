@@ -16,7 +16,7 @@ const mcpTabs = [
 const agentEnvironmentTabs = [
   { id: "agent-codex", label: "Codex Cloud" },
   { id: "agent-cursor", label: "Cursor Cloud Agents" },
-  { id: "agent-claude-code", label: "Claude Code on the web" },
+  { id: "agent-claude-code", label: "Claude Code web" },
 ] as const;
 
 type McpTabId = (typeof mcpTabs)[number]["id"];
@@ -925,18 +925,6 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         </p>
         <CodeBlock code={agentStartupScript()} />
         <p className="doc-copy">
-          Claude Code on the web does not have a dedicated secrets store yet;
-          environment variables and setup scripts are visible to users who can
-          edit the environment. If you want Gestalt tools loaded through MCP in
-          cloud sessions, commit the project{" "}
-          <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
-          config from{" "}
-          <Link href="/docs/mcp" className="doc-link">
-            Use With MCP
-          </Link>
-          .
-        </p>
-        <p className="doc-copy">
           Reference:{" "}
           <a
             href="https://code.claude.com/docs/en/claude-code-on-the-web"
@@ -944,7 +932,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
             rel="noreferrer"
             className="doc-link"
           >
-            Claude Code on the web
+            Claude Code web
           </a>
           .
         </p>

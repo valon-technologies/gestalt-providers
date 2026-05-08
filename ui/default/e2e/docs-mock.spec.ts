@@ -87,7 +87,7 @@ test.describe("Docs page", () => {
       agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
     ).toBeVisible();
     await expect(
-      agentTabs.getByRole("tab", { name: "Claude Code on the web" }),
+      agentTabs.getByRole("tab", { name: "Claude Code web" }),
     ).toBeVisible();
     await expect(page.locator("#agent-codex-panel")).toContainText(
       "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
@@ -118,13 +118,13 @@ test.describe("Docs page", () => {
     await expect(page.locator("#agent-cursor-panel")).not.toContainText(
       "export GESTALT_API_KEY",
     );
-    await agentTabs.getByRole("tab", { name: "Claude Code on the web" }).click();
+    await agentTabs.getByRole("tab", { name: "Claude Code web" }).click();
     await expect(page.locator("#agent-claude-code-panel")).toContainText(
       `GESTALT_URL=${expectedOrigin}`,
     );
     await expect(page.locator("#agent-claude-code-panel")).not.toContainText("BASE_URL");
-    await expect(page.locator("#agent-claude-code-panel")).toContainText(
-      "Claude Code on the web does not have a dedicated secrets store yet",
+    await expect(page.locator("#agent-claude-code-panel")).not.toContainText(
+      "dedicated secrets store",
     );
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
