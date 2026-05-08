@@ -199,6 +199,91 @@ def _workflow_signal_fields_log_context(fields: dict[str, Any]) -> str:
     )
 
 
+def _request_workflow_context(req: gestalt.Request) -> dict[str, Any]:
+    workflow = getattr(req, "workflow", {}) or {}
+    return workflow if isinstance(workflow, dict) else {}
+
+
+def _workflow_log_context(req: gestalt.Request) -> str:
+    workflow = _request_workflow_context(req)
+    trigger = workflow.get("trigger")
+    if not isinstance(trigger, dict):
+        trigger = {}
+    signals = workflow.get("signals")
+    signal: dict[str, Any] = {}
+    if isinstance(signals, list) and signals and isinstance(signals[-1], dict):
+        signal = signals[-1]
+    return _log_context(
+        workflow_provider=workflow.get("provider"),
+        workflow_run_id=workflow.get("runId"),
+        workflow_execution_ref=workflow.get("executionRef"),
+        workflow_trigger_kind=trigger.get("kind"),
+        workflow_schedule_id=trigger.get("scheduleId"),
+        workflow_event_trigger_id=trigger.get("triggerId"),
+        workflow_signal_id=signal.get("id"),
+        workflow_signal_name=signal.get("name"),
+        idempotency_key=getattr(req, "idempotency_key", ""),
+    )
+
+
+def _reply_ref_hash(reply_ref: str) -> str:
+    value = reply_ref.strip()
+    if not value:
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _log_body(value: Any, *, max_bytes: int = 2048) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            text = str(value)
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    truncated = encoded[: max(0, max_bytes - 3)]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore") + "..."
+
+
+def _slack_delivery_log_context(
+    req: gestalt.Request,
+    operation: str,
+    *,
+    reply_ref: str,
+    verified_ref: SlackReplyRef | None = None,
+    text: str = "",
+    session_id: str = "",
+) -> str:
+    return _log_context(
+        operation=operation,
+        subject_id=_request_subject_id(req),
+        credential_subject_id=getattr(getattr(req, "credential", None), "subject_id", ""),
+        agent_subject_id=getattr(getattr(req, "agent_subject", None), "id", ""),
+        slack_team_id=verified_ref.team_id if verified_ref else "",
+        slack_channel_id=verified_ref.channel_id if verified_ref else "",
+        slack_channel_type=verified_ref.channel_type if verified_ref else "",
+        slack_user_id=verified_ref.user_id if verified_ref else "",
+        slack_message_ts=verified_ref.message_ts if verified_ref else "",
+        slack_reply_thread_ts=verified_ref.reply_thread_ts if verified_ref else "",
+        slack_route_id=verified_ref.route_id if verified_ref else "",
+        workflow_key=_reply_ref_workflow_key(verified_ref) if verified_ref else "",
+        workflow_context=_workflow_log_context(req),
+        reply_ref_sha256=_reply_ref_hash(reply_ref),
+        text_bytes=len(text.encode("utf-8")) if text else "",
+        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if text
+        else "",
+        session_id=session_id,
+    )
+
+
 def _workflow_signal_response_fields(
     response: Any,
     fallback_workflow_key: str = "",
@@ -598,12 +683,24 @@ def reply_to_slack_event(
     reply_ref: str, text: str, req: gestalt.Request
 ) -> OperationResult:
     normalized_text = text.strip()
+    log_context = _slack_delivery_log_context(
+        req, SLACK_REPLY_OPERATION, reply_ref=reply_ref, text=normalized_text
+    )
     if not normalized_text:
+        logger.warning("rejected Slack event reply delivery %s error=text is required", log_context)
         return _bad_request("text is required")
 
     verified_ref: SlackReplyRef | None = None
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
+        log_context = _slack_delivery_log_context(
+            req,
+            SLACK_REPLY_OPERATION,
+            reply_ref=reply_ref,
+            verified_ref=verified_ref,
+            text=normalized_text,
+        )
+        logger.info("attempting Slack event reply delivery %s", log_context)
         result = post_message(
             _agent_config.bot.token,
             channel=verified_ref.channel_id,
@@ -612,12 +709,26 @@ def reply_to_slack_event(
             client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
+        logger.warning("failed Slack event reply delivery %s error=%s", log_context, err)
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
+        logger.warning(
+            "failed Slack event reply delivery %s status=%s slack_response_body=%s",
+            log_context,
+            err.status,
+            _log_body(err.body),
+        )
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
+        logger.warning("failed Slack event reply delivery %s error=%s", log_context, err)
         return _event_client_error(err)
 
+    logger.info(
+        "delivered Slack event reply %s slack_channel_id=%s slack_ts=%s",
+        log_context,
+        str(result.get("channel") or verified_ref.channel_id),
+        str(result.get("ts") or ""),
+    )
     return {
         "ok": True,
         "channel": str(result.get("channel") or verified_ref.channel_id),
@@ -630,15 +741,37 @@ def reply_slack_event_session_started(
     reply_ref: str, session_id: str, req: gestalt.Request
 ) -> OperationResult:
     normalized_session_id = session_id.strip()
+    log_context = _slack_delivery_log_context(
+        req,
+        SLACK_SESSION_STARTED_REPLY_OPERATION,
+        reply_ref=reply_ref,
+        session_id=normalized_session_id,
+    )
     if not normalized_session_id:
+        logger.warning(
+            "rejected Slack session-started delivery %s error=session_id is required",
+            log_context,
+        )
         return _bad_request("session_id is required")
 
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
+        log_context = _slack_delivery_log_context(
+            req,
+            SLACK_SESSION_STARTED_REPLY_OPERATION,
+            reply_ref=reply_ref,
+            verified_ref=verified_ref,
+            session_id=normalized_session_id,
+        )
     except ValueError as err:
+        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
 
     if _reply_ref_is_thread_reply(verified_ref):
+        logger.info(
+            "skipped Slack session-started delivery %s reason=thread_reply",
+            log_context,
+        )
         return {
             "ok": True,
             "skipped": True,
@@ -650,14 +783,27 @@ def reply_slack_event_session_started(
         getattr(getattr(req, "host", None), "public_base_url", "") or ""
     ).strip()
     if not base_url:
+        logger.warning(
+            "failed Slack session-started delivery %s error=host.public_base_url is required",
+            log_context,
+        )
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "host.public_base_url is required"},
         )
     session_url = f"{base_url.rstrip('/')}/agents?{urllib.parse.urlencode({'session': normalized_session_id})}"
     text = f"Started a Gestalt session: <{session_url}|open session>"
+    log_context = _slack_delivery_log_context(
+        req,
+        SLACK_SESSION_STARTED_REPLY_OPERATION,
+        reply_ref=reply_ref,
+        verified_ref=verified_ref,
+        text=text,
+        session_id=normalized_session_id,
+    )
 
     try:
+        logger.info("attempting Slack session-started delivery %s", log_context)
         result = post_message(
             _agent_config.bot.token,
             channel=verified_ref.channel_id,
@@ -668,12 +814,26 @@ def reply_slack_event_session_started(
             client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
+        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
+        logger.warning(
+            "failed Slack session-started delivery %s status=%s slack_response_body=%s",
+            log_context,
+            err.status,
+            _log_body(err.body),
+        )
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
+        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
         return _event_client_error(err)
 
+    logger.info(
+        "delivered Slack session-started delivery %s slack_channel_id=%s slack_ts=%s",
+        log_context,
+        str(result.get("channel") or verified_ref.channel_id),
+        str(result.get("ts") or ""),
+    )
     return {
         "ok": True,
         "channel": str(result.get("channel") or verified_ref.channel_id),
@@ -1303,7 +1463,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -3180,7 +3340,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except TypeError, ValueError, AttributeError:
+    except (TypeError, ValueError, AttributeError):
         return str(status)
 
 
