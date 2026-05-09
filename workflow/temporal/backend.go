@@ -11,11 +11,9 @@ import (
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
@@ -584,17 +582,9 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 	}
 	schedule, found, err := b.getScheduleIndex(ctx, id)
 	if err != nil {
-		if temporalSchedule, temporalFound, temporalErr := b.describeTemporalSchedule(ctx, id); temporalErr == nil && temporalFound {
-			return temporalSchedule, nil
-		}
 		return nil, err
 	}
 	if !found {
-		if temporalSchedule, temporalFound, temporalErr := b.describeTemporalSchedule(ctx, id); temporalErr != nil {
-			return nil, temporalErr
-		} else if temporalFound {
-			return temporalSchedule, nil
-		}
 		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
 	}
 	b.fillScheduleNextRun(ctx, schedule)
@@ -621,7 +611,7 @@ func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteW
 	if id == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
-	if _, found, err := b.getScheduleForMutation(ctx, id); err != nil {
+	if _, found, err := b.getScheduleIndex(ctx, id); err != nil {
 		return nil, err
 	} else if !found {
 		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
@@ -641,7 +631,7 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
-	schedule, found, err := b.getScheduleForMutation(ctx, id)
+	schedule, found, err := b.getScheduleIndex(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -664,7 +654,7 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
-	schedule, found, err := b.getScheduleForMutation(ctx, id)
+	schedule, found, err := b.getScheduleIndex(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -680,17 +670,6 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, err
 	}
 	return schedule, nil
-}
-
-func (b *temporalBackend) getScheduleForMutation(ctx context.Context, id string) (*proto.BoundWorkflowSchedule, bool, error) {
-	schedule, found, err := b.getScheduleIndex(ctx, id)
-	if err != nil {
-		return nil, false, err
-	}
-	if found {
-		return schedule, true, nil
-	}
-	return b.describeTemporalSchedule(ctx, id)
 }
 
 func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
@@ -1025,181 +1004,6 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	return nil
 }
 
-func (b *temporalBackend) listTemporalSchedules(ctx context.Context) ([]*proto.BoundWorkflowSchedule, error) {
-	iter, err := b.client.ScheduleClient().List(ctx, client.ScheduleListOptions{PageSize: 1000})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list temporal schedules: %v", err)
-	}
-	prefix := b.temporalScheduleIDPrefix()
-	var schedules []*proto.BoundWorkflowSchedule
-	for iter.HasNext() {
-		entry, err := iter.Next()
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "list temporal schedules: %v", err)
-		}
-		if entry == nil || !strings.HasPrefix(strings.TrimSpace(entry.ID), prefix) {
-			continue
-		}
-		schedule, found, err := b.describeTemporalScheduleByTemporalID(ctx, entry.ID, "")
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			schedules = append(schedules, schedule)
-		}
-	}
-	return schedules, nil
-}
-
-func (b *temporalBackend) describeTemporalSchedule(ctx context.Context, scheduleID string) (*proto.BoundWorkflowSchedule, bool, error) {
-	scheduleID = strings.TrimSpace(scheduleID)
-	if scheduleID == "" {
-		return nil, false, nil
-	}
-	return b.describeTemporalScheduleByTemporalID(ctx, b.temporalScheduleID(scheduleID), scheduleID)
-}
-
-func (b *temporalBackend) describeTemporalScheduleByTemporalID(ctx context.Context, temporalID, fallbackScheduleID string) (*proto.BoundWorkflowSchedule, bool, error) {
-	temporalID = strings.TrimSpace(temporalID)
-	if temporalID == "" {
-		return nil, false, nil
-	}
-	desc, err := b.client.ScheduleClient().GetHandle(ctx, temporalID).Describe(ctx)
-	if err != nil {
-		if isNotFound(err) {
-			return nil, false, nil
-		}
-		return nil, false, status.Errorf(codes.Internal, "describe temporal schedule: %v", err)
-	}
-	schedule, found, err := scheduleFromTemporalDescription(fallbackScheduleID, desc)
-	if err != nil {
-		return nil, false, status.Errorf(codes.Internal, "decode temporal schedule %q: %v", temporalID, err)
-	}
-	return schedule, found, nil
-}
-
-func scheduleFromTemporalDescription(fallbackScheduleID string, desc *client.ScheduleDescription) (*proto.BoundWorkflowSchedule, bool, error) {
-	if desc == nil {
-		return nil, false, nil
-	}
-	action, ok := desc.Schedule.Action.(*client.ScheduleWorkflowAction)
-	if !ok || action == nil {
-		return nil, false, nil
-	}
-	if schedule, found, err := scheduleFromTemporalActionMemo(action); found || err != nil {
-		if schedule != nil && schedule.GetId() == "" {
-			schedule.Id = strings.TrimSpace(fallbackScheduleID)
-		}
-		if schedule != nil {
-			applyTemporalScheduleDescription(schedule, desc)
-		}
-		return schedule, found, err
-	}
-	schedule, found, err := scheduleFromTemporalActionArgs(fallbackScheduleID, action)
-	if schedule != nil {
-		applyTemporalScheduleDescription(schedule, desc)
-	}
-	return schedule, found, err
-}
-
-func scheduleFromTemporalActionMemo(action *client.ScheduleWorkflowAction) (*proto.BoundWorkflowSchedule, bool, error) {
-	if action == nil || action.Memo == nil {
-		return nil, false, nil
-	}
-	payload, ok := temporalPayload(action.Memo[workflowScheduleMemoKey])
-	if !ok {
-		return nil, false, nil
-	}
-	var schedule proto.BoundWorkflowSchedule
-	if err := converter.GetDefaultDataConverter().FromPayload(payload, &schedule); err != nil {
-		return nil, false, err
-	}
-	return cloneSchedule(&schedule), schedule.GetId() != "", nil
-}
-
-func scheduleFromTemporalActionArgs(fallbackScheduleID string, action *client.ScheduleWorkflowAction) (*proto.BoundWorkflowSchedule, bool, error) {
-	if action == nil {
-		return nil, false, nil
-	}
-	if len(action.Args) != 1 {
-		return nil, false, nil
-	}
-	payload, ok := temporalActionArg(action, 0)
-	if !ok {
-		return nil, false, nil
-	}
-	var v4 runWorkflowV4Input
-	if err := converter.GetDefaultDataConverter().FromPayload(payload, &v4); err == nil {
-		if runActionInputHasScheduleMetadata(v4.ScheduleID, v4.TargetPayload, v4.CreatedByPayload, v4.ExecutionRef) {
-			if schedule := scheduleFromRunActionInput(fallbackScheduleID, v4.ScheduleID, v4.TargetPayload, v4.CreatedByPayload, v4.ExecutionRef); schedule != nil {
-				return schedule, true, nil
-			}
-		}
-	}
-	return nil, false, nil
-}
-
-func runActionInputHasScheduleMetadata(scheduleID string, targetPayload, createdByPayload []byte, executionRef string) bool {
-	return strings.TrimSpace(scheduleID) != "" ||
-		len(targetPayload) > 0 ||
-		len(createdByPayload) > 0 ||
-		strings.TrimSpace(executionRef) != ""
-}
-
-func scheduleFromRunActionInput(fallbackScheduleID, scheduleID string, targetPayload, createdByPayload []byte, executionRef string) *proto.BoundWorkflowSchedule {
-	scheduleID = strings.TrimSpace(scheduleID)
-	if scheduleID == "" {
-		scheduleID = strings.TrimSpace(fallbackScheduleID)
-	}
-	if scheduleID == "" {
-		return nil
-	}
-	return &proto.BoundWorkflowSchedule{
-		Id:           scheduleID,
-		Target:       targetFromPayload(targetPayload),
-		CreatedBy:    actorFromPayload(createdByPayload),
-		ExecutionRef: strings.TrimSpace(executionRef),
-	}
-}
-
-func applyTemporalScheduleDescription(schedule *proto.BoundWorkflowSchedule, desc *client.ScheduleDescription) {
-	if schedule == nil || desc == nil {
-		return
-	}
-	if spec := desc.Schedule.Spec; spec != nil {
-		if schedule.GetCron() == "" && len(spec.CronExpressions) > 0 {
-			schedule.Cron = spec.CronExpressions[0]
-		}
-		if schedule.GetTimezone() == "" {
-			schedule.Timezone = strings.TrimSpace(spec.TimeZoneName)
-		}
-	}
-	if state := desc.Schedule.State; state != nil {
-		schedule.Paused = state.Paused
-	}
-	if !desc.Info.CreatedAt.IsZero() && schedule.GetCreatedAt() == nil {
-		gestalt.SetTime(&schedule.CreatedAt, desc.Info.CreatedAt.UTC())
-	}
-	if !desc.Info.LastUpdateAt.IsZero() {
-		gestalt.SetTime(&schedule.UpdatedAt, desc.Info.LastUpdateAt.UTC())
-	}
-	if len(desc.Info.NextActionTimes) > 0 {
-		gestalt.SetTime(&schedule.NextRunAt, desc.Info.NextActionTimes[0].UTC())
-	}
-}
-
-func temporalActionArg(action *client.ScheduleWorkflowAction, index int) (*commonpb.Payload, bool) {
-	if action == nil || index < 0 || index >= len(action.Args) {
-		return nil, false
-	}
-	return temporalPayload(action.Args[index])
-}
-
-func temporalPayload(value interface{}) (*commonpb.Payload, bool) {
-	payload, ok := value.(*commonpb.Payload)
-	return payload, ok && payload != nil
-}
-
 func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *proto.BoundWorkflowSchedule) {
 	desc, err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(schedule.GetId())).Describe(ctx)
 	if err != nil || len(desc.Info.NextActionTimes) == 0 {
@@ -1210,10 +1014,6 @@ func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *pro
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {
 	return workflowID(b.cfg.ScopeID, "schedule", scheduleID)
-}
-
-func (b *temporalBackend) temporalScheduleIDPrefix() string {
-	return "gestalt/" + scopeHash(b.cfg.ScopeID) + "/schedule/"
 }
 
 func (b *temporalBackend) startOptions(workflowID string) client.StartWorkflowOptions {
