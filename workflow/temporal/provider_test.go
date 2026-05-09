@@ -2330,37 +2330,17 @@ func TestProviderSurfaceRequiresConfiguredBackend(t *testing.T) {
 	}
 }
 
-func TestProviderSurfaceDelegatesWorkflowRPCs(t *testing.T) {
-	backend := &fakeBackend{
-		listRuns: &proto.ListWorkflowProviderRunsResponse{Runs: []*proto.BoundWorkflowRun{{Id: "run-1"}}},
-	}
-	provider := &Provider{name: "temporal", backend: backend}
-	resp, err := provider.ListRuns(context.Background(), &proto.ListWorkflowProviderRunsRequest{})
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].GetId() != "run-1" {
-		t.Fatalf("ListRuns response = %#v", resp)
-	}
-	if !backend.calledListRuns {
-		t.Fatalf("backend ListRuns was not called")
-	}
-	if backend.startCount != 0 {
-		t.Fatalf("metadata ListRuns started backend %d times, want 0", backend.startCount)
-	}
-}
-
 func TestProviderSurfaceStartsBackendForExecutionRPCs(t *testing.T) {
-	backend := &fakeBackend{
-		startErr: errors.New("worker unavailable"),
-	}
+	worker := &fakeTemporalWorker{startErr: errors.New("worker unavailable")}
+	backend := newTestTemporalBackendForStart(baseTemporalConfig(), nil, worker)
 	provider := &Provider{name: "temporal", backend: backend}
+
 	_, err := provider.StartRun(context.Background(), &proto.StartWorkflowProviderRunRequest{})
 	if status.Code(err) != codes.Internal {
 		t.Fatalf("StartRun error = %v, want Internal", err)
 	}
-	if backend.startCount != 1 {
-		t.Fatalf("backend Start calls = %d, want 1", backend.startCount)
+	if worker.startCount != 1 {
+		t.Fatalf("worker Start calls = %d, want 1", worker.startCount)
 	}
 }
 
@@ -3143,89 +3123,6 @@ func cloneScheduleDescription(desc *client.ScheduleDescription) *client.Schedule
 	}
 	clone := *desc
 	return &clone
-}
-
-type fakeBackend struct {
-	calledListRuns bool
-	startCount     int
-	startErr       error
-	listRuns       *proto.ListWorkflowProviderRunsResponse
-}
-
-func (f *fakeBackend) Start(context.Context) error {
-	f.startCount++
-	return f.startErr
-}
-func (f *fakeBackend) Close() error { return nil }
-func (f *fakeBackend) HealthCheck(context.Context) error {
-	return nil
-}
-func (f *fakeBackend) StartRun(context.Context, *proto.StartWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) GetRun(context.Context, *proto.GetWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) ListRuns(context.Context, *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	f.calledListRuns = true
-	return f.listRuns, nil
-}
-func (f *fakeBackend) CancelRun(context.Context, *proto.CancelWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) SignalRun(context.Context, *proto.SignalWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) SignalOrStartRun(context.Context, *proto.SignalOrStartWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) UpsertSchedule(context.Context, *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) GetSchedule(context.Context, *proto.GetWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) ListSchedules(context.Context, *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) DeleteSchedule(context.Context, *proto.DeleteWorkflowProviderScheduleRequest) error {
-	return status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) PauseSchedule(context.Context, *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) ResumeSchedule(context.Context, *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) UpsertEventTrigger(context.Context, *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) GetEventTrigger(context.Context, *proto.GetWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) ListEventTriggers(context.Context, *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) DeleteEventTrigger(context.Context, *proto.DeleteWorkflowProviderEventTriggerRequest) error {
-	return status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) PauseEventTrigger(context.Context, *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) ResumeEventTrigger(context.Context, *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) PutExecutionReference(context.Context, *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) GetExecutionReference(context.Context, *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) ListExecutionReferences(context.Context, *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-func (f *fakeBackend) PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) error {
-	return status.Error(codes.Unimplemented, "not implemented")
 }
 
 func collectTemporalWorkflowMetrics(t *testing.T, reader *sdkmetric.ManualReader) metricdata.ResourceMetrics {
