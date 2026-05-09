@@ -4321,7 +4321,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/slack/assets/icon.svg",
       "kind": "plugin",
-      "latestInstallableVersion": "0.0.1-alpha.64",
+      "latestInstallableVersion": "0.0.1-alpha.65",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/slack/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.62",
       "name": "slack",
@@ -4331,6 +4331,20 @@
       "registryPath": "/providers/plugin/slack/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/slack",
       "versions": [
+        {
+          "kind": "plugin",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.65/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
+            "generic"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.65"
+        },
         {
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.64/provider-release.yaml",
