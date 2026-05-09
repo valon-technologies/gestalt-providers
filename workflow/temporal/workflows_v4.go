@@ -94,11 +94,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	if initial := signalFromPayload(input.InitialSignalPayload); initial != nil {
 		appendSignal(initial)
 	}
-	if err := workflow.SetQueryHandler(ctx, queryRunState, func() (*proto.BoundWorkflowRun, error) {
-		return cloneRun(state), nil
-	}); err != nil {
-		return nil, err
-	}
 	if err := workflow.SetUpdateHandler(ctx, updateAddSignal, func(ctx workflow.Context, signal *proto.WorkflowSignal) (*proto.SignalWorkflowRunResponse, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
