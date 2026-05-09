@@ -31,12 +31,6 @@ const (
 	indexByTriggerID = "by_trigger_id"
 )
 
-var deprecatedWorkflowStateStores = []string{
-	"workflow_temporal_runs",
-	"workflow_temporal_workflow_keys",
-	"workflow_temporal_idempotency",
-}
-
 type workflowStateStore struct {
 	db      *gestalt.IndexedDBClient
 	scopeID string
@@ -69,10 +63,6 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
-	if err := deleteDeprecatedWorkflowStateStores(ctx, db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	if err := ensureWorkflowStateStores(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -89,23 +79,7 @@ func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*work
 		signalIdempotency: db.ObjectStore(storeTemporalSignalIdempotency),
 		workflowKeys:      db.ObjectStore(storeTemporalWorkflowKeys),
 	}
-	if err := store.purgeLegacyRunHandleRecords(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	return store, nil
-}
-
-func deleteDeprecatedWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
-	if db == nil {
-		return nil
-	}
-	for _, name := range deprecatedWorkflowStateStores {
-		if err := db.DeleteObjectStore(ctx, name); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			return fmt.Errorf("delete deprecated indexeddb object store %s: %w", name, err)
-		}
-	}
-	return nil
 }
 
 func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
@@ -127,116 +101,6 @@ func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient)
 	return nil
 }
 
-func (s *workflowStateStore) purgeLegacyRunHandleRecords(ctx context.Context) error {
-	if s == nil {
-		return nil
-	}
-	if err := s.purgeLegacyRunProjectionRecords(ctx); err != nil {
-		return err
-	}
-	if err := s.purgeLegacyWorkflowKeyRecords(ctx); err != nil {
-		return err
-	}
-	if err := s.purgeLegacyRunIdempotencyRecords(ctx); err != nil {
-		return err
-	}
-	if err := s.purgeLegacySignalIdempotencyRecords(ctx); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *workflowStateStore) purgeLegacyRunProjectionRecords(ctx context.Context) error {
-	records, err := s.runProjections.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("list workflow run projections for cleanup: %w", err)
-	}
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		run, err := runFromRecord(record)
-		if err != nil {
-			return fmt.Errorf("decode workflow run projection for cleanup: %w", err)
-		}
-		if unsupportedTemporalRunID(run.GetId()) {
-			if err := s.runProjections.Delete(ctx, recordString(record, "id")); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-				return fmt.Errorf("delete legacy workflow run projection: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *workflowStateStore) purgeLegacyWorkflowKeyRecords(ctx context.Context) error {
-	records, err := s.workflowKeys.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("list workflow key records for cleanup: %w", err)
-	}
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		key := workflowKeyFromRecord(record)
-		if unsupportedTemporalRunID(key.RunID) {
-			if err := s.workflowKeys.Delete(ctx, key.ID); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-				return fmt.Errorf("delete legacy workflow key record: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *workflowStateStore) purgeLegacyRunIdempotencyRecords(ctx context.Context) error {
-	records, err := s.runIdempotency.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("list workflow run idempotency records for cleanup: %w", err)
-	}
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		entry := runIdempotencyFromRecord(record)
-		if unsupportedTemporalRunID(entry.RunID) || unsupportedTemporalRunPayload(entry.RunPayload) {
-			if err := s.runIdempotency.Delete(ctx, entry.ID); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-				return fmt.Errorf("delete legacy workflow run idempotency record: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (s *workflowStateStore) purgeLegacySignalIdempotencyRecords(ctx context.Context) error {
-	records, err := s.signalIdempotency.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("list workflow signal idempotency records for cleanup: %w", err)
-	}
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		entry := signalIdempotencyFromRecord(record)
-		if unsupportedTemporalRunID(entry.RunID) || unsupportedTemporalRunPayload(entry.RunPayload) || unsupportedTemporalSignalResponsePayload(entry.ResponsePayload) {
-			if err := s.signalIdempotency.Delete(ctx, entry.ID); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-				return fmt.Errorf("delete legacy workflow signal idempotency record: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
 func unsupportedTemporalRunID(id string) bool {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -244,16 +108,6 @@ func unsupportedTemporalRunID(id string) bool {
 	}
 	_, err := decodeTemporalRunHandle(id)
 	return err != nil
-}
-
-func unsupportedTemporalRunPayload(payload []byte) bool {
-	run := runFromPayload(payload)
-	return run != nil && unsupportedTemporalRunID(run.GetId())
-}
-
-func unsupportedTemporalSignalResponsePayload(payload []byte) bool {
-	resp := signalResponseFromPayload(payload)
-	return resp != nil && unsupportedTemporalRunID(resp.GetRun().GetId())
 }
 
 func temporalRunProjectionSchema() gestalt.ObjectStoreSchema {
@@ -446,6 +300,9 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*proto.Boun
 		return nil, false, err
 	}
 	run, err := runFromRecord(record)
+	if err == nil && unsupportedTemporalRunID(run.GetId()) {
+		return nil, false, nil
+	}
 	return run, err == nil && run.GetId() != "", err
 }
 
@@ -455,6 +312,9 @@ func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *ges
 		return nil, false, err
 	}
 	run, err := runFromRecord(record)
+	if err == nil && unsupportedTemporalRunID(run.GetId()) {
+		return nil, false, nil
+	}
 	return run, err == nil && run.GetId() != "", err
 }
 

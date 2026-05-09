@@ -2062,13 +2062,14 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 	}
 }
 
-func TestWorkflowStateStorePurgesLegacyRunHandleRecordsOnOpen(t *testing.T) {
+func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
 	state, err := openWorkflowStateStore(ctx, "", "scope")
 	if err != nil {
 		t.Fatalf("openWorkflowStateStore: %v", err)
 	}
+	t.Cleanup(func() { _ = state.Close() })
 
 	legacyID := encodeTemporalRunHandle(temporalRunHandle{
 		Kind:             "temporal-run-v3",
@@ -2117,104 +2118,32 @@ func TestWorkflowStateStorePurgesLegacyRunHandleRecordsOnOpen(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("put current workflow key: %v", err)
 	}
-	if err := state.runIdempotency.Put(ctx, state.runIdempotencyRecord(runIdempotencyRecord{
-		ID:             state.runIdempotencyID("slack", "legacy-start"),
-		OwnerKey:       "slack",
-		IdempotencyKey: "legacy-start",
-		Fingerprint:    "legacy-fp",
-		Status:         "completed",
-		RunID:          legacyID,
-		CreatedAt:      time.Unix(100, 0).UTC(),
-		UpdatedAt:      time.Unix(100, 0).UTC(),
-		ExpiresAt:      time.Now().Add(time.Hour),
-		RunPayload:     protoPayload(legacyRun),
-	})); err != nil {
-		t.Fatalf("put legacy run idempotency: %v", err)
-	}
-	if err := state.runIdempotency.Put(ctx, state.runIdempotencyRecord(runIdempotencyRecord{
-		ID:             state.runIdempotencyID("slack", "current-start"),
-		OwnerKey:       "slack",
-		IdempotencyKey: "current-start",
-		Fingerprint:    "current-fp",
-		Status:         "completed",
-		RunID:          currentID,
-		CreatedAt:      time.Unix(100, 0).UTC(),
-		UpdatedAt:      time.Unix(100, 0).UTC(),
-		ExpiresAt:      time.Now().Add(time.Hour),
-		RunPayload:     protoPayload(currentRun),
-	})); err != nil {
-		t.Fatalf("put current run idempotency: %v", err)
-	}
-	if err := state.signalIdempotency.Put(ctx, state.signalIdempotencyRecord(signalIdempotencyRecord{
-		ID:              state.signalIdempotencyID("owner-idem:legacy"),
-		IdempotencyKey:  "owner-idem:legacy",
-		Operation:       "signal_or_start",
-		Fingerprint:     "legacy-fp",
-		Status:          "completed",
-		OwnerKey:        "slack",
-		WorkflowKey:     "legacy-thread",
-		RunID:           legacyID,
-		CreatedAt:       time.Unix(100, 0).UTC(),
-		UpdatedAt:       time.Unix(100, 0).UTC(),
-		ExpiresAt:       time.Now().Add(time.Hour),
-		ResponsePayload: protoPayload(&proto.SignalWorkflowRunResponse{Run: legacyRun, Signal: &proto.WorkflowSignal{Id: "legacy-signal"}}),
-		RunPayload:      protoPayload(legacyRun),
-	})); err != nil {
-		t.Fatalf("put legacy signal idempotency: %v", err)
-	}
-	if err := state.signalIdempotency.Put(ctx, state.signalIdempotencyRecord(signalIdempotencyRecord{
-		ID:              state.signalIdempotencyID("owner-idem:current"),
-		IdempotencyKey:  "owner-idem:current",
-		Operation:       "signal_or_start",
-		Fingerprint:     "current-fp",
-		Status:          "completed",
-		OwnerKey:        "slack",
-		WorkflowKey:     "current-thread",
-		RunID:           currentID,
-		CreatedAt:       time.Unix(100, 0).UTC(),
-		UpdatedAt:       time.Unix(100, 0).UTC(),
-		ExpiresAt:       time.Now().Add(time.Hour),
-		ResponsePayload: protoPayload(&proto.SignalWorkflowRunResponse{Run: currentRun, Signal: &proto.WorkflowSignal{Id: "current-signal"}}),
-		RunPayload:      protoPayload(currentRun),
-	})); err != nil {
-		t.Fatalf("put current signal idempotency: %v", err)
-	}
-	if err := state.Close(); err != nil {
-		t.Fatalf("close seeded state: %v", err)
-	}
 
-	reopened, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("reopenWorkflowStateStore: %v", err)
+	if _, found, err := state.getRun(ctx, legacyID); err != nil || found {
+		t.Fatalf("legacy run found=%v err=%v, want ignored", found, err)
 	}
-	t.Cleanup(func() { _ = reopened.Close() })
-	if _, found, err := reopened.getRun(ctx, legacyID); err != nil || found {
-		t.Fatalf("legacy run found=%v err=%v, want purged", found, err)
-	}
-	if _, found, err := reopened.getRun(ctx, currentID); err != nil || !found {
+	if _, found, err := state.getRun(ctx, currentID); err != nil || !found {
 		t.Fatalf("current run found=%v err=%v, want preserved", found, err)
 	}
-	if _, found, err := reopened.getWorkflowKeyRun(ctx, "legacy-thread"); err != nil || found {
-		t.Fatalf("legacy workflow key found=%v err=%v, want purged", found, err)
+	if _, found, err := state.getWorkflowKeyRun(ctx, "legacy-thread"); err != nil || found {
+		t.Fatalf("legacy workflow key found=%v err=%v, want ignored", found, err)
 	}
-	if _, found, err := reopened.getWorkflowKeyRun(ctx, "current-thread"); err != nil || !found {
+	if _, found, err := state.getWorkflowKeyRun(ctx, "current-thread"); err != nil || !found {
 		t.Fatalf("current workflow key found=%v err=%v, want preserved", found, err)
 	}
-	if _, err := reopened.runIdempotency.Get(ctx, reopened.runIdempotencyID("slack", "legacy-start")); !errors.Is(err, gestalt.ErrNotFound) {
-		t.Fatalf("legacy run idempotency err=%v, want not found", err)
+	replacementID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "replacement-workflow",
+		RunTemporalRunID: "replacement-run",
+		WorkflowKey:      "legacy-thread",
+		OwnerKey:         "slack",
+	})
+	replacementRun := &proto.BoundWorkflowRun{Id: replacementID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: pluginTarget("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	owner, claimed, err := state.claimWorkflowKeyRun(ctx, "legacy-thread", replacementRun, time.Unix(200, 0).UTC())
+	if err != nil {
+		t.Fatalf("claim replacement over unsupported owner: %v", err)
 	}
-	if _, err := reopened.runIdempotency.Get(ctx, reopened.runIdempotencyID("slack", "current-start")); err != nil {
-		t.Fatalf("current run idempotency: %v", err)
-	}
-	if _, err := reopened.signalIdempotency.Get(ctx, reopened.signalIdempotencyID("owner-idem:legacy")); !errors.Is(err, gestalt.ErrNotFound) {
-		t.Fatalf("legacy signal idempotency err=%v, want not found", err)
-	}
-	if _, err := reopened.signalIdempotency.Get(ctx, reopened.signalIdempotencyID("owner-idem:current")); err != nil {
-		t.Fatalf("current signal idempotency: %v", err)
-	}
-
-	if err := reopened.runProjections.Put(ctx, reopened.runRecord(legacyRun)); err != nil {
-		t.Fatalf("reinsert legacy projection: %v", err)
+	if !claimed || owner.GetId() != replacementID {
+		t.Fatalf("replacement claim owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
 	}
 	tc := &recordingTemporalClient{}
 	backend := newTemporalBackend("temporal", config{
@@ -2224,7 +2153,7 @@ func TestWorkflowStateStorePurgesLegacyRunHandleRecordsOnOpen(t *testing.T) {
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, reopened)
+	}, tc, nil, state)
 	if _, err := backend.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: legacyID}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("GetRun legacy projection error = %v, want InvalidArgument", err)
 	}
