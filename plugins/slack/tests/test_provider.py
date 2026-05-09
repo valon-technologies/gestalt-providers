@@ -44,9 +44,7 @@ ASSISTANT_EVENT_TOOL_REFS = [
     ("slack", "events.setThreadTitle"),
     ("slack", "events.setSuggestedPrompts"),
 ]
-WORKFLOW_EVENT_TOOL_REFS = [
-    ("slack", "interactions.request"),
-]
+WORKFLOW_EVENT_TOOL_REFS: list[tuple[str, str]] = []
 
 
 def new_struct() -> Any:
@@ -2033,7 +2031,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("slack.events.reply", agent_target.messages[0].text)
         self.assertIn("final assistant answer", agent_target.messages[0].text)
         self.assertIn("slack.events.setStatus", agent_target.messages[0].text)
-        self.assertIn("slack.interactions.request", agent_target.messages[0].text)
+        self.assertNotIn("slack.interactions.request", agent_target.messages[0].text)
         self.assertNotIn("slack.events.startStream", agent_target.messages[0].text)
         self.assertNotIn("slack.events.appendStream", agent_target.messages[0].text)
         self.assertNotIn("slack.events.stopStream", agent_target.messages[0].text)
@@ -3949,12 +3947,12 @@ class SlackProviderTests(unittest.TestCase):
                     reply_ref=reply_ref,
                     text="Approve deployment?",
                     actions=[
-                        {
-                            "id": "approve",
-                            "label": "Approve",
-                            "value": "approved",
-                            "style": "primary",
-                        }
+                        provider_module.SlackInteractionActionInput(
+                            action_id="approve",
+                            label="Approve",
+                            value="approved",
+                            style="primary",
+                        )
                     ],
                 ),
                 gestalt.Request(
@@ -4617,7 +4615,6 @@ class SlackProviderTests(unittest.TestCase):
                 ("supportSlackbot", "events.deleteStatus"),
                 ("supportSlackbot", "events.addReaction"),
                 ("supportSlackbot", "events.removeReaction"),
-                ("supportSlackbot", "interactions.request"),
             ],
         )
         self.assertEqual(
@@ -4637,7 +4634,7 @@ class SlackProviderTests(unittest.TestCase):
             "supportSlackbot.conversations.getThreadContext",
             agent_target.messages[0].text,
         )
-        self.assertIn(
+        self.assertNotIn(
             "supportSlackbot.interactions.request",
             agent_target.messages[0].text,
         )
@@ -5453,6 +5450,64 @@ class SlackProviderTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_agent_can_explicitly_expose_interaction_request_tool(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "tools": [
+                        {"plugin": "slack", "operation": "interactions.request"},
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvExplicitInteractions",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> ask me to choose",
+                "ts": "1712161829.000300",
+            },
+        }
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(
+            tool_ref_pairs(agent_target.tool_refs),
+            [
+                ("slack", "interactions.request"),
+                *BASE_EVENT_TOOL_REFS,
+            ],
+        )
 
     def test_configured_route_ignores_unaddressed_channel_message(self) -> None:
         provider_module.configure(

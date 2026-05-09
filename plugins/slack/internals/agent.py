@@ -3089,7 +3089,6 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
                 SLACK_ASSISTANT_PROMPTS_OPERATION,
             ]
         )
-    operations.append(SLACK_INTERACTION_REQUEST_OPERATION)
     return [
         _agent_tool_ref(
             system=ref.system,
@@ -3249,11 +3248,6 @@ def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
         parts.append(_agent_config.agent_system_prompt.strip())
     if route is not None and route.agent_system_prompt:
         parts.append(route.agent_system_prompt.strip())
-    parts.append(
-        f"Use {_agent_config.plugin_name}.{SLACK_INTERACTION_REQUEST_OPERATION} "
-        "when you need the Slack user to choose from explicit button actions. "
-        "Slack will deliver the selected action back as a workflow signal."
-    )
     return "\n\n".join(parts)
 
 

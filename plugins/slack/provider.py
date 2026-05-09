@@ -417,11 +417,28 @@ class SlackEventStreamStopInput(gestalt.Model):
     )
 
 
+class SlackInteractionActionInput(gestalt.Model):
+    action_id: str = gestalt.field(
+        description="Stable action id returned when the user clicks the button"
+    )
+    label: str = gestalt.field(description="Button label shown in Slack")
+    value: str = gestalt.field(
+        description="Value returned to the workflow when selected",
+        default="",
+        required=False,
+    )
+    style: str = gestalt.field(
+        description="Slack button style: primary, danger, or empty",
+        default="",
+        required=False,
+    )
+
+
 class SlackInteractionRequestInput(gestalt.Model):
     reply_ref: str = gestalt.field(description="Opaque Slack event reply reference")
     text: str = gestalt.field(description="Slack message text shown above the actions")
-    actions: list[dict[str, Any]] = gestalt.field(
-        description="Button actions with id/action_id, label/text, optional value, and optional primary/danger style",
+    actions: list[SlackInteractionActionInput] = gestalt.field(
+        description="Button actions to show in Slack",
     )
     expires_in_seconds: int = gestalt.field(
         description="Seconds before embedded Slack interaction refs expire",
@@ -471,7 +488,15 @@ def slack_interactions_request(
     return request_slack_interaction(
         input.reply_ref,
         input.text,
-        input.actions,
+        [
+            {
+                "action_id": action.action_id,
+                "label": action.label,
+                "value": action.value,
+                "style": action.style,
+            }
+            for action in input.actions
+        ],
         input.expires_in_seconds,
         req,
     )
