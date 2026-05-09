@@ -621,10 +621,10 @@ fn selector_input_schema(include_arguments: bool) -> JsonMap<String, JsonValue> 
     }
     let mut schema = json_object(json!({
         "type": "object",
-        "oneOf": [
-            {"required": ["mcp_name"]},
-            {"required": ["ref"]}
-        ],
+        "description": concat!(
+            "Select exactly one Gestalt tool by mcp_name or ref. ",
+            "The bridge validates that exactly one selector is present."
+        ),
         "additionalProperties": false
     }));
     schema.insert("properties".to_string(), JsonValue::Object(properties));

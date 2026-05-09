@@ -25,6 +25,7 @@ from gestalt._gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.config import SimpleAgentConfig
+from internals.orchestrator import TOOL_SEARCH_TOOL_SPEC, _schema_from_json, _tool_search_load_refs
 from internals.store import SimpleRunStore, StoredTurnCheckpoint
 
 agent_pb2: Any = cast(Any, _agent_pb2)
@@ -891,6 +892,60 @@ class SimpleAgentProviderTests(unittest.TestCase):
         _host_servicer.pause_on_lookup = False
         _host_servicer.wait_until_released.set()
         _indexeddb_servicer.reset()
+
+    def test_agent_tool_schema_projection_merges_provider_hostile_combinators(self) -> None:
+        schema = _schema_from_json(
+            json.dumps(
+                {
+                    "type": ["object", "null"],
+                    "properties": {"root": {"type": "string"}},
+                    "required": ["root"],
+                    "allOf": [{"properties": {"from_all_of": {"type": "string"}}, "required": ["from_all_of"]}],
+                    "oneOf": [{"properties": {"from_one_of": {"type": "string"}}, "required": ["from_one_of"]}],
+                }
+            )
+        )
+
+        self.assertEqual(schema["type"], "object")
+        self.assertNotIn("allOf", schema)
+        self.assertNotIn("oneOf", schema)
+        self.assertEqual(set(schema["properties"]), {"root", "from_all_of", "from_one_of"})
+        self.assertEqual(schema["required"], ["from_all_of", "root"])
+
+    def test_agent_tool_schema_projection_falls_back_on_conflicts(self) -> None:
+        schema = _schema_from_json(
+            json.dumps(
+                {
+                    "type": "object",
+                    "properties": {"same": {"type": "string"}},
+                    "allOf": [{"properties": {"same": {"type": "integer"}}}],
+                }
+            )
+        )
+
+        self.assertEqual(schema, {"type": "object", "properties": {}, "additionalProperties": True})
+
+    def test_tool_search_proxy_ref_schema_avoids_top_level_combinators(self) -> None:
+        load_ref_schema = TOOL_SEARCH_TOOL_SPEC["function"]["parameters"]["properties"]["load_refs"]["items"]
+
+        self.assertNotIn("anyOf", load_ref_schema)
+        self.assertIn("description", load_ref_schema)
+
+    def test_tool_search_load_refs_validates_selector_shape(self) -> None:
+        refs = _tool_search_load_refs(
+            [
+                {"plugin": "linear", "operation": "issues"},
+                {"system": "workflow", "operation": "runs.get"},
+                {"plugin": "linear", "system": "workflow", "operation": "ambiguous"},
+                {"system": "other", "operation": "unsupported"},
+                {"plugin": "missing-operation"},
+            ]
+        )
+
+        self.assertEqual(
+            [(ref.plugin, ref.system, ref.operation) for ref in refs],
+            [("linear", "", "issues"), ("", "workflow", "runs.get")],
+        )
 
     def test_configure_provider_defers_indexeddb_connection_until_agent_rpc(self) -> None:
         missing_socket = _fresh_socket("simple-agent-missing-indexeddb")

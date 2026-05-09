@@ -402,9 +402,82 @@ def _schema_from_json(value: str) -> dict[str, Any]:
         return {"type": "object", "additionalProperties": True}
     if not isinstance(payload, dict):
         return {"type": "object", "additionalProperties": True}
-    if payload.get("type") != "object":
-        payload = {"type": "object", "properties": {}, "additionalProperties": True}
-    return payload
+    projected = _project_object_schema(payload)
+    if projected is None:
+        return {"type": "object", "properties": {}, "additionalProperties": True}
+    return projected
+
+
+def _project_object_schema(schema: dict[str, Any]) -> dict[str, Any] | None:
+    if not _schema_type_supports_object(schema.get("type")):
+        return None
+    properties = _schema_properties(schema)
+    if properties is None:
+        return None
+    projected_properties = dict(properties)
+    required: set[str] = set()
+    for key, union_required in (("allOf", True), ("oneOf", False), ("anyOf", False)):
+        if not _merge_schema_branches(
+            branches=schema.get(key), properties=projected_properties, required=required, union_required=union_required
+        ):
+            return None
+    required.update(_schema_required(schema.get("required"), projected_properties))
+    projected: dict[str, Any] = {"type": "object"}
+    additional_properties = schema.get("additionalProperties")
+    if isinstance(additional_properties, bool):
+        projected["additionalProperties"] = additional_properties
+    if projected_properties:
+        projected["properties"] = projected_properties
+    if required:
+        projected["required"] = sorted(required)
+    return projected
+
+
+def _schema_type_supports_object(value: Any) -> bool:
+    if value is None:
+        return True
+    if value == "object":
+        return True
+    return isinstance(value, list) and "object" in value
+
+
+def _schema_properties(schema: dict[str, Any]) -> dict[str, Any] | None:
+    properties = schema.get("properties")
+    if properties is None:
+        return {}
+    if not isinstance(properties, dict):
+        return None
+    return properties
+
+
+def _merge_schema_branches(
+    *, branches: Any, properties: dict[str, Any], required: set[str], union_required: bool
+) -> bool:
+    if branches is None:
+        return True
+    if not isinstance(branches, list):
+        return False
+    for branch in branches:
+        if not isinstance(branch, dict):
+            return False
+        projected = _project_object_schema(branch)
+        if projected is None:
+            return False
+        branch_properties = projected.get("properties")
+        if isinstance(branch_properties, dict):
+            for name, value in branch_properties.items():
+                if name in properties and properties[name] != value:
+                    return False
+                properties[name] = value
+        if union_required:
+            required.update(_schema_required(projected.get("required"), properties))
+    return True
+
+
+def _schema_required(value: Any, properties: dict[str, Any]) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {item for item in value if isinstance(item, str) and item in properties}
 
 
 def _annotations(value: Any, *, title: str) -> ToolAnnotations | None:

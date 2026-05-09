@@ -26,7 +26,7 @@ from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
-from internals.mcp_bridge import GestaltMCPBridge
+from internals.mcp_bridge import GestaltMCPBridge, _schema_from_json
 from internals.provider_io import CreateSessionInput, ProviderRequestError
 from internals.session_start import ADDITIONAL_CONTEXT_KEY, prepend_session_start_context, run_session_start_hooks
 from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
@@ -297,6 +297,38 @@ class ClaudeProviderTests(unittest.TestCase):
         _indexeddb_servicer.reset()
         _FakeClaudeSDKClient.mode = "success"
         _FakeClaudeSDKClient.instances.clear()
+
+    def test_agent_tool_schema_projection_merges_provider_hostile_combinators(self) -> None:
+        schema = _schema_from_json(
+            json.dumps(
+                {
+                    "type": ["object", "null"],
+                    "properties": {"root": {"type": "string"}},
+                    "required": ["root"],
+                    "allOf": [{"properties": {"from_all_of": {"type": "string"}}, "required": ["from_all_of"]}],
+                    "anyOf": [{"properties": {"from_any_of": {"type": "string"}}, "required": ["from_any_of"]}],
+                }
+            )
+        )
+
+        self.assertEqual(schema["type"], "object")
+        self.assertNotIn("allOf", schema)
+        self.assertNotIn("anyOf", schema)
+        self.assertEqual(set(schema["properties"]), {"root", "from_all_of", "from_any_of"})
+        self.assertEqual(schema["required"], ["from_all_of", "root"])
+
+    def test_agent_tool_schema_projection_falls_back_on_conflicts(self) -> None:
+        schema = _schema_from_json(
+            json.dumps(
+                {
+                    "type": "object",
+                    "properties": {"same": {"type": "string"}},
+                    "allOf": [{"properties": {"same": {"type": "integer"}}}],
+                }
+            )
+        )
+
+        self.assertEqual(schema, {"type": "object", "properties": {}, "additionalProperties": True})
 
     def test_session_start_hooks_capture_context_and_metadata(self) -> None:
         hook = py_types.SimpleNamespace(
