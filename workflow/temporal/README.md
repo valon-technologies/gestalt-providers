@@ -27,7 +27,6 @@ providers:
         activityStartToCloseTimeout: 5m
         scheduleCatchupWindow: 1m
         versioning:
-          enabled: true
           deploymentName: prod-main
           buildID: ${CLOUD_RUN_REVISION}
 ```
@@ -36,14 +35,13 @@ providers:
 state records used by this provider. Reuse the same `scopeID` only for the same
 logical Gestalt workflow environment.
 
-`versioning` is optional. When omitted or disabled, workers poll the task queue
-as unversioned workers. When enabled, the provider starts Temporal Worker
-Deployment Versioning with `DeploymentOptions.UseVersioning`, the configured
-`deploymentName`, the resolved build ID, and Temporal auto-upgrade workflow
-behavior. Deployment configs should interpolate runtime revision variables into
-`buildID` before provider startup. The provider does not update Temporal Worker
-Deployment routing during startup; deploy pipelines must promote or ramp worker
-deployment versions after the new worker version is deployed and polling.
+`versioning.deploymentName` and `versioning.buildID` are required. The provider
+always starts workers with Temporal Worker Deployment Versioning,
+`DeploymentOptions.UseVersioning`, and Temporal auto-upgrade workflow behavior.
+Deployment configs should interpolate runtime revision variables into `buildID`
+before provider startup. The provider does not update Temporal Worker Deployment
+routing during startup; deploy pipelines must promote or ramp worker deployment
+versions after the new worker version is deployed and polling.
 
 ## Runtime Requirements
 

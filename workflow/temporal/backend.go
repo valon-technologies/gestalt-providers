@@ -84,9 +84,6 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 }
 
 func (b *temporalBackend) workerOptions() worker.Options {
-	if !b.cfg.Versioning.Enabled {
-		return worker.Options{}
-	}
 	return worker.Options{
 		DeploymentOptions: worker.DeploymentOptions{
 			UseVersioning: true,
