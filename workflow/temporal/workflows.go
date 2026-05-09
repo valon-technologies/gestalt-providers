@@ -3,8 +3,8 @@ package temporal
 import (
 	"context"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -37,7 +37,11 @@ func cloneRunTrigger(trigger *proto.WorkflowRunTrigger) *proto.WorkflowRunTrigge
 	if trigger == nil {
 		return nil
 	}
-	return gproto.Clone(trigger).(*proto.WorkflowRunTrigger)
+	out, err := gestalt.NewWorkflowRunTriggerFromTrigger(trigger)
+	if err != nil {
+		panic("clone workflow run trigger: " + err.Error())
+	}
+	return out
 }
 
 func cloneSignals(signals []*proto.WorkflowSignal) []*proto.WorkflowSignal {
