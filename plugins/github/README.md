@@ -202,8 +202,9 @@ a field are ORed, and fields are ANDed. Event matching prefers the
 `head_branch`, and push refs. `action.mode` defaults operations as follows:
 `observe` grants read-only pull request and CI tools, `comment` adds
 `bot.createPullRequestReview`, `bot.createPullRequestConversationComment`, and
-`bot.createIssueComment`, `branch_commit` may add `bot.commitFiles`, and
-`pull_request` may add the comment, commit, and pull request tools. Use
+`bot.createIssueComment`, `branch_commit` may add `bot.commitFiles` for
+same-PR branch commits, and `pull_request` may add the comment, commit, and
+pull request tools for follow-up PRs. Use
 `bot.createPullRequestReview` for inline file/line PR review comments, the pull
 request conversation operation for PR timeline comments, and the issue comment
 operation for Issues. `allowedOperations` can narrow or replace those defaults;
@@ -214,8 +215,9 @@ even when `mode` or `allowedOperations` would otherwise expose them. Set
 `action.selfFixMode` to choose the maximum self-fix behavior allowed by static
 configuration: `disabled` exposes no code-changing tools, `suggest` exposes no
 code-changing tools but allows the agent to describe a patch, `branch_commit`
-can expose `bot.commitFiles` without pull request creation, and `pull_request`
-can expose commit and pull request tools. `action.selfFixMode` defaults to
+can expose `bot.commitFiles` for committing directly to the original PR branch
+without pull request creation, and `pull_request` can expose commit and pull
+request tools for opening follow-up PRs. `action.selfFixMode` defaults to
 `disabled`; the older `action.allowSelfFix` remains a deprecated ceiling.
 
 `actionPreferences` optionally layers per-subject preferences over those static

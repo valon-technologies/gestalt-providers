@@ -10,6 +10,7 @@ from .constants import (
     MAX_GITHUB_TITLE_CHARS,
 )
 from .helpers import int_field, map_field, nested_str, str_field
+from .operations import pull_request_summary
 from .policy_metadata import policy_base_metadata
 from .webhook import bounded_text
 
@@ -18,6 +19,7 @@ def workflow_signal_data(
     payload: dict[str, Any],
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
+    pull_request_context: Any | None = None,
 ) -> dict[str, Any]:
     payload_digest = _payload_digest(payload)
     delivery_id = _github_delivery_id(payload)
@@ -29,7 +31,7 @@ def workflow_signal_data(
         "repository": _repository_data(payload),
         "sender": _sender_data(payload),
         "summary": summary,
-        "agent_request": _agent_request(payload, summary),
+        "agent_request": _agent_request(payload, summary, pull_request_context),
         "payload_sha256": payload_digest,
         "payload_omitted": True,
     }
@@ -59,13 +61,17 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _agent_request(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+def _agent_request(
+    payload: dict[str, Any],
+    summary: dict[str, Any],
+    pull_request_context: Any | None = None,
+) -> dict[str, Any]:
     request: dict[str, Any] = {}
     subject = _subject_data(payload, summary)
     if subject:
         request["subject"] = subject
     for key, value in {
-        "pull_request": _pull_request_data(payload),
+        "pull_request": _pull_request_data(payload, pull_request_context),
         "issue": _issue_data(payload),
         "comment": _comment_data(payload),
         "review": _review_data(payload),
@@ -116,9 +122,14 @@ def _subject_data(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str,
     return subject
 
 
-def _pull_request_data(payload: dict[str, Any]) -> dict[str, Any]:
+def _pull_request_data(
+    payload: dict[str, Any], pull_request_context: Any | None = None
+) -> dict[str, Any]:
     pull_request = map_field(payload, "pull_request")
     if not pull_request:
+        context_pull = getattr(pull_request_context, "pull_request", None)
+        if isinstance(context_pull, dict):
+            return _compact_dict_preserve_false(pull_request_summary(context_pull))
         issue = map_field(payload, "issue")
         if not map_field(issue, "pull_request"):
             return {}
@@ -130,17 +141,7 @@ def _pull_request_data(payload: dict[str, Any]) -> dict[str, Any]:
             or nested_str(issue, "pull_request", "html_url"),
         }
         return _compact_dict(data)
-    data = {
-        "number": _positive_int(pull_request, "number"),
-        "title": _bounded_field(pull_request, "title", MAX_GITHUB_TITLE_CHARS),
-        "state": str_field(pull_request, "state"),
-        "html_url": str_field(pull_request, "html_url"),
-        "head_ref": nested_str(pull_request, "head", "ref"),
-        "head_sha": nested_str(pull_request, "head", "sha"),
-        "base_ref": nested_str(pull_request, "base", "ref"),
-        "base_sha": nested_str(pull_request, "base", "sha"),
-    }
-    return _compact_dict(data)
+    return _compact_dict_preserve_false(pull_request_summary(pull_request))
 
 
 def _issue_data(payload: dict[str, Any]) -> dict[str, Any]:
@@ -297,6 +298,24 @@ def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
         for key, nested in value.items()
         if nested not in ("", 0, None, {}, [])
     }
+
+
+def _compact_dict_preserve_false(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: nested
+        for key, nested in value.items()
+        if _compact_value_present_preserve_false(nested)
+    }
+
+
+def _compact_value_present_preserve_false(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value)
+    if isinstance(value, bool):
+        return True
+    return value not in (0, {}, [])
 
 
 def _installation_data(payload: dict[str, Any]) -> dict[str, Any]:

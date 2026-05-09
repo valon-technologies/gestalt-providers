@@ -121,8 +121,8 @@ operations:
   - name: self_fix_mode
     type: string
     description: >-
-      Self-fix mode: disabled, suggest, branch_commit, pull_request, or null for
-      policy default.
+      Self-fix mode: disabled, suggest, branch_commit for same-PR commits,
+      pull_request for follow-up PRs, or null for policy default.
     default: null
 - id: actionPreferences.delete
   method: POST

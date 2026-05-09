@@ -16,6 +16,7 @@ from internals.client import (
 from internals.config import (
     GitHubActionPreferencesConfig,
     GitHubWebhookPolicy,
+    SELF_FIX_BRANCH_COMMIT,
     SELF_FIX_DISABLED,
     SELF_FIX_MODES,
     configure_from_mapping,
@@ -127,7 +128,7 @@ from internals.operations import (
     workflow_run_job_summary,
     workflow_run_summary,
 )
-from internals.helpers import int_field, map_field, str_field
+from internals.helpers import int_field, map_field, nested_str, str_field
 from internals.policy import select_webhook_policy, webhook_event_type_for_policy
 from internals.preferences import (
     apply_action_preferences,
@@ -932,7 +933,7 @@ class SetActionPreferenceInput(ActionPreferenceInput):
         required=False,
     )
     self_fix_mode: str | None = gestalt.field(
-        description="Self-fix mode: disabled, suggest, branch_commit, pull_request, or null for policy default.",
+        description="Self-fix mode: disabled, suggest, branch_commit for same-PR commits, pull_request for follow-up PRs, or null for policy default.",
         default=None,
         required=False,
     )
@@ -997,6 +998,7 @@ def github_events_handle(
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id, event_type=event_type)
     policy = None
+    pull_request_context = None
     if explicit_policies:
         policy = select_webhook_policy(config, input, summary)
         if policy is None:
@@ -1021,13 +1023,35 @@ def github_events_handle(
         policy = _policy_with_action_preferences(
             input, req, summary, policy, pull_request_context
         )
+        if (
+            pull_request_context is None
+            and _needs_pull_request_context_for_branch_commit(input, summary, policy)
+        ):
+            try:
+                pull_request_context = _fetch_pull_request_webhook_context(
+                    req, summary
+                )
+            except ValueError as err:
+                return _bad_request(str(err))
+            except GitHubAuthorizationError as err:
+                return _forbidden(str(err))
+            except GitHubConfigError as err:
+                return _server_error(str(err))
+            except GitHubAPIError as err:
+                return _github_error(err)
         if _review_pull_request_disabled_by_preference(policy):
             return {
                 "ok": True,
                 "ignored": "policy_preference_disabled:code_review_comments",
             }
 
-    return _signal_or_start_webhook_workflow(input, req, summary=summary, policy=policy)
+    return _signal_or_start_webhook_workflow(
+        input,
+        req,
+        summary=summary,
+        policy=policy,
+        pull_request_context=pull_request_context,
+    )
 
 
 def _signal_or_start_webhook_workflow(
@@ -1036,9 +1060,12 @@ def _signal_or_start_webhook_workflow(
     *,
     summary: dict[str, Any],
     policy: Any,
+    pull_request_context: GitHubPullRequestContext | None,
 ) -> OperationResult:
     workflow_key = ""
-    workflow_request = build_workflow_signal_or_start_request(input, summary, policy)
+    workflow_request = build_workflow_signal_or_start_request(
+        input, summary, policy, pull_request_context=pull_request_context
+    )
     workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
     review_check_run: dict[str, Any] | None = None
     if _policy_targets_review_pull_request(policy):
@@ -1066,6 +1093,7 @@ def _signal_or_start_webhook_workflow(
                 extra_signal_data={
                     "review_check_run": check_run_summary(review_check_run)
                 },
+                pull_request_context=pull_request_context,
             )
             workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
     try:
@@ -1426,6 +1454,12 @@ def _pull_request_webhook_context(
 ) -> GitHubPullRequestContext | None:
     if not _needs_pull_request_context(input, summary, policy):
         return None
+    return _fetch_pull_request_webhook_context(req, summary)
+
+
+def _fetch_pull_request_webhook_context(
+    req: gestalt.Request, summary: dict[str, Any]
+) -> GitHubPullRequestContext | None:
     owner = str(summary.get("repository_owner", "")).strip()
     repo = str(summary.get("repository_name", "")).strip()
     pull_number = _single_pull_request_number(summary.get("pull_request_numbers"))
@@ -1454,6 +1488,34 @@ def _needs_pull_request_context(
         input,
         summary,
         preferences_enabled=config.action_preferences.enabled,
+    )
+
+
+def _needs_pull_request_context_for_branch_commit(
+    input: dict[str, Any], summary: dict[str, Any], policy: Any
+) -> bool:
+    if getattr(policy, "self_fix_mode", "") != SELF_FIX_BRANCH_COMMIT:
+        return False
+    if not getattr(policy, "allow_self_fix", False):
+        return False
+    if BOT_COMMIT_FILES_OPERATION not in effective_policy_operations(policy):
+        return False
+    if _pull_request_payload_has_same_pr_commit_metadata(input):
+        return False
+    return _single_pull_request_number(summary.get("pull_request_numbers")) > 0
+
+
+def _pull_request_payload_has_same_pr_commit_metadata(input: dict[str, Any]) -> bool:
+    pull_request = map_field(input, "pull_request")
+    if not pull_request:
+        return False
+    head_repo = map_field(map_field(pull_request, "head"), "repo")
+    base_repo = map_field(map_field(pull_request, "base"), "repo")
+    return bool(
+        nested_str(pull_request, "head", "ref")
+        and nested_str(pull_request, "base", "ref")
+        and str_field(head_repo, "full_name")
+        and str_field(base_repo, "full_name")
     )
 
 
@@ -2922,8 +2984,8 @@ def _action_preference_control_options(
     labels = {
         "disabled": "Disabled",
         "suggest": "Suggest only",
-        "branch_commit": "Commit to branch",
-        "pull_request": "Open pull request",
+        "branch_commit": "Commit to same PR",
+        "pull_request": "Open follow-up PR",
     }
     return [
         {"value": mode, "label": labels[mode]}

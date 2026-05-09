@@ -57,6 +57,7 @@ def build_workflow_signal_or_start_request(
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
     extra_signal_data: dict[str, Any] | None = None,
+    pull_request_context: Any | None = None,
 ) -> Any:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
     request = gestalt.WorkflowManagerSignalOrStartRunRequest(
@@ -68,7 +69,11 @@ def build_workflow_signal_or_start_request(
             name=GITHUB_WORKFLOW_SIGNAL_NAME,
             idempotency_key=idempotency_key,
             payload=workflow_signal_payload(
-                payload, summary, policy, extra_signal_data
+                payload,
+                summary,
+                policy,
+                extra_signal_data,
+                pull_request_context=pull_request_context,
             ),
             metadata=agent_turn_metadata(summary, policy),
         ),
@@ -130,8 +135,11 @@ def workflow_signal_payload(
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
     extra_signal_data: dict[str, Any] | None = None,
+    pull_request_context: Any | None = None,
 ) -> dict[str, Any]:
-    data = workflow_signal_data(payload, summary, policy)
+    data = workflow_signal_data(
+        payload, summary, policy, pull_request_context=pull_request_context
+    )
     if extra_signal_data:
         data.update(extra_signal_data)
     if policy is not None:
@@ -276,13 +284,19 @@ def agent_operation_guidance(policy: GitHubWebhookPolicy | None = None) -> str:
         )
     elif policy is not None and policy.self_fix_mode == SELF_FIX_BRANCH_COMMIT:
         lines.append(
-            "Self-fix is limited to committing narrowly scoped changes to an "
-            "existing branch; do not open pull requests."
+            "Self-fix is same-PR mode: commit narrowly scoped changes to the "
+            "original pull request head branch using bot.commitFiles. Use the "
+            "pull_request.head_ref value as branch and pull_request.base_ref as "
+            "base_branch. Do not open pull requests. Only commit when "
+            "pull_request.head_repo_is_base_repo is true and head_ref/base_ref are "
+            "present; otherwise create a concise pull request timeline comment "
+            "explaining that the PR branch cannot be updated directly."
         )
     elif policy is not None and policy.self_fix_mode == SELF_FIX_PULL_REQUEST:
         lines.append(
-            "Self-fix may commit narrowly scoped changes and open pull requests "
-            "when the policy exposes those tools."
+            "Self-fix is follow-up PR mode: commit narrowly scoped changes to a "
+            "separate branch and open a pull request when the policy exposes "
+            "those tools."
         )
     if (
         BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations
@@ -419,16 +433,40 @@ def _prompt_section(name: str, value: dict[str, Any]) -> list[str]:
         "title",
         "state",
         "html_url",
+        "head",
         "head_ref",
+        "head_sha",
+        "base",
         "base_ref",
+        "base_sha",
+        "head_repo_is_base_repo",
+        "maintainer_can_modify",
         "id",
         "user",
         "body",
     ):
         nested = value.get(key)
-        if nested not in ("", 0, None):
+        if _prompt_value_present(nested):
             lines.append(f"{key}: {nested}")
+    for repo_key in ("head_repo", "base_repo"):
+        repo = value.get(repo_key)
+        if not isinstance(repo, dict):
+            continue
+        for key in ("full_name", "owner", "name"):
+            nested = repo.get(key)
+            if _prompt_value_present(nested):
+                lines.append(f"{repo_key}.{key}: {nested}")
     return lines
+
+
+def _prompt_value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value)
+    if isinstance(value, bool):
+        return True
+    return value != 0
 
 
 def _ref_prompt_lines(agent_request: dict[str, Any]) -> list[str]:
