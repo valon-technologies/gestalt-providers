@@ -3777,8 +3777,8 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(authorization.write_requests), 1)
         grant = authorization.write_requests[0].writes[0]
-        self.assertEqual(grant.subject.type, "subject")
-        self.assertEqual(grant.subject.id, "user:gestalt-123")
+        self.assertEqual(grant.target.subject.type, "subject")
+        self.assertEqual(grant.target.subject.id, "user:gestalt-123")
         self.assertEqual(grant.relation, "editor")
         self.assertEqual(grant.resource.type, "agent_session")
         self.assertEqual(grant.resource.id, "agent session/123")

@@ -75,9 +75,6 @@ SLACK_STATUS_OPERATION = "events.setStatus"
 SLACK_DELETE_STATUS_OPERATION = "events.deleteStatus"
 SLACK_ADD_REACTION_OPERATION = "events.addReaction"
 SLACK_REMOVE_REACTION_OPERATION = "events.removeReaction"
-AUTHORIZATION_SUBJECT_TYPE_SUBJECT = "subject"
-AGENT_SESSION_RESOURCE_TYPE = "agent_session"
-AGENT_SESSION_RELATION_EDITOR = "editor"
 SLACK_ASSISTANT_STATUS_OPERATION = "events.setAssistantStatus"
 SLACK_ASSISTANT_CLEAR_STATUS_OPERATION = "events.clearAssistantStatus"
 SLACK_ASSISTANT_TITLE_OPERATION = "events.setThreadTitle"
@@ -902,36 +899,19 @@ def _grant_agent_session_editor(
     normalized_session_id = session_id.strip()
     if not normalized_subject_id or not normalized_session_id:
         raise RuntimeError("agent session share requires subject and session")
-    request = _agent_session_editor_write_request(
-        normalized_subject_id, normalized_session_id
-    )
+    grant_agent_session_editor = getattr(authorization, "grant_agent_session_editor", None)
+    if callable(grant_agent_session_editor):
+        grant_agent_session_editor(normalized_subject_id, normalized_session_id)
+        return
     write_relationships = getattr(authorization, "write_relationships", None)
     if callable(write_relationships):
-        write_relationships(request)
-        return
-    stub = getattr(authorization, "_stub", None)
-    write = getattr(stub, "WriteRelationships", None)
-    if callable(write):
-        write(request)
+        write_relationships(
+            gestalt.agent_session_editor_write_request(
+                normalized_subject_id, normalized_session_id
+            )
+        )
         return
     raise RuntimeError("authorization client does not support write_relationships")
-
-
-def _agent_session_editor_write_request(subject_id: str, session_id: str) -> Any:
-    subject = gestalt.AuthorizationSubject(
-        type=AUTHORIZATION_SUBJECT_TYPE_SUBJECT,
-        id=subject_id,
-    )
-    resource = gestalt.AuthorizationResource(
-        type=AGENT_SESSION_RESOURCE_TYPE,
-        id=session_id,
-    )
-    relationship = gestalt.Relationship(
-        subject=subject,
-        relation=AGENT_SESSION_RELATION_EDITOR,
-        resource=resource,
-    )
-    return gestalt.WriteRelationshipsRequest(writes=[relationship])
 
 
 def set_slack_event_status(
