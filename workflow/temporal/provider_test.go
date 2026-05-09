@@ -367,21 +367,6 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 			versioning: withMap(validVersioning, "deploymentName", "valon.tools"),
 			want:       "versioning.deploymentName cannot contain",
 		},
-		{
-			name:       "build id env is no longer a source",
-			versioning: map[string]any{"deploymentName": "valon-tools-prod", "buildIDEnv": "BUILD_ID"},
-			want:       "versioning.buildID is required",
-		},
-		{
-			name:       "promotion no longer supported",
-			versioning: withMap(validVersioning, "promotion", map[string]any{"mode": "current"}),
-			want:       "versioning.promotion is no longer supported",
-		},
-		{
-			name:       "promotion rejected when no longer valid",
-			versioning: map[string]any{"promotion": nil},
-			want:       "versioning.promotion is no longer supported",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1997,9 +1982,8 @@ func baseTemporalConfig() config {
 		ScheduleCatchupWindow:       time.Minute,
 		IdempotencyRetention:        time.Hour,
 		Versioning: versioningConfig{
-			DeploymentName:  "valon-tools-test",
-			BuildID:         "revision-1",
-			ResolvedBuildID: "revision-1",
+			DeploymentName: "valon-tools-test",
+			BuildID:        "revision-1",
 		},
 	}
 }

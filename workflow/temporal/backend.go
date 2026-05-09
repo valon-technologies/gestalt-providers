@@ -89,7 +89,7 @@ func (b *temporalBackend) workerOptions() worker.Options {
 			UseVersioning: true,
 			Version: worker.WorkerDeploymentVersion{
 				DeploymentName: b.cfg.Versioning.DeploymentName,
-				BuildID:        b.cfg.Versioning.ResolvedBuildID,
+				BuildID:        b.cfg.Versioning.BuildID,
 			},
 			DefaultVersioningBehavior: sdkworkflow.VersioningBehaviorAutoUpgrade,
 		},
