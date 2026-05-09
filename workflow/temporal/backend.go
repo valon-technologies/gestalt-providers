@@ -286,9 +286,7 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	if err != nil {
 		return nil, err
 	}
-	if b.state != nil {
-		_ = b.state.putRun(ctx, run)
-	}
+	_ = b.state.putRun(ctx, run)
 	return run, nil
 }
 
@@ -542,7 +540,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 		timezone = defaultTimezone
 	}
 	now := time.Now().UTC()
-	existing, found, err := b.getScheduleIndex(ctx, scheduleID)
+	existing, found, err := b.state.getSchedule(ctx, scheduleID)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +564,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
-	if err := b.putScheduleIndex(ctx, schedule); err != nil {
+	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
 	return schedule, nil
@@ -580,7 +578,7 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 	if id == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
-	schedule, found, err := b.getScheduleIndex(ctx, id)
+	schedule, found, err := b.state.getSchedule(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +590,7 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 }
 
 func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
-	schedules, err := b.listSchedulesIndex(ctx)
+	schedules, err := b.state.listSchedules(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -611,7 +609,7 @@ func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteW
 	if id == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
-	if _, found, err := b.getScheduleIndex(ctx, id); err != nil {
+	if _, found, err := b.state.getSchedule(ctx, id); err != nil {
 		return nil, err
 	} else if !found {
 		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
@@ -620,7 +618,7 @@ func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteW
 	if err != nil && !isNotFound(err) {
 		return nil, status.Errorf(codes.Internal, "delete temporal schedule: %v", err)
 	}
-	if err := b.deleteScheduleIndex(ctx, id); err != nil {
+	if err := b.state.deleteSchedule(ctx, id); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -631,7 +629,7 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
-	schedule, found, err := b.getScheduleIndex(ctx, id)
+	schedule, found, err := b.state.getSchedule(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -643,7 +641,7 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 	}
 	schedule.Paused = true
 	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
-	if err := b.putScheduleIndex(ctx, schedule); err != nil {
+	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
 	return schedule, nil
@@ -654,7 +652,7 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
-	schedule, found, err := b.getScheduleIndex(ctx, id)
+	schedule, found, err := b.state.getSchedule(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -666,7 +664,7 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 	}
 	schedule.Paused = false
 	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
-	if err := b.putScheduleIndex(ctx, schedule); err != nil {
+	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
 	return schedule, nil
@@ -689,7 +687,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.Ups
 		return nil, status.Error(codes.InvalidArgument, "match.type is required")
 	}
 	now := time.Now().UTC()
-	existing, found, err := b.getTriggerIndex(ctx, triggerID)
+	existing, found, err := b.state.getTrigger(ctx, triggerID)
 	if err != nil {
 		return nil, err
 	}
@@ -709,7 +707,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.Ups
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	})
-	if err := b.putTriggerIndex(ctx, trigger); err != nil {
+	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
 	return trigger, nil
@@ -719,7 +717,7 @@ func (b *temporalBackend) GetEventTrigger(ctx context.Context, req *proto.GetWor
 	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
-	trigger, found, err := b.getTriggerIndex(ctx, strings.TrimSpace(req.GetTriggerId()))
+	trigger, found, err := b.state.getTrigger(ctx, strings.TrimSpace(req.GetTriggerId()))
 	if err != nil {
 		return nil, err
 	}
@@ -730,7 +728,7 @@ func (b *temporalBackend) GetEventTrigger(ctx context.Context, req *proto.GetWor
 }
 
 func (b *temporalBackend) ListEventTriggers(ctx context.Context, _ *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error) {
-	triggers, err := b.listTriggersIndex(ctx)
+	triggers, err := b.state.listTriggers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -742,7 +740,7 @@ func (b *temporalBackend) DeleteEventTrigger(ctx context.Context, req *proto.Del
 	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
-	found, err := b.deleteTriggerIndex(ctx, strings.TrimSpace(req.GetTriggerId()))
+	found, err := b.state.deleteTrigger(ctx, strings.TrimSpace(req.GetTriggerId()))
 	if err != nil {
 		return nil, err
 	}
@@ -778,7 +776,7 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	existing, found, err := b.getExecutionRefIndex(ctx, ref.GetId())
+	existing, found, err := b.state.getExecutionRef(ctx, ref.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -788,7 +786,7 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.
 	if ref.GetCreatedAt() == nil || !ref.GetCreatedAt().IsValid() {
 		gestalt.SetTime(&ref.CreatedAt, time.Now().UTC())
 	}
-	if err := b.putExecutionRefIndex(ctx, ref); err != nil {
+	if err := b.state.putExecutionRef(ctx, ref); err != nil {
 		return nil, err
 	}
 	return ref, nil
@@ -798,7 +796,7 @@ func (b *temporalBackend) GetExecutionReference(ctx context.Context, req *proto.
 	if req == nil || strings.TrimSpace(req.GetId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
-	ref, found, err := b.getExecutionRefIndex(ctx, strings.TrimSpace(req.GetId()))
+	ref, found, err := b.state.getExecutionRef(ctx, strings.TrimSpace(req.GetId()))
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +810,7 @@ func (b *temporalBackend) ListExecutionReferences(ctx context.Context, req *prot
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	refs, err := b.listExecutionRefsIndex(ctx, strings.TrimSpace(req.GetSubjectId()))
+	refs, err := b.state.listExecutionRefs(ctx, strings.TrimSpace(req.GetSubjectId()))
 	if err != nil {
 		return nil, err
 	}
@@ -829,7 +827,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	triggers, err := b.matchTriggersIndex(ctx, pluginName, event)
+	triggers, err := b.state.matchTriggers(ctx, pluginName, event)
 	if err != nil {
 		return nil, err
 	}
@@ -933,7 +931,7 @@ func workflowTelemetryRunStatus(run *proto.BoundWorkflowRun) string {
 }
 
 func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, paused bool) (*proto.BoundWorkflowEventTrigger, error) {
-	trigger, found, err := b.getTriggerIndex(ctx, id)
+	trigger, found, err := b.state.getTrigger(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -942,7 +940,7 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	}
 	trigger.Paused = paused
 	gestalt.SetTime(&trigger.UpdatedAt, time.Now().UTC())
-	if err := b.putTriggerIndex(ctx, trigger); err != nil {
+	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
 	return trigger, nil
@@ -1055,6 +1053,13 @@ func mapWorkflowUpdateError(err error) error {
 func isNotFound(err error) bool {
 	var notFound *serviceerror.NotFound
 	return errors.As(err, &notFound)
+}
+
+func isNotFoundLike(err error) bool {
+	if err == nil {
+		return false
+	}
+	return isNotFound(err) || strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
 func isAlreadyStarted(err error) bool {

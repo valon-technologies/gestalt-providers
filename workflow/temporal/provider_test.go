@@ -696,21 +696,21 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		UpdatedAt: timestamppb.Now(),
 	}
 
-	if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
-		t.Fatalf("putTriggerIndex: %v", err)
+	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+		t.Fatalf("state.putTrigger: %v", err)
 	}
 	if len(tc.updates) != 0 {
-		t.Fatalf("putTriggerIndex touched workflow updates=%#v", tc.updates)
+		t.Fatalf("state.putTrigger touched workflow updates=%#v", tc.updates)
 	}
-	matched, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
+	matched, err := backend.state.matchTriggers(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
 	if err != nil {
-		t.Fatalf("matchTriggersIndex: %v", err)
+		t.Fatalf("state.matchTriggers: %v", err)
 	}
 	if len(matched) != 1 || matched[0].GetId() != trigger.GetId() {
 		t.Fatalf("matched triggers = %#v, want %q", matched, trigger.GetId())
 	}
 	if len(tc.queries) != 0 {
-		t.Fatalf("matchTriggersIndex touched workflow queries=%#v", tc.queries)
+		t.Fatalf("state.matchTriggers touched workflow queries=%#v", tc.queries)
 	}
 
 	ref := &proto.WorkflowExecutionReference{
@@ -726,15 +726,15 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 			AuthSource:  "config",
 		},
 	}
-	if err := backend.putExecutionRefIndex(context.Background(), ref); err != nil {
-		t.Fatalf("putExecutionRefIndex: %v", err)
+	if err := backend.state.putExecutionRef(context.Background(), ref); err != nil {
+		t.Fatalf("state.putExecutionRef: %v", err)
 	}
 	if len(tc.updates) != 0 {
-		t.Fatalf("putExecutionRefIndex touched workflow updates=%#v", tc.updates)
+		t.Fatalf("state.putExecutionRef touched workflow updates=%#v", tc.updates)
 	}
-	refs, err := backend.listExecutionRefsIndex(context.Background(), "user-1")
+	refs, err := backend.state.listExecutionRefs(context.Background(), "user-1")
 	if err != nil {
-		t.Fatalf("listExecutionRefsIndex: %v", err)
+		t.Fatalf("state.listExecutionRefs: %v", err)
 	}
 	if len(refs) != 1 || refs[0].GetId() != ref.GetId() {
 		t.Fatalf("refs = %#v, want %q", refs, ref.GetId())
@@ -743,7 +743,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		t.Fatalf("ref run_as = %#v, want slack sync service account", refs[0].GetRunAs())
 	}
 	if len(tc.queries) != 0 {
-		t.Fatalf("listExecutionRefsIndex touched workflow queries=%#v", tc.queries)
+		t.Fatalf("state.listExecutionRefs touched workflow queries=%#v", tc.queries)
 	}
 
 	tc.scheduleClient = newFakeScheduleClient(map[string]*client.ScheduleDescription{
@@ -1737,32 +1737,6 @@ func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.
 	}
 }
 
-func TestSignalRunRejectsSignalIdempotencyWithoutIndexedDB(t *testing.T) {
-	ctx := context.Background()
-	run := workflowKeyClaimRun("missing-state", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, nil)
-
-	_, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
-		RunId:  run.GetId(),
-		Signal: &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
-	})
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("SignalRun error = %v, want FailedPrecondition", err)
-	}
-	if len(tc.updates) != 0 {
-		t.Fatalf("updates = %#v, want no temporal signal after idempotency failure", tc.updates)
-	}
-}
-
 func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
@@ -2193,21 +2167,21 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 		CreatedAt: timestamppb.Now(),
 		UpdatedAt: timestamppb.Now(),
 	}
-	if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
-		t.Fatalf("putTriggerIndex(first): %v", err)
+	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+		t.Fatalf("state.putTrigger(first): %v", err)
 	}
 	trigger.Match = &proto.WorkflowEventMatch{Type: "reaction.added"}
-	if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
-		t.Fatalf("putTriggerIndex(second): %v", err)
+	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+		t.Fatalf("state.putTrigger(second): %v", err)
 	}
-	oldMatches, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
+	oldMatches, err := backend.state.matchTriggers(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
 	if err != nil {
 		t.Fatalf("match old: %v", err)
 	}
 	if len(oldMatches) != 0 {
 		t.Fatalf("old match returned %#v, want none", oldMatches)
 	}
-	newMatches, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "reaction.added"})
+	newMatches, err := backend.state.matchTriggers(context.Background(), "slack", &proto.WorkflowEvent{Type: "reaction.added"})
 	if err != nil {
 		t.Fatalf("match new: %v", err)
 	}
@@ -2266,8 +2240,8 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			UpdatedAt: timestamppb.Now(),
 		},
 	} {
-		if err := backend.putTriggerIndex(context.Background(), trigger); err != nil {
-			t.Fatalf("putTriggerIndex(%s): %v", trigger.GetId(), err)
+		if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+			t.Fatalf("state.putTrigger(%s): %v", trigger.GetId(), err)
 		}
 	}
 
