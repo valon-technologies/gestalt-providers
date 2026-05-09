@@ -410,25 +410,36 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     if _is_url_verification(input):
         return {"challenge": str(input.get("challenge") or "")}
 
-    publish_response = _publish_matching_workflow_events(input, req)
-    if isinstance(publish_response, gestalt.Response):
-        return publish_response
-
     event, ignored_reason = _slack_agent_event_from_payload(input)
     if event is None:
+        publish_response = _publish_matching_workflow_events(input, req)
+        if isinstance(publish_response, gestalt.Response):
+            return publish_response
         if publish_response is not None:
             return publish_response
         return {"ok": True, "ignored": ignored_reason}
 
     route, ignored_reason = _select_agent_route(event)
     if ignored_reason:
+        publish_response = _publish_matching_workflow_events(input, req)
+        if isinstance(publish_response, gestalt.Response):
+            return publish_response
         if publish_response is not None:
             return publish_response
         return {"ok": True, "ignored": ignored_reason}
+    if not _agent_dispatch_configured(route):
+        publish_response = _publish_matching_workflow_events(input, req)
+        if isinstance(publish_response, gestalt.Response):
+            return publish_response
+        if publish_response is not None:
+            return publish_response
 
     log_context = _slack_event_log_context(event, req, route)
     subject_id = _request_subject_id(req)
     if not _slack_event_subject_allowed(event, route, subject_id):
+        publish_response = _publish_matching_workflow_events(input, req)
+        if isinstance(publish_response, gestalt.Response):
+            return publish_response
         if publish_response is not None:
             return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
@@ -436,8 +447,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             _notify_unlinked_slack_user_for_event(event, req)
         return {"ok": True, "unlinked": True}
     if not _agent_config.bot.token:
-        if publish_response is not None:
-            return publish_response
         logger.error("Slack event bot token is not configured %s", log_context)
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
@@ -452,16 +461,12 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     try:
         reply_ref = _sign_reply_ref(event, subject_id, route)
         if not workflow_provider:
-            if publish_response is not None:
-                return publish_response
             logger.error("Slack workflow provider is not configured %s", log_context)
             return gestalt.Response(
                 status=HTTPStatus.PRECONDITION_FAILED,
                 body={"error": "Slack workflow provider is not configured"},
             )
         if not _workflow_manager_contract_available():
-            if publish_response is not None:
-                return publish_response
             message = "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start, session-ready delivery, and output-delivery support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
@@ -469,8 +474,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
         )
         if workflow_manager_factory is None:
-            if publish_response is not None:
-                return publish_response
             message = "Slack event handling requires a Gestalt SDK/runtime with workflow manager support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
@@ -481,8 +484,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
         logger.exception("failed to signal Slack event workflow %s", log_context)
-        if publish_response is not None:
-            return publish_response
         return _server_error(f"failed to signal workflow run: {err}")
 
     try:
@@ -499,9 +500,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         response = {"ok": True, **fields}
     except Exception:
         logger.exception("failed to ack Slack event workflow %s", log_context)
-        if publish_response is not None:
-            return publish_response
         response = _workflow_dispatched_ack_fallback()
+    _publish_matching_workflow_events_after_agent_handoff(input, req, log_context)
     try:
         _add_acknowledgement_reaction(event, route)
     except SlackAPIError as err:
@@ -542,11 +542,33 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
     if assistant_status_error:
         response["assistant_status_error"] = assistant_status_error
-    if publish_response is not None:
-        response["published_event_count"] = publish_response["published_event_count"]
-        response["workflow_event_ids"] = publish_response["workflow_event_ids"]
-        response["publish_route_ids"] = publish_response["route_ids"]
     return response
+
+
+def _agent_dispatch_configured(route: SlackAgentRoute | None) -> bool:
+    if route is not None:
+        return True
+    return bool(
+        _agent_config.bot.token
+        or _agent_config.workflow.provider_name
+        or _agent_config.agent_provider
+        or _agent_config.agent_model
+        or _agent_config.agent_tool_set_refs
+        or _agent_config.agent_tools
+    )
+
+
+def _publish_matching_workflow_events_after_agent_handoff(
+    payload: dict[str, Any], req: gestalt.Request, log_context: str
+) -> None:
+    publish_response = _publish_matching_workflow_events(payload, req)
+    if isinstance(publish_response, gestalt.Response):
+        logger.warning(
+            "ignored Slack workflow event publish failure after agent handoff %s status=%s body=%r",
+            log_context,
+            publish_response.status,
+            publish_response.body,
+        )
 
 
 def request_slack_interaction(
