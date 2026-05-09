@@ -301,177 +301,6 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	}
 }
 
-func TestIndexWorkflowStoresProviderIndexes(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	env.RegisterWorkflow(indexWorkflow)
-
-	createdAt := timestamppb.New(time.Unix(100, 0).UTC())
-	run := &proto.BoundWorkflowRun{
-		Id:          "run-1",
-		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:      pluginTarget("slack", "postMessage"),
-		Trigger:     newManualTrigger(),
-		CreatedAt:   createdAt,
-		WorkflowKey: "thread-1",
-	}
-	trigger := &proto.BoundWorkflowEventTrigger{
-		Id:        "trigger-1",
-		Match:     &proto.WorkflowEventMatch{Type: "message.created"},
-		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: createdAt,
-		UpdatedAt: createdAt,
-	}
-	ref := &proto.WorkflowExecutionReference{
-		Id:           "ref-1",
-		ProviderName: "temporal",
-		Target:       pluginTarget("slack", "postMessage"),
-		SubjectId:    "user-1",
-		CreatedAt:    createdAt,
-		RunAs: &proto.WorkflowRunAsSubject{
-			SubjectId:   "service_account:slack-sync",
-			SubjectKind: "service_account",
-			DisplayName: "Slack sync",
-			AuthSource:  "config",
-		},
-	}
-
-	var checkedRun, checkedTrigger, checkedRef bool
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updatePutRun, "put-run", updateCallback(t, func(value interface{}) {
-			got := value.(*proto.BoundWorkflowRun)
-			if got.GetId() != run.GetId() {
-				t.Fatalf("put run id = %q, want %q", got.GetId(), run.GetId())
-			}
-		}), run)
-		env.UpdateWorkflow(updateListRuns, "list-runs", updateCallback(t, func(value interface{}) {
-			got := value.(*proto.ListWorkflowProviderRunsResponse)
-			if len(got.GetRuns()) != 1 || got.GetRuns()[0].GetId() != run.GetId() {
-				t.Fatalf("runs = %#v", got.GetRuns())
-			}
-			checkedRun = true
-		}))
-		env.UpdateWorkflow(updatePutTrigger, "put-trigger", updateCallback(t, nil), trigger)
-		env.UpdateWorkflow(updateMatchTriggers, "match-trigger", updateCallback(t, func(value interface{}) {
-			got := value.(*proto.ListWorkflowProviderEventTriggersResponse)
-			if len(got.GetTriggers()) != 1 || got.GetTriggers()[0].GetId() != trigger.GetId() {
-				t.Fatalf("matched triggers = %#v", got.GetTriggers())
-			}
-			checkedTrigger = true
-		}), eventMatchKey("slack", "message.created", "", ""))
-		env.UpdateWorkflow(updatePutRef, "put-ref", updateCallback(t, nil), ref)
-		env.UpdateWorkflow(updateListRefsBySubject, "list-refs-by-subject", updateCallback(t, func(value interface{}) {
-			got := value.(*proto.ListWorkflowExecutionReferencesResponse)
-			if len(got.GetReferences()) != 1 || got.GetReferences()[0].GetId() != ref.GetId() {
-				t.Fatalf("refs = %#v", got.GetReferences())
-			}
-			if got.GetReferences()[0].GetRunAs().GetSubjectId() != "service_account:slack-sync" {
-				t.Fatalf("ref run_as = %#v, want slack sync service account", got.GetReferences()[0].GetRunAs())
-			}
-			checkedRef = true
-		}), "user-1")
-	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.CancelWorkflow()
-	}, 10*time.Millisecond)
-
-	env.ExecuteWorkflow(indexWorkflow, indexInput{ScopeID: "scope", Shard: 0})
-
-	if !env.IsWorkflowCompleted() {
-		t.Fatalf("index workflow did not complete after cancellation")
-	}
-	if !checkedRun || !checkedTrigger || !checkedRef {
-		t.Fatalf("index checks: run=%v trigger=%v ref=%v", checkedRun, checkedTrigger, checkedRef)
-	}
-}
-
-func TestIndexWorkflowPreventsTerminalRunRegression(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	env.RegisterWorkflow(indexWorkflow)
-
-	createdAt := timestamppb.New(time.Unix(100, 0).UTC())
-	pending := &proto.BoundWorkflowRun{
-		Id:          "run-1",
-		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:      pluginTarget("slack", "postMessage"),
-		Trigger:     newManualTrigger(),
-		CreatedAt:   createdAt,
-		WorkflowKey: "thread-1",
-	}
-	succeeded := cloneRun(pending)
-	succeeded.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
-	succeeded.CompletedAt = timestamppb.New(time.Unix(120, 0).UTC())
-	stale := cloneRun(pending)
-	stale.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-	stale.StartedAt = timestamppb.New(time.Unix(110, 0).UTC())
-
-	var checkedRun bool
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updatePutRun, "put-terminal", updateCallback(t, nil), succeeded)
-		env.UpdateWorkflow(updatePutRun, "put-stale", updateCallback(t, func(value interface{}) {
-			got := value.(*proto.BoundWorkflowRun)
-			if got.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
-				t.Fatalf("stale put returned status %s, want succeeded", got.GetStatus())
-			}
-		}), stale)
-		env.UpdateWorkflow(updateGetRun, "get-run", updateCallback(t, func(value interface{}) {
-			got := value.(*proto.BoundWorkflowRun)
-			if got.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
-				t.Fatalf("indexed run status = %s, want succeeded", got.GetStatus())
-			}
-			checkedRun = true
-		}), pending.GetId())
-	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		env.CancelWorkflow()
-	}, 2*time.Millisecond)
-
-	env.ExecuteWorkflow(indexWorkflow, indexInput{ScopeID: "scope", Shard: 0})
-
-	if !checkedRun {
-		t.Fatalf("index checks: run=%v", checkedRun)
-	}
-}
-
-func TestIndexWorkflowQueriesProviderIndexes(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	env.RegisterWorkflow(indexWorkflow)
-
-	schedule := &proto.BoundWorkflowSchedule{
-		Id:        "schedule-1",
-		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-	}
-	var checked bool
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updatePutSchedule, "put-schedule", updateCallback(t, nil), schedule)
-	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		value, err := env.QueryWorkflow(updateGetSchedule, "schedule-1")
-		if err != nil {
-			t.Fatalf("query schedule: %v", err)
-		}
-		var got proto.BoundWorkflowSchedule
-		if err := value.Get(&got); err != nil {
-			t.Fatalf("query value: %v", err)
-		}
-		if got.GetId() != schedule.GetId() {
-			t.Fatalf("queried schedule id = %q, want %q", got.GetId(), schedule.GetId())
-		}
-		checked = true
-		env.CancelWorkflow()
-	}, 2*time.Millisecond)
-
-	env.ExecuteWorkflow(indexWorkflow, indexInput{ScopeID: "scope", Shard: 0})
-
-	if !checked {
-		t.Fatalf("schedule query was not checked")
-	}
-}
-
 func TestScheduleFromTemporalDescriptionUsesActionMemo(t *testing.T) {
 	createdAt := time.Unix(100, 0).UTC()
 	updatedAt := time.Unix(200, 0).UTC()
@@ -514,80 +343,6 @@ func TestScheduleFromTemporalDescriptionUsesActionMemo(t *testing.T) {
 	}
 }
 
-func TestIndexWorkflowCompactsViaSignal(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
-	env.RegisterWorkflow(indexWorkflow)
-
-	schedule := &proto.BoundWorkflowSchedule{
-		Id:        "schedule-1",
-		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-	}
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updatePutSchedule, "put-schedule", updateCallback(t, nil), schedule)
-		env.SignalWorkflow(signalIndexCompact, "test")
-	}, time.Millisecond)
-
-	env.ExecuteWorkflow(indexWorkflow, indexInput{ScopeID: "scope", Shard: 0})
-
-	if !env.IsWorkflowCompleted() {
-		t.Fatalf("index workflow did not complete")
-	}
-	err := env.GetWorkflowError()
-	if err == nil {
-		t.Fatalf("workflow error is nil, want continue-as-new")
-	}
-	var continueAsNew *sdkworkflow.ContinueAsNewError
-	if !errors.As(err, &continueAsNew) {
-		t.Fatalf("workflow error = %v, want continue-as-new", err)
-	}
-}
-
-func TestIndexInputStateDataConverterRoundTrip(t *testing.T) {
-	state := newIndexState()
-	state.Schedules["schedule-1"] = &proto.BoundWorkflowSchedule{
-		Id:        "schedule-1",
-		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-	}
-	state.Runs["run-1"] = &proto.BoundWorkflowRun{
-		Id:        "run-1",
-		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:    pluginTarget("slack", "postMessage"),
-		Trigger:   newManualTrigger(),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-	}
-
-	snapshot, err := indexSnapshotFromState(state)
-	if err != nil {
-		t.Fatalf("snapshot index state: %v", err)
-	}
-	payloads, err := converter.GetDefaultDataConverter().ToPayloads(indexInput{ScopeID: "scope", Shard: 0, Snapshot: snapshot})
-	if err != nil {
-		t.Fatalf("encode index input: %v", err)
-	}
-	var got indexInput
-	if err := converter.GetDefaultDataConverter().FromPayloads(payloads, &got); err != nil {
-		t.Fatalf("decode index input: %v", err)
-	}
-	gotState, err := indexStateFromInput(got)
-	if err != nil {
-		t.Fatalf("decode index state: %v", err)
-	}
-	if got.ScopeID != "scope" || got.Shard != 0 {
-		t.Fatalf("decoded input = %#v", got)
-	}
-	if gotState.Schedules["schedule-1"].GetId() != "schedule-1" {
-		t.Fatalf("decoded schedules = %#v", gotState.Schedules)
-	}
-	if gotState.Runs["run-1"].GetId() != "run-1" {
-		t.Fatalf("decoded runs = %#v", gotState.Runs)
-	}
-}
-
 func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
@@ -595,7 +350,6 @@ func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             1,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -627,14 +381,13 @@ func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.
 	}
 }
 
-func TestTemporalBackendStartDoesNotTouchTemporalIndexWorkflows(t *testing.T) {
+func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
 	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             8,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -652,7 +405,7 @@ func TestTemporalBackendStartDoesNotTouchTemporalIndexWorkflows(t *testing.T) {
 		t.Fatalf("registered workflows=%d activities=%d, want only v4 workflow and activities", fw.registeredWorkflows, fw.registeredActivities)
 	}
 	if len(tc.updates) != 0 || len(tc.queries) != 0 {
-		t.Fatalf("startup touched temporal index queries=%#v updates=%#v", tc.queries, tc.updates)
+		t.Fatalf("startup touched workflow APIs queries=%#v updates=%#v", tc.queries, tc.updates)
 	}
 }
 
@@ -972,7 +725,6 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             8,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -990,7 +742,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		t.Fatalf("putTriggerIndex: %v", err)
 	}
 	if len(tc.updates) != 0 {
-		t.Fatalf("putTriggerIndex touched temporal index updates=%#v", tc.updates)
+		t.Fatalf("putTriggerIndex touched workflow updates=%#v", tc.updates)
 	}
 	matched, err := backend.matchTriggersIndex(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
 	if err != nil {
@@ -1000,7 +752,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		t.Fatalf("matched triggers = %#v, want %q", matched, trigger.GetId())
 	}
 	if len(tc.queries) != 0 {
-		t.Fatalf("matchTriggersIndex touched temporal index queries=%#v", tc.queries)
+		t.Fatalf("matchTriggersIndex touched workflow queries=%#v", tc.queries)
 	}
 
 	ref := &proto.WorkflowExecutionReference{
@@ -1020,7 +772,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		t.Fatalf("putExecutionRefIndex: %v", err)
 	}
 	if len(tc.updates) != 0 {
-		t.Fatalf("putExecutionRefIndex touched temporal index updates=%#v", tc.updates)
+		t.Fatalf("putExecutionRefIndex touched workflow updates=%#v", tc.updates)
 	}
 	refs, err := backend.listExecutionRefsIndex(context.Background(), "user-1")
 	if err != nil {
@@ -1033,7 +785,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		t.Fatalf("ref run_as = %#v, want slack sync service account", refs[0].GetRunAs())
 	}
 	if len(tc.queries) != 0 {
-		t.Fatalf("listExecutionRefsIndex touched temporal index queries=%#v", tc.queries)
+		t.Fatalf("listExecutionRefsIndex touched workflow queries=%#v", tc.queries)
 	}
 
 	tc.scheduleClient = newFakeScheduleClient(map[string]*client.ScheduleDescription{
@@ -1055,10 +807,10 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		t.Fatalf("UpsertSchedule: %v", err)
 	}
 	if len(tc.updates) != 0 {
-		t.Fatalf("UpsertSchedule touched temporal index updates=%#v", tc.updates)
+		t.Fatalf("UpsertSchedule touched workflow updates=%#v", tc.updates)
 	}
 	if len(tc.queries) != 0 {
-		t.Fatalf("UpsertSchedule touched temporal index queries=%#v", tc.queries)
+		t.Fatalf("UpsertSchedule touched workflow queries=%#v", tc.queries)
 	}
 }
 
@@ -1076,7 +828,6 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1118,7 +869,7 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 		t.Fatalf("Temporal schedule list calls = %d, want 0", scheduleClient.listCount)
 	}
 	if len(tc.queries) != 0 || len(tc.updates) != 0 {
-		t.Fatalf("ListSchedules touched temporal index queries=%#v updates=%#v", tc.queries, tc.updates)
+		t.Fatalf("ListSchedules touched workflow APIs queries=%#v updates=%#v", tc.queries, tc.updates)
 	}
 }
 
@@ -1135,7 +886,6 @@ func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1177,7 +927,6 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1234,7 +983,6 @@ func TestStartRunWithWorkflowKeyRejectsActiveOwnerBeforeExecuting(t *testing.T) 
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1273,7 +1021,6 @@ func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1355,7 +1102,6 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1407,7 +1153,6 @@ func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1439,7 +1184,6 @@ func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1483,7 +1227,6 @@ func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1529,7 +1272,6 @@ func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1596,7 +1338,6 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1669,7 +1410,6 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1730,7 +1470,6 @@ func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1765,7 +1504,6 @@ func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *t
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1806,7 +1544,6 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1866,7 +1603,6 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1924,7 +1660,6 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -1965,7 +1700,6 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -2020,7 +1754,6 @@ func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -2053,7 +1786,6 @@ func TestSignalRunRejectsSignalIdempotencyWithoutIndexedDB(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -2488,7 +2220,6 @@ func TestWorkflowStateStorePurgesLegacyRunHandleRecordsOnOpen(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -2535,7 +2266,6 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             2,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -2563,7 +2293,6 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -2621,7 +2350,6 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	backend := newTemporalBackend("temporal", config{
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
-		IndexShardCount:             4,
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
@@ -3026,7 +2754,6 @@ func baseTemporalConfigRaw() map[string]any {
 		"workflowTaskTimeout":         time.Second,
 		"activityStartToCloseTimeout": time.Minute,
 		"scheduleCatchupWindow":       time.Minute,
-		"indexShardCount":             1,
 	}
 }
 
@@ -3042,7 +2769,6 @@ func baseTemporalConfig() config {
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-		IndexShardCount:             1,
 		IdempotencyRetention:        time.Hour,
 	}
 }

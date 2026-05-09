@@ -16,7 +16,6 @@ const (
 	defaultWorkflowTaskTimeout              = 10 * time.Second
 	defaultActivityStartToCloseTimeout      = 5 * time.Minute
 	defaultScheduleCatchupWindow            = time.Minute
-	defaultIndexShardCount                  = 64
 	defaultIdempotencyRetention             = 7 * 24 * time.Hour
 	defaultWorkerDeploymentPromotionTimeout = 30 * time.Second
 )
@@ -41,7 +40,6 @@ type config struct {
 	WorkflowTaskTimeout         time.Duration    `yaml:"workflowTaskTimeout"`
 	ActivityStartToCloseTimeout time.Duration    `yaml:"activityStartToCloseTimeout"`
 	ScheduleCatchupWindow       time.Duration    `yaml:"scheduleCatchupWindow"`
-	IndexShardCount             int              `yaml:"indexShardCount"`
 	IdempotencyRetention        time.Duration    `yaml:"idempotencyRetention"`
 	Versioning                  versioningConfig `yaml:"versioning"`
 }
@@ -69,7 +67,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 		WorkflowTaskTimeout:         defaultWorkflowTaskTimeout,
 		ActivityStartToCloseTimeout: defaultActivityStartToCloseTimeout,
 		ScheduleCatchupWindow:       defaultScheduleCatchupWindow,
-		IndexShardCount:             defaultIndexShardCount,
 		IdempotencyRetention:        defaultIdempotencyRetention,
 		Versioning: versioningConfig{
 			Promotion: promotionConfig{
@@ -122,9 +119,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 	}
 	if cfg.ScheduleCatchupWindow <= 0 {
 		return config{}, fmt.Errorf("scheduleCatchupWindow must be positive")
-	}
-	if cfg.IndexShardCount <= 0 {
-		return config{}, fmt.Errorf("indexShardCount must be positive")
 	}
 	if cfg.IdempotencyRetention <= 0 {
 		return config{}, fmt.Errorf("idempotencyRetention must be positive")

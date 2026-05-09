@@ -26,7 +26,6 @@ providers:
         workflowTaskTimeout: 10s
         activityStartToCloseTimeout: 5m
         scheduleCatchupWindow: 1m
-        indexShardCount: 64
         versioning:
           enabled: true
           deploymentName: prod-main
