@@ -584,7 +584,7 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 	if !found {
 		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
 	}
-	b.fillScheduleNextRun(ctx, schedule)
+	schedule = b.fillScheduleNextRun(ctx, schedule)
 	return schedule, nil
 }
 
@@ -593,8 +593,8 @@ func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkfl
 	if err != nil {
 		return nil, err
 	}
-	for _, schedule := range schedules {
-		b.fillScheduleNextRun(ctx, schedule)
+	for i, schedule := range schedules {
+		schedules[i] = b.fillScheduleNextRun(ctx, schedule)
 	}
 	sortSchedules(schedules)
 	return &proto.ListWorkflowProviderSchedulesResponse{Schedules: schedules}, nil
@@ -638,8 +638,13 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 	if err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(id)).Pause(ctx, client.SchedulePauseOptions{Note: "paused by Gestalt"}); err != nil {
 		return nil, status.Errorf(codes.Internal, "pause temporal schedule: %v", err)
 	}
-	schedule.Paused = true
-	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
+	scheduleInput, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
+	}
+	scheduleInput.Paused = true
+	scheduleInput.UpdatedAt = time.Now().UTC()
+	schedule = gestalt.NewBoundWorkflowSchedule(scheduleInput)
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -661,8 +666,13 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 	if err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(id)).Unpause(ctx, client.ScheduleUnpauseOptions{Note: "resumed by Gestalt"}); err != nil {
 		return nil, status.Errorf(codes.Internal, "resume temporal schedule: %v", err)
 	}
-	schedule.Paused = false
-	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
+	scheduleInput, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
+	}
+	scheduleInput.Paused = false
+	scheduleInput.UpdatedAt = time.Now().UTC()
+	schedule = gestalt.NewBoundWorkflowSchedule(scheduleInput)
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -783,7 +793,12 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.
 		ref.CreatedAt = existing.GetCreatedAt()
 	}
 	if ref.GetCreatedAt() == nil || !ref.GetCreatedAt().IsValid() {
-		gestalt.SetTime(&ref.CreatedAt, time.Now().UTC())
+		refInput, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
+		}
+		refInput.CreatedAt = time.Now().UTC()
+		ref = gestalt.NewWorkflowExecutionReference(refInput)
 	}
 	if err := b.state.putExecutionRef(ctx, ref); err != nil {
 		return nil, err
@@ -937,8 +952,13 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	if !found {
 		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", id)
 	}
-	trigger.Paused = paused
-	gestalt.SetTime(&trigger.UpdatedAt, time.Now().UTC())
+	triggerInput, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(trigger)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
+	}
+	triggerInput.Paused = paused
+	triggerInput.UpdatedAt = time.Now().UTC()
+	trigger = gestalt.NewBoundWorkflowEventTrigger(triggerInput)
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -1001,12 +1021,18 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	return nil
 }
 
-func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *proto.BoundWorkflowSchedule) {
+func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *proto.BoundWorkflowSchedule) *proto.BoundWorkflowSchedule {
 	desc, err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(schedule.GetId())).Describe(ctx)
 	if err != nil || len(desc.Info.NextActionTimes) == 0 {
-		return
+		return schedule
 	}
-	gestalt.SetTime(&schedule.NextRunAt, desc.Info.NextActionTimes[0].UTC())
+	scheduleInput, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+	if err != nil {
+		return schedule
+	}
+	nextRunAt := desc.Info.NextActionTimes[0].UTC()
+	scheduleInput.NextRunAt = &nextRunAt
+	return gestalt.NewBoundWorkflowSchedule(scheduleInput)
 }
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {

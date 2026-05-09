@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestExternalCredentialProviderRoundTrip(t *testing.T) {
@@ -36,7 +37,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		"encryptionKey": "provider-roundtrip-key",
 	})
 
-	health, err := lifecycle.HealthCheck(context.Background(), &gestalt.Empty{}, grpc.WaitForReady(true))
+	health, err := lifecycle.HealthCheck(context.Background(), &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("HealthCheck: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("ready = false, message = %q", health.GetMessage())
 	}
 
-	meta, err := lifecycle.GetProviderIdentity(context.Background(), &gestalt.Empty{}, grpc.WaitForReady(true))
+	meta, err := lifecycle.GetProviderIdentity(context.Background(), &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("GetProviderIdentity: %v", err)
 	}
@@ -61,22 +62,22 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	lookup := &proto.ExternalCredentialLookup{
-		SubjectId:    "user:user-123",
-		ConnectionId: "slack:default",
+	lookup := &gestalt.ExternalCredentialLookup{
+		SubjectID:    "user:user-123",
+		ConnectionID: "slack:default",
 		Instance:     "workspace-1",
 	}
 
-	created, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-		Credential: &proto.ExternalCredential{
-			SubjectId:         lookup.GetSubjectId(),
-			ConnectionId:      lookup.GetConnectionId(),
+	created, err := client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:         lookup.GetSubjectId(),
+			ConnectionID:      lookup.GetConnectionId(),
 			Instance:          lookup.GetInstance(),
 			AccessToken:       "xoxb-123",
 			RefreshToken:      "refresh-123",
 			Scopes:            "channels:read chat:write",
 			RefreshErrorCount: 2,
-			MetadataJson:      `{"team":"acme"}`,
+			MetadataJSON:      `{"team":"acme"}`,
 		},
 	})
 	if err != nil {
@@ -109,7 +110,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("raw record stored plaintext access_token: %+v", raw)
 	}
 
-	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
+	got, err := client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{Lookup: lookup})
 	if err != nil {
 		t.Fatalf("GetCredential: %v", err)
 	}
@@ -117,10 +118,10 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("tokens = access:%q refresh:%q", got.GetAccessToken(), got.GetRefreshToken())
 	}
 
-	_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-		Credential: &proto.ExternalCredential{
-			SubjectId:    lookup.GetSubjectId(),
-			ConnectionId: lookup.GetConnectionId(),
+	_, err = client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:    lookup.GetSubjectId(),
+			ConnectionID: lookup.GetConnectionId(),
 			Instance:     "workspace-2",
 			AccessToken:  "xoxb-456",
 			RefreshToken: "refresh-456",
@@ -130,9 +131,9 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("UpsertCredential(second instance): %v", err)
 	}
 
-	listed, err := client.ListCredentials(context.Background(), &proto.ListExternalCredentialsRequest{
-		SubjectId:    lookup.GetSubjectId(),
-		ConnectionId: lookup.GetConnectionId(),
+	listed, err := client.ListCredentials(context.Background(), &gestalt.ListExternalCredentialsRequest{
+		SubjectID:    lookup.GetSubjectId(),
+		ConnectionID: lookup.GetConnectionId(),
 	})
 	if err != nil {
 		t.Fatalf("ListCredentials(connection): %v", err)
@@ -141,9 +142,9 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("credentials len = %d, want 2", len(listed.GetCredentials()))
 	}
 
-	filtered, err := client.ListCredentials(context.Background(), &proto.ListExternalCredentialsRequest{
-		SubjectId:    lookup.GetSubjectId(),
-		ConnectionId: lookup.GetConnectionId(),
+	filtered, err := client.ListCredentials(context.Background(), &gestalt.ListExternalCredentialsRequest{
+		SubjectID:    lookup.GetSubjectId(),
+		ConnectionID: lookup.GetConnectionId(),
 		Instance:     lookup.GetInstance(),
 	})
 	if err != nil {
@@ -153,14 +154,14 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("filtered credentials = %#v, want [%q]", filtered.GetCredentials(), created.GetId())
 	}
 
-	if err := client.DeleteCredential(context.Background(), &proto.DeleteExternalCredentialRequest{Id: created.GetId()}); err != nil {
+	if err := client.DeleteCredential(context.Background(), &gestalt.DeleteExternalCredentialRequest{ID: created.GetId()}); err != nil {
 		t.Fatalf("DeleteCredential: %v", err)
 	}
-	if err := client.DeleteCredential(context.Background(), &proto.DeleteExternalCredentialRequest{Id: created.GetId()}); err != nil {
+	if err := client.DeleteCredential(context.Background(), &gestalt.DeleteExternalCredentialRequest{ID: created.GetId()}); err != nil {
 		t.Fatalf("DeleteCredential(second): %v", err)
 	}
 
-	_, err = client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
+	_, err = client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{Lookup: lookup})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("GetCredential after delete code = %v, want %v", status.Code(err), codes.NotFound)
 	}
@@ -201,14 +202,14 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	credentialJSON := `{"api_key":"manual-secret"}`
-	exchanged, err := client.ExchangeCredential(context.Background(), &proto.ExchangeExternalCredentialRequest{
+	exchanged, err := client.ExchangeCredential(context.Background(), &gestalt.ExchangeExternalCredentialRequest{
 		Provider:       "kimi",
 		Connection:     "default",
-		ConnectionId:   "kimi:default",
-		CredentialJson: credentialJSON,
-		Auth: &proto.ExternalCredentialAuthConfig{
+		ConnectionID:   "kimi:default",
+		CredentialJSON: credentialJSON,
+		Auth: &gestalt.ExternalCredentialAuthConfig{
 			Type:            "manual",
-			TokenUrl:        tokenServer.URL,
+			TokenURL:        tokenServer.URL,
 			TokenExchange:   "json",
 			AccessTokenPath: "data.token",
 			TokenParams: map[string]string{
@@ -249,19 +250,19 @@ func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	auth := &proto.ExternalCredentialAuthConfig{
+	auth := &gestalt.ExternalCredentialAuthConfig{
 		Type:         "oauth2",
 		GrantType:    "refresh_token",
-		TokenUrl:     "https://oauth2.googleapis.com/token",
-		ClientId:     "client-id",
+		TokenURL:     "https://oauth2.googleapis.com/token",
+		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		RefreshToken: "platform-refresh-token",
 	}
 
-	err = client.ValidateCredentialConfig(context.Background(), &proto.ValidateExternalCredentialConfigRequest{
+	err = client.ValidateCredentialConfig(context.Background(), &gestalt.ValidateExternalCredentialConfigRequest{
 		Provider:     "gmail",
 		Connection:   "platform",
-		ConnectionId: "gmail:platform",
+		ConnectionID: "gmail:platform",
 		Mode:         "platform",
 		Auth:         auth,
 	})
@@ -272,10 +273,10 @@ func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
 		t.Fatalf("ValidateCredentialConfig error = %v, want platform unsupported", err)
 	}
 
-	_, err = client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+	_, err = client.ResolveCredential(context.Background(), &gestalt.ResolveExternalCredentialRequest{
 		Provider:     "gmail",
 		Connection:   "platform",
-		ConnectionId: "gmail:platform",
+		ConnectionID: "gmail:platform",
 		Mode:         "platform",
 		Auth:         auth,
 	})
@@ -319,31 +320,31 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 	defer func() { _ = client.Close() }()
 
 	refreshSource := `{"api_key":"refresh-secret"}`
-	_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-		Credential: &proto.ExternalCredential{
-			SubjectId:    "user:user-refresh",
-			ConnectionId: "kimi:default",
+	_, err = client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:    "user:user-refresh",
+			ConnectionID: "kimi:default",
 			Instance:     "default",
 			AccessToken:  "expired-access-token",
 			RefreshToken: refreshSource,
-			ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(-time.Minute)),
-			MetadataJson: `{"tenant":"acme"}`,
+			ExpiresAt:    timePtr(time.Now().Add(-time.Minute)),
+			MetadataJSON: `{"tenant":"acme"}`,
 		},
 	})
 	if err != nil {
 		t.Fatalf("UpsertCredential(seed): %v", err)
 	}
 
-	resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+	resolved, err := client.ResolveCredential(context.Background(), &gestalt.ResolveExternalCredentialRequest{
 		Provider:            "kimi",
 		Connection:          "default",
-		ConnectionId:        "kimi:default",
+		ConnectionID:        "kimi:default",
 		Mode:                "user",
-		CredentialSubjectId: "user:user-refresh",
+		CredentialSubjectID: "user:user-refresh",
 		Instance:            "default",
-		Auth: &proto.ExternalCredentialAuthConfig{
+		Auth: &gestalt.ExternalCredentialAuthConfig{
 			Type:          "manual",
-			TokenUrl:      tokenServer.URL + "/tenant/{tenant}/token",
+			TokenURL:      tokenServer.URL + "/tenant/{tenant}/token",
 			TokenExchange: "json",
 		},
 	})
@@ -363,10 +364,10 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 		t.Fatalf("params = %#v, want tenant metadata projected", resolved.GetParams())
 	}
 
-	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
-		Lookup: &proto.ExternalCredentialLookup{
-			SubjectId:    "user:user-refresh",
-			ConnectionId: "kimi:default",
+	got, err := client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
+		Lookup: &gestalt.ExternalCredentialLookup{
+			SubjectID:    "user:user-refresh",
+			ConnectionID: "kimi:default",
 			Instance:     "default",
 		},
 	})
@@ -418,36 +419,36 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 			}
 			defer func() { _ = client.Close() }()
 
-			lookup := &proto.ExternalCredentialLookup{
-				SubjectId:    "user:user-invalid-grant-" + strings.ReplaceAll(tc.name, " ", "-"),
-				ConnectionId: "gmail:default",
+			lookup := &gestalt.ExternalCredentialLookup{
+				SubjectID:    "user:user-invalid-grant-" + strings.ReplaceAll(tc.name, " ", "-"),
+				ConnectionID: "gmail:default",
 				Instance:     "default",
 			}
-			_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-				Credential: &proto.ExternalCredential{
-					SubjectId:    lookup.GetSubjectId(),
-					ConnectionId: lookup.GetConnectionId(),
+			_, err = client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+				Credential: &gestalt.ExternalCredential{
+					SubjectID:    lookup.GetSubjectId(),
+					ConnectionID: lookup.GetConnectionId(),
 					Instance:     lookup.GetInstance(),
 					AccessToken:  "old-access-token",
 					RefreshToken: "revoked-refresh-token",
-					ExpiresAt:    gestalt.TimestampFromTime(tc.expiresAt),
+					ExpiresAt:    timePtr(tc.expiresAt),
 				},
 			})
 			if err != nil {
 				t.Fatalf("UpsertCredential(seed): %v", err)
 			}
 
-			_, err = client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+			_, err = client.ResolveCredential(context.Background(), &gestalt.ResolveExternalCredentialRequest{
 				Provider:            "gmail",
 				Connection:          "default",
-				ConnectionId:        lookup.GetConnectionId(),
+				ConnectionID:        lookup.GetConnectionId(),
 				Mode:                "user",
-				CredentialSubjectId: lookup.GetSubjectId(),
+				CredentialSubjectID: lookup.GetSubjectId(),
 				Instance:            lookup.GetInstance(),
-				Auth: &proto.ExternalCredentialAuthConfig{
+				Auth: &gestalt.ExternalCredentialAuthConfig{
 					Type:         "oauth2",
-					TokenUrl:     tokenServer.URL,
-					ClientId:     "client-id",
+					TokenURL:     tokenServer.URL,
+					ClientID:     "client-id",
 					ClientSecret: "client-secret",
 				},
 			})
@@ -458,7 +459,7 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 				t.Fatalf("ResolveCredential error leaked token endpoint body: %q", msg)
 			}
 
-			_, err = client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
+			_, err = client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{Lookup: lookup})
 			if status.Code(err) != codes.NotFound {
 				t.Fatalf("GetCredential after invalid_grant code = %v, want %v", status.Code(err), codes.NotFound)
 			}
@@ -498,36 +499,36 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 			}
 			defer func() { _ = client.Close() }()
 
-			lookup := &proto.ExternalCredentialLookup{
-				SubjectId:    "user:user-transient-" + strings.ReplaceAll(tc.name, " ", "-"),
-				ConnectionId: "gmail:default",
+			lookup := &gestalt.ExternalCredentialLookup{
+				SubjectID:    "user:user-transient-" + strings.ReplaceAll(tc.name, " ", "-"),
+				ConnectionID: "gmail:default",
 				Instance:     "default",
 			}
-			_, err = client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-				Credential: &proto.ExternalCredential{
-					SubjectId:    lookup.GetSubjectId(),
-					ConnectionId: lookup.GetConnectionId(),
+			_, err = client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+				Credential: &gestalt.ExternalCredential{
+					SubjectID:    lookup.GetSubjectId(),
+					ConnectionID: lookup.GetConnectionId(),
 					Instance:     lookup.GetInstance(),
 					AccessToken:  "old-access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    gestalt.TimestampFromTime(tc.expiresAt),
+					ExpiresAt:    timePtr(tc.expiresAt),
 				},
 			})
 			if err != nil {
 				t.Fatalf("UpsertCredential(seed): %v", err)
 			}
 
-			resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+			resolved, err := client.ResolveCredential(context.Background(), &gestalt.ResolveExternalCredentialRequest{
 				Provider:            "gmail",
 				Connection:          "default",
-				ConnectionId:        lookup.GetConnectionId(),
+				ConnectionID:        lookup.GetConnectionId(),
 				Mode:                "user",
-				CredentialSubjectId: lookup.GetSubjectId(),
+				CredentialSubjectID: lookup.GetSubjectId(),
 				Instance:            lookup.GetInstance(),
-				Auth: &proto.ExternalCredentialAuthConfig{
+				Auth: &gestalt.ExternalCredentialAuthConfig{
 					Type:         "oauth2",
-					TokenUrl:     tokenServer.URL,
-					ClientId:     "client-id",
+					TokenURL:     tokenServer.URL,
+					ClientID:     "client-id",
 					ClientSecret: "client-secret",
 				},
 			})
@@ -544,7 +545,7 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 				t.Fatalf("ResolveCredential error leaked token endpoint body: %q", msg)
 			}
 
-			got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{Lookup: lookup})
+			got, err := client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{Lookup: lookup})
 			if err != nil {
 				t.Fatalf("GetCredential(retained): %v", err)
 			}
@@ -590,29 +591,29 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 	defer func() { _ = client.Close() }()
 
 	now := time.Now()
-	seedCredential(t, client, &proto.ExternalCredential{
-		SubjectId:    "user:due",
-		ConnectionId: "gmail:default",
+	seedCredential(t, client, &gestalt.ExternalCredential{
+		SubjectID:    "user:due",
+		ConnectionID: "gmail:default",
 		Instance:     "default",
 		AccessToken:  "old-due-access-token",
 		RefreshToken: "due-refresh-token",
-		ExpiresAt:    gestalt.TimestampFromTime(now.Add(5 * time.Minute)),
+		ExpiresAt:    timePtr(now.Add(5 * time.Minute)),
 	})
-	seedCredential(t, client, &proto.ExternalCredential{
-		SubjectId:    "user:future",
-		ConnectionId: "gmail:default",
+	seedCredential(t, client, &gestalt.ExternalCredential{
+		SubjectID:    "user:future",
+		ConnectionID: "gmail:default",
 		Instance:     "default",
 		AccessToken:  "future-access-token",
 		RefreshToken: "future-refresh-token",
-		ExpiresAt:    gestalt.TimestampFromTime(now.Add(2 * time.Hour)),
+		ExpiresAt:    timePtr(now.Add(2 * time.Hour)),
 	})
-	seedCredential(t, client, &proto.ExternalCredential{
-		SubjectId:    "user:slack",
-		ConnectionId: "slack:default",
+	seedCredential(t, client, &gestalt.ExternalCredential{
+		SubjectID:    "user:slack",
+		ConnectionID: "slack:default",
 		Instance:     "default",
 		AccessToken:  "slack-access-token",
 		RefreshToken: "slack-refresh-token",
-		ExpiresAt:    gestalt.TimestampFromTime(now.Add(5 * time.Minute)),
+		ExpiresAt:    timePtr(now.Add(5 * time.Minute)),
 	})
 	db, err := gestalt.IndexedDB()
 	if err != nil {
@@ -732,14 +733,14 @@ func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *test
 	}
 	defer func() { _ = provider.Close() }()
 
-	_, err := provider.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-		Credential: &proto.ExternalCredential{
-			SubjectId:    "user:immediate",
-			ConnectionId: "gmail:default",
+	_, err := provider.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:    "user:immediate",
+			ConnectionID: "gmail:default",
 			Instance:     "default",
 			AccessToken:  "old-access-token",
 			RefreshToken: "immediate-refresh-token",
-			ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
+			ExpiresAt:    timePtr(time.Now().Add(5 * time.Minute)),
 		},
 	})
 	if err != nil {
@@ -756,10 +757,10 @@ func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *test
 		t.Fatalf("Configure(refresh): %v", err)
 	}
 	waitForCondition(t, 2*time.Second, func() (bool, error) {
-		got, err := provider.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
-			Lookup: &proto.ExternalCredentialLookup{
-				SubjectId:    "user:immediate",
-				ConnectionId: "gmail:default",
+		got, err := provider.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
+			Lookup: &gestalt.ExternalCredentialLookup{
+				SubjectID:    "user:immediate",
+				ConnectionID: "gmail:default",
 				Instance:     "default",
 			},
 		})
@@ -783,14 +784,14 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 	}
 	defer func() { _ = provider.Close() }()
 
-	_, err := provider.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-		Credential: &proto.ExternalCredential{
-			SubjectId:    "user:singleflight",
-			ConnectionId: "gmail:default",
+	_, err := provider.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:    "user:singleflight",
+			ConnectionID: "gmail:default",
 			Instance:     "default",
 			AccessToken:  "old-access-token",
 			RefreshToken: "rotating-refresh-token",
-			ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
+			ExpiresAt:    timePtr(time.Now().Add(5 * time.Minute)),
 		},
 	})
 	if err != nil {
@@ -815,10 +816,10 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 	}))
 	defer tokenServer.Close()
 
-	auth := &proto.ExternalCredentialAuthConfig{
+	auth := &gestalt.ExternalCredentialAuthConfig{
 		Type:         "oauth2",
-		TokenUrl:     tokenServer.URL,
-		ClientId:     "client-id",
+		TokenURL:     tokenServer.URL,
+		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 	}
 	target := credentialRefreshTarget{
@@ -844,12 +845,12 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 
 	resolveDone := make(chan error, 1)
 	go func() {
-		_, err := provider.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+		_, err := provider.ResolveCredential(context.Background(), &gestalt.ResolveExternalCredentialRequest{
 			Provider:            "gmail",
 			Connection:          "default",
-			ConnectionId:        "gmail:default",
+			ConnectionID:        "gmail:default",
 			Mode:                "user",
-			CredentialSubjectId: "user:singleflight",
+			CredentialSubjectID: "user:singleflight",
 			Instance:            "default",
 			Auth:                auth,
 		})
@@ -868,10 +869,10 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 	if requestCount.Load() != 1 {
 		t.Fatalf("token endpoint requests = %d, want singleflight to share one refresh", requestCount.Load())
 	}
-	got, err := provider.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
-		Lookup: &proto.ExternalCredentialLookup{
-			SubjectId:    "user:singleflight",
-			ConnectionId: "gmail:default",
+	got, err := provider.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
+		Lookup: &gestalt.ExternalCredentialLookup{
+			SubjectID:    "user:singleflight",
+			ConnectionID: "gmail:default",
 			Instance:     "default",
 		},
 	})
@@ -902,13 +903,13 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 		t.Fatalf("ExternalCredentials: %v", err)
 	}
 	defer func() { _ = client.Close() }()
-	seedCredential(t, client, &proto.ExternalCredential{
-		SubjectId:    "user:transient",
-		ConnectionId: "gmail:default",
+	seedCredential(t, client, &gestalt.ExternalCredential{
+		SubjectID:    "user:transient",
+		ConnectionID: "gmail:default",
 		Instance:     "default",
 		AccessToken:  "old-access-token",
 		RefreshToken: "refresh-token",
-		ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
+		ExpiresAt:    timePtr(time.Now().Add(5 * time.Minute)),
 	})
 
 	_ = provider.runCredentialRefreshOnce(context.Background())
@@ -938,21 +939,21 @@ func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *t
 		t.Fatalf("ExternalCredentials: %v", err)
 	}
 	defer func() { _ = client.Close() }()
-	seedCredential(t, client, &proto.ExternalCredential{
-		SubjectId:    "user:invalid-grant",
-		ConnectionId: "gmail:default",
+	seedCredential(t, client, &gestalt.ExternalCredential{
+		SubjectID:    "user:invalid-grant",
+		ConnectionID: "gmail:default",
 		Instance:     "default",
 		AccessToken:  "old-access-token",
 		RefreshToken: "revoked-refresh-token",
-		ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
+		ExpiresAt:    timePtr(time.Now().Add(5 * time.Minute)),
 	})
 
 	_ = provider.runCredentialRefreshOnce(context.Background())
 
-	_, err = client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
-		Lookup: &proto.ExternalCredentialLookup{
-			SubjectId:    "user:invalid-grant",
-			ConnectionId: "gmail:default",
+	_, err = client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
+		Lookup: &gestalt.ExternalCredentialLookup{
+			SubjectID:    "user:invalid-grant",
+			ConnectionID: "gmail:default",
 			Instance:     "default",
 		},
 	})
@@ -1051,14 +1052,14 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 			}
 			defer func() { _ = client.Close() }()
 
-			_, err = client.ExchangeCredential(context.Background(), &proto.ExchangeExternalCredentialRequest{
+			_, err = client.ExchangeCredential(context.Background(), &gestalt.ExchangeExternalCredentialRequest{
 				Provider:       "manual",
 				Connection:     "default",
-				ConnectionId:   "manual:default",
-				CredentialJson: `{"api_key":"manual-secret"}`,
-				Auth: &proto.ExternalCredentialAuthConfig{
+				ConnectionID:   "manual:default",
+				CredentialJSON: `{"api_key":"manual-secret"}`,
+				Auth: &gestalt.ExternalCredentialAuthConfig{
 					Type:          "manual",
-					TokenUrl:      tokenServer.URL,
+					TokenURL:      tokenServer.URL,
 					TokenExchange: "json",
 				},
 			})
@@ -1096,25 +1097,25 @@ func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
 	createdAt := time.Unix(1_700_000_000, 0).UTC()
 	updatedAt := time.Unix(1_700_000_001, 0).UTC()
 
-	stored, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
+	stored, err := client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
 		PreserveTimestamps: true,
-		Credential: &proto.ExternalCredential{
-			Id:           "cred-restore-1",
-			SubjectId:    "user:user-restore",
-			ConnectionId: "github:default",
+		Credential: &gestalt.ExternalCredential{
+			ID:           "cred-restore-1",
+			SubjectID:    "user:user-restore",
+			ConnectionID: "github:default",
 			Instance:     "org-1",
 			AccessToken:  "gho_123",
-			CreatedAt:    gestalt.TimestampFromTime(createdAt),
-			UpdatedAt:    gestalt.TimestampFromTime(updatedAt),
+			CreatedAt:    timePtr(createdAt),
+			UpdatedAt:    timePtr(updatedAt),
 		},
 	})
 	if err != nil {
 		t.Fatalf("UpsertCredential(restore): %v", err)
 	}
-	if got := stored.GetCreatedAt().AsTime(); !got.Equal(createdAt) {
+	if got := *stored.GetCreatedAt(); !got.Equal(createdAt) {
 		t.Fatalf("created_at = %v, want %v", got, createdAt)
 	}
-	if got := stored.GetUpdatedAt().AsTime(); !got.Equal(updatedAt) {
+	if got := *stored.GetUpdatedAt(); !got.Equal(updatedAt) {
 		t.Fatalf("updated_at = %v, want %v", got, updatedAt)
 	}
 }
@@ -1163,10 +1164,10 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
-		Lookup: &proto.ExternalCredentialLookup{
-			SubjectId:    "user:user-seeded",
-			ConnectionId: "slack:default",
+	got, err := client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
+		Lookup: &gestalt.ExternalCredentialLookup{
+			SubjectID:    "user:user-seeded",
+			ConnectionID: "slack:default",
 			Instance:     "workspace-1",
 		},
 	})
@@ -1196,7 +1197,7 @@ func TestExternalCredentialProviderValidation(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	if _, err := client.ListCredentials(context.Background(), &proto.ListExternalCredentialsRequest{}); err == nil {
+	if _, err := client.ListCredentials(context.Background(), &gestalt.ListExternalCredentialsRequest{}); err == nil {
 		t.Fatal("ListCredentials without subject_id succeeded, want error")
 	} else if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("ListCredentials code = %v, want %v", status.Code(err), codes.InvalidArgument)
@@ -1220,10 +1221,10 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	created, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{
-		Credential: &proto.ExternalCredential{
-			SubjectId:    "user:user-named-indexeddb",
-			ConnectionId: "github:default",
+	created, err := client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:    "user:user-named-indexeddb",
+			ConnectionID: "github:default",
 			Instance:     "org-1",
 			AccessToken:  "gho_named",
 		},
@@ -1371,19 +1372,19 @@ func credentialRefreshProviderConfig(encryptionKey, tokenURL string) map[string]
 	}
 }
 
-func seedCredential(t *testing.T, client *gestalt.ExternalCredentialClient, credential *proto.ExternalCredential) {
+func seedCredential(t *testing.T, client *gestalt.ExternalCredentialClient, credential *gestalt.ExternalCredential) {
 	t.Helper()
-	if _, err := client.UpsertCredential(context.Background(), &proto.UpsertExternalCredentialRequest{Credential: credential}); err != nil {
+	if _, err := client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{Credential: credential}); err != nil {
 		t.Fatalf("UpsertCredential(seed %s/%s): %v", credential.GetSubjectId(), credential.GetConnectionId(), err)
 	}
 }
 
-func getCredential(t *testing.T, client *gestalt.ExternalCredentialClient, subjectID, connectionID, instance string) *proto.ExternalCredential {
+func getCredential(t *testing.T, client *gestalt.ExternalCredentialClient, subjectID, connectionID, instance string) *gestalt.ExternalCredential {
 	t.Helper()
-	got, err := client.GetCredential(context.Background(), &proto.GetExternalCredentialRequest{
-		Lookup: &proto.ExternalCredentialLookup{
-			SubjectId:    subjectID,
-			ConnectionId: connectionID,
+	got, err := client.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
+		Lookup: &gestalt.ExternalCredentialLookup{
+			SubjectID:    subjectID,
+			ConnectionID: connectionID,
 			Instance:     instance,
 		},
 	})

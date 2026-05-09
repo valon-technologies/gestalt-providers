@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type indexMeta struct {
@@ -90,7 +91,7 @@ func (s *Store) Close() error {
 // IndexedDBServer implementation
 // ---------------------------------------------------------------------------
 
-func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*gestalt.Empty, error) {
+func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -127,10 +128,10 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateO
 
 	s.schemas[name] = indexes
 
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*gestalt.Empty, error) {
+func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -143,7 +144,7 @@ func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteO
 		return nil, status.Errorf(codes.Internal, "drop collection %s: %v", name, err)
 	}
 	delete(s.schemas, name)
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func (p *providerCore) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
@@ -183,7 +184,7 @@ func (p *providerCore) GetKey(ctx context.Context, req *proto.ObjectStoreRequest
 	return &proto.KeyResponse{Key: fmt.Sprint(doc["_id"])}, nil
 }
 
-func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -199,10 +200,10 @@ func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*gest
 		}
 		return nil, status.Errorf(codes.Internal, "add: %v", err)
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -223,14 +224,14 @@ func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*gest
 		}
 		return nil, status.Errorf(codes.Internal, "put: %v", err)
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*gestalt.Empty, error) {
+func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
 	if err := p.deleteByIDValue(ctx, req.GetStore(), req.GetId()); err != nil {
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func (p *providerCore) deleteByIDValue(ctx context.Context, storeName string, id any) error {
@@ -245,7 +246,7 @@ func (p *providerCore) deleteByIDValue(ctx context.Context, storeName string, id
 	return nil
 }
 
-func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*gestalt.Empty, error) {
+func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -254,7 +255,7 @@ func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequ
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "clear: %v", err)
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func (p *providerCore) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {

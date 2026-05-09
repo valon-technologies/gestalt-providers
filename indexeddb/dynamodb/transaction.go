@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const maxDynamoTransactWriteItems = 100
@@ -205,7 +206,7 @@ func (t *dynamoTransaction) GetKey(ctx context.Context, req *proto.ObjectStoreRe
 	return &proto.KeyResponse{Key: req.GetId()}, nil
 }
 
-func (t *dynamoTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (t *dynamoTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	txStore, err := t.transactionStore(req.GetStore())
 	if err != nil {
 		return nil, err
@@ -222,10 +223,10 @@ func (t *dynamoTransaction) Add(ctx context.Context, req *proto.RecordRequest) (
 		delete(txStore.records, id)
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (t *dynamoTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (t *dynamoTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	txStore, err := t.transactionStore(req.GetStore())
 	if err != nil {
 		return nil, err
@@ -244,25 +245,25 @@ func (t *dynamoTransaction) Put(ctx context.Context, req *proto.RecordRequest) (
 		}
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (t *dynamoTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*gestalt.Empty, error) {
+func (t *dynamoTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
 	txStore, err := t.transactionStore(req.GetStore())
 	if err != nil {
 		return nil, err
 	}
 	delete(txStore.records, req.GetId())
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (t *dynamoTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*gestalt.Empty, error) {
+func (t *dynamoTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
 	txStore, err := t.transactionStore(req.GetStore())
 	if err != nil {
 		return nil, err
 	}
 	txStore.records = map[string]*proto.Record{}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func (t *dynamoTransaction) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {

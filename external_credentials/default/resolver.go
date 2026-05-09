@@ -103,7 +103,7 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 	if err := p.ValidateCredentialConfig(ctx, &gestalt.ValidateExternalCredentialConfigRequest{
 		Provider:         req.GetProvider(),
 		Connection:       req.GetConnection(),
-		ConnectionId:     req.GetConnectionId(),
+		ConnectionID:     req.GetConnectionId(),
 		Mode:             req.GetMode(),
 		Auth:             req.GetAuth(),
 		ConnectionParams: req.GetConnectionParams(),
@@ -133,7 +133,7 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 	return &gestalt.ResolveExternalCredentialResponse{
 		Token:        credential.GetAccessToken(),
 		ExpiresAt:    credential.GetExpiresAt(),
-		MetadataJson: credential.GetMetadataJson(),
+		MetadataJSON: credential.GetMetadataJson(),
 		Params:       params,
 		Credential:   credential,
 	}, nil
@@ -146,7 +146,7 @@ func (p *Provider) ExchangeCredential(ctx context.Context, req *gestalt.Exchange
 	if err := p.ValidateCredentialConfig(ctx, &gestalt.ValidateExternalCredentialConfigRequest{
 		Provider:         req.GetProvider(),
 		Connection:       req.GetConnection(),
-		ConnectionId:     req.GetConnectionId(),
+		ConnectionID:     req.GetConnectionId(),
 		Mode:             "user",
 		Auth:             req.GetAuth(),
 		ConnectionParams: req.GetConnectionParams(),
@@ -219,9 +219,9 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 	now := p.now().UTC()
 	if err != nil {
 		credential.RefreshErrorCount++
-		gestalt.SetTime(&credential.UpdatedAt, now)
+		credential.UpdatedAt = timePtr(now)
 		if isTerminalRefreshError(err) {
-			gestalt.SetTime(&credential.ExpiresAt, now.Add(-1*time.Hour))
+			credential.ExpiresAt = timePtr(now.Add(-1 * time.Hour))
 			marked, markErr := st.upsertCredential(ctx, credential, false, now)
 			if markErr != nil {
 				return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
@@ -232,7 +232,7 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 			return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
 		}
 		_, _ = st.upsertCredential(ctx, credential, false, now)
-		if credential.GetExpiresAt() != nil && now.Before(credential.GetExpiresAt().AsTime()) {
+		if credential.GetExpiresAt() != nil && now.Before(*credential.GetExpiresAt()) {
 			return credential, nil
 		}
 		return nil, status.Error(codes.Unauthenticated, "token expired and refresh failed")
@@ -243,10 +243,10 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 	} else if resp.RefreshToken != "" {
 		credential.RefreshToken = resp.RefreshToken
 	}
-	gestalt.SetOptionalTime(&credential.ExpiresAt, expiresAtFromExpiresIn(now, resp.ExpiresIn))
-	gestalt.SetTime(&credential.LastRefreshedAt, now)
+	credential.ExpiresAt = expiresAtFromExpiresIn(now, resp.ExpiresIn)
+	credential.LastRefreshedAt = timePtr(now)
 	credential.RefreshErrorCount = 0
-	gestalt.SetTime(&credential.UpdatedAt, now)
+	credential.UpdatedAt = timePtr(now)
 	return st.upsertCredential(ctx, credential, false, now)
 }
 
@@ -264,7 +264,7 @@ func shouldRefreshCredentialWithin(credential *gestalt.ExternalCredential, auth 
 	if threshold <= 0 {
 		return false
 	}
-	return credential.GetExpiresAt().AsTime().Sub(now) <= threshold
+	return credential.GetExpiresAt().Sub(now) <= threshold
 }
 
 func refreshCredential(ctx context.Context, auth *gestalt.ExternalCredentialAuthConfig, refreshToken string, params map[string]string) (*tokenResponse, error) {
@@ -443,7 +443,7 @@ func tokenResponseToProto(resp *tokenResponse) *gestalt.ExternalCredentialTokenR
 		RefreshSource: resp.RefreshSource,
 		ExpiresIn:     int32(resp.ExpiresIn),
 		TokenType:     resp.TokenType,
-		ExtraJson:     extraJSON,
+		ExtraJSON:     extraJSON,
 	}
 }
 
@@ -453,6 +453,10 @@ func expiresAtFromExpiresIn(now time.Time, expiresIn int) *time.Time {
 	}
 	expiresAt := now.Add(time.Duration(expiresIn) * time.Second)
 	return &expiresAt
+}
+
+func timePtr(value time.Time) *time.Time {
+	return &value
 }
 
 func metadataParams(metadataJSON string) map[string]string {

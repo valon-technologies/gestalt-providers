@@ -12,8 +12,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-const providerLifecycleGetIdentityMethod = "/gestalt.provider.v1.ProviderLifecycle/GetProviderIdentity"
-
 func waitForPluginReady(ctx context.Context, dialTarget string) error {
 	network, address, err := parseLocalDialTarget(dialTarget)
 	if err != nil {
@@ -31,7 +29,7 @@ func waitForPluginReady(ctx context.Context, dialTarget string) error {
 		)
 		if err == nil {
 			callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			rpcErr := conn.Invoke(callCtx, providerLifecycleGetIdentityMethod, &gestalt.Empty{}, &gestalt.Empty{})
+			rpcErr := gestalt.ProbeProviderLifecycle(callCtx, conn)
 			cancel()
 			_ = conn.Close()
 			if rpcErr == nil {

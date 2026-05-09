@@ -15,12 +15,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestAuthorizationProviderRoundTrip(t *testing.T) {
 	sess := newProviderSession(t)
 
-	meta, err := sess.runtime.GetProviderIdentity(sess.ctx, &gestalt.Empty{}, grpc.WaitForReady(true))
+	meta, err := sess.runtime.GetProviderIdentity(sess.ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("GetProviderIdentity: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 		t.Fatalf("model version = %q, want 1", modelRef.GetVersion())
 	}
 
-	authzMeta, err := sess.client.GetMetadata(sess.ctx, &gestalt.Empty{})
+	authzMeta, err := sess.client.GetMetadata(sess.ctx, &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("GetMetadata: %v", err)
 	}
@@ -190,7 +191,7 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 		t.Fatalf("ReadRelationships pairs = %#v", got)
 	}
 
-	active, err := sess.client.GetActiveModel(sess.ctx, &gestalt.Empty{})
+	active, err := sess.client.GetActiveModel(sess.ctx, &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("GetActiveModel: %v", err)
 	}

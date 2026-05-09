@@ -71,16 +71,7 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 		return nil, fmt.Errorf("encrypt credential pair: %w", err)
 	}
 	if normalized.GetId() == "" {
-		normalized.Id = uuid.NewString()
-	}
-
-	expiresAt, err := gestalt.TimePtrFromTimestamp(normalized.GetExpiresAt())
-	if err != nil {
-		expiresAt = nil
-	}
-	lastRefreshedAt, err := gestalt.TimePtrFromTimestamp(normalized.GetLastRefreshedAt())
-	if err != nil {
-		lastRefreshedAt = nil
+		normalized.ID = uuid.NewString()
 	}
 	createdAt := credentialCreatedAt(normalized, now)
 	updatedAt := credentialUpdatedAt(normalized, now, preserveTimestamps)
@@ -91,8 +82,8 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 		"access_token_encrypted":  accessEnc,
 		"refresh_token_encrypted": refreshEnc,
 		"scopes":                  normalized.GetScopes(),
-		"expires_at":              utcTimePtr(expiresAt),
-		"last_refreshed_at":       utcTimePtr(lastRefreshedAt),
+		"expires_at":              utcTimePtr(normalized.GetExpiresAt()),
+		"last_refreshed_at":       utcTimePtr(normalized.GetLastRefreshedAt()),
 		"refresh_error_count":     normalized.GetRefreshErrorCount(),
 		"metadata_json":           normalized.GetMetadataJson(),
 		"updated_at":              updatedAt,
@@ -101,11 +92,11 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 	existing, err := s.credentialRecord(ctx, normalized.GetSubjectId(), normalized.GetConnectionId(), normalized.GetInstance())
 	switch {
 	case err == nil:
-		normalized.Id = recordString(existing, "id")
+		normalized.ID = recordString(existing, "id")
 		record["id"] = normalized.GetId()
 		existingCreatedAt := recordTime(existing, "created_at")
 		if preserveTimestamps && normalized.GetCreatedAt() != nil {
-			existingCreatedAt = normalized.GetCreatedAt().AsTime().UTC()
+			existingCreatedAt = normalized.GetCreatedAt().UTC()
 		}
 		if existingCreatedAt.IsZero() {
 			existingCreatedAt = createdAt
@@ -278,20 +269,20 @@ func (s *store) recordToCredential(record gestalt.Record) (*gestalt.ExternalCred
 	}
 
 	credential := &gestalt.ExternalCredential{
-		Id:                recordString(record, "id"),
-		SubjectId:         credentialRecordSubjectID(record),
-		ConnectionId:      recordString(record, "connection_id"),
+		ID:                recordString(record, "id"),
+		SubjectID:         credentialRecordSubjectID(record),
+		ConnectionID:      recordString(record, "connection_id"),
 		Instance:          recordString(record, "instance"),
 		AccessToken:       accessToken,
 		RefreshToken:      refreshToken,
 		Scopes:            recordString(record, "scopes"),
 		RefreshErrorCount: int32(recordInt(record, "refresh_error_count")),
-		MetadataJson:      recordString(record, "metadata_json"),
+		MetadataJSON:      recordString(record, "metadata_json"),
+		ExpiresAt:         recordTimePtr(record, "expires_at"),
+		LastRefreshedAt:   recordTimePtr(record, "last_refreshed_at"),
+		CreatedAt:         recordTimePtr(record, "created_at"),
+		UpdatedAt:         recordTimePtr(record, "updated_at"),
 	}
-	gestalt.SetOptionalTime(&credential.ExpiresAt, recordTimePtr(record, "expires_at"))
-	gestalt.SetOptionalTime(&credential.LastRefreshedAt, recordTimePtr(record, "last_refreshed_at"))
-	gestalt.SetOptionalTime(&credential.CreatedAt, recordTimePtr(record, "created_at"))
-	gestalt.SetOptionalTime(&credential.UpdatedAt, recordTimePtr(record, "updated_at"))
 	return credential, nil
 }
 
@@ -300,23 +291,23 @@ func normalizeCredential(credential *gestalt.ExternalCredential) *gestalt.Extern
 		return nil
 	}
 	clone := *credential
-	clone.Id = strings.TrimSpace(clone.GetId())
-	clone.SubjectId = strings.TrimSpace(clone.GetSubjectId())
-	clone.ConnectionId = strings.TrimSpace(clone.GetConnectionId())
+	clone.ID = strings.TrimSpace(clone.GetId())
+	clone.SubjectID = strings.TrimSpace(clone.GetSubjectId())
+	clone.ConnectionID = strings.TrimSpace(clone.GetConnectionId())
 	clone.Instance = strings.TrimSpace(clone.GetInstance())
 	return &clone
 }
 
 func credentialCreatedAt(credential *gestalt.ExternalCredential, fallback time.Time) time.Time {
 	if credential != nil && credential.GetCreatedAt() != nil {
-		return credential.GetCreatedAt().AsTime().UTC()
+		return credential.GetCreatedAt().UTC()
 	}
 	return fallback.UTC()
 }
 
 func credentialUpdatedAt(credential *gestalt.ExternalCredential, fallback time.Time, preserve bool) time.Time {
 	if preserve && credential != nil && credential.GetUpdatedAt() != nil {
-		return credential.GetUpdatedAt().AsTime().UTC()
+		return credential.GetUpdatedAt().UTC()
 	}
 	return fallback.UTC()
 }

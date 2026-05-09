@@ -26,6 +26,7 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type storeMeta struct {
@@ -424,7 +425,7 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, sche
 
 // ---- Lifecycle ----
 
-func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*gestalt.Empty, error) {
+func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -435,7 +436,7 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 	}
 	if ok {
 		if genericStoreSchemaMatches(existing, schema) {
-			return &gestalt.Empty{}, nil
+			return &emptypb.Empty{}, nil
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "object store %q schema does not match; automatic schema upgrades are disabled, run an explicit migration before deploying this provider version", req.Name)
 	}
@@ -446,7 +447,7 @@ func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectSt
 	if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func genericStoreSchemaMatches(existing *storeMeta, schema *proto.ObjectStoreSchema) bool {
@@ -514,7 +515,7 @@ func indexesMatch(left, right []*proto.IndexSchema) bool {
 	return true
 }
 
-func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*gestalt.Empty, error) {
+func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -529,7 +530,7 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 		"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
 		s.metadataStoreKey(req.Name),
 	)
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 // ---- Primary key CRUD ----
@@ -562,7 +563,7 @@ func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 	return &proto.KeyResponse{Key: fmt.Sprint(value.value)}, nil
 }
 
-func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
@@ -570,10 +571,10 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Emp
 	if err := s.addGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
@@ -581,10 +582,10 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Emp
 	if err := s.putGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
-func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*gestalt.Empty, error) {
+func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
@@ -592,19 +593,19 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*ges
 	if err := s.deleteGeneric(ctx, req.Store, m, req.Id); err != nil {
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 // ---- Bulk operations ----
 
-func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*gestalt.Empty, error) {
+func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
 	if _, err := s.getMetaForContext(ctx, req.Store); err != nil {
 		return nil, err
 	}
 	if err := s.clearGeneric(ctx, req.Store); err != nil {
 		return nil, err
 	}
-	return &gestalt.Empty{}, nil
+	return &emptypb.Empty{}, nil
 }
 
 func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {

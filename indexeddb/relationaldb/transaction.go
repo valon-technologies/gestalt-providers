@@ -6,10 +6,10 @@ import (
 	"sync"
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func (s *Store) Transaction(stream proto.IndexedDB_TransactionServer) error {
@@ -117,28 +117,28 @@ func (t *relationalTransaction) GetKey(ctx context.Context, req *proto.ObjectSto
 	return t.store.GetKey(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (t *relationalTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}
 	return t.store.Add(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
+func (t *relationalTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}
 	return t.store.Put(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*gestalt.Empty, error) {
+func (t *relationalTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}
 	return t.store.Delete(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*gestalt.Empty, error) {
+func (t *relationalTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}

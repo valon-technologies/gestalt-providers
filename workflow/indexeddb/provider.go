@@ -5059,7 +5059,13 @@ func (r workflowSignalRecord) signalProto() *proto.WorkflowSignal {
 		signal.Sequence = r.Sequence
 	}
 	if signal.CreatedAt == nil && !r.CreatedAt.IsZero() {
-		gestalt.SetTime(&signal.CreatedAt, r.CreatedAt)
+		input := gestalt.WorkflowSignalInputFromSignal(signal)
+		input.CreatedAt = r.CreatedAt
+		var err error
+		signal, err = gestalt.NewWorkflowSignal(input)
+		if err != nil {
+			panic(fmt.Sprintf("build workflow signal: %v", err))
+		}
 	}
 	return signal
 }

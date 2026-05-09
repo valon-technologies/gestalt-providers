@@ -520,14 +520,14 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 	now := time.Now().UTC()
 	largePayload := strings.Repeat("x", 256*1024)
 	for i := 0; i < 24; i++ {
-		signal := &proto.WorkflowSignal{
-			Id:             fmt.Sprintf("other-signal-%02d", i),
+		signal := workflowSignal(t, gestalt.WorkflowSignalInput{
+			ID:             fmt.Sprintf("other-signal-%02d", i),
 			Name:           "github.app.webhook",
-			Payload:        mustStruct(t, map[string]any{"body": largePayload}),
-			CreatedAt:      gestalt.TimestampFromTime(now),
+			Payload:        map[string]any{"body": largePayload},
+			CreatedAt:      now,
 			IdempotencyKey: fmt.Sprintf("other-event-%02d", i),
 			Sequence:       int64(i + 1),
-		}
+		})
 		record := workflowSignalRecord{
 			ID:             signal.GetId(),
 			RunID:          "other-run",
@@ -1438,16 +1438,16 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	firstCreatedAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	secondCreatedAt := firstCreatedAt.Add(time.Minute)
 	first, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
-		Reference: &proto.WorkflowExecutionReference{
-			Id:                  "ref-1",
+		Reference: workflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+			ID:                  "ref-1",
 			Target:              protoBoundTarget(t, "roadmap", "sync", nil),
-			SubjectId:           "user:123",
-			CredentialSubjectId: "svc:workflow",
+			SubjectID:           "user:123",
+			CredentialSubjectID: "svc:workflow",
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "roadmap", Operations: []string{"sync", "preview"}},
 			},
-			CreatedAt: gestalt.TimestampFromTime(firstCreatedAt),
-		},
+			CreatedAt: firstCreatedAt,
+		}),
 	})
 	if err != nil {
 		t.Fatalf("PutExecutionReference(ref-1): %v", err)
@@ -1463,11 +1463,11 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	updatedTarget := protoBoundTarget(t, "roadmap", "sync", nil)
 	updatedTarget.GetPlugin().CredentialMode = "none"
 	updated, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
-		Reference: &proto.WorkflowExecutionReference{
-			Id:                  "ref-1",
+		Reference: workflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+			ID:                  "ref-1",
 			Target:              updatedTarget,
-			SubjectId:           "user:123",
-			CredentialSubjectId: "svc:workflow",
+			SubjectID:           "user:123",
+			CredentialSubjectID: "svc:workflow",
 			RunAs: &proto.WorkflowRunAsSubject{
 				SubjectId:   "service_account:roadmap-sync",
 				SubjectKind: "service_account",
@@ -1477,9 +1477,9 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "roadmap", Operations: []string{"sync"}},
 			},
-			CreatedAt: gestalt.TimestampFromTime(secondCreatedAt),
-			RevokedAt: gestalt.TimestampFromTime(revokedAt),
-		},
+			CreatedAt: secondCreatedAt,
+			RevokedAt: &revokedAt,
+		}),
 	})
 	if err != nil {
 		t.Fatalf("PutExecutionReference(update ref-1): %v", err)
@@ -1492,22 +1492,22 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 
 	if _, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
-		Reference: &proto.WorkflowExecutionReference{
-			Id:        "ref-2",
+		Reference: workflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+			ID:        "ref-2",
 			Target:    protoBoundTarget(t, "roadmap", "sync", nil),
-			SubjectId: "user:123",
-			CreatedAt: gestalt.TimestampFromTime(secondCreatedAt),
-		},
+			SubjectID: "user:123",
+			CreatedAt: secondCreatedAt,
+		}),
 	}); err != nil {
 		t.Fatalf("PutExecutionReference(ref-2): %v", err)
 	}
 	if _, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
-		Reference: &proto.WorkflowExecutionReference{
-			Id:        "ref-3",
+		Reference: workflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+			ID:        "ref-3",
 			Target:    protoBoundTarget(t, "billing", "collect", nil),
-			SubjectId: "user:999",
-			CreatedAt: gestalt.TimestampFromTime(secondCreatedAt.Add(time.Minute)),
-		},
+			SubjectID: "user:999",
+			CreatedAt: secondCreatedAt.Add(time.Minute),
+		}),
 	}); err != nil {
 		t.Fatalf("PutExecutionReference(ref-3): %v", err)
 	}
@@ -1632,15 +1632,15 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 
 	createdAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	ref, err := provider.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{
-		Reference: &proto.WorkflowExecutionReference{
-			Id:        "agent-ref",
+		Reference: workflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+			ID:        "agent-ref",
 			Target:    protoAgentTargetWithDeliveries("managed", "gpt-5.4", "send a Slack reminder"),
-			SubjectId: "user:123",
+			SubjectID: "user:123",
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
 			},
-			CreatedAt: gestalt.TimestampFromTime(createdAt),
-		},
+			CreatedAt: createdAt,
+		}),
 	})
 	if err != nil {
 		t.Fatalf("PutExecutionReference(agent-ref): %v", err)
@@ -4100,6 +4100,19 @@ func protoWorkflowSignal(t *testing.T, id, idempotencyKey, text string) *proto.W
 		IdempotencyKey: idempotencyKey,
 		Payload:        mustStruct(t, map[string]any{"text": text}),
 	}
+}
+
+func workflowSignal(t *testing.T, input gestalt.WorkflowSignalInput) *proto.WorkflowSignal {
+	t.Helper()
+	signal, err := gestalt.NewWorkflowSignal(input)
+	if err != nil {
+		t.Fatalf("gestalt.NewWorkflowSignal: %v", err)
+	}
+	return signal
+}
+
+func workflowExecutionReference(input gestalt.WorkflowExecutionReferenceInput) *proto.WorkflowExecutionReference {
+	return gestalt.NewWorkflowExecutionReference(input)
 }
 
 func mustStruct(t *testing.T, value map[string]any) *gestalt.Struct {
