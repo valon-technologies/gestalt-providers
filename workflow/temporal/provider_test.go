@@ -278,8 +278,7 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
-	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
-	backend := newTemporalBackend("temporal", baseTemporalConfig(), tc, nil, nil)
+	backend := newTemporalBackend("temporal", baseTemporalConfig(), &recordingTemporalClient{}, nil, nil)
 	backend.newWorker = func(_ client.Client, taskQueue string, options worker.Options) temporalWorker {
 		if taskQueue != "gestalt-workflow" {
 			t.Fatalf("task queue = %q, want gestalt-workflow", taskQueue)
@@ -298,9 +297,6 @@ func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.
 	if fw.registeredWorkflows != 1 || fw.registeredActivities != 1 {
 		t.Fatalf("registered workflows=%d activities=%d, want only v4 workflow and activities", fw.registeredWorkflows, fw.registeredActivities)
 	}
-	if len(tc.deploymentClient.handle.describeCalls) != 0 || len(tc.deploymentClient.handle.setCurrentCalls) != 0 {
-		t.Fatalf("unversioned config touched worker deployments: %#v", tc.deploymentClient.handle)
-	}
 	if !backend.started {
 		t.Fatalf("backend not marked started")
 	}
@@ -309,7 +305,7 @@ func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.
 func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
-	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
+	tc := &recordingTemporalClient{}
 	backend := newTemporalBackend("temporal", baseTemporalConfig(), tc, nil, nil)
 	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
 
@@ -327,7 +323,7 @@ func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	}
 }
 
-func TestTemporalBackendStartUsesVersioningWithoutPromotion(t *testing.T) {
+func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
 	t.Setenv("TEMPORAL_BUILD_ID", "revision-1")
 	raw := baseTemporalConfigRaw()
 	raw["versioning"] = map[string]any{
@@ -343,9 +339,7 @@ func TestTemporalBackendStartUsesVersioningWithoutPromotion(t *testing.T) {
 
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
-	handle := &fakeWorkerDeploymentHandle{order: &order}
-	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: handle}}
-	backend := newTemporalBackend("temporal", cfg, tc, nil, nil)
+	backend := newTemporalBackend("temporal", cfg, &recordingTemporalClient{}, nil, nil)
 	backend.newWorker = func(_ client.Client, _ string, options worker.Options) temporalWorker {
 		deployment := options.DeploymentOptions
 		if !deployment.UseVersioning {
@@ -364,9 +358,6 @@ func TestTemporalBackendStartUsesVersioningWithoutPromotion(t *testing.T) {
 	}
 	if got := strings.Join(order, ","); got != "start" {
 		t.Fatalf("startup order = %s, want start", got)
-	}
-	if len(handle.describeCalls) != 0 || len(handle.setCurrentCalls) != 0 || len(handle.setRampingCalls) != 0 {
-		t.Fatalf("worker deployment calls describe=%d setCurrent=%d setRamping=%d, want none", len(handle.describeCalls), len(handle.setCurrentCalls), len(handle.setRampingCalls))
 	}
 }
 
@@ -1760,16 +1751,17 @@ func TestProviderSurfaceRequiresConfiguredBackend(t *testing.T) {
 }
 
 func TestProviderSurfaceStartsBackendForExecutionRPCs(t *testing.T) {
-	worker := &fakeTemporalWorker{startErr: errors.New("worker unavailable")}
-	backend := newTestTemporalBackendForStart(baseTemporalConfig(), nil, worker)
+	fw := &fakeTemporalWorker{startErr: errors.New("worker unavailable")}
+	backend := newTemporalBackend("temporal", baseTemporalConfig(), &recordingTemporalClient{}, nil, nil)
+	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
 	provider := &Provider{name: "temporal", backend: backend}
 
 	_, err := provider.StartRun(context.Background(), &proto.StartWorkflowProviderRunRequest{})
 	if status.Code(err) != codes.Internal {
 		t.Fatalf("StartRun error = %v, want Internal", err)
 	}
-	if worker.startCount != 1 {
-		t.Fatalf("worker Start calls = %d, want 1", worker.startCount)
+	if fw.startCount != 1 {
+		t.Fatalf("worker Start calls = %d, want 1", fw.startCount)
 	}
 }
 
@@ -2065,24 +2057,6 @@ func withoutMapKey(in map[string]any, key string) map[string]any {
 	return out
 }
 
-func newTestTemporalBackendForStart(cfg config, handle *fakeWorkerDeploymentHandle, fw *fakeTemporalWorker) *temporalBackend {
-	if handle == nil {
-		handle = &fakeWorkerDeploymentHandle{}
-	}
-	if fw == nil {
-		fw = &fakeTemporalWorker{}
-	}
-	backend := newTemporalBackend(
-		"temporal",
-		cfg,
-		&recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: handle}},
-		nil,
-		nil,
-	)
-	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
-	return backend
-}
-
 type recordedUpdate struct {
 	WorkflowID   string
 	UpdateID     string
@@ -2098,13 +2072,12 @@ type recordedExecution struct {
 
 type recordingTemporalClient struct {
 	client.Client
-	mu               sync.Mutex
-	executions       []recordedExecution
-	updates          []recordedUpdate
-	updateErrs       []error
-	scheduleClient   client.ScheduleClient
-	deploymentClient *fakeWorkerDeploymentClient
-	afterExecute     func()
+	mu             sync.Mutex
+	executions     []recordedExecution
+	updates        []recordedUpdate
+	updateErrs     []error
+	scheduleClient client.ScheduleClient
+	afterExecute   func()
 }
 
 func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
@@ -2191,13 +2164,6 @@ func (c *recordingTemporalClient) ScheduleClient() client.ScheduleClient {
 	return c.Client.ScheduleClient()
 }
 
-func (c *recordingTemporalClient) WorkerDeploymentClient() client.WorkerDeploymentClient {
-	if c.deploymentClient != nil {
-		return c.deploymentClient
-	}
-	return c.Client.WorkerDeploymentClient()
-}
-
 func (c *recordingTemporalClient) hasUpdate(workflowID, name string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2239,106 +2205,6 @@ func (w *fakeTemporalWorker) Stop() {
 	if w.order != nil {
 		*w.order = append(*w.order, "stop")
 	}
-}
-
-type fakeWorkerDeploymentClient struct {
-	handle *fakeWorkerDeploymentHandle
-}
-
-func (c *fakeWorkerDeploymentClient) List(context.Context, client.WorkerDeploymentListOptions) (client.WorkerDeploymentListIterator, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
-}
-
-func (c *fakeWorkerDeploymentClient) GetHandle(string) client.WorkerDeploymentHandle {
-	if c.handle == nil {
-		c.handle = &fakeWorkerDeploymentHandle{}
-	}
-	return c.handle
-}
-
-func (c *fakeWorkerDeploymentClient) Delete(context.Context, client.WorkerDeploymentDeleteOptions) (client.WorkerDeploymentDeleteResponse, error) {
-	return client.WorkerDeploymentDeleteResponse{}, status.Error(codes.Unimplemented, "not implemented")
-}
-
-type fakeWorkerDeploymentHandle struct {
-	order            *[]string
-	describeResponse client.WorkerDeploymentDescribeResponse
-	describeErrs     []error
-	setCurrentErrs   []error
-	setRampingErrs   []error
-	describeCalls    []client.WorkerDeploymentDescribeOptions
-	setCurrentCalls  []client.WorkerDeploymentSetCurrentVersionOptions
-	setRampingCalls  []client.WorkerDeploymentSetRampingVersionOptions
-}
-
-func (h *fakeWorkerDeploymentHandle) Describe(_ context.Context, options client.WorkerDeploymentDescribeOptions) (client.WorkerDeploymentDescribeResponse, error) {
-	h.describeCalls = append(h.describeCalls, options)
-	if h.order != nil {
-		*h.order = append(*h.order, "describe")
-	}
-	if len(h.describeErrs) > 0 {
-		err := h.describeErrs[0]
-		h.describeErrs = h.describeErrs[1:]
-		if err != nil {
-			return client.WorkerDeploymentDescribeResponse{}, err
-		}
-	}
-	return h.describeResponse, nil
-}
-
-func (h *fakeWorkerDeploymentHandle) SetCurrentVersion(_ context.Context, options client.WorkerDeploymentSetCurrentVersionOptions) (client.WorkerDeploymentSetCurrentVersionResponse, error) {
-	h.setCurrentCalls = append(h.setCurrentCalls, options)
-	if h.order != nil {
-		*h.order = append(*h.order, "set-current")
-	}
-	if len(h.setCurrentErrs) > 0 {
-		err := h.setCurrentErrs[0]
-		h.setCurrentErrs = h.setCurrentErrs[1:]
-		if err != nil {
-			return client.WorkerDeploymentSetCurrentVersionResponse{}, err
-		}
-	}
-	h.describeResponse.Info.RoutingConfig.CurrentVersion = &worker.WorkerDeploymentVersion{
-		DeploymentName: "valon-tools-prod",
-		BuildID:        options.BuildID,
-	}
-	return client.WorkerDeploymentSetCurrentVersionResponse{}, nil
-}
-
-func (h *fakeWorkerDeploymentHandle) SetRampingVersion(_ context.Context, options client.WorkerDeploymentSetRampingVersionOptions) (client.WorkerDeploymentSetRampingVersionResponse, error) {
-	h.setRampingCalls = append(h.setRampingCalls, options)
-	if h.order != nil {
-		*h.order = append(*h.order, "set-ramping")
-	}
-	if len(h.setRampingErrs) > 0 {
-		err := h.setRampingErrs[0]
-		h.setRampingErrs = h.setRampingErrs[1:]
-		if err != nil {
-			return client.WorkerDeploymentSetRampingVersionResponse{}, err
-		}
-	}
-	h.describeResponse.Info.RoutingConfig.RampingVersion = &worker.WorkerDeploymentVersion{
-		DeploymentName: "valon-tools-prod",
-		BuildID:        options.BuildID,
-	}
-	h.describeResponse.Info.RoutingConfig.RampingVersionPercentage = options.Percentage
-	return client.WorkerDeploymentSetRampingVersionResponse{}, nil
-}
-
-func (h *fakeWorkerDeploymentHandle) SetManagerIdentity(context.Context, client.WorkerDeploymentSetManagerIdentityOptions) (client.WorkerDeploymentSetManagerIdentityResponse, error) {
-	return client.WorkerDeploymentSetManagerIdentityResponse{}, status.Error(codes.Unimplemented, "not implemented")
-}
-
-func (h *fakeWorkerDeploymentHandle) DescribeVersion(context.Context, client.WorkerDeploymentDescribeVersionOptions) (client.WorkerDeploymentVersionDescription, error) {
-	return client.WorkerDeploymentVersionDescription{}, status.Error(codes.Unimplemented, "not implemented")
-}
-
-func (h *fakeWorkerDeploymentHandle) DeleteVersion(context.Context, client.WorkerDeploymentDeleteVersionOptions) (client.WorkerDeploymentDeleteVersionResponse, error) {
-	return client.WorkerDeploymentDeleteVersionResponse{}, status.Error(codes.Unimplemented, "not implemented")
-}
-
-func (h *fakeWorkerDeploymentHandle) UpdateVersionMetadata(context.Context, client.WorkerDeploymentUpdateVersionMetadataOptions) (client.WorkerDeploymentUpdateVersionMetadataResponse, error) {
-	return client.WorkerDeploymentUpdateVersionMetadataResponse{}, status.Error(codes.Unimplemented, "not implemented")
 }
 
 type recordingWorkflowRun struct {
