@@ -17,9 +17,6 @@ func (b *temporalBackend) reserveSignalIdempotency(ctx context.Context, req sign
 	if req.Key == "" {
 		return nil, nil
 	}
-	if b.state == nil {
-		return nil, status.Error(codes.FailedPrecondition, "workflow state store is required for signal idempotency")
-	}
 
 	entry, existing, err := b.state.reserveSignalIdempotency(ctx, req, b.cfg.IdempotencyRetention, time.Now().UTC())
 	if err != nil {
@@ -44,9 +41,6 @@ func (b *temporalBackend) completeSignalIdempotency(ctx context.Context, key, fi
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil
-	}
-	if b.state == nil {
-		return status.Error(codes.FailedPrecondition, "workflow state store is required for signal idempotency")
 	}
 	if err := b.state.completeSignalIdempotency(ctx, key, fingerprint, resp, allowPayloadVariance, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
 		var conflict *runIdempotencyConflictError

@@ -24,7 +24,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1013,37 +1012,37 @@ func (p *Provider) ListSchedules(ctx context.Context, req *proto.ListWorkflowPro
 	return resp, nil
 }
 
-func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) (*emptypb.Empty, error) {
+func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) error {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
+		return status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := ""
 	scheduleID := strings.TrimSpace(req.GetScheduleId())
 	if scheduleID == "" {
-		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
+		return status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	_, found, err := loadScheduleRecord(ctx, state.scheduleStore, pluginName, scheduleID)
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.Internal, "load schedule: %v", err)
+		return status.Errorf(codes.Internal, "load schedule: %v", err)
 	}
 	if !found {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", scheduleID)
+		return status.Errorf(codes.NotFound, "workflow schedule %q not found", scheduleID)
 	}
 	if err := state.scheduleStore.Delete(ctx, scheduleID); err != nil {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.Internal, "delete schedule: %v", err)
+		return status.Errorf(codes.Internal, "delete schedule: %v", err)
 	}
 	p.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
@@ -1190,37 +1189,37 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *proto.ListWorkflo
 	return resp, nil
 }
 
-func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) (*emptypb.Empty, error) {
+func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) error {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
+		return status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := ""
 	triggerID := strings.TrimSpace(req.GetTriggerId())
 	if triggerID == "" {
-		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
+		return status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	_, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, pluginName, triggerID)
 	if err != nil {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.Internal, "load event trigger: %v", err)
+		return status.Errorf(codes.Internal, "load event trigger: %v", err)
 	}
 	if !found {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", triggerID)
+		return status.Errorf(codes.NotFound, "workflow event trigger %q not found", triggerID)
 	}
 	if err := state.eventTriggerStore.Delete(ctx, triggerID); err != nil {
 		p.mu.Unlock()
-		return nil, status.Errorf(codes.Internal, "delete event trigger: %v", err)
+		return status.Errorf(codes.Internal, "delete event trigger: %v", err)
 	}
 	p.mu.Unlock()
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
@@ -1237,14 +1236,14 @@ func (p *Provider) ResumeEventTrigger(ctx context.Context, req *proto.ResumeWork
 	return p.updateEventTriggerPaused(ctx, "", strings.TrimSpace(req.GetTriggerId()), false)
 }
 
-func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
+func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) error {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
+		return status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
 	event, err := normalizeWorkflowEvent(req.GetEvent(), p.clock())
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	p.publishMu.Lock()
@@ -1254,12 +1253,12 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
 		p.mu.RUnlock()
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
 	if err != nil {
 		p.mu.RUnlock()
-		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
+		return status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
 	now := p.clock().UTC()
 	providerName := strings.TrimSpace(p.name)
@@ -1276,7 +1275,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		}
 		if _, found, err := loadRunRecord(ctx, state.runStore, trigger.ownerKey(), runID); err != nil {
 			p.mu.RUnlock()
-			return nil, status.Errorf(codes.Internal, "load event run: %v", err)
+			return status.Errorf(codes.Internal, "load event run: %v", err)
 		} else if found {
 			continue
 		}
@@ -1288,18 +1287,18 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 			ref, err := publishedEventExecutionReference(providerName, runID, trigger, publishedBy, now)
 			if err != nil {
 				p.mu.RUnlock()
-				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
+				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
 				record, err := executionReferenceRecordFromProto(ref)
 				if err != nil {
 					p.mu.RUnlock()
-					return nil, status.Errorf(codes.Internal, "build event execution reference record: %v", err)
+					return status.Errorf(codes.Internal, "build event execution reference record: %v", err)
 				}
 				if err := state.executionRefStore.Add(ctx, record.toRecord()); err != nil {
 					if !errors.Is(err, gestalt.ErrAlreadyExists) {
 						p.mu.RUnlock()
-						return nil, status.Errorf(codes.Internal, "store event execution reference: %v", err)
+						return status.Errorf(codes.Internal, "store event execution reference: %v", err)
 					}
 				} else {
 					createdExecutionRef = true
@@ -1327,7 +1326,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 				_ = state.executionRefStore.Delete(ctx, executionRef)
 			}
 			p.mu.RUnlock()
-			return nil, status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
+			return status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
 		}
 		enqueued = true
 		if preferredRunID == "" {
@@ -1338,7 +1337,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		p.signalWorkerLocked(preferredRunID)
 	}
 	p.mu.RUnlock()
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {

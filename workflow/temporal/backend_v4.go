@@ -16,9 +16,6 @@ import (
 )
 
 func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarget, req *proto.StartWorkflowProviderRunRequest, key, fingerprint string) (*proto.BoundWorkflowRun, error) {
-	if b.state == nil {
-		return nil, status.Error(codes.FailedPrecondition, "workflow state store is required for keyed temporal runs")
-	}
 	now := time.Now().UTC()
 	key = strings.TrimSpace(key)
 	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
@@ -95,22 +92,20 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 
 func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTarget, req *proto.StartWorkflowProviderRunRequest, key, fingerprint string) (*proto.BoundWorkflowRun, error) {
 	now := time.Now().UTC()
-	if b.state != nil {
-		entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, b.cfg.IdempotencyRetention, now)
-		if err != nil {
-			var conflict *runIdempotencyConflictError
-			if errors.As(err, &conflict) {
-				return nil, status.Error(codes.FailedPrecondition, err.Error())
-			}
-			if status.Code(err) == codes.Aborted {
-				return nil, status.Errorf(codes.Aborted, "reserve workflow run idempotency: %v", err)
-			}
-			return nil, status.Errorf(codes.Internal, "reserve workflow run idempotency: %v", err)
+	entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, b.cfg.IdempotencyRetention, now)
+	if err != nil {
+		var conflict *runIdempotencyConflictError
+		if errors.As(err, &conflict) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
-		if existing && entry != nil && entry.Status == "completed" {
-			if run := runFromPayload(entry.RunPayload); run != nil {
-				return run, nil
-			}
+		if status.Code(err) == codes.Aborted {
+			return nil, status.Errorf(codes.Aborted, "reserve workflow run idempotency: %v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "reserve workflow run idempotency: %v", err)
+	}
+	if existing && entry != nil && entry.Status == "completed" {
+		if run := runFromPayload(entry.RunPayload); run != nil {
+			return run, nil
 		}
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
@@ -118,22 +113,17 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 	if err != nil {
 		return nil, err
 	}
-	if b.state != nil {
-		if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, run, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
-			var conflict *runIdempotencyConflictError
-			if errors.As(err, &conflict) {
-				return nil, status.Error(codes.FailedPrecondition, err.Error())
-			}
-			return nil, status.Errorf(codes.Internal, "complete workflow run idempotency: %v", err)
+	if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, run, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+		var conflict *runIdempotencyConflictError
+		if errors.As(err, &conflict) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
+		return nil, status.Errorf(codes.Internal, "complete workflow run idempotency: %v", err)
 	}
 	return run, nil
 }
 
 func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, target scopedTarget, req *proto.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *proto.WorkflowSignal, updateID string) (*proto.SignalWorkflowRunResponse, error) {
-	if b.state == nil {
-		return nil, status.Error(codes.FailedPrecondition, "workflow state store is required for keyed temporal runs")
-	}
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
@@ -360,7 +350,7 @@ func (b *temporalBackend) executeRunV4(ctx context.Context, workflowID string, i
 		return nil, status.Errorf(codes.Internal, "start temporal v4 workflow: %v", err)
 	}
 	out := b.pendingRunFromWorkflowRun(run, input)
-	if b.state != nil && !input.RequireClaim {
+	if !input.RequireClaim {
 		_ = b.state.putRun(ctx, out)
 	}
 	return out, nil
@@ -412,18 +402,4 @@ func (b *temporalBackend) startWorkflowOptions(workflowID string, conflict enums
 	opts := b.runStartOptions(workflowID, conflict, reuse)
 	opts.WorkflowIDReusePolicy = reuse
 	return opts
-}
-
-func (b *temporalBackend) getRunProjection(ctx context.Context, runID string) (*proto.BoundWorkflowRun, bool, error) {
-	if b.state == nil {
-		return nil, false, nil
-	}
-	return b.state.getRun(ctx, runID)
-}
-
-func (b *temporalBackend) listRunProjections(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
-	if b.state == nil {
-		return nil, nil
-	}
-	return b.state.listRuns(ctx)
 }
