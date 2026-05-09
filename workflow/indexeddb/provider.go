@@ -4642,7 +4642,7 @@ func eventFromAny(value any) *proto.WorkflowEvent {
 	}
 	if raw := stringField(data, "time"); raw != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			event.Time = gestalt.TimestampFromTime(parsed.UTC())
+			gestalt.SetTime(&event.Time, parsed.UTC())
 		}
 	}
 	return event
@@ -5134,7 +5134,7 @@ func (r workflowSignalRecord) signalProto() *proto.WorkflowSignal {
 		signal.Sequence = r.Sequence
 	}
 	if signal.CreatedAt == nil && !r.CreatedAt.IsZero() {
-		signal.CreatedAt = gestalt.TimestampFromTime(r.CreatedAt)
+		gestalt.SetTime(&signal.CreatedAt, r.CreatedAt)
 	}
 	return signal
 }

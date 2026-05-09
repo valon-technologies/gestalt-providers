@@ -18,7 +18,6 @@ import (
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const tokenRefreshThreshold = 5 * time.Minute
@@ -135,11 +134,12 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 		if err != nil {
 			return nil, err
 		}
-		return &gestalt.ResolveExternalCredentialResponse{
-			Token:     resp.AccessToken,
-			ExpiresAt: expiresAtFromExpiresIn(p.now().UTC(), resp.ExpiresIn),
-			Params:    cloneStringMap(req.GetConnectionParams()),
-		}, nil
+		out := &gestalt.ResolveExternalCredentialResponse{
+			Token:  resp.AccessToken,
+			Params: cloneStringMap(req.GetConnectionParams()),
+		}
+		gestalt.SetOptionalTime(&out.ExpiresAt, expiresAtFromExpiresIn(p.now().UTC(), resp.ExpiresIn))
+		return out, nil
 	}
 
 	st, err := p.configuredStore()
@@ -251,9 +251,9 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 	now := p.now().UTC()
 	if err != nil {
 		credential.RefreshErrorCount++
-		credential.UpdatedAt = gestalt.TimestampFromTime(now)
+		gestalt.SetTime(&credential.UpdatedAt, now)
 		if isTerminalRefreshError(err) {
-			credential.ExpiresAt = gestalt.TimestampFromTime(now.Add(-1 * time.Hour))
+			gestalt.SetTime(&credential.ExpiresAt, now.Add(-1*time.Hour))
 			marked, markErr := st.upsertCredential(ctx, credential, false, now)
 			if markErr != nil {
 				return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
@@ -275,10 +275,10 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 	} else if resp.RefreshToken != "" {
 		credential.RefreshToken = resp.RefreshToken
 	}
-	credential.ExpiresAt = expiresAtFromExpiresIn(now, resp.ExpiresIn)
-	credential.LastRefreshedAt = gestalt.TimestampFromTime(now)
+	gestalt.SetOptionalTime(&credential.ExpiresAt, expiresAtFromExpiresIn(now, resp.ExpiresIn))
+	gestalt.SetTime(&credential.LastRefreshedAt, now)
 	credential.RefreshErrorCount = 0
-	credential.UpdatedAt = gestalt.TimestampFromTime(now)
+	gestalt.SetTime(&credential.UpdatedAt, now)
 	return st.upsertCredential(ctx, credential, false, now)
 }
 
@@ -598,11 +598,12 @@ func tokenResponseToProto(resp *tokenResponse) *gestalt.ExternalCredentialTokenR
 	}
 }
 
-func expiresAtFromExpiresIn(now time.Time, expiresIn int) *timestamppb.Timestamp {
+func expiresAtFromExpiresIn(now time.Time, expiresIn int) *time.Time {
 	if expiresIn <= 0 {
 		return nil
 	}
-	return gestalt.TimestampFromTime(now.Add(time.Duration(expiresIn) * time.Second))
+	expiresAt := now.Add(time.Duration(expiresIn) * time.Second)
+	return &expiresAt
 }
 
 func metadataParams(metadataJSON string) map[string]string {

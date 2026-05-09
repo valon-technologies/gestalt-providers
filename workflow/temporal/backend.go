@@ -652,7 +652,7 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 		return nil, status.Errorf(codes.Internal, "pause temporal schedule: %v", err)
 	}
 	schedule.Paused = true
-	schedule.UpdatedAt = gestalt.TimestampFromTime(time.Now().UTC())
+	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
 	if err := b.putScheduleIndex(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -675,7 +675,7 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, status.Errorf(codes.Internal, "resume temporal schedule: %v", err)
 	}
 	schedule.Paused = false
-	schedule.UpdatedAt = gestalt.TimestampFromTime(time.Now().UTC())
+	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
 	if err := b.putScheduleIndex(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -807,7 +807,7 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.
 		ref.CreatedAt = existing.GetCreatedAt()
 	}
 	if ref.GetCreatedAt() == nil || !ref.GetCreatedAt().IsValid() {
-		ref.CreatedAt = gestalt.TimestampFromTime(time.Now().UTC())
+		gestalt.SetTime(&ref.CreatedAt, time.Now().UTC())
 	}
 	if err := b.putExecutionRefIndex(ctx, ref); err != nil {
 		return nil, err
@@ -962,7 +962,7 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", id)
 	}
 	trigger.Paused = paused
-	trigger.UpdatedAt = gestalt.TimestampFromTime(time.Now().UTC())
+	gestalt.SetTime(&trigger.UpdatedAt, time.Now().UTC())
 	if err := b.putTriggerIndex(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -1178,13 +1178,13 @@ func applyTemporalScheduleDescription(schedule *proto.BoundWorkflowSchedule, des
 		schedule.Paused = state.Paused
 	}
 	if !desc.Info.CreatedAt.IsZero() && schedule.GetCreatedAt() == nil {
-		schedule.CreatedAt = gestalt.TimestampFromTime(desc.Info.CreatedAt.UTC())
+		gestalt.SetTime(&schedule.CreatedAt, desc.Info.CreatedAt.UTC())
 	}
 	if !desc.Info.LastUpdateAt.IsZero() {
-		schedule.UpdatedAt = gestalt.TimestampFromTime(desc.Info.LastUpdateAt.UTC())
+		gestalt.SetTime(&schedule.UpdatedAt, desc.Info.LastUpdateAt.UTC())
 	}
 	if len(desc.Info.NextActionTimes) > 0 {
-		schedule.NextRunAt = gestalt.TimestampFromTime(desc.Info.NextActionTimes[0].UTC())
+		gestalt.SetTime(&schedule.NextRunAt, desc.Info.NextActionTimes[0].UTC())
 	}
 }
 
@@ -1205,7 +1205,7 @@ func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *pro
 	if err != nil || len(desc.Info.NextActionTimes) == 0 {
 		return
 	}
-	schedule.NextRunAt = gestalt.TimestampFromTime(desc.Info.NextActionTimes[0].UTC())
+	gestalt.SetTime(&schedule.NextRunAt, desc.Info.NextActionTimes[0].UTC())
 }
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {
