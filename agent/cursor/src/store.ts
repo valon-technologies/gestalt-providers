@@ -1,4 +1,3 @@
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import {
   AgentExecutionStatus,
   AgentSessionState,
@@ -512,10 +511,10 @@ function cloneMaybe<T>(value: T | undefined): T | undefined {
   return value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as T);
 }
 
-function timestamp(date: Date): Timestamp {
+function timestamp(date: Date): NonNullable<AgentSessionInit["createdAt"]> {
   const milliseconds = date.getTime();
   return {
     seconds: BigInt(Math.floor(milliseconds / 1000)),
     nanos: (milliseconds % 1000) * 1_000_000,
-  } as Timestamp;
+  };
 }

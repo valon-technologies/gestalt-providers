@@ -13,8 +13,7 @@ use gestalt::{proto::v1 as proto, protocol};
 use mcp_bridge::McpBridgeHandle;
 use serde_json::{Value as JsonValue, json};
 use store::{
-    BeginTurnResult, CreateSessionResult, Store, event_to_proto, json_to_value, session_to_proto,
-    turn_to_proto,
+    BeginTurnResult, CreateSessionResult, Store, event_to_proto, session_to_proto, turn_to_proto,
 };
 use tokio::sync::{Mutex, RwLock};
 use tonic::{Request, Response, Status};
@@ -216,12 +215,13 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
     ) -> Result<Response<proto::AgentSession>, Status> {
         self.require_config().await?;
         let req = request.into_inner();
+        let metadata = req.metadata.as_ref().map(protocol::json_from_struct);
         let session = self
             .inner
             .store
             .lock()
             .await
-            .update_session(&req.session_id, &req.client_ref, req.state, req.metadata)
+            .update_session(&req.session_id, &req.client_ref, req.state, metadata)
             .ok_or_else(|| {
                 Status::not_found(format!("agent session {:?} was not found", req.session_id))
             })?;
@@ -766,8 +766,14 @@ impl HermesAgentProvider {
                             .and_then(JsonValue::as_str)
                             .unwrap_or_default()
                             .to_string(),
-                        input: update.get("rawInput").cloned().map(json_to_value),
-                        output: update.get("rawOutput").cloned().map(json_to_value),
+                        input: update
+                            .get("rawInput")
+                            .cloned()
+                            .map(protocol::value_from_json),
+                        output: update
+                            .get("rawOutput")
+                            .cloned()
+                            .map(protocol::value_from_json),
                         ..Default::default()
                     }),
                 );

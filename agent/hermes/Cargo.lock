@@ -514,7 +514,6 @@ dependencies = [
  "axum",
  "gestalt-sdk",
  "getrandom 0.4.2",
- "prost-types",
  "rmcp",
  "serde",
  "serde_json",
