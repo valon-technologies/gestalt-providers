@@ -21,7 +21,6 @@ providers:
         apiKey: ${TEMPORAL_CLOUD_API_KEY}
         taskQueue: gestalt-workflow
         scopeID: prod-main
-        identity: gestalt-workflow-prod
         workflowRunTimeout: 5m
         workflowTaskTimeout: 10s
         activityStartToCloseTimeout: 5m

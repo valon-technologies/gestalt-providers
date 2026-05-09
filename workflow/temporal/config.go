@@ -24,7 +24,6 @@ type config struct {
 	APIKey                      string           `yaml:"apiKey"`
 	TaskQueue                   string           `yaml:"taskQueue"`
 	ScopeID                     string           `yaml:"scopeID"`
-	Identity                    string           `yaml:"identity"`
 	WorkflowRunTimeout          time.Duration    `yaml:"workflowRunTimeout"`
 	WorkflowTaskTimeout         time.Duration    `yaml:"workflowTaskTimeout"`
 	ActivityStartToCloseTimeout time.Duration    `yaml:"activityStartToCloseTimeout"`
@@ -60,7 +59,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.TaskQueue = strings.TrimSpace(cfg.TaskQueue)
 	cfg.ScopeID = strings.TrimSpace(cfg.ScopeID)
-	cfg.Identity = strings.TrimSpace(cfg.Identity)
 	cfg.Versioning = normalizeVersioningConfig(cfg.Versioning)
 
 	if cfg.HostPort == "" {

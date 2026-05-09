@@ -47,7 +47,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		HostPort:    cfg.HostPort,
 		Namespace:   cfg.Namespace,
 		Credentials: client.NewAPIKeyStaticCredentials(cfg.APIKey),
-		Identity:    cfg.Identity,
 	})
 	if err != nil {
 		_ = host.Close()
