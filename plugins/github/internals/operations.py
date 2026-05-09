@@ -2176,17 +2176,42 @@ def commit_result_dict(commit: CommitResult) -> dict[str, Any]:
 
 
 def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    head_repo = pull_request_ref_repo_summary(map_field(map_field(pull, "head"), "repo"))
+    base_repo = pull_request_ref_repo_summary(map_field(map_field(pull, "base"), "repo"))
+    summary: dict[str, Any] = {
         "number": int_field(pull, "number"),
         "title": str_field(pull, "title"),
         "state": str_field(pull, "state"),
         "html_url": str_field(pull, "html_url"),
         "url": str_field(pull, "url"),
         "head": nested_str(pull, "head", "ref"),
+        "head_ref": nested_str(pull, "head", "ref"),
         "head_sha": nested_str(pull, "head", "sha"),
         "base": nested_str(pull, "base", "ref"),
+        "base_ref": nested_str(pull, "base", "ref"),
         "base_sha": nested_str(pull, "base", "sha"),
     }
+    if head_repo:
+        summary["head_repo"] = head_repo
+    if base_repo:
+        summary["base_repo"] = base_repo
+    head_full_name = str(head_repo.get("full_name", ""))
+    base_full_name = str(base_repo.get("full_name", ""))
+    if head_full_name and base_full_name:
+        summary["head_repo_is_base_repo"] = head_full_name == base_full_name
+    maintainer_can_modify = pull.get("maintainer_can_modify")
+    if isinstance(maintainer_can_modify, bool):
+        summary["maintainer_can_modify"] = maintainer_can_modify
+    return summary
+
+
+def pull_request_ref_repo_summary(repo: Mapping[str, Any]) -> dict[str, Any]:
+    data = {
+        "full_name": str_field(repo, "full_name"),
+        "owner": nested_str(repo, "owner", "login"),
+        "name": str_field(repo, "name"),
+    }
+    return {key: value for key, value in data.items() if value}
 
 
 def pull_request_file_summary(file: Mapping[str, Any]) -> dict[str, Any]:
