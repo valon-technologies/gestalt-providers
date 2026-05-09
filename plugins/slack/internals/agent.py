@@ -14,6 +14,7 @@ from typing import Any, Iterable, TypeAlias, cast
 
 import gestalt
 
+from .agent_links import agent_session_url
 from .client import SlackAPIError, SlackClientError
 from .config import agent_config_from_provider_config, normalize_suggested_prompts
 from .helpers import map_field, map_slice, string_field
@@ -838,7 +839,7 @@ def reply_slack_event_session_started(
             body={"error": "failed to share agent session"},
         )
 
-    session_url = _agent_session_url(base_url, normalized_session_id)
+    session_url = agent_session_url(base_url, normalized_session_id)
     text = f"Started a Gestalt session: <{session_url}|open session>"
     log_context = _slack_delivery_log_context(
         req,
@@ -892,10 +893,6 @@ def reply_slack_event_session_started(
 
 def _reply_ref_is_thread_reply(ref: SlackReplyRef) -> bool:
     return bool(ref.reply_thread_ts and ref.reply_thread_ts != ref.message_ts)
-
-
-def _agent_session_url(base_url: str, session_id: str) -> str:
-    return f"{base_url.rstrip('/')}/agents?{urllib.parse.urlencode({'session': session_id})}"
 
 
 def _grant_agent_session_editor(
