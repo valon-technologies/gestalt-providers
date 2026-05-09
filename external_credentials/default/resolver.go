@@ -14,7 +14,6 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	"golang.org/x/oauth2/google"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -62,6 +61,9 @@ func (p *Provider) ValidateCredentialConfig(_ context.Context, req *gestalt.Vali
 }
 
 func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialAuthConfig) error {
+	if strings.TrimSpace(mode) == "platform" {
+		return status.Error(codes.InvalidArgument, "credential mode platform is not supported")
+	}
 	if auth == nil {
 		return nil
 	}
@@ -91,27 +93,6 @@ func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialA
 	if len(auth.GetTokenExchangeDrivers()) > 0 {
 		return nil
 	}
-	if mode == "platform" && auth.GetType() == "oauth2" {
-		grantType := strings.TrimSpace(auth.GetGrantType())
-		if grantType != "client_credentials" && grantType != "refresh_token" {
-			return status.Error(codes.InvalidArgument, "oauth2 platform auth requires grantType client_credentials or refresh_token")
-		}
-		if strings.TrimSpace(auth.GetTokenUrl()) == "" {
-			return status.Error(codes.InvalidArgument, "auth.tokenUrl is required")
-		}
-		if strings.TrimSpace(auth.GetClientId()) == "" {
-			return status.Error(codes.InvalidArgument, "auth.clientId is required")
-		}
-		if strings.TrimSpace(auth.GetClientSecret()) == "" {
-			return status.Error(codes.InvalidArgument, "auth.clientSecret is required")
-		}
-		if grantType == "refresh_token" && strings.TrimSpace(auth.GetRefreshToken()) == "" {
-			return status.Error(codes.InvalidArgument, "auth.refreshToken is required")
-		}
-		if grantType != "refresh_token" && strings.TrimSpace(auth.GetRefreshToken()) != "" {
-			return status.Error(codes.InvalidArgument, "auth.refreshToken is only supported for refresh_token")
-		}
-	}
 	return nil
 }
 
@@ -129,19 +110,6 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 	}); err != nil {
 		return nil, err
 	}
-	if req.GetMode() == "platform" {
-		resp, err := p.resolvePlatformCredential(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		out := &gestalt.ResolveExternalCredentialResponse{
-			Token:  resp.AccessToken,
-			Params: cloneStringMap(req.GetConnectionParams()),
-		}
-		gestalt.SetOptionalTime(&out.ExpiresAt, expiresAtFromExpiresIn(p.now().UTC(), resp.ExpiresIn))
-		return out, nil
-	}
-
 	st, err := p.configuredStore()
 	if err != nil {
 		return nil, err
@@ -317,34 +285,6 @@ func refreshCredential(ctx context.Context, auth *gestalt.ExternalCredentialAuth
 	}
 }
 
-func (p *Provider) resolvePlatformCredential(ctx context.Context, req *gestalt.ResolveExternalCredentialRequest) (*tokenResponse, error) {
-	auth := req.GetAuth()
-	if auth == nil {
-		return nil, status.Error(codes.InvalidArgument, "auth is required")
-	}
-	if len(auth.GetTokenExchangeDrivers()) > 0 {
-		return googleServiceAccountToken(ctx, auth.GetTokenExchangeDrivers()[0])
-	}
-	switch auth.GetType() {
-	case "bearer", "manual":
-		if strings.TrimSpace(auth.GetToken()) == "" {
-			return nil, status.Error(codes.FailedPrecondition, "auth.token is required")
-		}
-		return &tokenResponse{AccessToken: strings.TrimSpace(auth.GetToken())}, nil
-	case "oauth2":
-		switch strings.TrimSpace(auth.GetGrantType()) {
-		case "client_credentials":
-			return clientCredentialsToken(ctx, auth, req.GetConnectionParams())
-		case "refresh_token":
-			return refreshOAuthToken(ctx, auth, auth.GetRefreshToken(), req.GetConnectionParams())
-		default:
-			return nil, status.Error(codes.InvalidArgument, "oauth2 platform auth requires grantType client_credentials or refresh_token")
-		}
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "unsupported platform auth type %q", auth.GetType())
-	}
-}
-
 func exchangeManualCredentials(ctx context.Context, auth *gestalt.ExternalCredentialAuthConfig, credentialJSON string, params map[string]string) (*tokenResponse, error) {
 	var credentials map[string]string
 	if err := json.Unmarshal([]byte(credentialJSON), &credentials); err != nil {
@@ -372,30 +312,6 @@ func refreshOAuthToken(ctx context.Context, auth *gestalt.ExternalCredentialAuth
 		values.Set("client_secret", auth.GetClientSecret())
 	}
 	for k, v := range auth.GetRefreshParams() {
-		values.Set(k, v)
-	}
-	return tokenRequest(ctx, auth, values, interpolate(auth.GetTokenUrl(), params))
-}
-
-func clientCredentialsToken(ctx context.Context, auth *gestalt.ExternalCredentialAuthConfig, params map[string]string) (*tokenResponse, error) {
-	values := url.Values{}
-	values.Set("grant_type", "client_credentials")
-	if auth.GetClientAuth() != "header" {
-		values.Set("client_id", auth.GetClientId())
-		values.Set("client_secret", auth.GetClientSecret())
-	}
-	if len(auth.GetScopes()) > 0 {
-		sep := auth.GetScopeSeparator()
-		if sep == "" {
-			sep = " "
-		}
-		name := auth.GetScopeParam()
-		if name == "" {
-			name = "scope"
-		}
-		values.Set(name, strings.Join(auth.GetScopes(), sep))
-	}
-	for k, v := range auth.GetTokenParams() {
 		values.Set(k, v)
 	}
 	return tokenRequest(ctx, auth, values, interpolate(auth.GetTokenUrl(), params))
@@ -509,73 +425,6 @@ func parseTokenResponse(body []byte, accessTokenPath string) (*tokenResponse, er
 		expiresIn, _ = strconv.Atoi(v)
 	}
 	return &tokenResponse{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: expiresIn, TokenType: tokenType, Extra: raw}, nil
-}
-
-func googleServiceAccountToken(ctx context.Context, driver *gestalt.ExternalCredentialTokenExchangeDriver) (*tokenResponse, error) {
-	if driver == nil {
-		return nil, status.Error(codes.InvalidArgument, "google_service_account_impersonation config is required")
-	}
-	sourceToken := strings.TrimSpace(driver.GetParams()["sourceAccessToken"])
-	if sourceToken == "" {
-		ts, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
-		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, "google ADC unavailable")
-		}
-		token, err := ts.Token()
-		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, "google ADC token unavailable")
-		}
-		sourceToken = token.AccessToken
-	}
-	endpoint := strings.TrimSpace(driver.GetEndpoint())
-	if endpoint == "" {
-		endpoint = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/" + url.PathEscape(driver.GetTargetPrincipal()) + ":generateAccessToken"
-	}
-	lifetime := driver.GetLifetimeSeconds()
-	if lifetime <= 0 {
-		lifetime = 3600
-	}
-	payload := map[string]any{
-		"scope":    driver.GetScopes(),
-		"lifetime": fmt.Sprintf("%ds", lifetime),
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+sourceToken)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, status.Errorf(codes.Unavailable, "google impersonation endpoint returned %d", resp.StatusCode)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(respBody, &raw); err != nil {
-		return nil, err
-	}
-	accessToken, _ := raw["accessToken"].(string)
-	if accessToken == "" {
-		return nil, status.Error(codes.Unavailable, "google impersonation response missing accessToken")
-	}
-	expiresIn := 0
-	if expireTime, _ := raw["expireTime"].(string); expireTime != "" {
-		if parsed, err := time.Parse(time.RFC3339, expireTime); err == nil {
-			expiresIn = int(time.Until(parsed).Seconds())
-		}
-	}
-	return &tokenResponse{AccessToken: accessToken, ExpiresIn: expiresIn, Extra: raw}, nil
 }
 
 func tokenResponseToProto(resp *tokenResponse) *gestalt.ExternalCredentialTokenResponse {
