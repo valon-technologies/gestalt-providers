@@ -204,19 +204,6 @@ func workflowID(scopeID, kind string, parts ...string) string {
 	return "gestalt/" + scopeHash(scopeID) + "/" + strings.Trim(strings.ReplaceAll(kind, " ", "-"), "/") + "/" + hashID(values...)
 }
 
-func indexWorkflowID(scopeID string, shard int) string {
-	return fmt.Sprintf("gestalt/%s/index/%04d", scopeHash(scopeID), shard)
-}
-
-func shardFor(key string, count int) int {
-	if count <= 1 {
-		return 0
-	}
-	sum := sha256.Sum256([]byte(strings.TrimSpace(key)))
-	n := uint32(sum[0])<<24 | uint32(sum[1])<<16 | uint32(sum[2])<<8 | uint32(sum[3])
-	return int(n % uint32(count))
-}
-
 func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
