@@ -19,10 +19,6 @@ const (
 	defaultIdempotencyRetention        = 7 * 24 * time.Hour
 )
 
-const (
-	versioningBehaviorAutoUpgrade = "autoUpgrade"
-)
-
 type config struct {
 	IndexedDB                   string           `yaml:"indexeddb"`
 	HostPort                    string           `yaml:"hostPort"`
@@ -40,12 +36,11 @@ type config struct {
 }
 
 type versioningConfig struct {
-	Enabled                   bool   `yaml:"enabled"`
-	DeploymentName            string `yaml:"deploymentName"`
-	BuildID                   string `yaml:"buildID"`
-	BuildIDEnv                string `yaml:"buildIDEnv"`
-	DefaultVersioningBehavior string `yaml:"defaultVersioningBehavior"`
-	ResolvedBuildID           string `yaml:"-"`
+	Enabled         bool   `yaml:"enabled"`
+	DeploymentName  string `yaml:"deploymentName"`
+	BuildID         string `yaml:"buildID"`
+	BuildIDEnv      string `yaml:"buildIDEnv"`
+	ResolvedBuildID string `yaml:"-"`
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
@@ -117,7 +112,6 @@ func normalizeVersioningConfig(cfg versioningConfig) versioningConfig {
 	cfg.DeploymentName = strings.TrimSpace(cfg.DeploymentName)
 	cfg.BuildID = strings.TrimSpace(cfg.BuildID)
 	cfg.BuildIDEnv = strings.TrimSpace(cfg.BuildIDEnv)
-	cfg.DefaultVersioningBehavior = strings.TrimSpace(cfg.DefaultVersioningBehavior)
 	return cfg
 }
 
@@ -146,9 +140,6 @@ func validateVersioningConfig(cfg *versioningConfig) error {
 	}
 	if cfg.ResolvedBuildID == "" {
 		return fmt.Errorf("versioning build ID resolved to an empty value")
-	}
-	if cfg.DefaultVersioningBehavior != versioningBehaviorAutoUpgrade {
-		return fmt.Errorf("versioning.defaultVersioningBehavior must be %q", versioningBehaviorAutoUpgrade)
 	}
 	return nil
 }

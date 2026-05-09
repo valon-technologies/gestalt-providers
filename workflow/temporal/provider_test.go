@@ -32,11 +32,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetWorkerOptions(worker.Options{DeadlockDetectionTimeout: 5 * time.Second})
+	return env
+}
+
 func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 
 	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
+	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host, state: state})
@@ -74,7 +80,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 
 func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
+	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host})
@@ -114,7 +120,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 
 func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
+	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host})
@@ -150,7 +156,7 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 
 func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
+	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	activities := &workflowActivities{host: host}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
@@ -197,7 +203,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 
 func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
+	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	activities := &workflowActivities{host: host}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
@@ -247,7 +253,7 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	}
 
 	var suite testsuite.WorkflowTestSuite
-	env := suite.NewTestWorkflowEnvironment()
+	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host, state: state})
@@ -327,10 +333,9 @@ func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
 	t.Setenv("TEMPORAL_BUILD_ID", "revision-1")
 	raw := baseTemporalConfigRaw()
 	raw["versioning"] = map[string]any{
-		"enabled":                   true,
-		"deploymentName":            "valon-tools-prod",
-		"buildIDEnv":                "TEMPORAL_BUILD_ID",
-		"defaultVersioningBehavior": "autoUpgrade",
+		"enabled":        true,
+		"deploymentName": "valon-tools-prod",
+		"buildIDEnv":     "TEMPORAL_BUILD_ID",
 	}
 	cfg, err := decodeConfig(raw)
 	if err != nil {
@@ -364,10 +369,9 @@ func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
 func TestTemporalVersioningConfigValidation(t *testing.T) {
 	t.Setenv("BUILD_ID", "revision-1")
 	validVersioning := map[string]any{
-		"enabled":                   true,
-		"deploymentName":            "valon-tools-prod",
-		"buildIDEnv":                "BUILD_ID",
-		"defaultVersioningBehavior": "autoUpgrade",
+		"enabled":        true,
+		"deploymentName": "valon-tools-prod",
+		"buildIDEnv":     "BUILD_ID",
 	}
 	tests := []struct {
 		name       string
@@ -378,16 +382,6 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 			name:       "both build id sources",
 			versioning: withMap(validVersioning, "buildID", "revision-direct"),
 			want:       "exactly one of versioning.buildID or versioning.buildIDEnv",
-		},
-		{
-			name:       "missing default behavior",
-			versioning: withoutMapKey(validVersioning, "defaultVersioningBehavior"),
-			want:       "versioning.defaultVersioningBehavior",
-		},
-		{
-			name:       "pinned unsupported",
-			versioning: withMap(validVersioning, "defaultVersioningBehavior", "pinned"),
-			want:       "versioning.defaultVersioningBehavior",
 		},
 		{
 			name:       "deployment separator",
@@ -2044,16 +2038,6 @@ func withMap(in map[string]any, key string, value any) map[string]any {
 		out[k] = v
 	}
 	out[key] = value
-	return out
-}
-
-func withoutMapKey(in map[string]any, key string) map[string]any {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		if k != key {
-			out[k] = v
-		}
-	}
 	return out
 }
 
