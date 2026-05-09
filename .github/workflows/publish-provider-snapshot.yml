@@ -146,6 +146,7 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
       - uses: google-github-actions/setup-gcloud@v2
         if: ${{ !inputs.dry-run }}
       - name: Package snapshot
@@ -164,6 +165,14 @@ jobs:
             .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
           else
             (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
+          fi
+          if [ "${{ matrix.provider.has_python }}" = "true" ]; then
+            docker run --rm \
+              -v "${PWD}/${PROVIDER_DIR}/dist:/dist" \
+              alpine:${{ env.PYTHON_ALPINE_VERSION }} \
+              sh -ceu "chown -R $(id -u):$(id -g) /dist && chmod -R a+rwX /dist"
+          else
+            chmod -R a+rwX "${PROVIDER_DIR}/dist"
           fi
           python3 .github/scripts/write_provider_release_metadata.py \
             --manifest "${PROVIDER_DIR}/manifest.yaml" \

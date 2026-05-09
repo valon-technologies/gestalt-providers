@@ -49,5 +49,5 @@ docker run --rm --platform "${docker_platform}" \
     uv sync --frozen --no-dev --python "${UV_PYTHON}"
     export "${PYTHON_ENV_VAR}=$PWD/.venv/bin/python"
     gestaltd provider release --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
-    chmod -R a+rX dist
+    chmod -R a+rwX dist
   '
