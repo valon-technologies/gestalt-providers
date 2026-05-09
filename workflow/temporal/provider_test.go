@@ -292,14 +292,7 @@ func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
 	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, nil)
+	backend := newTemporalBackend("temporal", baseTemporalConfig(), tc, nil, nil)
 	backend.newWorker = func(_ client.Client, taskQueue string, options worker.Options) temporalWorker {
 		if taskQueue != "gestalt-workflow" {
 			t.Fatalf("task queue = %q, want gestalt-workflow", taskQueue)
@@ -330,14 +323,7 @@ func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
 	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: &fakeWorkerDeploymentHandle{}}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, nil)
+	backend := newTemporalBackend("temporal", baseTemporalConfig(), tc, nil, nil)
 	backend.newWorker = func(client.Client, string, worker.Options) temporalWorker { return fw }
 
 	if err := backend.Start(context.Background()); err != nil {
@@ -667,14 +653,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = state.Close() })
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	trigger := &proto.BoundWorkflowEventTrigger{
 		Id:        "trigger-1",
 		Match:     &proto.WorkflowEventMatch{Type: "message.created"},
@@ -770,14 +749,7 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 
 	nextRunAt := time.Unix(200, 0).UTC()
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	scheduleClient := newFakeScheduleClient(map[string]*client.ScheduleDescription{
 		backend.temporalScheduleID("schedule-1"): {
 			Schedule: client.Schedule{
@@ -828,14 +800,7 @@ func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 
 	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		Target:    pluginTarget("slack", "postMessage"),
@@ -869,14 +834,7 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 
 	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
@@ -925,14 +883,7 @@ func TestStartRunWithWorkflowKeyRejectsActiveOwnerBeforeExecuting(t *testing.T) 
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	if _, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "postMessage"),
@@ -963,15 +914,7 @@ func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	req := &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		WorkflowKey:    "thread-1",
@@ -1044,15 +987,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 	}
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	recovered, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: key,
 		WorkflowKey:    workflowKey,
@@ -1095,14 +1030,7 @@ func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
 	}
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 
 	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		Target:    pluginTarget("slack", "postMessage"),
@@ -1126,15 +1054,7 @@ func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	req := &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		Target:         pluginTarget("slack", "postMessage"),
@@ -1169,15 +1089,7 @@ func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		Target:         pluginTarget("slack", "postMessage"),
@@ -1214,15 +1126,7 @@ func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
 			t.Errorf("DeleteObjectStore(%s): %v", storeTemporalRunIdempotency, err)
 		}
 	}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 
 	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
@@ -1280,14 +1184,7 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	resp, err := backend.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "postMessage"),
@@ -1352,15 +1249,7 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	req := &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "postMessage"),
@@ -1412,15 +1301,7 @@ func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	signal := &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.event"}
 	if _, err := backend.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
@@ -1446,15 +1327,7 @@ func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *t
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	req := &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "postMessage"),
@@ -1486,14 +1359,7 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	run, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "postMessage"),
@@ -1545,14 +1411,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 	t.Cleanup(func() { _ = state.Close() })
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	first, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "postMessage"),
@@ -1602,14 +1461,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 		t.Fatalf("claim stale run claimed=%v err=%v", claimed, err)
 	}
 	tc := &recordingTemporalClient{updateErrs: []error{serviceerror.NewNotFound("missing workflow")}}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	resp, err := backend.SignalOrStartRun(ctx, &proto.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "sendMessage"),
@@ -1642,15 +1494,7 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 
 	run := workflowKeyClaimRun("signal-idem", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	req := &proto.SignalWorkflowProviderRunRequest{
 		RunId:  run.GetId(),
 		Signal: &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
@@ -1696,15 +1540,7 @@ func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.
 
 	run := workflowKeyClaimRun("strict-signal-id", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	if _, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
 		RunId:  run.GetId(),
 		Signal: &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
@@ -2065,14 +1901,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		t.Fatalf("replacement claim owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
 	}
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	if _, err := backend.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: legacyID}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("GetRun legacy projection error = %v, want InvalidArgument", err)
 	}
@@ -2111,14 +1940,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	}
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	resp, err := backend.ListRuns(ctx, &proto.ListWorkflowProviderRunsRequest{})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
@@ -2138,14 +1960,7 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 		t.Fatalf("openWorkflowStateStore: %v", err)
 	}
 	t.Cleanup(func() { _ = state.Close() })
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, &recordingTemporalClient{}, nil, state)
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
 
 	trigger := &proto.BoundWorkflowEventTrigger{
 		Id:        "trigger-1",
@@ -2195,14 +2010,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	})
 
 	tc := &recordingTemporalClient{}
-	backend := newTemporalBackend("temporal", config{
-		ScopeID:                     "scope",
-		TaskQueue:                   "gestalt-workflow",
-		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
-		ActivityStartToCloseTimeout: time.Minute,
-		ScheduleCatchupWindow:       time.Minute,
-	}, tc, nil, state)
+	backend := newRecordingTemporalBackend(tc, state)
 	for _, trigger := range []*proto.BoundWorkflowEventTrigger{
 		{
 			Id:        "trigger-plugin-1",
@@ -2601,6 +2409,10 @@ func baseTemporalConfig() config {
 	}
 }
 
+func newRecordingTemporalBackend(tc *recordingTemporalClient, state *workflowStateStore) *temporalBackend {
+	return newTemporalBackend("temporal", baseTemporalConfig(), tc, nil, state)
+}
+
 func withMap(in map[string]any, key string, value any) map[string]any {
 	out := make(map[string]any, len(in)+1)
 	for k, v := range in {
@@ -2659,15 +2471,14 @@ type recordedExecution struct {
 
 type recordingTemporalClient struct {
 	client.Client
-	mu                 sync.Mutex
-	pendingWorkflowIDs []string
-	executions         []recordedExecution
-	updates            []recordedUpdate
-	updateErrs         []error
-	queries            []recordedQuery
-	scheduleClient     client.ScheduleClient
-	deploymentClient   *fakeWorkerDeploymentClient
-	afterExecute       func()
+	mu               sync.Mutex
+	executions       []recordedExecution
+	updates          []recordedUpdate
+	updateErrs       []error
+	queries          []recordedQuery
+	scheduleClient   client.ScheduleClient
+	deploymentClient *fakeWorkerDeploymentClient
+	afterExecute     func()
 }
 
 func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
