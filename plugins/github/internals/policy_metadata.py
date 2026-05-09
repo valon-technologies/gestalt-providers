@@ -22,6 +22,7 @@ def policy_base_metadata(policy: GitHubWebhookPolicy) -> dict[str, Any]:
             "include_drafts": policy.trigger.include_drafts,
             "manual_commands": list(policy.trigger.manual_commands),
             "manual_command_match": policy.trigger.manual_command_match,
+            "require_app_mention": policy.trigger.require_app_mention,
         },
         "dedupe": {"scope": policy.dedupe.scope},
         "action": action,

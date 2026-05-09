@@ -139,6 +139,11 @@ properties:
               description: >-
                 How manualCommands are matched. contains preserves legacy
                 substring matching; exact trims and case-folds the whole comment.
+            requireAppMention:
+              type: boolean
+              description: >-
+                When frequency is manual_only, require a GitHub mention of the
+                configured GitHub App instead of matching manualCommands.
         dedupe:
           type: object
           additionalProperties: false

@@ -129,6 +129,10 @@ from internals.operations import (
     workflow_run_summary,
 )
 from internals.helpers import int_field, map_field, nested_str, str_field
+from internals.manual_trigger import (
+    app_mention_body_matches,
+    manual_command_body_matches,
+)
 from internals.policy import select_webhook_policy, webhook_event_type_for_policy
 from internals.preferences import (
     apply_action_preferences,
@@ -140,7 +144,6 @@ from internals.preferences import (
 )
 from internals.review import (
     SUPPORTED_PULL_REQUEST_ACTIONS,
-    manual_command_body_matches,
     review_pull_request,
     utc_timestamp,
 )
@@ -267,6 +270,11 @@ class CommitFilesInput(gestalt.Model):
     allow_base_update: bool = gestalt.field(
         description="Allow updating the base branch directly",
         default=False,
+        required=False,
+    )
+    expected_head_sha: str = gestalt.field(
+        description="Require the target branch to still point at this commit SHA before writing",
+        default="",
         required=False,
     )
 
@@ -1028,9 +1036,7 @@ def github_events_handle(
             and _needs_pull_request_context_for_branch_commit(input, summary, policy)
         ):
             try:
-                pull_request_context = _fetch_pull_request_webhook_context(
-                    req, summary
-                )
+                pull_request_context = _fetch_pull_request_webhook_context(req, summary)
             except ValueError as err:
                 return _bad_request(str(err))
             except GitHubAuthorizationError as err:
@@ -1269,17 +1275,20 @@ def _review_check_run_context(
         issue = map_field(input, "issue")
         if not map_field(issue, "pull_request"):
             return None
-        commands = getattr(getattr(policy, "trigger", None), "manual_commands", ())
-        if not commands:
-            return None
         comment_body = str_field(map_field(input, "comment"), "body")
-        match_mode = getattr(
-            getattr(policy, "trigger", None), "manual_command_match", ""
-        )
-        if not manual_command_body_matches(
-            comment_body, commands, match_mode=match_mode
-        ):
-            return None
+        trigger = getattr(policy, "trigger", None)
+        if getattr(trigger, "require_app_mention", False):
+            if not app_mention_body_matches(comment_body):
+                return None
+        else:
+            commands = getattr(trigger, "manual_commands", ())
+            if not commands:
+                return None
+            match_mode = getattr(trigger, "manual_command_match", "")
+            if not manual_command_body_matches(
+                comment_body, commands, match_mode=match_mode
+            ):
+                return None
         if pull_number <= 0:
             raise ValueError("review check run requires pull request number")
         pull = get_pull_request(
@@ -2622,6 +2631,7 @@ def _commit_request_from_input(
         committer_email=input.committer_email,
         force=input.force,
         allow_base_update=input.allow_base_update,
+        expected_head_sha=input.expected_head_sha,
     )
 
 

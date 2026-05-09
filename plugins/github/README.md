@@ -219,6 +219,10 @@ can expose `bot.commitFiles` for committing directly to the original PR branch
 without pull request creation, and `pull_request` can expose commit and pull
 request tools for opening follow-up PRs. `action.selfFixMode` defaults to
 `disabled`; the older `action.allowSelfFix` remains a deprecated ceiling.
+For `workflow.target.plugin.operation: reviewPullRequest`, `branch_commit`
+enables the built-in reviewer to commit validated same-PR fixes after findings
+are produced. It only commits to same-repository PR branches and guards the write
+with the reviewed head SHA.
 
 `actionPreferences` optionally layers per-subject preferences over those static
 gates. The static config values remain hard ceilings: a stored preference can
@@ -337,6 +341,11 @@ PR and head SHA, and `manual_only` only matches configured comment commands.
 `trigger.manualCommandMatch: exact` normalizes whitespace and case but rejects
 suffixes such as `gestalt review verbose=true`; `contains` keeps the legacy
 substring behavior.
+Use `trigger.requireAppMention: true` instead of `manualCommands` when a manual
+policy should listen only to a GitHub mention of the configured GitHub App, such
+as `@example-app`. The provider derives that mention target from the GitHub App
+identity instead of deployer-supplied command strings. `requireAppMention` and
+`manualCommands` are mutually exclusive.
 `dedupe.scope` controls the workflow key independently, with the same PR/head/CI
 shapes plus the legacy `delivery` scope. If a requested PR or head SHA is absent
 from a payload, the provider falls back to the legacy event-shaped key so it
@@ -546,6 +555,7 @@ Create or update a branch commit with `bot.commitFiles`:
   "message": "Update README",
   "branch": "gestalt/update-readme",
   "base_branch": "main",
+  "expected_head_sha": "abc123",
   "files": [
     {
       "path": "README.md",

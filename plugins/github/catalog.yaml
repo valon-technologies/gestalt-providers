@@ -184,6 +184,11 @@ operations:
     description: Base branch for a newly-created branch. Defaults to the repository
       default branch.
     default: ''
+  - name: expected_head_sha
+    type: string
+    description: Require the target branch to still point at this commit SHA before
+      writing.
+    default: ''
   - name: installation_id
     type: integer
     description: GitHub App installation ID. If omitted, it is resolved from

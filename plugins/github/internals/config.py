@@ -132,6 +132,7 @@ class GitHubWebhookTrigger:
     include_drafts: bool = True
     manual_commands: tuple[str, ...] = ()
     manual_command_match: str = WEBHOOK_MANUAL_COMMAND_CONTAINS
+    require_app_mention: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +207,7 @@ class GitHubBotIdentity:
     login: str
     user_id: str
     email: str
+    slug: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,16 +528,34 @@ def parse_policy_trigger(
         WEBHOOK_MANUAL_COMMAND_CONTAINS,
         "manual_command_match",
     )
-    if frequency == WEBHOOK_TRIGGER_MANUAL_ONLY and not manual_commands:
+    require_app_mention = optional_bool(
+        trigger_config,
+        "requireAppMention",
+        "require_app_mention",
+        path=f"webhookPolicies[{policy_index}].trigger.requireAppMention",
+        default=False,
+    )
+    if manual_commands and require_app_mention:
         raise ValueError(
-            f"webhookPolicies[{policy_index}].trigger.manualCommands is required "
-            "when trigger.frequency is manual_only"
+            f"webhookPolicies[{policy_index}].trigger.requireAppMention cannot "
+            "be combined with trigger.manualCommands"
+        )
+    if (
+        frequency == WEBHOOK_TRIGGER_MANUAL_ONLY
+        and not manual_commands
+        and not require_app_mention
+    ):
+        raise ValueError(
+            f"webhookPolicies[{policy_index}].trigger.manualCommands or "
+            "trigger.requireAppMention is required when trigger.frequency is "
+            "manual_only"
         )
     return GitHubWebhookTrigger(
         frequency=frequency,
         include_drafts=include_drafts,
         manual_commands=manual_commands,
         manual_command_match=manual_command_match,
+        require_app_mention=require_app_mention,
     )
 
 
