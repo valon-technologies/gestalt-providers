@@ -605,7 +605,7 @@ fn selector_input_schema(include_arguments: bool) -> JsonMap<String, JsonValue> 
     let mut properties = json_object(json!({
         "mcp_name": {
             "type": "string",
-            "description": "Opaque MCP tool name returned by gestalt_search_tools."
+            "description": "Opaque MCP tool name returned by gestalt_search_tools. Provide exactly one of mcp_name or ref."
         },
         "ref": ref_schema()
     }));
@@ -621,10 +621,7 @@ fn selector_input_schema(include_arguments: bool) -> JsonMap<String, JsonValue> 
     }
     let mut schema = json_object(json!({
         "type": "object",
-        "oneOf": [
-            {"required": ["mcp_name"]},
-            {"required": ["ref"]}
-        ],
+        "description": "Select exactly one Gestalt tool by mcp_name or ref. The bridge validates that exactly one selector is present.",
         "additionalProperties": false
     }));
     schema.insert("properties".to_string(), JsonValue::Object(properties));
@@ -968,4 +965,29 @@ fn random_nonce(prefix: &str) -> Result<String, String> {
         write!(&mut nonce, "{byte:02x}").expect("write hex nonce");
     }
     Ok(nonce)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_tool_schemas_do_not_use_top_level_union_combinators() {
+        for tool in proxy_tools() {
+            let schema = &tool.input_schema;
+            assert_eq!(
+                schema.get("type").and_then(JsonValue::as_str),
+                Some("object"),
+                "{} schema should be an object: {schema:?}",
+                tool.name
+            );
+            for keyword in ["oneOf", "anyOf", "allOf"] {
+                assert!(
+                    !schema.contains_key(keyword),
+                    "{} schema uses top-level {keyword}: {schema:?}",
+                    tool.name
+                );
+            }
+        }
+    }
 }
