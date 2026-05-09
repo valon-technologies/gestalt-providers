@@ -3644,7 +3644,7 @@ func TestProviderCompleteRunDoesNotOverwriteLostClaim(t *testing.T) {
 	pending.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
 	pending.CompletedAt = nil
 	pending.StatusMessage = ""
-	if err := provider.completeRunAfterInvoke(ctx, pending, nil, provider.claimOwnerID, &proto.InvokeWorkflowOperationResponse{Status: 202, Body: `{"ok":true}`}, nil); err != nil {
+	if err := provider.completeRunAfterInvoke(ctx, pending, nil, provider.claimOwnerID, &gestalt.InvokeWorkflowOperationResponse{Status: 202, Body: `{"ok":true}`}, nil); err != nil {
 		t.Fatalf("completeRunAfterInvoke: %v", err)
 	}
 	reloaded, err := provider.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: run.ID})

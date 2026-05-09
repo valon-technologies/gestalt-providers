@@ -67,22 +67,8 @@ type sdkWorkflowHost struct {
 	client *gestalt.WorkflowHostClient
 }
 
-func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
-	input, err := invokeOperationInputFromProto(req)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := h.client.InvokeOperation(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-	if resp == nil {
-		return nil, nil
-	}
-	return &proto.InvokeWorkflowOperationResponse{
-		Status: resp.GetStatus(),
-		Body:   resp.GetBody(),
-	}, nil
+func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, input gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
+	return h.client.InvokeOperation(ctx, input)
 }
 
 func (h *sdkWorkflowHost) Close() error {
@@ -90,39 +76,6 @@ func (h *sdkWorkflowHost) Close() error {
 		return nil
 	}
 	return h.client.Close()
-}
-
-func invokeOperationInputFromProto(req *proto.InvokeWorkflowOperationRequest) (gestalt.InvokeWorkflowOperationInput, error) {
-	if req == nil {
-		return gestalt.InvokeWorkflowOperationInput{}, nil
-	}
-	var target *gestalt.BoundWorkflowTargetInput
-	if req.GetTarget() != nil {
-		input := gestalt.BoundWorkflowTargetInputFromTarget(req.GetTarget())
-		target = &input
-	}
-	var trigger *gestalt.WorkflowRunTriggerInput
-	if req.GetTrigger() != nil {
-		input, err := gestalt.WorkflowRunTriggerInputFromTrigger(req.GetTrigger())
-		if err != nil {
-			return gestalt.InvokeWorkflowOperationInput{}, err
-		}
-		trigger = &input
-	}
-	signals := make([]gestalt.WorkflowSignalInput, 0, len(req.GetSignals()))
-	for _, signal := range req.GetSignals() {
-		signals = append(signals, gestalt.WorkflowSignalInputFromSignal(signal))
-	}
-	return gestalt.InvokeWorkflowOperationInput{
-		Target:       target,
-		RunID:        req.GetRunId(),
-		Trigger:      trigger,
-		Input:        gestalt.MapFromStruct(req.GetInput()),
-		Metadata:     gestalt.MapFromStruct(req.GetMetadata()),
-		CreatedBy:    actorInputPtr(req.GetCreatedBy()),
-		ExecutionRef: req.GetExecutionRef(),
-		Signals:      signals,
-	}, nil
 }
 
 var _ workflowHost = (*sdkWorkflowHost)(nil)
