@@ -58,6 +58,8 @@ REVIEW_FINDING_MARKER_RE = re.compile(
 )
 REVIEW_FINDING_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 AUTO_RESOLVE_MAX_THREAD_PAGES = 10
+REVIEW_OUTPUT_CONTRACT = "github.pull_request_review.findings.v1"
+REVIEW_OUTPUT_KEYS = frozenset(("findings",))
 SUPPORTED_PULL_REQUEST_ACTIONS = frozenset(
     ("opened", "synchronize", "reopened", "ready_for_review")
 )
@@ -66,11 +68,13 @@ DEFAULT_SYSTEM_PROMPT = " ".join(
     [
         "Review the pull request diff for concrete correctness, reliability,",
         "security, or data-loss bugs.",
-        "Only report issues that can be anchored to added lines in the provided diff.",
+        "Only report issues that can be anchored to RIGHT-side lines allowed by",
+        "the review prompt's line_policy.",
         "Do not report style nits, speculative risks, missing tests, or broad",
         "architectural preferences.",
-        "Return structured findings only. If there are no concrete line-anchored",
-        "issues, return an empty findings array.",
+        "Return only a valid JSON object with a top-level findings array and no",
+        "other top-level keys. If there are no concrete line-anchored issues,",
+        "return an empty findings array.",
     ]
 )
 
@@ -655,7 +659,10 @@ def ask_agent_for_findings(
         idempotency_key=f"{idempotency_base}:session",
     )
     session_request.metadata.update(metadata)
-    session = manager.create_session(session_request)
+    try:
+        session = manager.create_session(session_request)
+    except Exception as err:
+        raise RuntimeError(f"review agent session request failed: {err}") from err
 
     turn_request = gestalt.AgentManagerCreateTurnRequest(
         session_id=session.id,
@@ -668,10 +675,12 @@ def ask_agent_for_findings(
         ],
         idempotency_key=f"{idempotency_base}:turn",
     )
-    turn_request.response_schema.update(review_response_schema())
     turn_request.metadata.update(metadata)
-    turn = manager.create_turn(turn_request)
-    turn = wait_for_turn(manager, turn, settings)
+    try:
+        turn = manager.create_turn(turn_request)
+        turn = wait_for_turn(manager, turn, settings)
+    except Exception as err:
+        raise RuntimeError(f"review agent turn request failed: {err}") from err
 
     if turn.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
         raise RuntimeError(
@@ -679,13 +688,7 @@ def ask_agent_for_findings(
             f"{turn.status_message}"
         )
 
-    structured = struct_to_dict(getattr(turn, "structured_output", None))
-    fallback = (
-        {} if structured else parse_json_object(str(getattr(turn, "output_text", "")))
-    )
-    findings = (structured or fallback).get("findings")
-    if not isinstance(findings, list):
-        return []
+    findings = parse_review_findings_output(str(getattr(turn, "output_text", "")))
     return [finding for item in findings for finding in normalize_finding(item)]
 
 
@@ -711,7 +714,10 @@ def review_prompt(
 ) -> str:
     return json.dumps(
         {
-            "task": "Return findings for concrete bugs on added RIGHT-side diff lines only.",
+            "task": (
+                "Return findings for concrete bugs on RIGHT-side diff lines allowed "
+                "by output_contract.line_policy."
+            ),
             "repository": subject.repository,
             "pull_number": subject.pull_number,
             "pull_request": dict(pull_request),
@@ -728,43 +734,39 @@ def review_prompt(
                 for file in files
             ],
             "output_contract": {
-                "findings": [
-                    {
-                        "path": "exact changed file path",
-                        "line": "new-file line number from an added line in the diff",
-                        "body": "specific review comment explaining the bug and suggested fix",
-                        "severity": "optional: critical|high|medium|low",
-                    }
-                ]
+                "contract": REVIEW_OUTPUT_CONTRACT,
+                "format": (
+                    "Return exactly one JSON object with no Markdown wrapper and no "
+                    "top-level keys other than findings."
+                ),
+                "line_policy": line_policy(settings),
+                "empty_response": {"findings": []},
+                "schema": {
+                    "findings": [
+                        {
+                            "path": "exact changed file path",
+                            "line": (
+                                "new-file RIGHT-side line number allowed by the "
+                                "line_policy"
+                            ),
+                            "body": (
+                                "specific review comment explaining the bug and "
+                                "suggested fix"
+                            ),
+                            "severity": "optional: critical|high|medium|low",
+                        }
+                    ]
+                },
             },
         },
         indent=2,
     )
 
 
-def review_response_schema() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "findings": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "path": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "side": {"type": "string", "enum": ["RIGHT"]},
-                        "body": {"type": "string"},
-                        "severity": {"type": "string"},
-                    },
-                    "required": ["path", "line", "body"],
-                },
-            }
-        },
-        "required": ["findings"],
-    }
+def line_policy(settings: ReviewSettings) -> str:
+    if settings.changed_lines_only:
+        return "Use only added RIGHT-side lines from the provided diff."
+    return "Use RIGHT-side lines that are present in the provided diff."
 
 
 def build_line_index(
@@ -1283,15 +1285,38 @@ def bounded_text(value: str, max_chars: int) -> str:
     return f"{value[: max(0, max_chars - 16)].rstrip()}\n...[truncated]"
 
 
-def parse_json_object(value: str) -> dict[str, Any]:
+def parse_review_findings_output(value: str) -> list[Any]:
+    parsed = parse_single_review_output_object(value)
+    extra_keys = sorted(set(parsed) - REVIEW_OUTPUT_KEYS)
+    if extra_keys:
+        raise RuntimeError(
+            "agent output JSON must not include top-level keys other than findings"
+        )
+    findings = parsed.get("findings")
+    if not isinstance(findings, list):
+        raise RuntimeError("agent output JSON must include a findings array")
+    return findings
+
+
+def parse_single_review_output_object(value: str) -> dict[str, Any]:
+    text: str = (value or "").strip()
+    if not text:
+        raise RuntimeError("agent returned empty review output")
+
+    parsed = parse_json_exact(text)
+    if parsed is None:
+        raise RuntimeError("agent review output must be exactly one JSON object")
+    return require_review_output_object(parsed)
+
+
+def parse_json_exact(value: str) -> Any | None:
     try:
-        parsed = json.loads(value or "{}")
+        return json.loads(value)
     except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+        return None
 
 
-def struct_to_dict(value: Any) -> dict[str, Any]:
-    if value is None or not getattr(value, "fields", None):
-        return {}
-    return gestalt.struct_to_dict(value)
+def require_review_output_object(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError("agent output JSON must be an object with a findings array")
+    return value

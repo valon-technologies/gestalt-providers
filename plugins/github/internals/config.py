@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import urllib.parse
 from dataclasses import dataclass, field
@@ -782,7 +783,12 @@ def enum_string(
 
 def validate_struct_compatible(input_value: dict[str, Any], path: str) -> None:
     try:
-        normalized = gestalt.json_from_native(input_value, path=path)
+        converter = getattr(gestalt, "json_from_native", None)
+        normalized = (
+            converter(input_value, path=path)
+            if callable(converter)
+            else json.loads(json.dumps(input_value, allow_nan=False))
+        )
     except Exception as err:
         raise ValueError(f"{path} must be JSON-compatible") from err
     if not isinstance(normalized, dict):
