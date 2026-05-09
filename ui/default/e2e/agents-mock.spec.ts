@@ -6,6 +6,7 @@ import {
   mockIntegrationOperations,
   mockIntegrations,
 } from "./fixtures";
+import { agentSessionHref } from "../src/lib/agentLinks";
 
 test.describe("Agents", () => {
   test.beforeEach(async ({ authenticatedPage }) => {
@@ -75,11 +76,12 @@ test.describe("Agents", () => {
       },
     });
 
-    await page.goto("/agents?session=agent_session_shared&turn=agent_turn_shared");
+    const sharedHref = agentSessionHref("agent_session_shared", "agent_turn_shared");
+    await page.goto(sharedHref);
 
     await expect(page.getByRole("heading", { name: "shared-session" })).toBeVisible();
     await expect(page.getByText("Read the shared context.").first()).toBeVisible();
-    await expect(page).toHaveURL(/\/agents\?session=agent_session_shared&turn=agent_turn_shared/);
+    await expect(page).toHaveURL(pathAndQueryPattern(sharedHref));
   });
 
   test("opens a deep-linked session console with transcript and public events", async ({
@@ -183,7 +185,7 @@ test.describe("Agents", () => {
       },
     });
 
-    await page.goto("/agents?session=agent_session_123&turn=agent_turn_123");
+    await page.goto(agentSessionHref("agent_session_123", "agent_turn_123"));
     const activityPanel = page.locator("aside").filter({
       has: page.getByRole("heading", { name: "Activity", exact: true }),
     });
@@ -271,7 +273,7 @@ test.describe("Agents", () => {
       },
     });
 
-    await page.goto("/agents?session=agent_session_long&turn=agent_turn_long");
+    await page.goto(agentSessionHref("agent_session_long", "agent_turn_long"));
 
     const composer = page.getByLabel("User message");
     const latestMessage = page.getByText("Transcript line 35").first();
@@ -323,7 +325,7 @@ test.describe("Agents", () => {
       turns: { agent_session_deep: turns },
     });
 
-    await page.goto("/agents?session=agent_session_deep&turn=agent_turn_25");
+    await page.goto(agentSessionHref("agent_session_deep", "agent_turn_25"));
 
     await expect(
       page.getByText("Older turn message outside the first page.").first(),
@@ -399,7 +401,7 @@ test.describe("Agents", () => {
       },
     );
 
-    await page.goto("/agents?session=agent_session_chat");
+    await page.goto(agentSessionHref("agent_session_chat"));
 
     await expect(page.getByLabel("User message")).toBeVisible();
     await expect(page.getByRole("button", { name: /send turn/i })).toBeVisible();
@@ -450,7 +452,7 @@ test.describe("Agents", () => {
       },
     );
 
-    await page.goto("/agents?session=agent_session_tools");
+    await page.goto(agentSessionHref("agent_session_tools"));
     await page.getByLabel("User message").fill("Summarize the latest open PRs.");
     await page.getByText("Turn options").click();
     await page.getByLabel("Tools", { exact: true }).selectOption("selected");
@@ -543,7 +545,7 @@ test.describe("Agents", () => {
       },
     );
 
-    await page.goto("/agents?session=agent_session_waiting&turn=agent_turn_waiting");
+    await page.goto(agentSessionHref("agent_session_waiting", "agent_turn_waiting"));
     await expect(page.getByText("Waiting For Input")).toBeVisible();
     await page.getByRole("button", { name: "Approve" }).click();
 
@@ -555,3 +557,11 @@ test.describe("Agents", () => {
     await expect(page.getByText(/^canceled$/i)).toBeVisible();
   });
 });
+
+function pathAndQueryPattern(href: string): RegExp {
+  return new RegExp(`${escapeRegExp(href)}$`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

@@ -418,7 +418,10 @@ export default function AgentsPage() {
   }, [loadInteractions, selectedTurn, streamNonce, transcriptReady]);
 
   useEffect(() => {
-    const next = agentSessionHref(selectedSessionID, selectedTurnID);
+    const next = agentSessionHref({
+      sessionID: selectedSessionID,
+      turnID: selectedTurnID,
+    });
     if (window.location.pathname + window.location.search !== next) {
       window.history.replaceState(null, "", next);
     }

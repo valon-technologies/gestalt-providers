@@ -23,6 +23,7 @@ from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import authorization_pb2 as _authorization_pb2
 from gestalt._gen.v1 import workflow_pb2 as _workflow_pb2
 
+from internals.agent_links import agent_session_url
 import provider as provider_module
 
 agent_pb2: Any = _agent_pb2
@@ -582,6 +583,20 @@ def slack_replies_response(
 
 
 class SlackProviderTests(unittest.TestCase):
+    def test_agent_session_url_preserves_public_base_path(self) -> None:
+        url = agent_session_url(
+            "https://gestalt.example.test/team-a/",
+            "agent session/123",
+        )
+        parsed = urllib.parse.urlparse(url)
+        self.assertEqual(parsed.scheme, "https")
+        self.assertEqual(parsed.netloc, "gestalt.example.test")
+        self.assertEqual(parsed.path, "/team-a/agents")
+        self.assertEqual(
+            urllib.parse.parse_qs(parsed.query),
+            {"session": ["agent session/123"]},
+        )
+
     def _capture_chat_post_message(
         self,
         input: provider_module.ChatPostMessageInput,
@@ -3756,7 +3771,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        expected_url = "https://gestalt.example.test/agents?session=agent+session%2F123"
+        expected_url = agent_session_url(
+            "https://gestalt.example.test/",
+            "agent session/123",
+        )
         self.assertEqual(len(authorization.write_requests), 1)
         grant = authorization.write_requests[0].writes[0]
         self.assertEqual(grant.subject.type, "subject")
