@@ -30,7 +30,6 @@ providers:
           enabled: true
           deploymentName: prod-main
           buildID: ${CLOUD_RUN_REVISION}
-          defaultVersioningBehavior: autoUpgrade
 ```
 
 `scopeID` is required and is part of the Temporal workflow IDs and IndexedDB
@@ -40,14 +39,14 @@ logical Gestalt workflow environment.
 `versioning` is optional. When omitted or disabled, workers poll the task queue
 as unversioned workers. When enabled, the provider starts Temporal Worker
 Deployment Versioning with `DeploymentOptions.UseVersioning`, the configured
-`deploymentName`, the resolved build ID, and `autoUpgrade` workflow behavior.
-Use either `buildID` or `buildIDEnv`; if `buildIDEnv` is used, the environment
-variable must be present in the provider process environment. Hosted provider
-processes may not inherit every environment variable from the parent runtime, so
-config interpolation into `buildID` is usually the safer deployment interface.
-The provider does not update Temporal Worker Deployment routing during startup;
-deploy pipelines must promote or ramp worker deployment versions after the new
-worker version is deployed and polling.
+`deploymentName`, the resolved build ID, and Temporal auto-upgrade workflow
+behavior. Use either `buildID` or `buildIDEnv`; if `buildIDEnv` is used, the
+environment variable must be present in the provider process environment. Hosted
+provider processes may not inherit every environment variable from the parent
+runtime, so config interpolation into `buildID` is usually the safer deployment
+interface. The provider does not update Temporal Worker Deployment routing
+during startup; deploy pipelines must promote or ramp worker deployment versions
+after the new worker version is deployed and polling.
 
 ## Runtime Requirements
 
