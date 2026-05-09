@@ -196,11 +196,15 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
 			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 		})
+		metadata, err := gestalt.StructFromAny(workflowInvokeMetadataInput(state.GetWorkflowKey()))
+		if err != nil {
+			return nil, err
+		}
 		invokeReq := &proto.InvokeWorkflowOperationRequest{
 			Target:       cloneTarget(state.GetTarget()),
 			RunId:        state.GetId(),
 			Trigger:      cloneRunTrigger(state.GetTrigger()),
-			Metadata:     workflowInvokeMetadata(state.GetWorkflowKey()),
+			Metadata:     metadata,
 			CreatedBy:    cloneActor(state.GetCreatedBy()),
 			ExecutionRef: strings.TrimSpace(state.GetExecutionRef()),
 			Signals:      cloneSignals(batch),

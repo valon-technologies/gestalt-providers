@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/structpb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -2051,12 +2050,16 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	host := state.host
 	releaseWorker()
 
+	metadata, err := gestalt.StructFromAny(workflowInvokeMetadataInput(pending.WorkflowKey))
+	if err != nil {
+		return false, err
+	}
 	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
 	resp, invokeErr := host.InvokeOperation(ctx, &proto.InvokeWorkflowOperationRequest{
 		Target:       cloneTarget(pending.Target),
 		RunId:        pending.ID,
 		Trigger:      pending.triggerProto(),
-		Metadata:     workflowInvokeMetadata(pending.WorkflowKey),
+		Metadata:     metadata,
 		CreatedBy:    cloneActor(pending.CreatedBy),
 		ExecutionRef: pending.ExecutionRef,
 		Signals:      signalProtos(claimedSignals),
@@ -2867,14 +2870,14 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func workflowInvokeMetadata(workflowKey string) *structpb.Struct {
+func workflowInvokeMetadataInput(workflowKey string) any {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil
 	}
-	return structFromAny(map[string]any{
+	return map[string]any{
 		workflowInvokeMetadataWorkflowKey: workflowKey,
-	})
+	}
 }
 
 func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore *gestalt.ObjectStoreClient, signalStore *gestalt.ObjectStoreClient, run workflowRunRecord, workflowKey string, now time.Time) error {
@@ -4577,7 +4580,7 @@ func eventToMap(event *proto.WorkflowEvent) map[string]any {
 		"subject":         event.GetSubject(),
 		"datacontenttype": event.GetDatacontenttype(),
 		"data":            gestalt.MapFromStruct(event.GetData()),
-		"extensions":      extensionsToMap(event.GetExtensions()),
+		"extensions":      gestalt.MapFromValues(event.GetExtensions()),
 	}
 	if ts := event.GetTime(); ts != nil && ts.IsValid() {
 		value["time"] = ts.AsTime().UTC().Format(time.RFC3339Nano)
@@ -4590,60 +4593,26 @@ func eventFromAny(value any) *proto.WorkflowEvent {
 	if !ok || len(data) == 0 {
 		return nil
 	}
-	event := &proto.WorkflowEvent{
-		Id:              stringField(data, "id"),
+	input := gestalt.WorkflowEventInput{
+		ID:              stringField(data, "id"),
 		Source:          stringField(data, "source"),
 		SpecVersion:     stringField(data, "spec_version"),
 		Type:            stringField(data, "type"),
 		Subject:         stringField(data, "subject"),
-		Datacontenttype: stringField(data, "datacontenttype"),
-		Data:            structFromAny(data["data"]),
-		Extensions:      mapToExtensions(anyMap(data["extensions"])),
+		DataContentType: stringField(data, "datacontenttype"),
+		Data:            data["data"],
+		Extensions:      anyMap(data["extensions"]),
 	}
 	if raw := stringField(data, "time"); raw != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			gestalt.SetTime(&event.Time, parsed.UTC())
+			input.Time = parsed.UTC()
 		}
 	}
-	return event
-}
-
-func structFromAny(value any) *structpb.Struct {
-	out, err := gestalt.StructFromAny(value)
+	event, err := gestalt.NewWorkflowEvent(input)
 	if err != nil {
 		return nil
 	}
-	return out
-}
-
-func extensionsToMap(values map[string]*structpb.Value) map[string]any {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(values))
-	for key, value := range values {
-		if value == nil {
-			out[key] = nil
-			continue
-		}
-		out[key] = value.AsInterface()
-	}
-	return out
-}
-
-func mapToExtensions(values map[string]any) map[string]*structpb.Value {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(map[string]*structpb.Value, len(values))
-	for key, value := range values {
-		pbValue, err := gestalt.ValueFromAny(value)
-		if err != nil {
-			continue
-		}
-		out[key] = pbValue
-	}
-	return out
+	return event
 }
 
 func anyMap(value any) map[string]any {

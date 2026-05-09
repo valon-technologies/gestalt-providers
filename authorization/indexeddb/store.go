@@ -14,7 +14,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -271,25 +270,25 @@ func relationshipRecord(relationship *gestalt.Relationship) (gestalt.Record, err
 		"id":                  relationshipTupleID(subject.GetType(), subject.GetId(), relation, resource.GetType(), resource.GetId()),
 		"subject_type":        subject.GetType(),
 		"subject_id":          subject.GetId(),
-		"subject_properties":  structAsMap(subject.GetProperties()),
+		"subject_properties":  nilIfEmptyMap(gestalt.MapFromStruct(subject.GetProperties())),
 		"relation":            relation,
 		"resource_type":       resource.GetType(),
 		"resource_id":         resource.GetId(),
-		"resource_properties": structAsMap(resource.GetProperties()),
-		"properties":          structAsMap(relationship.GetProperties()),
+		"resource_properties": nilIfEmptyMap(gestalt.MapFromStruct(resource.GetProperties())),
+		"properties":          nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetProperties())),
 	}, nil
 }
 
 func relationshipFromRecord(record gestalt.Record) (*gestalt.Relationship, error) {
-	subjectProperties, err := mapAsStruct(record["subject_properties"])
+	subjectProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["subject_properties"]))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode subject properties: %v", err)
 	}
-	resourceProperties, err := mapAsStruct(record["resource_properties"])
+	resourceProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["resource_properties"]))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode resource properties: %v", err)
 	}
-	relationshipProperties, err := mapAsStruct(record["properties"])
+	relationshipProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["properties"]))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode relationship properties: %v", err)
 	}
@@ -319,28 +318,24 @@ func relationshipFromRecord(record gestalt.Record) (*gestalt.Relationship, error
 	}, nil
 }
 
-func structAsMap(value *structpb.Struct) map[string]any {
-	if value == nil {
+func nilIfEmptyMap(value map[string]any) map[string]any {
+	if len(value) == 0 {
 		return nil
 	}
-	out := value.AsMap()
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return value
 }
 
-func mapAsStruct(value any) (*structpb.Struct, error) {
+func nilIfEmptyRecordMap(value any) any {
 	switch typed := value.(type) {
 	case nil:
-		return nil, nil
+		return nil
 	case map[string]any:
 		if len(typed) == 0 {
-			return nil, nil
+			return nil
 		}
-		return gestalt.StructFromAny(typed)
+		return typed
 	default:
-		return nil, fmt.Errorf("expected map[string]any, got %T", value)
+		return value
 	}
 }
 
