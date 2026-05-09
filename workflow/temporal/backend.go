@@ -21,7 +21,7 @@ import (
 )
 
 type workflowHost interface {
-	InvokeOperation(context.Context, *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error)
+	InvokeOperation(context.Context, gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error)
 	Close() error
 }
 

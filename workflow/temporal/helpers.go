@@ -462,6 +462,36 @@ func actorInputPtr(actor *proto.WorkflowActor) *gestalt.WorkflowActorInput {
 	return &input
 }
 
+func workflowTargetInput(target *proto.BoundWorkflowTarget) *gestalt.BoundWorkflowTargetInput {
+	if target == nil {
+		return nil
+	}
+	input := gestalt.BoundWorkflowTargetInputFromTarget(target)
+	return &input
+}
+
+func workflowTriggerInput(trigger *proto.WorkflowRunTrigger) *gestalt.WorkflowRunTriggerInput {
+	if trigger == nil {
+		return nil
+	}
+	input, err := gestalt.WorkflowRunTriggerInputFromTrigger(trigger)
+	if err != nil {
+		panic("workflow trigger input: " + err.Error())
+	}
+	return &input
+}
+
+func workflowSignalInputs(signals []*proto.WorkflowSignal) []gestalt.WorkflowSignalInput {
+	if len(signals) == 0 {
+		return nil
+	}
+	out := make([]gestalt.WorkflowSignalInput, 0, len(signals))
+	for _, signal := range signals {
+		out = append(out, gestalt.WorkflowSignalInputFromSignal(signal))
+	}
+	return out
+}
+
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
 	if event == nil {
 		return nil

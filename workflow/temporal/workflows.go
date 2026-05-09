@@ -20,7 +20,7 @@ type workflowActivities struct {
 	state *workflowStateStore
 }
 
-func (a *workflowActivities) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
+func (a *workflowActivities) InvokeOperation(ctx context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
 	return a.host.InvokeOperation(ctx, req)
 }
 
@@ -38,17 +38,6 @@ func cloneRunTrigger(trigger *proto.WorkflowRunTrigger) *proto.WorkflowRunTrigge
 	out, err := gestalt.NewWorkflowRunTriggerFromTrigger(trigger)
 	if err != nil {
 		panic("clone workflow run trigger: " + err.Error())
-	}
-	return out
-}
-
-func cloneSignals(signals []*proto.WorkflowSignal) []*proto.WorkflowSignal {
-	if len(signals) == 0 {
-		return nil
-	}
-	out := make([]*proto.WorkflowSignal, 0, len(signals))
-	for _, signal := range signals {
-		out = append(out, cloneSignal(signal))
 	}
 	return out
 }

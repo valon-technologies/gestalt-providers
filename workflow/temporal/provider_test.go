@@ -43,7 +43,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host, state: state})
 
@@ -81,7 +81,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host})
 
@@ -121,7 +121,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host})
 
@@ -148,8 +148,8 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 	if len(host.calls) != 1 {
 		t.Fatalf("host calls = %d, want 1 after claim", len(host.calls))
 	}
-	signals := host.calls[0].GetSignals()
-	if len(signals) != 1 || signals[0].GetIdempotencyKey() != "signal-1" {
+	signals := host.calls[0].Signals
+	if len(signals) != 1 || signals[0].IdempotencyKey != "signal-1" {
 		t.Fatalf("signals = %#v, want initial signal", signals)
 	}
 }
@@ -157,7 +157,7 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	activities := &workflowActivities{host: host}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(activities)
@@ -204,7 +204,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	activities := &workflowActivities{host: host}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(activities)
@@ -254,7 +254,7 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &proto.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(&workflowActivities{host: host, state: state})
 
@@ -1758,12 +1758,12 @@ func TestProviderSurfaceStartsBackendForExecutionRPCs(t *testing.T) {
 }
 
 type capturingHost struct {
-	resp  *proto.InvokeWorkflowOperationResponse
+	resp  *gestalt.InvokeWorkflowOperationResponse
 	err   error
-	calls []*proto.InvokeWorkflowOperationRequest
+	calls []gestalt.InvokeWorkflowOperationInput
 }
 
-func (h *capturingHost) InvokeOperation(_ context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
+func (h *capturingHost) InvokeOperation(_ context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
 	h.calls = append(h.calls, req)
 	return h.resp, h.err
 }
@@ -1810,13 +1810,13 @@ func cloneSignalRunRequest(req *proto.SignalWorkflowProviderRunRequest) *proto.S
 
 type blockingHost struct {
 	mu           sync.Mutex
-	resp         *proto.InvokeWorkflowOperationResponse
+	resp         *gestalt.InvokeWorkflowOperationResponse
 	err          error
 	releaseFirst <-chan struct{}
-	calls        []*proto.InvokeWorkflowOperationRequest
+	calls        []gestalt.InvokeWorkflowOperationInput
 }
 
-func (h *blockingHost) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
+func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
 	h.mu.Lock()
 	h.calls = append(h.calls, req)
 	callIndex := len(h.calls)

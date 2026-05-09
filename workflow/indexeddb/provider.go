@@ -2049,19 +2049,28 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	host := state.host
 	releaseWorker()
 
-	metadata, err := gestalt.StructFromAny(workflowInvokeMetadataInput(pending.WorkflowKey))
-	if err != nil {
-		return false, err
+	var targetInput *gestalt.BoundWorkflowTargetInput
+	if pending.Target != nil {
+		input := gestalt.BoundWorkflowTargetInputFromTarget(pending.Target)
+		targetInput = &input
+	}
+	var triggerInput *gestalt.WorkflowRunTriggerInput
+	if trigger := pending.triggerProto(); trigger != nil {
+		input, err := gestalt.WorkflowRunTriggerInputFromTrigger(trigger)
+		if err != nil {
+			return false, err
+		}
+		triggerInput = &input
 	}
 	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
-	resp, invokeErr := host.InvokeOperation(ctx, &proto.InvokeWorkflowOperationRequest{
-		Target:       cloneTarget(pending.Target),
-		RunId:        pending.ID,
-		Trigger:      pending.triggerProto(),
-		Metadata:     metadata,
-		CreatedBy:    cloneActor(pending.CreatedBy),
+	resp, invokeErr := host.InvokeOperation(ctx, gestalt.InvokeWorkflowOperationInput{
+		Target:       targetInput,
+		RunID:        pending.ID,
+		Trigger:      triggerInput,
+		Metadata:     workflowInvokeMetadataInput(pending.WorkflowKey),
+		CreatedBy:    workflowActorInput(pending.CreatedBy),
 		ExecutionRef: pending.ExecutionRef,
-		Signals:      signalProtos(claimedSignals),
+		Signals:      signalInputs(claimedSignals),
 	})
 	stopRenewingClaim()
 
@@ -2122,7 +2131,7 @@ func (p *Provider) renewWorkflowRunClaim(ctx context.Context, runID, ownerID str
 	return renewWorkflowRunClaim(ctx, state.db, runID, ownerID, p.clock().UTC(), state.runClaimTTL)
 }
 
-func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *proto.InvokeWorkflowOperationResponse, invokeErr error) error {
+func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *gestalt.InvokeWorkflowOperationResponse, invokeErr error) error {
 	p.workerMu.Lock()
 	defer p.workerMu.Unlock()
 
@@ -2153,7 +2162,7 @@ func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowR
 	return nil
 }
 
-func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionTxStores, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *proto.InvokeWorkflowOperationResponse, invokeErr error, completedAt time.Time) error {
+func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionTxStores, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *gestalt.InvokeWorkflowOperationResponse, invokeErr error, completedAt time.Time) error {
 	claim, claimFound, err := loadRunClaimRecordTx(ctx, stores.runClaimStore, pending.ID)
 	if err != nil {
 		return err
@@ -3174,7 +3183,7 @@ func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*prot
 		Name:           name,
 		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
 		Metadata:       gestalt.MapFromStruct(signal.GetMetadata()),
-		CreatedBy:      cloneActor(signal.GetCreatedBy()),
+		CreatedBy:      workflowActorInput(signal.GetCreatedBy()),
 		CreatedAt:      createdAt,
 		IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
 		Sequence:       signal.GetSequence(),
@@ -3470,13 +3479,13 @@ func hasSignalsInState(ctx context.Context, store *gestalt.ObjectStoreClient, ru
 	return count > 0, nil
 }
 
-func signalProtos(records []workflowSignalRecord) []*proto.WorkflowSignal {
+func signalInputs(records []workflowSignalRecord) []gestalt.WorkflowSignalInput {
 	if len(records) == 0 {
 		return nil
 	}
-	out := make([]*proto.WorkflowSignal, 0, len(records))
+	out := make([]gestalt.WorkflowSignalInput, 0, len(records))
 	for _, record := range records {
-		out = append(out, record.signalProto())
+		out = append(out, gestalt.WorkflowSignalInputFromSignal(record.signalProto()))
 	}
 	return out
 }
@@ -4450,6 +4459,14 @@ func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
 	}
 }
 
+func workflowActorInput(actor *proto.WorkflowActor) *gestalt.WorkflowActorInput {
+	if actor == nil {
+		return nil
+	}
+	input := gestalt.WorkflowActorInputFromActor(actor)
+	return &input
+}
+
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
 	if event == nil {
 		return nil
@@ -4741,7 +4758,7 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		NextRunAt:    r.NextRunAt,
-		CreatedBy:    cloneActor(r.CreatedBy),
+		CreatedBy:    workflowActorInput(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
 	}), nil
 }
@@ -4799,7 +4816,7 @@ func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger,
 		Paused:       r.Paused,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
-		CreatedBy:    cloneActor(r.CreatedBy),
+		CreatedBy:    workflowActorInput(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
 	}), nil
 }
@@ -4881,7 +4898,7 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 		CompletedAt:   r.CompletedAt,
 		StatusMessage: r.StatusMessage,
 		ResultBody:    r.ResultBody,
-		CreatedBy:     cloneActor(r.CreatedBy),
+		CreatedBy:     workflowActorInput(r.CreatedBy),
 		ExecutionRef:  r.ExecutionRef,
 		WorkflowKey:   r.WorkflowKey,
 	}), nil
