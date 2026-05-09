@@ -330,12 +330,11 @@ func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 }
 
 func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
-	t.Setenv("TEMPORAL_BUILD_ID", "revision-1")
 	raw := baseTemporalConfigRaw()
 	raw["versioning"] = map[string]any{
 		"enabled":        true,
 		"deploymentName": "valon-tools-prod",
-		"buildIDEnv":     "TEMPORAL_BUILD_ID",
+		"buildID":        "revision-1",
 	}
 	cfg, err := decodeConfig(raw)
 	if err != nil {
@@ -367,11 +366,10 @@ func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
 }
 
 func TestTemporalVersioningConfigValidation(t *testing.T) {
-	t.Setenv("BUILD_ID", "revision-1")
 	validVersioning := map[string]any{
 		"enabled":        true,
 		"deploymentName": "valon-tools-prod",
-		"buildIDEnv":     "BUILD_ID",
+		"buildID":        "revision-1",
 	}
 	tests := []struct {
 		name       string
@@ -379,9 +377,9 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "both build id sources",
-			versioning: withMap(validVersioning, "buildID", "revision-direct"),
-			want:       "exactly one of versioning.buildID or versioning.buildIDEnv",
+			name:       "missing build id",
+			versioning: withMap(validVersioning, "buildID", ""),
+			want:       "versioning.buildID is required",
 		},
 		{
 			name:       "deployment separator",
@@ -389,9 +387,9 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 			want:       "versioning.deploymentName cannot contain",
 		},
 		{
-			name:       "missing build env",
-			versioning: withMap(validVersioning, "buildIDEnv", "MISSING_BUILD_ID"),
-			want:       "versioning.buildIDEnv",
+			name:       "build id env is no longer a source",
+			versioning: map[string]any{"enabled": true, "deploymentName": "valon-tools-prod", "buildIDEnv": "BUILD_ID"},
+			want:       "versioning.buildID is required",
 		},
 		{
 			name:       "promotion no longer supported",
