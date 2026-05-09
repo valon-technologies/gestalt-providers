@@ -328,11 +328,6 @@ func mapWorkflowKeyLoadError(err error) error {
 
 func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor, requireSignal bool) runWorkflowV4Input {
 	return runWorkflowV4Input{
-		ProviderName:                  b.providerName,
-		ScopeID:                       b.cfg.ScopeID,
-		TaskQueue:                     b.cfg.TaskQueue,
-		WorkflowRunTimeoutNS:          b.cfg.WorkflowRunTimeout,
-		WorkflowTaskTimeoutNS:         b.cfg.WorkflowTaskTimeout,
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		ExecutionRef:                  strings.TrimSpace(executionRef),
 		WorkflowKey:                   strings.TrimSpace(workflowKey),

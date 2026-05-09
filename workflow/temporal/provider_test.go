@@ -49,8 +49,6 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	env.RegisterActivity(&workflowActivities{host: host, state: state})
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
@@ -102,8 +100,6 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
@@ -135,8 +131,6 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
@@ -183,8 +177,6 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
@@ -232,8 +224,6 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
@@ -276,8 +266,6 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	env.RegisterActivity(&workflowActivities{host: host, state: state})
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ProviderName:                  "temporal",
-		ScopeID:                       "scope",
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
@@ -2622,8 +2610,8 @@ func baseTemporalConfig() config {
 		HostPort:                    "localhost:7233",
 		Namespace:                   "default",
 		APIKey:                      "test-api-key",
-		TaskQueue:                   "gestalt-workflow",
 		ScopeID:                     "scope",
+		TaskQueue:                   "gestalt-workflow",
 		Identity:                    "gestalt-test",
 		WorkflowRunTimeout:          time.Minute,
 		WorkflowTaskTimeout:         time.Second,
