@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -171,11 +170,7 @@ func modelFromRecord(record gestalt.Record) (*storedModel, error) {
 		version = modelVersionString(normalized)
 	}
 	return &storedModel{
-		ref: &gestalt.AuthorizationModelRef{
-			Id:        id,
-			Version:   version,
-			CreatedAt: timestamppb.New(createdAt.UTC()),
-		},
+		ref:      gestalt.NewAuthorizationModelRef(id, version, createdAt.UTC()),
 		model:    normalized,
 		compiled: compiled,
 	}, nil
@@ -343,7 +338,7 @@ func mapAsStruct(value any) (*structpb.Struct, error) {
 		if len(typed) == 0 {
 			return nil, nil
 		}
-		return structpb.NewStruct(typed)
+		return gestalt.StructFromAny(typed)
 	default:
 		return nil, fmt.Errorf("expected map[string]any, got %T", value)
 	}

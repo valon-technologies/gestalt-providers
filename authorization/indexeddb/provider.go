@@ -11,7 +11,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const providerVersion = "0.0.1-alpha.2"
@@ -158,11 +157,7 @@ func (p *Provider) WriteModel(ctx context.Context, req *gestalt.WriteModelReques
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal authorization model: %v", err)
 	}
-	ref := &gestalt.AuthorizationModelRef{
-		Id:        modelID,
-		Version:   model.Version,
-		CreatedAt: timestamppb.New(p.now().UTC()),
-	}
+	ref := gestalt.NewAuthorizationModelRef(modelID, model.Version, p.now().UTC())
 	if err := st.writeModel(ctx, ref, modelJSON); err != nil {
 		return nil, err
 	}

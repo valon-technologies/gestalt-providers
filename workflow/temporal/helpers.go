@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -378,47 +378,57 @@ func normalizeWorkflowEvent(event *proto.WorkflowEvent, now func() time.Time) (*
 	if event == nil {
 		return nil, errors.New("event is required")
 	}
-	out := gproto.Clone(event).(*proto.WorkflowEvent)
-	out.Id = strings.TrimSpace(out.GetId())
-	out.Source = strings.TrimSpace(out.GetSource())
-	out.SpecVersion = strings.TrimSpace(out.GetSpecVersion())
-	out.Type = strings.TrimSpace(out.GetType())
-	out.Subject = strings.TrimSpace(out.GetSubject())
-	out.Datacontenttype = strings.TrimSpace(out.GetDatacontenttype())
-	if out.GetSource() == "" {
+	source := strings.TrimSpace(event.GetSource())
+	if source == "" {
 		return nil, errors.New("event.source is required")
 	}
-	if out.GetType() == "" {
+	eventType := strings.TrimSpace(event.GetType())
+	if eventType == "" {
 		return nil, errors.New("event.type is required")
 	}
-	if out.GetSpecVersion() == "" {
-		out.SpecVersion = defaultSpecVersion
+	specVersion := strings.TrimSpace(event.GetSpecVersion())
+	if specVersion == "" {
+		specVersion = defaultSpecVersion
 	}
-	if out.GetTime() == nil || !out.GetTime().IsValid() {
-		out.Time = timestamppb.New(now().UTC())
+	eventTime := now().UTC()
+	if ts := event.GetTime(); ts != nil && ts.IsValid() {
+		eventTime = ts.AsTime().UTC()
 	}
-	out.Data = cloneStruct(out.GetData())
-	return out, nil
+	return gestalt.NewWorkflowEvent(gestalt.WorkflowEventInput{
+		ID:              strings.TrimSpace(event.GetId()),
+		Source:          source,
+		SpecVersion:     specVersion,
+		Type:            eventType,
+		Subject:         strings.TrimSpace(event.GetSubject()),
+		Time:            eventTime,
+		DataContentType: strings.TrimSpace(event.GetDatacontenttype()),
+		Data:            gestalt.MapFromStruct(event.GetData()),
+		Extensions:      gestalt.MapFromValues(event.GetExtensions()),
+	})
 }
 
 func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*proto.WorkflowSignal, error) {
 	if signal == nil {
 		return nil, errors.New("signal is required")
 	}
-	out := gproto.Clone(signal).(*proto.WorkflowSignal)
-	out.Id = strings.TrimSpace(out.GetId())
-	out.Name = strings.TrimSpace(out.GetName())
-	out.IdempotencyKey = strings.TrimSpace(out.GetIdempotencyKey())
-	if out.GetName() == "" {
+	name := strings.TrimSpace(signal.GetName())
+	if name == "" {
 		return nil, errors.New("signal.name is required")
 	}
-	if out.GetCreatedAt() == nil || !out.GetCreatedAt().IsValid() {
-		out.CreatedAt = timestamppb.New(now.UTC())
+	createdAt := now.UTC()
+	if ts := signal.GetCreatedAt(); ts != nil && ts.IsValid() {
+		createdAt = ts.AsTime().UTC()
 	}
-	out.Payload = cloneStruct(out.GetPayload())
-	out.Metadata = cloneStruct(out.GetMetadata())
-	out.CreatedBy = cloneActor(out.GetCreatedBy())
-	return out, nil
+	return gestalt.NewWorkflowSignal(gestalt.WorkflowSignalInput{
+		ID:             strings.TrimSpace(signal.GetId()),
+		Name:           name,
+		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
+		Metadata:       gestalt.MapFromStruct(signal.GetMetadata()),
+		CreatedBy:      cloneActor(signal.GetCreatedBy()),
+		CreatedAt:      createdAt,
+		IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
+		Sequence:       signal.GetSequence(),
+	})
 }
 
 func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
@@ -483,10 +493,7 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 }
 
 func cloneStruct(value *structpb.Struct) *structpb.Struct {
-	if value == nil {
-		return nil
-	}
-	return gproto.Clone(value).(*structpb.Struct)
+	return gestalt.CloneStruct(value)
 }
 
 func eventMatchesTrigger(event *proto.WorkflowEvent, trigger *proto.BoundWorkflowEventTrigger) bool {
@@ -565,10 +572,7 @@ func newManualTrigger() *proto.WorkflowRunTrigger {
 }
 
 func scheduleTrigger(scheduleID string, scheduledFor time.Time) *proto.WorkflowRunTrigger {
-	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Schedule{Schedule: &proto.WorkflowScheduleTrigger{
-		ScheduleId:   strings.TrimSpace(scheduleID),
-		ScheduledFor: timestamppb.New(scheduledFor.UTC()),
-	}}}
+	return gestalt.NewWorkflowScheduleTrigger(strings.TrimSpace(scheduleID), scheduledFor.UTC())
 }
 
 func eventTrigger(triggerID string, event *proto.WorkflowEvent) *proto.WorkflowRunTrigger {

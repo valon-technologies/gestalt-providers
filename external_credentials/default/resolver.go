@@ -251,9 +251,9 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 	now := p.now().UTC()
 	if err != nil {
 		credential.RefreshErrorCount++
-		credential.UpdatedAt = timestamppb.New(now)
+		credential.UpdatedAt = gestalt.TimestampFromTime(now)
 		if isTerminalRefreshError(err) {
-			credential.ExpiresAt = timestamppb.New(now.Add(-1 * time.Hour))
+			credential.ExpiresAt = gestalt.TimestampFromTime(now.Add(-1 * time.Hour))
 			marked, markErr := st.upsertCredential(ctx, credential, false, now)
 			if markErr != nil {
 				return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
@@ -276,9 +276,9 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 		credential.RefreshToken = resp.RefreshToken
 	}
 	credential.ExpiresAt = expiresAtFromExpiresIn(now, resp.ExpiresIn)
-	credential.LastRefreshedAt = timestamppb.New(now)
+	credential.LastRefreshedAt = gestalt.TimestampFromTime(now)
 	credential.RefreshErrorCount = 0
-	credential.UpdatedAt = timestamppb.New(now)
+	credential.UpdatedAt = gestalt.TimestampFromTime(now)
 	return st.upsertCredential(ctx, credential, false, now)
 }
 
@@ -602,7 +602,7 @@ func expiresAtFromExpiresIn(now time.Time, expiresIn int) *timestamppb.Timestamp
 	if expiresIn <= 0 {
 		return nil
 	}
-	return timestamppb.New(now.Add(time.Duration(expiresIn) * time.Second))
+	return gestalt.TimestampFromTime(now.Add(time.Duration(expiresIn) * time.Second))
 }
 
 func metadataParams(metadataJSON string) map[string]string {

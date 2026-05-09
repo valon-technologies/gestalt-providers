@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func validateExecutionReference(ref *proto.WorkflowExecutionReference) (*proto.WorkflowExecutionReference, error) {
@@ -56,18 +56,18 @@ func publishedEventExecutionReference(providerName, referenceKey string, trigger
 		return nil, err
 	}
 	subjectID := strings.TrimSpace(actor.GetSubjectId())
-	return &proto.WorkflowExecutionReference{
-		Id:                  "event_ref:" + hashID(referenceKey),
+	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+		ID:                  "event_ref:" + hashID(referenceKey),
 		ProviderName:        strings.TrimSpace(providerName),
 		Target:              cloneTarget(trigger.GetTarget()),
-		SubjectId:           subjectID,
+		SubjectID:           subjectID,
+		CredentialSubjectID: subjectID,
+		Permissions:         permissions,
+		CreatedAt:           createdAt.UTC(),
 		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
 		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
 		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
-		CredentialSubjectId: subjectID,
-		Permissions:         permissions,
-		CreatedAt:           timestamppb.New(createdAt.UTC()),
-	}, nil
+	}), nil
 }
 
 func eventExecutionReferencePermissions(trigger *proto.BoundWorkflowEventTrigger) ([]*proto.WorkflowAccessPermission, error) {
