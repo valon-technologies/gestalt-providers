@@ -19,7 +19,6 @@ type Provider struct {
 
 	mu      sync.RWMutex
 	name    string
-	cfg     config
 	backend *temporalBackend
 }
 
@@ -55,17 +54,19 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		_ = state.Close()
 		return fmt.Errorf("temporal workflow: connect temporal: %w", err)
 	}
-	backend := newTemporalBackend(strings.TrimSpace(name), cfg, tc, host, state)
+	providerName := strings.TrimSpace(name)
+	backend := newTemporalBackend(providerName, cfg, tc, host, state)
 	p.mu.Lock()
-	p.name = strings.TrimSpace(name)
-	p.cfg = cfg
+	p.name = providerName
 	p.backend = backend
 	p.mu.Unlock()
 	return nil
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
-	name := p.providerName()
+	p.mu.RLock()
+	name := strings.TrimSpace(p.name)
+	p.mu.RUnlock()
 	if name == "" {
 		name = "temporal"
 	}
@@ -279,12 +280,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 		return err
 	}
 	return backend.PublishEvent(ctx, req)
-}
-
-func (p *Provider) providerName() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return strings.TrimSpace(p.name)
 }
 
 func (p *Provider) requireBackend() (*temporalBackend, error) {
