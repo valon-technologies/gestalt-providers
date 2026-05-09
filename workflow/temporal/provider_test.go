@@ -29,7 +29,6 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -2245,7 +2244,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		}
 	}
 
-	_, err = backend.PublishEvent(context.Background(), &proto.PublishWorkflowProviderEventRequest{
+	err = backend.PublishEvent(context.Background(), &proto.PublishWorkflowProviderEventRequest{
 		PluginName: "slack",
 		Event:      &proto.WorkflowEvent{Id: "event-1", Source: "slack", Type: "message.created"},
 	})
@@ -3201,8 +3200,8 @@ func (f *fakeBackend) GetSchedule(context.Context, *proto.GetWorkflowProviderSch
 func (f *fakeBackend) ListSchedules(context.Context, *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
-func (f *fakeBackend) DeleteSchedule(context.Context, *proto.DeleteWorkflowProviderScheduleRequest) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
+func (f *fakeBackend) DeleteSchedule(context.Context, *proto.DeleteWorkflowProviderScheduleRequest) error {
+	return status.Error(codes.Unimplemented, "not implemented")
 }
 func (f *fakeBackend) PauseSchedule(context.Context, *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
@@ -3219,8 +3218,8 @@ func (f *fakeBackend) GetEventTrigger(context.Context, *proto.GetWorkflowProvide
 func (f *fakeBackend) ListEventTriggers(context.Context, *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
-func (f *fakeBackend) DeleteEventTrigger(context.Context, *proto.DeleteWorkflowProviderEventTriggerRequest) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
+func (f *fakeBackend) DeleteEventTrigger(context.Context, *proto.DeleteWorkflowProviderEventTriggerRequest) error {
+	return status.Error(codes.Unimplemented, "not implemented")
 }
 func (f *fakeBackend) PauseEventTrigger(context.Context, *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
@@ -3237,8 +3236,8 @@ func (f *fakeBackend) GetExecutionReference(context.Context, *proto.GetWorkflowE
 func (f *fakeBackend) ListExecutionReferences(context.Context, *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
-func (f *fakeBackend) PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
+func (f *fakeBackend) PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) error {
+	return status.Error(codes.Unimplemented, "not implemented")
 }
 
 func collectTemporalWorkflowMetrics(t *testing.T, reader *sdkmetric.ManualReader) metricdata.ResourceMetrics {

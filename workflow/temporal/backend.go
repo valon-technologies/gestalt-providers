@@ -18,7 +18,6 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const workflowScheduleMemoKey = "gestalt.workflow_schedule"
@@ -277,7 +276,7 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if run, found, err := b.getRunProjection(ctx, runID); err != nil {
+	if run, found, err := b.state.getRun(ctx, runID); err != nil {
 		return nil, status.Errorf(codes.Internal, "load workflow run projection: %v", err)
 	} else if found {
 		return run, nil
@@ -291,7 +290,7 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
-	runs, err := b.listRunProjections(ctx)
+	runs, err := b.state.listRuns(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -601,27 +600,27 @@ func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkfl
 	return &proto.ListWorkflowProviderSchedulesResponse{Schedules: schedules}, nil
 }
 
-func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) (*emptypb.Empty, error) {
+func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) error {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
+		return status.Error(codes.InvalidArgument, "request is required")
 	}
 	id := strings.TrimSpace(req.GetScheduleId())
 	if id == "" {
-		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
+		return status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
 	if _, found, err := b.state.getSchedule(ctx, id); err != nil {
-		return nil, err
+		return err
 	} else if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
+		return status.Errorf(codes.NotFound, "workflow schedule %q not found", id)
 	}
 	err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(id)).Delete(ctx)
 	if err != nil && !isNotFound(err) {
-		return nil, status.Errorf(codes.Internal, "delete temporal schedule: %v", err)
+		return status.Errorf(codes.Internal, "delete temporal schedule: %v", err)
 	}
 	if err := b.state.deleteSchedule(ctx, id); err != nil {
-		return nil, err
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
@@ -736,18 +735,18 @@ func (b *temporalBackend) ListEventTriggers(ctx context.Context, _ *proto.ListWo
 	return &proto.ListWorkflowProviderEventTriggersResponse{Triggers: triggers}, nil
 }
 
-func (b *temporalBackend) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) (*emptypb.Empty, error) {
+func (b *temporalBackend) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) error {
 	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
+		return status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
 	found, err := b.state.deleteTrigger(ctx, strings.TrimSpace(req.GetTriggerId()))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", req.GetTriggerId())
+		return status.Errorf(codes.NotFound, "workflow event trigger %q not found", req.GetTriggerId())
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (b *temporalBackend) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
@@ -818,18 +817,18 @@ func (b *temporalBackend) ListExecutionReferences(ctx context.Context, req *prot
 	return &proto.ListWorkflowExecutionReferencesResponse{References: refs}, nil
 }
 
-func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) (*emptypb.Empty, error) {
+func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) error {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
+		return status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.GetPluginName())
 	event, err := normalizeWorkflowEvent(req.GetEvent(), time.Now)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return status.Error(codes.InvalidArgument, err.Error())
 	}
 	triggers, err := b.state.matchTriggers(ctx, pluginName, event)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	now := time.Now().UTC()
 	publishedBy := cloneActor(req.GetPublishedBy())
@@ -859,7 +858,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 		if actorHasSubject(publishedBy) {
 			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, trigger, publishedBy, now)
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
+				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
 				if stored, err := b.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{Reference: ref}); err == nil && stored != nil {
@@ -873,7 +872,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 			if event.GetId() != "" && isAlreadyStarted(err) {
 				continue
 			}
-			return nil, status.Errorf(codes.Internal, "start event workflow: %v", err)
+			return status.Errorf(codes.Internal, "start event workflow: %v", err)
 		}
 		gestalt.RecordWorkflowRunStarted(ctx, b.workflowTelemetryOptions(
 			gestalt.WorkflowOperationPublishEvent,
@@ -882,7 +881,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 			workflowTelemetryRunStatus(run),
 		))
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (b *temporalBackend) workflowTelemetryOptions(operationName, triggerKind, targetKind, runStatus string) gestalt.WorkflowOperationOptions {

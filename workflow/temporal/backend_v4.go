@@ -403,11 +403,3 @@ func (b *temporalBackend) startWorkflowOptions(workflowID string, conflict enums
 	opts.WorkflowIDReusePolicy = reuse
 	return opts
 }
-
-func (b *temporalBackend) getRunProjection(ctx context.Context, runID string) (*proto.BoundWorkflowRun, bool, error) {
-	return b.state.getRun(ctx, runID)
-}
-
-func (b *temporalBackend) listRunProjections(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
-	return b.state.listRuns(ctx)
-}
