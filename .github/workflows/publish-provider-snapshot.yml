@@ -1,0 +1,187 @@
+name: Publish Provider Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider-ref:
+        description: Full gestalt-providers commit SHA to publish
+        required: true
+        type: string
+      gestalt-ref:
+        description: Full Gestalt commit SHA used to build gestaltd
+        required: true
+        type: string
+      provider-dirs:
+        description: Comma or newline separated provider directories
+        required: true
+        type: string
+      gcs-root:
+        description: GCS destination root
+        required: true
+        default: gs://valon-gestalt-provider-snapshots
+        type: string
+      dry-run:
+        description: Validate and print uploads without writing to GCS
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GESTALT_REPOSITORY: valon-technologies/gestalt
+  PYTHON_ALPINE_VERSION: "3.23"
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      providers: ${{ steps.discover.outputs.providers }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.provider-ref }}
+      - name: Verify provider ref
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
+      - name: Discover requested providers
+        id: discover
+        env:
+          PROVIDER_DIRS: ${{ inputs.provider-dirs }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import pathlib
+          import re
+          import tomllib
+
+          roots = {"agent", "runtime", "plugins", "auth", "authorization", "external_credentials", "s3", "indexeddb", "workflow", "cache", "secrets", "ui"}
+          requested = [part.strip() for part in re.split(r"[\n,]+", os.environ["PROVIDER_DIRS"]) if part.strip()]
+          providers = []
+          for raw in requested:
+              path = pathlib.PurePosixPath(raw)
+              if path.is_absolute() or ".." in path.parts or len(path.parts) < 2 or path.parts[0] not in roots:
+                  raise SystemExit(f"invalid provider directory: {raw}")
+              manifest = pathlib.Path(path.as_posix()) / "manifest.yaml"
+              if not manifest.is_file():
+                  raise SystemExit(f"{manifest} not found")
+              package_json = pathlib.Path(path.as_posix()) / "package.json"
+              has_typescript = False
+              if package_json.is_file() and path.parts[0] != "ui":
+                  data = json.loads(package_json.read_text(encoding="utf-8"))
+                  has_typescript = bool((data.get("gestalt") or {}).get("provider"))
+              pyproject = pathlib.Path(path.as_posix()) / "pyproject.toml"
+              python_version = ""
+              if pyproject.is_file():
+                  project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project") or {}
+                  requires_python = str(project.get("requires-python") or "").strip()
+                  match = re.fullmatch(r"==\s*(\d+\.\d+)\.\*", requires_python)
+                  if match is None:
+                      raise SystemExit(f"{pyproject}: project.requires-python must pin ==X.Y.*")
+                  python_version = match.group(1)
+              providers.append({
+                  "dir": path.as_posix(),
+                  "root": path.parts[0],
+                  "has_go": any(candidate.suffix == ".go" for candidate in pathlib.Path(path.as_posix()).glob("*.go")),
+                  "has_python": pyproject.is_file(),
+                  "has_rust": (pathlib.Path(path.as_posix()) / "Cargo.toml").is_file(),
+                  "has_typescript": has_typescript,
+                  "python_version": python_version,
+              })
+          print("providers=" + json.dumps(providers))
+          PY
+
+  publish:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: ${{ fromJson(needs.discover.outputs.providers) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.provider-ref }}
+      - name: Verify provider ref
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: actions/setup-node@v4
+        if: matrix.provider.root == 'ui'
+        with:
+          node-version: '25'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        if: matrix.provider.has_python
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.provider.has_typescript
+      - uses: dtolnay/rust-toolchain@1.88.0
+        if: matrix.provider.has_rust
+      - name: Install Rust linux/amd64 release target
+        if: matrix.provider.has_rust
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
+      - name: Install Python
+        if: matrix.provider.has_python
+        run: uv python install "${{ matrix.provider.python_version }}"
+      - name: Install gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - uses: google-github-actions/auth@v2
+        if: ${{ !inputs.dry-run }}
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: ${{ !inputs.dry-run }}
+      - name: Package snapshot
+        env:
+          PROVIDER_DIR: ${{ matrix.provider.dir }}
+          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          rm -rf "${PROVIDER_DIR}/dist"
+          if [ "${{ matrix.provider.has_typescript }}" = "true" ]; then
+            (cd "$PROVIDER_DIR" && bun install --frozen-lockfile)
+          fi
+          if [ "${{ matrix.provider.has_python }}" = "true" ]; then
+            python_image="python:${{ matrix.provider.python_version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
+            .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
+          else
+            (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
+          fi
+          python3 .github/scripts/write_provider_release_metadata.py \
+            --manifest "${PROVIDER_DIR}/manifest.yaml" \
+            --output-dir "${PROVIDER_DIR}/dist" \
+            --version "$SNAPSHOT_VERSION"
+      - name: Publish snapshot
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          args=()
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          .github/scripts/publish_provider_snapshot.py \
+            --provider-dir "${{ matrix.provider.dir }}" \
+            --provider-ref "${{ inputs.provider-ref }}" \
+            --gestalt-ref "${{ inputs.gestalt-ref }}" \
+            --repository "${{ github.repository }}" \
+            --dist-dir "${{ matrix.provider.dir }}/dist" \
+            --gcs-root "${{ inputs.gcs-root }}" \
+            "${args[@]}"
