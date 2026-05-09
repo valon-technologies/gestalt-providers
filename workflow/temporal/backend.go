@@ -78,10 +78,6 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
-	if err := b.promoteWorkerDeployment(ctx); err != nil {
-		w.Stop()
-		return err
-	}
 	b.worker = w
 	b.started = true
 	return nil
@@ -101,106 +97,6 @@ func (b *temporalBackend) workerOptions() worker.Options {
 			DefaultVersioningBehavior: sdkworkflow.VersioningBehaviorAutoUpgrade,
 		},
 	}
-}
-
-func (b *temporalBackend) promoteWorkerDeployment(ctx context.Context) error {
-	cfg := b.cfg.Versioning
-	if !cfg.Enabled || cfg.Promotion.Mode == promotionModeNone {
-		return nil
-	}
-	if b.client == nil {
-		return errors.New("temporal workflow: client is not configured")
-	}
-	promoteCtx, cancel := context.WithTimeout(ctx, cfg.Promotion.Timeout)
-	defer cancel()
-	handle := b.client.WorkerDeploymentClient().GetHandle(cfg.DeploymentName)
-	for {
-		err := b.promoteWorkerDeploymentOnce(promoteCtx, handle, cfg)
-		if err == nil {
-			return nil
-		}
-		if !retryWorkerDeploymentPromotion(promoteCtx, err) {
-			return fmt.Errorf("promote temporal worker deployment: %w", err)
-		}
-		select {
-		case <-promoteCtx.Done():
-			return fmt.Errorf("promote temporal worker deployment: %w", promoteCtx.Err())
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-}
-
-func (b *temporalBackend) promoteWorkerDeploymentOnce(ctx context.Context, handle client.WorkerDeploymentHandle, cfg versioningConfig) error {
-	desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
-	if err != nil {
-		return err
-	}
-	switch cfg.Promotion.Mode {
-	case promotionModeCurrent:
-		current := desc.Info.RoutingConfig.CurrentVersion
-		if sameWorkerDeploymentVersion(current, cfg.DeploymentName, cfg.ResolvedBuildID) {
-			return nil
-		}
-		if current != nil && !cfg.Promotion.AllowReplaceCurrent {
-			return fmt.Errorf("current worker deployment version is %s/%s; set versioning.promotion.allowReplaceCurrent to replace it", current.DeploymentName, current.BuildID)
-		}
-		_, err := handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
-			BuildID:                 cfg.ResolvedBuildID,
-			ConflictToken:           desc.ConflictToken,
-			Identity:                b.cfg.Identity,
-			IgnoreMissingTaskQueues: false,
-			AllowNoPollers:          false,
-		})
-		return err
-	case promotionModeRamping:
-		if cfg.Promotion.RampPercentage == nil {
-			return errors.New("versioning.promotion.rampPercentage is required when mode is ramping")
-		}
-		current := desc.Info.RoutingConfig.CurrentVersion
-		if sameWorkerDeploymentVersion(current, cfg.DeploymentName, cfg.ResolvedBuildID) {
-			return nil
-		}
-		ramping := desc.Info.RoutingConfig.RampingVersion
-		if sameWorkerDeploymentVersion(ramping, cfg.DeploymentName, cfg.ResolvedBuildID) &&
-			desc.Info.RoutingConfig.RampingVersionPercentage == *cfg.Promotion.RampPercentage {
-			return nil
-		}
-		_, err := handle.SetRampingVersion(ctx, client.WorkerDeploymentSetRampingVersionOptions{
-			BuildID:                 cfg.ResolvedBuildID,
-			Percentage:              *cfg.Promotion.RampPercentage,
-			ConflictToken:           desc.ConflictToken,
-			Identity:                b.cfg.Identity,
-			IgnoreMissingTaskQueues: false,
-			AllowNoPollers:          false,
-		})
-		return err
-	default:
-		return fmt.Errorf("unsupported worker deployment promotion mode %q", cfg.Promotion.Mode)
-	}
-}
-
-func sameWorkerDeploymentVersion(version *worker.WorkerDeploymentVersion, deploymentName, buildID string) bool {
-	return version != nil && version.DeploymentName == deploymentName && version.BuildID == buildID
-}
-
-func retryWorkerDeploymentPromotion(ctx context.Context, err error) bool {
-	if ctx.Err() != nil || err == nil {
-		return false
-	}
-	var failedPrecondition *serviceerror.FailedPrecondition
-	if errors.As(err, &failedPrecondition) {
-		return true
-	}
-	var unavailable *serviceerror.Unavailable
-	if errors.As(err, &unavailable) {
-		return true
-	}
-	var resourceExhausted *serviceerror.ResourceExhausted
-	if errors.As(err, &resourceExhausted) {
-		return true
-	}
-	var notFound *serviceerror.NotFound
-	return errors.As(err, &notFound)
 }
 
 func (b *temporalBackend) Close() error {

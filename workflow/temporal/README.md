@@ -12,7 +12,7 @@ apiVersion: gestaltd.config/v5
 providers:
   workflow:
     temporal:
-      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.23/provider-release.yaml
+      source: https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/temporal/v0.0.1-alpha.24/provider-release.yaml
       indexeddb:
         provider: main-db
       config:
@@ -31,10 +31,6 @@ providers:
           deploymentName: prod-main
           buildID: ${CLOUD_RUN_REVISION}
           defaultVersioningBehavior: autoUpgrade
-          promotion:
-            mode: current
-            timeout: 30s
-            allowReplaceCurrent: true
 ```
 
 `scopeID` is required and is part of the Temporal workflow IDs and IndexedDB
@@ -49,16 +45,9 @@ Use either `buildID` or `buildIDEnv`; if `buildIDEnv` is used, the environment
 variable must be present in the provider process environment. Hosted provider
 processes may not inherit every environment variable from the parent runtime, so
 config interpolation into `buildID` is usually the safer deployment interface.
-
-`promotion.mode: current` updates the Temporal worker deployment current version
-before the provider finishes startup. This is the mode required
-when a deploy contains incompatible workflow or activity behavior, such as new
-provider operations that old workers cannot execute. `allowReplaceCurrent` must
-be set when replacing an existing current version. `promotion.mode: ramping`
-maps to Temporal's ramping version APIs, but it is only safe when old and new
-worker versions are intentionally kept alive and compatible during the ramp.
-`promotion.mode: none` starts a versioned worker without changing Temporal
-routing, for externally managed deployments.
+The provider does not update Temporal Worker Deployment routing during startup;
+deploy pipelines must promote or ramp worker deployment versions after the new
+worker version is deployed and polling.
 
 ## Runtime Requirements
 
@@ -67,18 +56,11 @@ routing, for externally managed deployments.
 - `GESTALT_WORKFLOW_HOST_SOCKET` must point at the workflow host socket
 - A Temporal Cloud namespace reachable at `hostPort`
 - A Temporal Cloud API key with permission to start workflows, update
-  workflows, manage schedules, run workers on `taskQueue`, and manage Worker
-  Deployments when `versioning.promotion.mode` is `current` or `ramping`
+  workflows, manage schedules, and run workers on `taskQueue`
 
 Workers are registered when the host calls `ProviderLifecycle.StartProvider` or
 when an execution RPC reaches the provider during startup reconciliation.
 Metadata-only reads do not start the Temporal worker.
-
-When promotion is enabled and promotion fails, provider startup fails and the
-newly started worker is stopped. This keeps Gestalt readiness closed instead of
-serving HTTP while Temporal routing is still pointing at an incompatible worker
-set. Promotion only affects tasks routed after Temporal accepts the deployment
-update; already-polled tasks cannot be recalled by the provider.
 
 ## Runtime Behavior
 

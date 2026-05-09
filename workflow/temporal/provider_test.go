@@ -354,7 +354,7 @@ func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	}
 }
 
-func TestTemporalBackendStartPromotesCurrentAfterWorkerStart(t *testing.T) {
+func TestTemporalBackendStartUsesVersioningWithoutPromotion(t *testing.T) {
 	t.Setenv("TEMPORAL_BUILD_ID", "revision-1")
 	raw := baseTemporalConfigRaw()
 	raw["versioning"] = map[string]any{
@@ -362,9 +362,6 @@ func TestTemporalBackendStartPromotesCurrentAfterWorkerStart(t *testing.T) {
 		"deploymentName":            "valon-tools-prod",
 		"buildIDEnv":                "TEMPORAL_BUILD_ID",
 		"defaultVersioningBehavior": "autoUpgrade",
-		"promotion": map[string]any{
-			"mode": "current",
-		},
 	}
 	cfg, err := decodeConfig(raw)
 	if err != nil {
@@ -373,12 +370,7 @@ func TestTemporalBackendStartPromotesCurrentAfterWorkerStart(t *testing.T) {
 
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
-	handle := &fakeWorkerDeploymentHandle{
-		describeResponse: client.WorkerDeploymentDescribeResponse{
-			ConflictToken: []byte("token-1"),
-		},
-		order: &order,
-	}
+	handle := &fakeWorkerDeploymentHandle{order: &order}
 	tc := &recordingTemporalClient{deploymentClient: &fakeWorkerDeploymentClient{handle: handle}}
 	backend := newTemporalBackend("temporal", cfg, tc, nil, nil)
 	backend.newWorker = func(_ client.Client, _ string, options worker.Options) temporalWorker {
@@ -397,204 +389,11 @@ func TestTemporalBackendStartPromotesCurrentAfterWorkerStart(t *testing.T) {
 	if err := backend.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if got := strings.Join(order, ","); got != "start,describe,set-current" {
-		t.Fatalf("startup order = %s, want start,describe,set-current", got)
+	if got := strings.Join(order, ","); got != "start" {
+		t.Fatalf("startup order = %s, want start", got)
 	}
-	if len(handle.setCurrentCalls) != 1 {
-		t.Fatalf("SetCurrent calls = %d, want 1", len(handle.setCurrentCalls))
-	}
-	call := handle.setCurrentCalls[0]
-	if call.BuildID != "revision-1" || call.Identity != "gestalt-test" || string(call.ConflictToken) != "token-1" {
-		t.Fatalf("SetCurrent call = %#v", call)
-	}
-	if call.AllowNoPollers || call.IgnoreMissingTaskQueues {
-		t.Fatalf("SetCurrent bypassed worker deployment guardrails: %#v", call)
-	}
-}
-
-func TestTemporalBackendStartRampingPromotion(t *testing.T) {
-	ramp := float32(10)
-	cfg := baseTemporalConfig()
-	cfg.Versioning = versioningConfig{
-		Enabled:                   true,
-		DeploymentName:            "valon-tools-prod",
-		BuildID:                   "revision-2",
-		ResolvedBuildID:           "revision-2",
-		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
-		Promotion: promotionConfig{
-			Mode:           promotionModeRamping,
-			Timeout:        time.Second,
-			RampPercentage: &ramp,
-		},
-	}
-	handle := &fakeWorkerDeploymentHandle{describeResponse: client.WorkerDeploymentDescribeResponse{}}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
-
-	if err := backend.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if len(handle.setRampingCalls) != 1 {
-		t.Fatalf("SetRamping calls = %d, want 1", len(handle.setRampingCalls))
-	}
-	call := handle.setRampingCalls[0]
-	if call.BuildID != "revision-2" || call.Percentage != 10 {
-		t.Fatalf("SetRamping call = %#v", call)
-	}
-	if call.AllowNoPollers || call.IgnoreMissingTaskQueues {
-		t.Fatalf("SetRamping bypassed worker deployment guardrails: %#v", call)
-	}
-}
-
-func TestTemporalBackendStartPromotionFailureStopsWorker(t *testing.T) {
-	cfg := baseTemporalConfig()
-	cfg.Versioning = versioningConfig{
-		Enabled:                   true,
-		DeploymentName:            "valon-tools-prod",
-		BuildID:                   "revision-1",
-		ResolvedBuildID:           "revision-1",
-		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
-		Promotion: promotionConfig{
-			Mode:    promotionModeCurrent,
-			Timeout: time.Second,
-		},
-	}
-	fw := &fakeTemporalWorker{}
-	handle := &fakeWorkerDeploymentHandle{
-		describeResponse: client.WorkerDeploymentDescribeResponse{},
-		setCurrentErrs:   []error{errors.New("permission denied")},
-	}
-	backend := newTestTemporalBackendForStart(cfg, handle, fw)
-
-	err := backend.Start(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("Start error = %v, want promotion failure", err)
-	}
-	if fw.stopCount != 1 {
-		t.Fatalf("worker Stop calls = %d, want 1", fw.stopCount)
-	}
-	if backend.started {
-		t.Fatalf("backend marked started after promotion failure")
-	}
-}
-
-func TestTemporalBackendStartRetriesPromotionConflict(t *testing.T) {
-	cfg := baseTemporalConfig()
-	cfg.Versioning = versioningConfig{
-		Enabled:                   true,
-		DeploymentName:            "valon-tools-prod",
-		BuildID:                   "revision-1",
-		ResolvedBuildID:           "revision-1",
-		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
-		Promotion: promotionConfig{
-			Mode:    promotionModeCurrent,
-			Timeout: time.Second,
-		},
-	}
-	handle := &fakeWorkerDeploymentHandle{
-		describeResponse: client.WorkerDeploymentDescribeResponse{},
-		setCurrentErrs:   []error{serviceerror.NewFailedPrecondition("conflict token mismatch"), nil},
-	}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
-
-	if err := backend.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if len(handle.describeCalls) != 2 || len(handle.setCurrentCalls) != 2 {
-		t.Fatalf("promotion calls describe=%d setCurrent=%d, want 2/2", len(handle.describeCalls), len(handle.setCurrentCalls))
-	}
-}
-
-func TestTemporalBackendStartRetriesPromotionDescribeNotFound(t *testing.T) {
-	cfg := baseTemporalConfig()
-	cfg.Versioning = versioningConfig{
-		Enabled:                   true,
-		DeploymentName:            "valon-tools-prod",
-		BuildID:                   "revision-1",
-		ResolvedBuildID:           "revision-1",
-		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
-		Promotion: promotionConfig{
-			Mode:    promotionModeCurrent,
-			Timeout: time.Second,
-		},
-	}
-	handle := &fakeWorkerDeploymentHandle{
-		describeResponse: client.WorkerDeploymentDescribeResponse{},
-		describeErrs:     []error{serviceerror.NewNotFound("worker deployment not found"), nil},
-	}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
-
-	if err := backend.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if len(handle.describeCalls) != 2 || len(handle.setCurrentCalls) != 1 {
-		t.Fatalf("promotion calls describe=%d setCurrent=%d, want 2/1", len(handle.describeCalls), len(handle.setCurrentCalls))
-	}
-}
-
-func TestTemporalBackendStartTreatsRampingTargetAlreadyCurrentAsSuccess(t *testing.T) {
-	ramp := float32(10)
-	cfg := baseTemporalConfig()
-	cfg.Versioning = versioningConfig{
-		Enabled:                   true,
-		DeploymentName:            "valon-tools-prod",
-		BuildID:                   "revision-2",
-		ResolvedBuildID:           "revision-2",
-		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
-		Promotion: promotionConfig{
-			Mode:           promotionModeRamping,
-			Timeout:        time.Second,
-			RampPercentage: &ramp,
-		},
-	}
-	handle := &fakeWorkerDeploymentHandle{
-		describeResponse: client.WorkerDeploymentDescribeResponse{
-			Info: client.WorkerDeploymentInfo{RoutingConfig: client.WorkerDeploymentRoutingConfig{
-				CurrentVersion: &worker.WorkerDeploymentVersion{DeploymentName: "valon-tools-prod", BuildID: "revision-2"},
-			}},
-		},
-	}
-	backend := newTestTemporalBackendForStart(cfg, handle, &fakeTemporalWorker{})
-
-	if err := backend.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if len(handle.setRampingCalls) != 0 {
-		t.Fatalf("SetRamping calls = %d, want 0", len(handle.setRampingCalls))
-	}
-}
-
-func TestTemporalBackendStartDoesNotReplaceDifferentCurrentByDefault(t *testing.T) {
-	cfg := baseTemporalConfig()
-	cfg.Versioning = versioningConfig{
-		Enabled:                   true,
-		DeploymentName:            "valon-tools-prod",
-		BuildID:                   "revision-2",
-		ResolvedBuildID:           "revision-2",
-		DefaultVersioningBehavior: versioningBehaviorAutoUpgrade,
-		Promotion: promotionConfig{
-			Mode:    promotionModeCurrent,
-			Timeout: time.Second,
-		},
-	}
-	fw := &fakeTemporalWorker{}
-	handle := &fakeWorkerDeploymentHandle{
-		describeResponse: client.WorkerDeploymentDescribeResponse{
-			Info: client.WorkerDeploymentInfo{RoutingConfig: client.WorkerDeploymentRoutingConfig{
-				CurrentVersion: &worker.WorkerDeploymentVersion{DeploymentName: "valon-tools-prod", BuildID: "revision-1"},
-			}},
-		},
-	}
-	backend := newTestTemporalBackendForStart(cfg, handle, fw)
-
-	err := backend.Start(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "allowReplaceCurrent") {
-		t.Fatalf("Start error = %v, want replace-current guard", err)
-	}
-	if len(handle.setCurrentCalls) != 0 {
-		t.Fatalf("SetCurrent calls = %d, want 0", len(handle.setCurrentCalls))
-	}
-	if fw.stopCount != 1 {
-		t.Fatalf("worker Stop calls = %d, want 1", fw.stopCount)
+	if len(handle.describeCalls) != 0 || len(handle.setCurrentCalls) != 0 || len(handle.setRampingCalls) != 0 {
+		t.Fatalf("worker deployment calls describe=%d setCurrent=%d setRamping=%d, want none", len(handle.describeCalls), len(handle.setCurrentCalls), len(handle.setRampingCalls))
 	}
 }
 
@@ -637,14 +436,14 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 			want:       "versioning.buildIDEnv",
 		},
 		{
-			name:       "ramping missing percentage",
-			versioning: withMap(validVersioning, "promotion", map[string]any{"mode": "ramping"}),
-			want:       "versioning.promotion.rampPercentage is required",
+			name:       "promotion no longer supported",
+			versioning: withMap(validVersioning, "promotion", map[string]any{"mode": "current"}),
+			want:       "versioning.promotion is no longer supported",
 		},
 		{
-			name:       "ramping invalid percentage",
-			versioning: withMap(validVersioning, "promotion", map[string]any{"mode": "ramping", "rampPercentage": float32(0)}),
-			want:       "versioning.promotion.rampPercentage must be greater than 0",
+			name:       "promotion rejected when disabled",
+			versioning: map[string]any{"enabled": false, "promotion": nil},
+			want:       "versioning.promotion is no longer supported",
 		},
 	}
 	for _, tt := range tests {
