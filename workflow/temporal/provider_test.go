@@ -281,33 +281,6 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	}
 }
 
-func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.T) {
-	order := []string{}
-	fw := &fakeTemporalWorker{order: &order}
-	backend := newTemporalBackend("temporal", baseTemporalConfig(), &recordingTemporalClient{}, nil, nil)
-	backend.newWorker = func(_ client.Client, taskQueue string, options worker.Options) temporalWorker {
-		if taskQueue != "gestalt-workflow" {
-			t.Fatalf("task queue = %q, want gestalt-workflow", taskQueue)
-		}
-		if options.DeploymentOptions.UseVersioning {
-			t.Fatalf("unversioned config set deployment options: %#v", options.DeploymentOptions)
-		}
-		return fw
-	}
-	if err := backend.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if got := strings.Join(order, ","); got != "start" {
-		t.Fatalf("startup order = %s, want start", got)
-	}
-	if fw.registeredWorkflows != 1 || fw.registeredActivities != 1 {
-		t.Fatalf("registered workflows=%d activities=%d, want only v4 workflow and activities", fw.registeredWorkflows, fw.registeredActivities)
-	}
-	if !backend.started {
-		t.Fatalf("backend not marked started")
-	}
-}
-
 func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
@@ -332,7 +305,6 @@ func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
 	raw := baseTemporalConfigRaw()
 	raw["versioning"] = map[string]any{
-		"enabled":        true,
 		"deploymentName": "valon-tools-prod",
 		"buildID":        "revision-1",
 	}
@@ -367,7 +339,6 @@ func TestTemporalBackendStartUsesWorkerVersioningOptions(t *testing.T) {
 
 func TestTemporalVersioningConfigValidation(t *testing.T) {
 	validVersioning := map[string]any{
-		"enabled":        true,
 		"deploymentName": "valon-tools-prod",
 		"buildID":        "revision-1",
 	}
@@ -376,6 +347,16 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 		versioning map[string]any
 		want       string
 	}{
+		{
+			name:       "missing versioning",
+			versioning: nil,
+			want:       "versioning.deploymentName is required",
+		},
+		{
+			name:       "missing deployment name",
+			versioning: withMap(validVersioning, "deploymentName", ""),
+			want:       "versioning.deploymentName is required",
+		},
 		{
 			name:       "missing build id",
 			versioning: withMap(validVersioning, "buildID", ""),
@@ -388,7 +369,7 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 		},
 		{
 			name:       "build id env is no longer a source",
-			versioning: map[string]any{"enabled": true, "deploymentName": "valon-tools-prod", "buildIDEnv": "BUILD_ID"},
+			versioning: map[string]any{"deploymentName": "valon-tools-prod", "buildIDEnv": "BUILD_ID"},
 			want:       "versioning.buildID is required",
 		},
 		{
@@ -397,8 +378,8 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 			want:       "versioning.promotion is no longer supported",
 		},
 		{
-			name:       "promotion rejected when disabled",
-			versioning: map[string]any{"enabled": false, "promotion": nil},
+			name:       "promotion rejected when no longer valid",
+			versioning: map[string]any{"promotion": nil},
 			want:       "versioning.promotion is no longer supported",
 		},
 	}
@@ -1995,6 +1976,10 @@ func baseTemporalConfigRaw() map[string]any {
 		"workflowTaskTimeout":         time.Second,
 		"activityStartToCloseTimeout": time.Minute,
 		"scheduleCatchupWindow":       time.Minute,
+		"versioning": map[string]any{
+			"deploymentName": "valon-tools-test",
+			"buildID":        "revision-1",
+		},
 	}
 }
 
@@ -2011,6 +1996,11 @@ func baseTemporalConfig() config {
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
 		IdempotencyRetention:        time.Hour,
+		Versioning: versioningConfig{
+			DeploymentName:  "valon-tools-test",
+			BuildID:         "revision-1",
+			ResolvedBuildID: "revision-1",
+		},
 	}
 }
 

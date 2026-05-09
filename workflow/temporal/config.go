@@ -34,7 +34,6 @@ type config struct {
 }
 
 type versioningConfig struct {
-	Enabled         bool   `yaml:"enabled"`
 	DeploymentName  string `yaml:"deploymentName"`
 	BuildID         string `yaml:"buildID"`
 	ResolvedBuildID string `yaml:"-"`
@@ -111,18 +110,15 @@ func normalizeVersioningConfig(cfg versioningConfig) versioningConfig {
 }
 
 func validateVersioningConfig(cfg *versioningConfig) error {
-	if cfg == nil || !cfg.Enabled {
-		return nil
-	}
 	if cfg.DeploymentName == "" {
-		return fmt.Errorf("versioning.deploymentName is required when versioning is enabled")
+		return fmt.Errorf("versioning.deploymentName is required")
 	}
 	if strings.Contains(cfg.DeploymentName, ".") {
 		return fmt.Errorf("versioning.deploymentName cannot contain %q", ".")
 	}
 	cfg.ResolvedBuildID = cfg.BuildID
 	if cfg.ResolvedBuildID == "" {
-		return fmt.Errorf("versioning.buildID is required when versioning is enabled")
+		return fmt.Errorf("versioning.buildID is required")
 	}
 	return nil
 }
