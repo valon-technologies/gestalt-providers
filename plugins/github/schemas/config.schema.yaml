@@ -274,7 +274,9 @@ properties:
                 - pull_request
               description: >-
                 Maximum self-fix behavior for this policy. Defaults to disabled;
-                branch_commit and pull_request must be opted into explicitly.
+                branch_commit commits directly to the original PR branch, and
+                pull_request opens follow-up PRs. Both modes must be opted into
+                explicitly.
             preferenceSubject:
               type: string
               enum:

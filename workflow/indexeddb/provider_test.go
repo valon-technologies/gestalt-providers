@@ -1796,7 +1796,7 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if trigger.GetExecutionRef() != "event-ref" {
 		t.Fatalf("trigger execution_ref = %q, want event-ref", trigger.GetExecutionRef())
 	}
-	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+	if err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 		Event: &proto.WorkflowEvent{
 			Id:          "evt-1",
 			Source:      "roadmap",
@@ -1948,7 +1948,7 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 
 	publishDone := make(chan error, 1)
 	go func() {
-		_, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 			PluginName: "roadmap",
 			Event: &proto.WorkflowEvent{
 				Id:          "evt-while-listing",
@@ -2053,7 +2053,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
 		AuthSource:  "github_app_webhook",
 	}
-	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+	if err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 		PluginName:  "github",
 		PublishedBy: publishedBy,
 		Event:       githubWebhookWorkflowEvent(t),
@@ -2102,7 +2102,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/other)",
 		AuthSource:  "github_app_webhook",
 	}
-	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+	if err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 		PluginName:  "github",
 		PublishedBy: duplicatePublisher,
 		Event:       githubWebhookWorkflowEvent(t),
@@ -2154,7 +2154,7 @@ func TestProviderPublishEventAgentTargetExecutionReferenceIncludesOutputDelivery
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
 		AuthSource:  "github_app_webhook",
 	}
-	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+	if err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 		PluginName:  "agent:managed",
 		PublishedBy: publishedBy,
 		Event:       githubWebhookWorkflowEvent(t),
@@ -2506,7 +2506,7 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 		{source: "a", id: "b:c"},
 	}
 	for _, event := range events {
-		if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+		if err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 			PluginName: "roadmap",
 			Event: &proto.WorkflowEvent{
 				Id:          event.id,
@@ -3131,7 +3131,7 @@ func TestProviderTickPrioritizesPluginEventWhenPreferredWakeLost(t *testing.T) {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
 	clock.Set(start.Add(time.Minute))
-	if _, err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
+	if err := provider.PublishEvent(ctx, &proto.PublishWorkflowProviderEventRequest{
 		Event: &proto.WorkflowEvent{
 			Id:          "evt-lost-wake",
 			Source:      "slack",

@@ -29,14 +29,14 @@ type workflowBackend interface {
 	UpsertSchedule(context.Context, *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
 	GetSchedule(context.Context, *proto.GetWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
 	ListSchedules(context.Context, *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error)
-	DeleteSchedule(context.Context, *proto.DeleteWorkflowProviderScheduleRequest) (*gestalt.Empty, error)
+	DeleteSchedule(context.Context, *proto.DeleteWorkflowProviderScheduleRequest) error
 	PauseSchedule(context.Context, *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
 	ResumeSchedule(context.Context, *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
 
 	UpsertEventTrigger(context.Context, *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
 	GetEventTrigger(context.Context, *proto.GetWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
 	ListEventTriggers(context.Context, *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error)
-	DeleteEventTrigger(context.Context, *proto.DeleteWorkflowProviderEventTriggerRequest) (*gestalt.Empty, error)
+	DeleteEventTrigger(context.Context, *proto.DeleteWorkflowProviderEventTriggerRequest) error
 	PauseEventTrigger(context.Context, *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
 	ResumeEventTrigger(context.Context, *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
 
@@ -44,7 +44,7 @@ type workflowBackend interface {
 	GetExecutionReference(context.Context, *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error)
 	ListExecutionReferences(context.Context, *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error)
 
-	PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) (*gestalt.Empty, error)
+	PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) error
 }
 
 type Provider struct {
@@ -215,8 +215,7 @@ func (p *Provider) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflow
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	_, err = backend.DeleteSchedule(ctx, req)
-	return err
+	return backend.DeleteSchedule(ctx, req)
 }
 
 func (p *Provider) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
@@ -264,8 +263,7 @@ func (p *Provider) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWork
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	_, err = backend.DeleteEventTrigger(ctx, req)
-	return err
+	return backend.DeleteEventTrigger(ctx, req)
 }
 
 func (p *Provider) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
@@ -313,8 +311,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowP
 	if err != nil {
 		return err
 	}
-	_, err = backend.PublishEvent(ctx, req)
-	return err
+	return backend.PublishEvent(ctx, req)
 }
 
 func (p *Provider) providerName() string {
