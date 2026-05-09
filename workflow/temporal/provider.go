@@ -14,46 +14,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type workflowBackend interface {
-	Start(context.Context) error
-	Close() error
-	HealthCheck(context.Context) error
-
-	StartRun(context.Context, *proto.StartWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error)
-	GetRun(context.Context, *proto.GetWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error)
-	ListRuns(context.Context, *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error)
-	CancelRun(context.Context, *proto.CancelWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error)
-	SignalRun(context.Context, *proto.SignalWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error)
-	SignalOrStartRun(context.Context, *proto.SignalOrStartWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error)
-
-	UpsertSchedule(context.Context, *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
-	GetSchedule(context.Context, *proto.GetWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
-	ListSchedules(context.Context, *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error)
-	DeleteSchedule(context.Context, *proto.DeleteWorkflowProviderScheduleRequest) error
-	PauseSchedule(context.Context, *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
-	ResumeSchedule(context.Context, *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error)
-
-	UpsertEventTrigger(context.Context, *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
-	GetEventTrigger(context.Context, *proto.GetWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
-	ListEventTriggers(context.Context, *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error)
-	DeleteEventTrigger(context.Context, *proto.DeleteWorkflowProviderEventTriggerRequest) error
-	PauseEventTrigger(context.Context, *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
-	ResumeEventTrigger(context.Context, *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error)
-
-	PutExecutionReference(context.Context, *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error)
-	GetExecutionReference(context.Context, *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error)
-	ListExecutionReferences(context.Context, *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error)
-
-	PublishEvent(context.Context, *proto.PublishWorkflowProviderEventRequest) error
-}
-
 type Provider struct {
 	gestalt.UnimplementedWorkflowProvider
 
 	mu      sync.RWMutex
 	name    string
 	cfg     config
-	backend workflowBackend
+	backend *temporalBackend
 }
 
 func New() *Provider {
@@ -139,7 +106,7 @@ func (p *Provider) Close() error {
 }
 
 func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +130,7 @@ func (p *Provider) ListRuns(ctx context.Context, req *proto.ListWorkflowProvider
 }
 
 func (p *Provider) CancelRun(ctx context.Context, req *proto.CancelWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +138,7 @@ func (p *Provider) CancelRun(ctx context.Context, req *proto.CancelWorkflowProvi
 }
 
 func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +146,7 @@ func (p *Provider) SignalRun(ctx context.Context, req *proto.SignalWorkflowProvi
 }
 
 func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStartWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +274,7 @@ func (p *Provider) ListExecutionReferences(ctx context.Context, req *proto.ListW
 }
 
 func (p *Provider) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) error {
-	backend, err := p.requireBackendStatus(ctx)
+	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return err
 	}
@@ -320,7 +287,7 @@ func (p *Provider) providerName() string {
 	return strings.TrimSpace(p.name)
 }
 
-func (p *Provider) requireBackend() (workflowBackend, error) {
+func (p *Provider) requireBackend() (*temporalBackend, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.backend == nil {
@@ -329,7 +296,7 @@ func (p *Provider) requireBackend() (workflowBackend, error) {
 	return p.backend, nil
 }
 
-func (p *Provider) requireBackendStatus(ctx context.Context) (workflowBackend, error) {
+func (p *Provider) requireStartedBackend(ctx context.Context) (*temporalBackend, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())

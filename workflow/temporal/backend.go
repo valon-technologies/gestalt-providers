@@ -1068,5 +1068,4 @@ func cloneSignalResponse(resp *proto.SignalWorkflowRunResponse) *proto.SignalWor
 	}
 }
 
-var _ workflowBackend = (*temporalBackend)(nil)
 var _ workflowHost = (*gestalt.WorkflowHostClient)(nil)
