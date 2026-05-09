@@ -23,7 +23,6 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
 	"gopkg.in/yaml.v3"
 )
 
@@ -4494,8 +4493,6 @@ func timePtr(value time.Time) *time.Time {
 	return &ts
 }
 
-var workflowTargetJSON = protojson.MarshalOptions{EmitUnpopulated: false}
-
 func pluginTargetInput(target *proto.BoundWorkflowTarget) map[string]any {
 	if target == nil || target.GetPlugin() == nil {
 		return nil
@@ -4507,7 +4504,7 @@ func targetJSON(target *proto.BoundWorkflowTarget) string {
 	if target == nil {
 		return ""
 	}
-	data, err := workflowTargetJSON.Marshal(target)
+	data, err := gestalt.MarshalProtoJSON(target, gestalt.ProtoJSONMarshalOptions{EmitUnpopulated: false})
 	if err != nil {
 		return ""
 	}
@@ -4518,7 +4515,7 @@ func signalJSON(signal *proto.WorkflowSignal) string {
 	if signal == nil {
 		return ""
 	}
-	data, err := (protojson.MarshalOptions{UseProtoNames: true}).Marshal(signal)
+	data, err := gestalt.MarshalProtoJSON(signal, gestalt.ProtoJSONMarshalOptions{UseProtoNames: true})
 	if err != nil {
 		return ""
 	}
@@ -4531,7 +4528,7 @@ func signalFromRecordValue(raw any) *proto.WorkflowSignal {
 		return nil
 	}
 	signal := &proto.WorkflowSignal{}
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal([]byte(value), signal); err != nil {
+	if err := gestalt.UnmarshalProtoJSON([]byte(value), signal, gestalt.ProtoJSONUnmarshalOptions{DiscardUnknown: true}); err != nil {
 		return nil
 	}
 	return cloneSignal(signal)
@@ -4546,7 +4543,7 @@ func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflow
 		return nil, fmt.Errorf("%s %q missing target_json", recordKind, id)
 	}
 	target := &proto.BoundWorkflowTarget{}
-	if err := (protojson.UnmarshalOptions{}).Unmarshal([]byte(value), target); err != nil {
+	if err := gestalt.UnmarshalProtoJSON([]byte(value), target); err != nil {
 		return nil, fmt.Errorf("%s %q invalid target_json: %w", recordKind, id, err)
 	}
 	target = cloneTarget(target)
@@ -5249,7 +5246,7 @@ func executionReferenceRunAsJSON(value *proto.WorkflowRunAsSubject) (string, err
 	if normalized.GetSubjectId() == "" {
 		return "", nil
 	}
-	data, err := protojson.Marshal(normalized)
+	data, err := gestalt.MarshalProtoJSON(normalized)
 	if err != nil {
 		return "", err
 	}
@@ -5262,7 +5259,7 @@ func executionReferenceRunAsFromJSON(raw string) (*proto.WorkflowRunAsSubject, e
 		return nil, nil
 	}
 	out := &proto.WorkflowRunAsSubject{}
-	if err := protojson.Unmarshal([]byte(raw), out); err != nil {
+	if err := gestalt.UnmarshalProtoJSON([]byte(raw), out); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(out.GetSubjectId()) == "" {

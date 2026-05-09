@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 type compiledModel struct {
@@ -271,12 +269,19 @@ func cloneRewrite(rewrite *gestalt.AuthorizationModelRewrite) *gestalt.Authoriza
 	if rewrite == nil {
 		return nil
 	}
-	cloned, _ := proto.Clone(rewrite).(*gestalt.AuthorizationModelRewrite)
-	return cloned
+	bytes, err := gestalt.MarshalProtoDeterministic(rewrite)
+	if err != nil {
+		panic(fmt.Sprintf("clone authorization rewrite: %v", err))
+	}
+	var cloned gestalt.AuthorizationModelRewrite
+	if err := gestalt.UnmarshalProto(bytes, &cloned); err != nil {
+		panic(fmt.Sprintf("clone authorization rewrite: %v", err))
+	}
+	return &cloned
 }
 
 func modelIDForDefinition(model *gestalt.AuthorizationModel) (string, error) {
-	bytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(model)
+	bytes, err := gestalt.MarshalProtoDeterministic(model)
 	if err != nil {
 		return "", fmt.Errorf("marshal model: %w", err)
 	}
@@ -285,7 +290,7 @@ func modelIDForDefinition(model *gestalt.AuthorizationModel) (string, error) {
 }
 
 func marshalStoredModel(model *gestalt.AuthorizationModel) (string, error) {
-	bytes, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(model)
+	bytes, err := gestalt.MarshalProtoJSON(model, gestalt.ProtoJSONMarshalOptions{UseProtoNames: true})
 	if err != nil {
 		return "", fmt.Errorf("marshal stored model: %w", err)
 	}
@@ -297,7 +302,7 @@ func unmarshalStoredModel(raw string) (*gestalt.AuthorizationModel, error) {
 		return nil, fmt.Errorf("stored model is empty")
 	}
 	var model gestalt.AuthorizationModel
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal([]byte(raw), &model); err != nil {
+	if err := gestalt.UnmarshalProtoJSON([]byte(raw), &model, gestalt.ProtoJSONUnmarshalOptions{DiscardUnknown: false}); err != nil {
 		return nil, fmt.Errorf("parse stored model: %w", err)
 	}
 	return &model, nil
