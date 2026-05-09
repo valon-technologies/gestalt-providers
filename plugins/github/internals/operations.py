@@ -68,6 +68,17 @@ class GitHubCommitRequest:
     committer_email: str = ""
     force: bool = False
     allow_base_update: bool = False
+    expected_head_sha: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubFileContentRequest:
+    owner: str
+    repo: str
+    path: str
+    ref: str
+    installation_id: int = 0
+    max_bytes: int = 80_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,6 +508,7 @@ class _ValidatedCommitRequest:
     files: tuple[GitHubFileChange, ...]
     base_branch: str
     branch: str
+    expected_head_sha: str
 
 
 def commit_files(
@@ -583,6 +595,9 @@ def _validate_commit_request(request: GitHubCommitRequest) -> _ValidatedCommitRe
         if request.branch.strip()
         else generated_branch_name(request.message)
     )
+    expected_head_sha = request.expected_head_sha.strip()
+    if expected_head_sha and request.force:
+        raise ValueError("force cannot be combined with expected_head_sha")
     return _ValidatedCommitRequest(
         owner=owner,
         repo=repo,
@@ -590,6 +605,7 @@ def _validate_commit_request(request: GitHubCommitRequest) -> _ValidatedCommitRe
         files=files,
         base_branch=base_branch,
         branch=branch,
+        expected_head_sha=expected_head_sha,
     )
 
 
@@ -615,6 +631,12 @@ def _write_commit(
         )
 
     branch_ref = client.get_branch_ref(token, owner, repo, branch)
+    if validated.expected_head_sha:
+        if branch_ref is None:
+            raise ValueError("branch was not found for expected_head_sha")
+        current_head_sha = client.object_sha(branch_ref, "branch ref")
+        if current_head_sha != validated.expected_head_sha:
+            raise ValueError("branch head changed since expected_head_sha")
     branch_created = branch_ref is None
     parent_ref = branch_ref or client.require_branch_ref(
         token, owner, repo, base_branch, "base_branch"
@@ -1356,6 +1378,67 @@ def list_pull_request_files(
     if not isinstance(data, list):
         raise GitHubAPIError(502, "GitHub pull request files response was not a list")
     return [item for item in data if isinstance(item, dict)]
+
+
+def get_file_text_at_ref(
+    request: GitHubFileContentRequest,
+    *,
+    subject: Any,
+    external_identity: Any = None,
+    client: GitHubAPIClient | None = None,
+) -> str:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    path = normalize_file_content_path(request.path)
+    ref = require_text(request.ref, "ref")
+    max_bytes = max(1, int(request.max_bytes or 1))
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    data = github.github_json(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "contents", path, safe_last="/"),
+            {"ref": ref},
+        ),
+        token,
+    )
+    if str_field(data, "type") != "file":
+        raise ValueError(f"{path}: content is not a file")
+    size = int_field(data, "size")
+    if size > max_bytes:
+        raise ValueError(f"{path}: content exceeds self-fix size limit")
+    if str_field(data, "encoding") != "base64":
+        raise ValueError(f"{path}: content encoding is not base64")
+    raw_content = str_field(data, "content")
+    try:
+        decoded = base64.b64decode(raw_content, validate=False)
+    except (binascii.Error, ValueError) as err:
+        raise ValueError(f"{path}: content_base64 must be valid base64") from err
+    if len(decoded) > max_bytes:
+        raise ValueError(f"{path}: content exceeds self-fix size limit")
+    try:
+        return decoded.decode("utf-8")
+    except UnicodeDecodeError as err:
+        raise ValueError(f"{path}: content is not UTF-8 text") from err
+
+
+def normalize_file_content_path(path: str) -> str:
+    normalized = path.strip().lstrip("/")
+    if not normalized:
+        raise ValueError("file path is required")
+    if normalized in {".", ".."} or "/../" in f"/{normalized}/":
+        raise ValueError(f"{normalized}: path must not contain '..'")
+    return normalized
 
 
 def create_check_run(
@@ -2176,8 +2259,12 @@ def commit_result_dict(commit: CommitResult) -> dict[str, Any]:
 
 
 def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
-    head_repo = pull_request_ref_repo_summary(map_field(map_field(pull, "head"), "repo"))
-    base_repo = pull_request_ref_repo_summary(map_field(map_field(pull, "base"), "repo"))
+    head_repo = pull_request_ref_repo_summary(
+        map_field(map_field(pull, "head"), "repo")
+    )
+    base_repo = pull_request_ref_repo_summary(
+        map_field(map_field(pull, "base"), "repo")
+    )
     summary: dict[str, Any] = {
         "number": int_field(pull, "number"),
         "title": str_field(pull, "title"),

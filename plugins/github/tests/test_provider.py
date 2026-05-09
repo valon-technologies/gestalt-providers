@@ -138,12 +138,14 @@ class FakeAgentManager:
         findings: list[dict[str, Any]],
         *,
         output_text: str | None = None,
+        output_texts: list[str] | None = None,
         structured_output: dict[str, Any] | None = None,
         require_no_response_schema: bool = False,
         turn_error: Exception | None = None,
     ) -> None:
         self.findings = findings
         self.output_text = output_text
+        self.output_texts = output_texts or []
         self.structured_output = structured_output
         self.require_no_response_schema = require_no_response_schema
         self.turn_error = turn_error
@@ -165,11 +167,13 @@ class FakeAgentManager:
             session_id=request.session_id,
             status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
         )
-        turn.output_text = (
-            self.output_text
-            if self.output_text is not None
-            else json.dumps({"findings": self.findings})
-        )
+        output_index = len(self.turns) - 1
+        if output_index < len(self.output_texts):
+            turn.output_text = self.output_texts[output_index]
+        elif self.output_text is not None:
+            turn.output_text = self.output_text
+        else:
+            turn.output_text = json.dumps({"findings": self.findings})
         if self.structured_output is not None:
             turn.structured_output.update(self.structured_output)
         return turn
@@ -711,6 +715,10 @@ class GitHubProviderTests(unittest.TestCase):
             ["contains", "exact"],
         )
         self.assertEqual(
+            policy_schema["trigger"]["properties"]["requireAppMention"]["type"],
+            "boolean",
+        )
+        self.assertEqual(
             policy_schema["dedupe"]["properties"]["scope"]["enum"],
             ["delivery", "pull_request", "pr_head", "ci_incident"],
         )
@@ -830,6 +838,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(identity, cached_identity)
         self.assertEqual(identity.name, "Example App Bot")
         self.assertEqual(identity.login, "example-app[bot]")
+        self.assertEqual(identity.slug, "example-app")
         self.assertEqual(identity.user_id, "12345678")
         self.assertEqual(
             identity.email, "12345678+example-app[bot]@users.noreply.github.com"
@@ -1505,7 +1514,9 @@ class GitHubProviderTests(unittest.TestCase):
                     "github:trigger:once_per_ci_incident:99:acme/widgets:"
                     "ci:pr:7:head:abc123:policy:failed-ci",
                 )
-                self.assertEqual(request.signal.idempotency_key, request.idempotency_key)
+                self.assertEqual(
+                    request.signal.idempotency_key, request.idempotency_key
+                )
                 data = cast(
                     dict[str, Any],
                     json_format.MessageToDict(request.signal.payload),
@@ -1885,9 +1896,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
         data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
         self.assertEqual(
-            data["webhook_policy"]["action_preferences"]["effective"][
-                "self_fix_mode"
-            ],
+            data["webhook_policy"]["action_preferences"]["effective"]["self_fix_mode"],
             "branch_commit",
         )
         self.assertEqual(
@@ -2981,6 +2990,76 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertEqual(ready_data["webhook_policy"]["id"], "non-draft-pr")
 
+    def test_policy_app_mention_manual_trigger_uses_github_app_identity(self) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "app-mention-review",
+                        "match": {
+                            "events": ["issue_comment"],
+                            "actions": ["created"],
+                        },
+                        "trigger": {
+                            "frequency": "manual_only",
+                            "requireAppMention": True,
+                        },
+                    },
+                    {
+                        "id": "fallback",
+                        "match": {"events": ["issue_comment"], "actions": ["created"]},
+                    },
+                ],
+            },
+        )
+        base = {
+            "action": "created",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "issue": {
+                "number": 7,
+                "pull_request": {"html_url": "https://github.com/acme/widgets/pull/7"},
+            },
+            "headers": {"X-GitHub-Event": "issue_comment"},
+            "sender": {"login": "octocat"},
+        }
+        identity = GitHubBotIdentity(
+            name="Example App Bot",
+            login="example-app[bot]",
+            user_id="12345678",
+            email="12345678+example-app[bot]@users.noreply.github.com",
+            slug="example-app",
+        )
+
+        with mock.patch(
+            "internals.manual_trigger.bot_identity_or_none", return_value=identity
+        ):
+            mention = self._workflow_signal_payload(
+                {**base, "comment": {"id": 11, "body": "please @example-app"}}
+            )
+            slash = self._workflow_signal_payload(
+                {**base, "comment": {"id": 12, "body": "/codex fix this"}}
+            )
+            other = self._workflow_signal_payload(
+                {**base, "comment": {"id": 13, "body": "please @not-the-app"}}
+            )
+            substring = self._workflow_signal_payload(
+                {**base, "comment": {"id": 14, "body": "mail@example-app.test"}}
+            )
+
+        self.assertEqual(mention["webhook_policy"]["id"], "app-mention-review")
+        self.assertEqual(
+            mention["webhook_policy"]["trigger"]["require_app_mention"], True
+        )
+        self.assertEqual(slash["webhook_policy"]["id"], "fallback")
+        self.assertEqual(other["webhook_policy"]["id"], "fallback")
+        self.assertEqual(substring["webhook_policy"]["id"], "fallback")
+
     def test_policy_exact_manual_command_rejects_verbose_suffix(self) -> None:
         provider_module.configure(
             "github",
@@ -3941,6 +4020,112 @@ class GitHubProviderTests(unittest.TestCase):
         payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
 
+    def test_app_mention_manual_review_creates_check_run(self) -> None:
+        events: list[str] = []
+        workflow_manager = FakeWorkflowManager()
+        identity = GitHubBotIdentity(
+            name="Example App Bot",
+            login="example-app[bot]",
+            user_id="12345678",
+            email="12345678+example-app[bot]@users.noreply.github.com",
+            slug="example-app",
+        )
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookPolicies": [
+                    {
+                        "id": "manual-review",
+                        "match": {
+                            "events": ["issue_comment"],
+                            "actions": ["created"],
+                        },
+                        "trigger": {
+                            "frequency": "manual_only",
+                            "requireAppMention": True,
+                        },
+                        "workflow": {
+                            "target": {
+                                "plugin": {
+                                    "plugin": "github",
+                                    "operation": "reviewPullRequest",
+                                }
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/app/installations/99/access_tokens":
+                if body["permissions"] == {"pull_requests": "read"}:
+                    return FakeHTTPResponse({"token": "pull-token"})
+                if body["permissions"] == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-read-token"})
+                if body["permissions"] == {"checks": "write"}:
+                    return FakeHTTPResponse({"token": "checks-write-token"})
+            if path == "/repos/acme/widgets/pulls/7":
+                events.append("pull")
+                return FakeHTTPResponse(
+                    {
+                        "number": 7,
+                        "head": {"ref": "feature", "sha": "abc123"},
+                        "base": {"ref": "main", "sha": "def456"},
+                    }
+                )
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                events.append("check-list")
+                return FakeHTTPResponse({"total_count": 0, "check_runs": []})
+            if path == "/repos/acme/widgets/check-runs" and method == "POST":
+                events.append("check-create")
+                self.assertEqual(body["head_sha"], "abc123")
+                return FakeHTTPResponse(
+                    {
+                        "id": 456,
+                        "name": body["name"],
+                        "status": body["status"],
+                        "external_id": body["external_id"],
+                        "head_sha": body["head_sha"],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch(
+                "internals.manual_trigger.bot_identity_or_none", return_value=identity
+            ),
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            payload = self._manual_review_comment_payload()
+            payload["comment"]["body"] = "please @example-app"
+            result = provider_module.github_events_handle(payload, github_request())
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(events, ["pull", "check-list", "check-create"])
+        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        self.assertEqual(
+            payload["webhook_policy"]["trigger"]["require_app_mention"], True
+        )
+        self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
+
     def test_review_comment_event_does_not_create_check_run(self) -> None:
         workflow_manager = FakeWorkflowManager()
         provider_module.configure(
@@ -4167,6 +4352,526 @@ class GitHubProviderTests(unittest.TestCase):
             r"source=github\.reviewPullRequest -->$",
         )
 
+    def test_review_pull_request_commits_same_pr_self_fix(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[],
+            output_texts=[
+                json.dumps(
+                    {
+                        "findings": [
+                            {
+                                "path": "src/widget.py",
+                                "line": 2,
+                                "body": "This can throw when config is missing.",
+                            }
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "commit_message": "Fix widget config handling",
+                        "files": [
+                            {
+                                "path": "src/widget.py",
+                                "content": "bad = False\n",
+                            }
+                        ],
+                    }
+                ),
+            ],
+            require_no_response_schema=True,
+        )
+        commits: list[Any] = []
+        created_checks: list[Any] = []
+        updated_checks: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "delivery_id": "delivery-pr-review",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "review_check_run": {
+                            "id": 777,
+                            "name": "Gestalt Review",
+                            "status": "in_progress",
+                            "head_sha": "abc123",
+                        },
+                        "webhook_policy": {
+                            "tool_refs": ["bot.commitFiles"],
+                            "action": {
+                                "allow_self_fix": True,
+                                "self_fix_mode": "branch_commit",
+                            },
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_commit_files(
+            request: Any,
+            *,
+            subject: Any,
+            pull_request_permissions: bool,
+            external_identity: Any = None,
+        ) -> operations_module.CommitResult:
+            commits.append(
+                (request, subject, pull_request_permissions, external_identity)
+            )
+            return operations_module.CommitResult(
+                owner=request.owner,
+                repo=request.repo,
+                branch=request.branch,
+                base_branch=request.base_branch,
+                installation_id=request.installation_id,
+                commit_sha="new-commit",
+                commit_url="https://github.example/acme/widgets/commit/new-commit",
+                tree_sha="new-tree",
+                branch_created=False,
+                files_changed=len(request.files),
+            )
+
+        def fake_create_check_run(request: Any, *, subject: Any) -> dict[str, Any]:
+            created_checks.append((request, subject))
+            return {
+                "id": 888,
+                "name": request.name,
+                "status": "completed",
+                "conclusion": request.conclusion,
+                "head_sha": request.head_sha,
+            }
+
+        def fake_update_check_run(request: Any, *, subject: Any) -> dict[str, Any]:
+            updated_checks.append((request, subject))
+            return {
+                "id": request.check_run_id,
+                "name": "Gestalt Review",
+                "status": "completed",
+                "conclusion": request.conclusion,
+                "head_sha": "abc123",
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/7",
+                    "head": {
+                        "ref": "feature",
+                        "sha": "abc123",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                    "base": {
+                        "ref": "main",
+                        "sha": "def456",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changes": 1,
+                        "patch": "@@ -1,2 +1,3 @@\n context\n+bad = True\n more",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.get_file_text_at_ref",
+                return_value="bad = True\n",
+            ),
+            mock.patch("internals.review.commit_files", side_effect=fake_commit_files),
+            mock.patch(
+                "internals.review.create_check_run", side_effect=fake_create_check_run
+            ),
+            mock.patch(
+                "internals.review.update_check_run", side_effect=fake_update_check_run
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("self-fix should not post stale comments"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], False)
+        self.assertEqual(data["comments"], 0)
+        self.assertEqual(data["selfFix"]["status"], "committed")
+        self.assertEqual(data["selfFix"]["commit"]["sha"], "new-commit")
+        self.assertEqual(data["checkRun"]["head_sha"], "new-commit")
+        self.assertEqual(len(agent_manager.turns), 2)
+        self.assertIn("Fix concrete", agent_manager.turns[1].messages[0].text)
+        self.assertNotIn("findings array", agent_manager.turns[1].messages[0].text)
+        fix_prompt = json.loads(agent_manager.turns[1].messages[1].text)
+        self.assertEqual(
+            fix_prompt["output_contract"]["contract"],
+            "github.pull_request_review.self_fix.v1",
+        )
+        self.assertEqual(len(commits), 1)
+        commit_request = commits[0][0]
+        self.assertEqual(commit_request.branch, "feature")
+        self.assertEqual(commit_request.base_branch, "main")
+        self.assertEqual(commit_request.expected_head_sha, "abc123")
+        self.assertEqual(commit_request.files[0].path, "src/widget.py")
+        self.assertEqual(commit_request.files[0].content, "bad = False\n")
+        self.assertEqual(created_checks[0][0].head_sha, "new-commit")
+        self.assertEqual(created_checks[0][0].conclusion, "success")
+        self.assertEqual(updated_checks[0][0].check_run_id, 777)
+
+    def test_review_pull_request_self_fix_requires_commit_tool_ref(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[],
+            output_text=json.dumps(
+                {
+                    "findings": [
+                        {
+                            "path": "src/widget.py",
+                            "line": 2,
+                            "body": "This can throw when config is missing.",
+                        }
+                    ]
+                }
+            ),
+            require_no_response_schema=True,
+        )
+        created_reviews: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "delivery_id": "delivery-pr-review",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "webhook_policy": {
+                            "tool_refs": [],
+                            "action": {
+                                "allow_self_fix": True,
+                                "self_fix_mode": "branch_commit",
+                            },
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_create_pull_request_review(
+            request: Any, *, subject: Any, external_identity: Any = None
+        ) -> Any:
+            created_reviews.append((request, subject))
+            return {"id": 80, "state": "COMMENTED", "commit_id": "abc123"}
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "head": {
+                        "ref": "feature",
+                        "sha": "abc123",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                    "base": {
+                        "ref": "main",
+                        "sha": "def456",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.commit_files",
+                side_effect=AssertionError("commitFiles is not an effective tool"),
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=fake_create_pull_request_review,
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], True)
+        self.assertNotIn("selfFix", data)
+        self.assertEqual(len(agent_manager.turns), 1)
+        self.assertEqual(len(created_reviews), 1)
+
+    def test_review_pull_request_self_fix_falls_back_when_head_is_stale(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[],
+            output_texts=[
+                json.dumps(
+                    {
+                        "findings": [
+                            {
+                                "path": "src/widget.py",
+                                "line": 2,
+                                "body": "This can throw when config is missing.",
+                            }
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "files": [
+                            {
+                                "path": "src/widget.py",
+                                "content": "bad = False\n",
+                            }
+                        ]
+                    }
+                ),
+            ],
+            require_no_response_schema=True,
+        )
+        created_reviews: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "delivery_id": "delivery-pr-review",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "webhook_policy": {
+                            "tool_refs": ["bot.commitFiles"],
+                            "action": {
+                                "allow_self_fix": True,
+                                "self_fix_mode": "branch_commit",
+                            },
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_create_pull_request_review(
+            request: Any, *, subject: Any, external_identity: Any = None
+        ) -> Any:
+            created_reviews.append((request, subject))
+            return {
+                "id": 80,
+                "state": "COMMENTED",
+                "commit_id": "abc123",
+                "body": "Automated review found 1 concrete issue.",
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/7",
+                    "head": {
+                        "ref": "feature",
+                        "sha": "abc123",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                    "base": {
+                        "ref": "main",
+                        "sha": "def456",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.get_file_text_at_ref",
+                return_value="bad = True\n",
+            ),
+            mock.patch(
+                "internals.review.commit_files",
+                side_effect=ValueError("branch head changed since expected_head_sha"),
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=fake_create_pull_request_review,
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], True)
+        self.assertEqual(data["comments"], 1)
+        self.assertEqual(data["selfFix"]["status"], "skipped")
+        self.assertIn("branch head changed", data["selfFix"]["reason"])
+        self.assertEqual(len(created_reviews), 1)
+
+    def test_review_pull_request_self_fix_falls_back_for_unsafe_file(self) -> None:
+        agent_manager = FakeAgentManager(
+            findings=[],
+            output_text=json.dumps(
+                {
+                    "findings": [
+                        {
+                            "path": "src/widget.py",
+                            "line": 2,
+                            "body": "This can throw when config is missing.",
+                        }
+                    ]
+                }
+            ),
+            require_no_response_schema=True,
+        )
+        created_reviews: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "delivery_id": "delivery-pr-review",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "webhook_policy": {
+                            "tool_refs": ["bot.commitFiles"],
+                            "action": {
+                                "allow_self_fix": True,
+                                "self_fix_mode": "branch_commit",
+                            },
+                        },
+                    }
+                }
+            ]
+        }
+
+        def fake_create_pull_request_review(
+            request: Any, *, subject: Any, external_identity: Any = None
+        ) -> Any:
+            created_reviews.append((request, subject))
+            return {"id": 80, "state": "COMMENTED", "commit_id": "abc123"}
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "head": {
+                        "ref": "feature",
+                        "sha": "abc123",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                    "base": {
+                        "ref": "main",
+                        "sha": "def456",
+                        "repo": {"full_name": "acme/widgets"},
+                    },
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.get_file_text_at_ref",
+                side_effect=ValueError("src/widget.py: content is not UTF-8 text"),
+            ),
+            mock.patch(
+                "internals.review.commit_files",
+                side_effect=AssertionError("unsafe content should not commit"),
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=fake_create_pull_request_review,
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], True)
+        self.assertEqual(data["selfFix"]["status"], "skipped")
+        self.assertIn("not UTF-8 text", data["selfFix"]["reason"])
+        self.assertEqual(len(agent_manager.turns), 1)
+        self.assertEqual(len(created_reviews), 1)
+
     def test_review_pull_request_accepts_contains_issue_comment_and_updates_check(
         self,
     ) -> None:
@@ -4260,6 +4965,76 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["checkRun"]["conclusion"], "success")
         self.assertEqual(created_checks[0][0].head_sha, "abc123")
         self.assertEqual(updated_checks[0][0].conclusion, "success")
+
+    def test_review_pull_request_accepts_app_mention_issue_comment(self) -> None:
+        agent_manager = FakeAgentManager(findings=[])
+        identity = GitHubBotIdentity(
+            name="Example App Bot",
+            login="example-app[bot]",
+            user_id="12345678",
+            email="12345678+example-app[bot]@users.noreply.github.com",
+            slug="example-app",
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "issue_comment",
+                        "github_action": "created",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "webhook_policy": {"trigger": {"require_app_mention": True}},
+                        "agent_request": {
+                            "issue": {"number": 7, "is_pull_request": True},
+                            "comment": {"id": 10, "body": "please @example-app"},
+                        },
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent_manager",
+                return_value=agent_manager,
+                create=True,
+            ),
+            mock.patch(
+                "internals.manual_trigger.bot_identity_or_none", return_value=identity
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "draft": False,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+ok = True",
+                    }
+                ],
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(
+                    autoResolveStaleFindings=False,
+                ),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["reason"], "no_valid_findings")
+        self.assertEqual(data["checkRun"]["conclusion"], "success")
 
     def test_review_pull_request_adopts_signal_check_run(self) -> None:
         agent_manager = FakeAgentManager(findings=[])
@@ -4530,9 +5305,7 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 }
 
-                def fake_update_check(
-                    request: Any, *, subject: Any
-                ) -> dict[str, Any]:
+                def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
                     updated_checks.append((request, subject))
                     return {
                         "id": request.check_run_id,
@@ -5525,7 +6298,22 @@ class GitHubProviderTests(unittest.TestCase):
                         }
                     ]
                 },
-                "trigger.manualCommands is required",
+                "trigger.manualCommands or trigger.requireAppMention is required",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "manual-ambiguous",
+                            "trigger": {
+                                "frequency": "manual_only",
+                                "manualCommands": ["gestalt review"],
+                                "requireAppMention": True,
+                            },
+                        }
+                    ]
+                },
+                "requireAppMention cannot be combined",
             ),
             (
                 {
@@ -6174,9 +6962,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "title": "Fix widgets",
                 "state": "open",
                 "html_url": "https://github.com/acme/widgets/issues/7",
-                "pull_request": {
-                    "html_url": "https://github.com/acme/widgets/pull/7"
-                },
+                "pull_request": {"html_url": "https://github.com/acme/widgets/pull/7"},
             },
             "comment": {
                 "id": 123,
@@ -6569,6 +7355,54 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["base_branch"], "main")
         self.assertTrue(data["branch_created"])
         self.assertEqual(calls[-1][1], "/repos/acme/widgets/git/refs")
+
+    def test_commit_files_rejects_stale_expected_head(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/user/222":
+                return FakeHTTPResponse(
+                    {"id": 222, "login": "ghopper", "name": "Grace Hopper"}
+                )
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"contents": "write"})
+                return FakeHTTPResponse({"token": "installation-token"})
+            if path == "/repos/acme/widgets/git/ref/heads/feature":
+                return FakeHTTPResponse({"object": {"sha": "newer-head"}})
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_commit_files(
+                provider_module.CommitFilesInput(
+                    owner="acme",
+                    repo="widgets",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base_branch="main",
+                    installation_id=99,
+                    include_bot_coauthor=False,
+                    expected_head_sha="reviewed-head",
+                ),
+                github_agent_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, Any]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertIn("branch head changed", response.body["error"])
 
     def test_create_pull_request_commits_files_then_opens_pr(self) -> None:
         def fake_urlopen(
@@ -8641,6 +9475,32 @@ class GitHubProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertIn("delete cannot include content", response.body["error"])
+        urlopen.assert_not_called()
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.bot_commit_files(
+                provider_module.CommitFilesInput(
+                    owner="acme",
+                    repo="widgets",
+                    message="Update README",
+                    files=[
+                        provider_module.FileChangeInput(
+                            path="README.md", content="hello"
+                        )
+                    ],
+                    branch="feature",
+                    base_branch="main",
+                    installation_id=99,
+                    force=True,
+                    expected_head_sha="abc123",
+                ),
+                github_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertIn("force cannot be combined", response.body["error"])
         urlopen.assert_not_called()
 
     def test_resolve_installation_returns_external_identity_and_legacy_subject(

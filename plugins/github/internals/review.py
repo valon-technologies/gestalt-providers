@@ -12,15 +12,20 @@ from typing import Any
 import gestalt
 
 from .client import bot_identity_or_none
-from .config import (
-    WEBHOOK_MANUAL_COMMAND_CONTAINS,
-    WEBHOOK_MANUAL_COMMAND_EXACT,
-    get_github_config,
+from .config import SELF_FIX_BRANCH_COMMIT, get_github_config
+from .constants import BOT_COMMIT_FILES_OPERATION
+from .errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
+from .manual_trigger import (
+    app_mention_body_matches,
+    manual_command_body_matches,
 )
 from .operations import (
     GitHubCheckRunOutput,
+    GitHubCommitRequest,
     GitHubCreateCheckRunRequest,
     GitHubCreatePullRequestReviewRequest,
+    GitHubFileChange,
+    GitHubFileContentRequest,
     GitHubListPullRequestReviewThreadsRequest,
     GitHubListPullRequestFilesRequest,
     GitHubPullRequestRequest,
@@ -28,8 +33,11 @@ from .operations import (
     GitHubResolvePullRequestReviewThreadRequest,
     GitHubUpdateCheckRunRequest,
     check_run_summary,
+    commit_files,
+    commit_result_dict,
     create_check_run,
     create_pull_request_review,
+    get_file_text_at_ref,
     get_pull_request,
     list_pull_request_review_threads,
     list_pull_request_files,
@@ -60,6 +68,8 @@ REVIEW_FINDING_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 AUTO_RESOLVE_MAX_THREAD_PAGES = 10
 REVIEW_OUTPUT_CONTRACT = "github.pull_request_review.findings.v1"
 REVIEW_OUTPUT_KEYS = frozenset(("findings",))
+SELF_FIX_OUTPUT_CONTRACT = "github.pull_request_review.self_fix.v1"
+SELF_FIX_OUTPUT_KEYS = frozenset(("commit_message", "files"))
 SUPPORTED_PULL_REQUEST_ACTIONS = frozenset(
     ("opened", "synchronize", "reopened", "ready_for_review")
 )
@@ -75,6 +85,16 @@ DEFAULT_SYSTEM_PROMPT = " ".join(
         "Return only a valid JSON object with a top-level findings array and no",
         "other top-level keys. If there are no concrete line-anchored issues,",
         "return an empty findings array.",
+    ]
+)
+
+SELF_FIX_SYSTEM_PROMPT = " ".join(
+    [
+        "Fix concrete pull request review findings using the provided full file",
+        "contents.",
+        "Only edit files included in the self-fix prompt.",
+        "Return only a valid JSON object with top-level commit_message and files",
+        "keys. If a safe fix is not clear, return an empty files array.",
     ]
 )
 
@@ -129,6 +149,18 @@ class ValidatedFinding:
     path: str
     line: int
     body: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFixFile:
+    path: str
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFileContent:
+    path: str
+    content: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +336,41 @@ def _review_pull_request_after_fetch(
         add_check_run_result(result, completed_check_run or check_run)
         return result
 
+    self_fix = (
+        attempt_review_self_fix(
+            req,
+            settings,
+            signal=signal,
+            subject=subject,
+            pull_request=pull_summary,
+            findings=[finding for finding, _fingerprints in postable_findings],
+        )
+        if postable_findings
+        else {}
+    )
+    if self_fix.get("status") == "committed":
+        result = review_result(
+            subject,
+            posted=False,
+            comments=0,
+            dropped_findings=dropped,
+            suppressed_findings=suppressed,
+        )
+        add_self_fix_result(result, self_fix)
+        completed_check_run = complete_review_check_run(
+            check_run,
+            subject,
+            req,
+            conclusion="success",
+            title="Fix committed",
+            summary="Gestalt committed a same-PR fix for this review.",
+        )
+        add_check_run_result(
+            result,
+            object_value(self_fix.get("checkRun")) or completed_check_run or check_run,
+        )
+        return result
+
     review: Mapping[str, Any] | None = None
     if postable_findings and not settings.dry_run:
         review = create_pull_request_review(
@@ -355,6 +422,7 @@ def _review_pull_request_after_fetch(
         result["dry_run"] = True
     if review:
         result["review"] = pull_request_review_summary(review)
+    add_self_fix_result(result, self_fix)
     completed_check_run = complete_review_check_run(
         check_run,
         subject,
@@ -500,6 +568,221 @@ def add_check_run_result(
         result["checkRun"] = check_run_summary(check_run)
 
 
+def add_self_fix_result(result: dict[str, Any], self_fix: Mapping[str, Any]) -> None:
+    if self_fix:
+        result["selfFix"] = dict(self_fix)
+
+
+def attempt_review_self_fix(
+    req: gestalt.Request,
+    settings: ReviewSettings,
+    *,
+    signal: Mapping[str, Any],
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    findings: Sequence[ValidatedFinding],
+) -> dict[str, Any]:
+    if not review_self_fix_enabled(signal):
+        return {}
+    if settings.dry_run:
+        return self_fix_result("dry_run")
+    reason = review_self_fix_unsafe_reason(pull_request, findings)
+    if reason:
+        return self_fix_result(reason)
+
+    try:
+        file_contents = review_self_fix_file_contents(
+            req,
+            settings,
+            subject=subject,
+            pull_request=pull_request,
+            findings=findings,
+        )
+        replacements = ask_agent_for_fix(
+            req,
+            settings,
+            signal=signal,
+            subject=subject,
+            pull_request=pull_request,
+            findings=findings,
+            files=file_contents,
+        )
+        changes = validate_review_fix_replacements(
+            replacements,
+            file_contents=file_contents,
+        )
+        if not changes:
+            return self_fix_result("no_valid_edits")
+        commit = commit_files(
+            GitHubCommitRequest(
+                owner=subject.owner,
+                repo=subject.repo,
+                message=review_self_fix_commit_message(),
+                files=tuple(
+                    GitHubFileChange(path=change.path, content=change.content)
+                    for change in changes
+                ),
+                branch=string_value(pull_request.get("head_ref")),
+                base_branch=string_value(pull_request.get("base_ref")),
+                installation_id=subject.installation_id,
+                expected_head_sha=string_value(pull_request.get("head_sha")),
+            ),
+            subject=req.subject,
+            pull_request_permissions=False,
+            **request_external_identity_kwargs(req),
+        )
+    except (
+        ValueError,
+        RuntimeError,
+        GitHubAPIError,
+        GitHubAuthorizationError,
+        GitHubConfigError,
+    ) as err:
+        return self_fix_result(f"skipped: {err}")
+
+    result = self_fix_result("committed")
+    result["commit"] = commit_result_dict(commit)
+    try:
+        latest_check_run = create_review_self_fix_check_run(
+            req,
+            settings,
+            subject=subject,
+            commit_sha=commit.commit_sha,
+            file_count=len(changes),
+        )
+    except (
+        ValueError,
+        GitHubAPIError,
+        GitHubAuthorizationError,
+        GitHubConfigError,
+    ) as err:
+        result["check_run_error"] = str(err)
+        latest_check_run = None
+    if latest_check_run is not None:
+        result["checkRun"] = check_run_summary(latest_check_run)
+    return result
+
+
+def review_self_fix_enabled(signal: Mapping[str, Any]) -> bool:
+    tool_refs = {
+        str(item)
+        for item in nested_value(signal, "webhook_policy", "tool_refs") or []
+        if str(item)
+    }
+    if BOT_COMMIT_FILES_OPERATION not in tool_refs:
+        return False
+    action = object_value(nested_value(signal, "webhook_policy", "action")) or {}
+    preferences = (
+        object_value(nested_value(signal, "webhook_policy", "action_preferences")) or {}
+    )
+    effective = object_value(preferences.get("effective")) or {}
+    allow_self_fix = effective.get("allow_self_fix", action.get("allow_self_fix"))
+    self_fix_mode = string_value(
+        effective.get("self_fix_mode", action.get("self_fix_mode"))
+    )
+    return bool(allow_self_fix) and self_fix_mode == SELF_FIX_BRANCH_COMMIT
+
+
+def review_self_fix_unsafe_reason(
+    pull_request: Mapping[str, Any], findings: Sequence[ValidatedFinding]
+) -> str:
+    if not findings:
+        return "no_findings"
+    if pull_request.get("head_repo_is_base_repo") is not True:
+        return "head_repo_not_writable"
+    head_ref = string_value(pull_request.get("head_ref"))
+    base_ref = string_value(pull_request.get("base_ref"))
+    head_sha = string_value(pull_request.get("head_sha"))
+    if not head_ref or not base_ref or not head_sha:
+        return "missing_head_metadata"
+    if head_ref == base_ref:
+        return "head_is_base_branch"
+    return ""
+
+
+def review_self_fix_file_contents(
+    req: gestalt.Request,
+    settings: ReviewSettings,
+    *,
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    findings: Sequence[ValidatedFinding],
+) -> list[ReviewFileContent]:
+    head_sha = string_value(pull_request.get("head_sha"))
+    paths = sorted({finding.path for finding in findings if finding.path.strip()})
+    files: list[ReviewFileContent] = []
+    for path in paths:
+        content = get_file_text_at_ref(
+            GitHubFileContentRequest(
+                owner=subject.owner,
+                repo=subject.repo,
+                path=path,
+                ref=head_sha,
+                installation_id=subject.installation_id,
+                max_bytes=settings.max_patch_chars,
+            ),
+            subject=req.subject,
+            **request_external_identity_kwargs(req),
+        )
+        files.append(ReviewFileContent(path=path, content=content))
+    return files
+
+
+def validate_review_fix_replacements(
+    replacements: Sequence[ReviewFixFile],
+    *,
+    file_contents: Sequence[ReviewFileContent],
+) -> list[ReviewFixFile]:
+    original = {file.path: file.content for file in file_contents}
+    changes: list[ReviewFixFile] = []
+    for item in replacements:
+        if item.path not in original:
+            raise ValueError(f"{item.path}: self-fix can only edit finding files")
+        if item.content != original[item.path]:
+            changes.append(item)
+    return changes
+
+
+def create_review_self_fix_check_run(
+    req: gestalt.Request,
+    settings: ReviewSettings,
+    *,
+    subject: PullRequestSubject,
+    commit_sha: str,
+    file_count: int,
+) -> Mapping[str, Any] | None:
+    if not commit_sha:
+        return None
+    return create_check_run(
+        GitHubCreateCheckRunRequest(
+            owner=subject.owner,
+            repo=subject.repo,
+            name=settings.check_run_name,
+            head_sha=commit_sha,
+            conclusion="success",
+            output=GitHubCheckRunOutput(
+                title="Fix committed",
+                summary=(
+                    "Gestalt committed a same-PR fix "
+                    f"touching {file_count} file{'' if file_count == 1 else 's'}."
+                ),
+            ),
+            installation_id=subject.installation_id,
+        ),
+        subject=req.subject,
+        **request_external_identity_kwargs(req),
+    )
+
+
+def review_self_fix_commit_message() -> str:
+    return "Apply Gestalt review fixes"
+
+
+def self_fix_result(reason: str) -> dict[str, Any]:
+    status = "committed" if reason == "committed" else "skipped"
+    return {"status": status, "reason": reason}
+
+
 def signal_review_check_run(signal: Mapping[str, Any]) -> Mapping[str, Any] | None:
     check_run = object_value(signal.get("review_check_run"))
     return check_run if check_run and int_value(check_run.get("id")) > 0 else None
@@ -538,6 +821,12 @@ def unsupported_review_signal_reason(signal: Mapping[str, Any]) -> str:
     issue = object_value(nested_value(signal, "agent_request", "issue")) or {}
     if issue.get("is_pull_request") is not True:
         return "not_pull_request_comment"
+    body = string_value(nested_value(signal, "agent_request", "comment", "body"))
+    require_app_mention = bool(
+        nested_value(signal, "webhook_policy", "trigger", "require_app_mention")
+    )
+    if require_app_mention:
+        return "" if app_mention_body_matches(body) else "app_mention_mismatch"
     commands = [
         str(command)
         for command in nested_value(
@@ -552,30 +841,12 @@ def unsupported_review_signal_reason(signal: Mapping[str, Any]) -> str:
         nested_value(signal, "webhook_policy", "trigger", "manual_command_match")
     )
     if not manual_command_body_matches(
-        string_value(nested_value(signal, "agent_request", "comment", "body")),
+        body,
         commands,
         match_mode=match_mode,
     ):
         return "manual_command_mismatch"
     return ""
-
-
-def manual_command_body_matches(
-    body: str,
-    commands: Sequence[str],
-    *,
-    match_mode: str = WEBHOOK_MANUAL_COMMAND_CONTAINS,
-) -> bool:
-    if match_mode == WEBHOOK_MANUAL_COMMAND_EXACT:
-        normalized_body = normalize_manual_command(body)
-        return any(
-            normalize_manual_command(command) == normalized_body for command in commands
-        )
-    return any(command in body for command in commands)
-
-
-def normalize_manual_command(value: str) -> str:
-    return " ".join(value.strip().casefold().split())
 
 
 def pull_request_subject(signal: Mapping[str, Any]) -> PullRequestSubject | None:
@@ -692,6 +963,78 @@ def ask_agent_for_findings(
     return [finding for item in findings for finding in normalize_finding(item)]
 
 
+def ask_agent_for_fix(
+    req: gestalt.Request,
+    settings: ReviewSettings,
+    *,
+    signal: Mapping[str, Any],
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    findings: Sequence[ValidatedFinding],
+    files: Sequence[ReviewFileContent],
+) -> list[ReviewFixFile]:
+    manager = req.agent_manager()
+    metadata = {
+        "source": "github.reviewPullRequest.selfFix",
+        "repository": subject.repository,
+        "pullNumber": subject.pull_number,
+        "deliveryId": string_value(signal.get("delivery_id")),
+    }
+    idempotency_base = ":".join(
+        [
+            "github-review-fix",
+            subject.repository,
+            str(subject.pull_number),
+            string_value(pull_request.get("head_sha")),
+            string_value(signal.get("delivery_id")),
+        ]
+    )
+    session_request = gestalt.AgentManagerCreateSessionRequest(
+        provider_name=settings.agent_provider,
+        model=settings.model,
+        client_ref=f"{subject.repository}#{subject.pull_number}:self-fix",
+        idempotency_key=f"{idempotency_base}:session",
+    )
+    session_request.metadata.update(metadata)
+    try:
+        session = manager.create_session(session_request)
+    except Exception as err:
+        raise RuntimeError(f"self-fix agent session request failed: {err}") from err
+
+    turn_request = gestalt.AgentManagerCreateTurnRequest(
+        session_id=session.id,
+        model=settings.model,
+        messages=[
+            gestalt.AgentMessage(role="system", text=SELF_FIX_SYSTEM_PROMPT),
+            gestalt.AgentMessage(
+                role="user",
+                text=self_fix_prompt(
+                    subject,
+                    pull_request,
+                    findings=findings,
+                    files=files,
+                    settings=settings,
+                ),
+            ),
+        ],
+        idempotency_key=f"{idempotency_base}:turn",
+    )
+    turn_request.metadata.update(metadata)
+    try:
+        turn = manager.create_turn(turn_request)
+        turn = wait_for_turn(manager, turn, settings)
+    except Exception as err:
+        raise RuntimeError(f"self-fix agent turn request failed: {err}") from err
+
+    if turn.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
+        raise RuntimeError(
+            f"agent turn {turn.id} finished with status {turn.status}: "
+            f"{turn.status_message}"
+        )
+
+    return parse_review_fix_output(str(getattr(turn, "output_text", "")))
+
+
 def wait_for_turn(manager: Any, turn: Any, settings: ReviewSettings) -> Any:
     deadline = time.monotonic() + settings.turn_timeout_ms / 1000
     while turn.status in {
@@ -756,6 +1099,57 @@ def review_prompt(
                             "severity": "optional: critical|high|medium|low",
                         }
                     ]
+                },
+            },
+        },
+        indent=2,
+    )
+
+
+def self_fix_prompt(
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    *,
+    findings: Sequence[ValidatedFinding],
+    files: Sequence[ReviewFileContent],
+    settings: ReviewSettings,
+) -> str:
+    return json.dumps(
+        {
+            "task": (
+                "Return full-file replacements that narrowly fix the listed "
+                "review findings. Only edit provided files. Return an empty files "
+                "array if a safe fix is not clear."
+            ),
+            "repository": subject.repository,
+            "pull_number": subject.pull_number,
+            "pull_request": dict(pull_request),
+            "findings": [
+                {"path": finding.path, "line": finding.line, "body": finding.body}
+                for finding in findings
+            ],
+            "files": [
+                {
+                    "path": file.path,
+                    "content": bounded_text(file.content, settings.max_patch_chars),
+                }
+                for file in files
+            ],
+            "output_contract": {
+                "contract": SELF_FIX_OUTPUT_CONTRACT,
+                "format": (
+                    "Return exactly one JSON object with no Markdown wrapper and no "
+                    "top-level keys other than commit_message and files."
+                ),
+                "empty_response": {"commit_message": "", "files": []},
+                "schema": {
+                    "commit_message": "optional concise Git commit subject",
+                    "files": [
+                        {
+                            "path": "exact path of one provided file",
+                            "content": "complete UTF-8 replacement file content",
+                        }
+                    ],
                 },
             },
         },
@@ -1296,6 +1690,40 @@ def parse_review_findings_output(value: str) -> list[Any]:
     if not isinstance(findings, list):
         raise RuntimeError("agent output JSON must include a findings array")
     return findings
+
+
+def parse_review_fix_output(value: str) -> list[ReviewFixFile]:
+    parsed = parse_single_review_output_object(value)
+    extra_keys = sorted(set(parsed) - SELF_FIX_OUTPUT_KEYS)
+    if extra_keys:
+        raise RuntimeError(
+            "agent output JSON must not include top-level keys other than "
+            "commit_message and files"
+        )
+    raw_files = parsed.get("files")
+    if not isinstance(raw_files, list):
+        raise RuntimeError("agent output JSON must include a files array")
+    files: list[ReviewFixFile] = []
+    seen: set[str] = set()
+    for item in raw_files:
+        data = object_value(item)
+        if data is None:
+            raise RuntimeError("agent output files must be objects")
+        extra_file_keys = sorted(set(data) - {"path", "content"})
+        if extra_file_keys:
+            raise RuntimeError(
+                "agent output file objects must not include keys other than "
+                f"path and content: {', '.join(extra_file_keys)}"
+            )
+        path = string_value(data.get("path")).lstrip("/")
+        content = data.get("content")
+        if not path or not isinstance(content, str):
+            raise RuntimeError("agent output files require path and content")
+        if path in seen:
+            raise RuntimeError(f"agent output duplicated file path {path}")
+        seen.add(path)
+        files.append(ReviewFixFile(path=path, content=content))
+    return files
 
 
 def parse_single_review_output_object(value: str) -> dict[str, Any]:
