@@ -251,10 +251,14 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	default:
 		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", plugin.GetCredentialMode())
 	}
+	input, err := gestalt.StructFromAny(gestalt.MapFromStruct(plugin.GetInput()))
+	if err != nil {
+		return scopedTarget{}, fmt.Errorf("target.plugin.input: %w", err)
+	}
 	normalized := &proto.BoundWorkflowPluginTarget{
 		PluginName:     pluginName,
 		Operation:      operation,
-		Input:          gestalt.CloneStruct(plugin.GetInput()),
+		Input:          input,
 		Connection:     strings.TrimSpace(plugin.GetConnection()),
 		Instance:       strings.TrimSpace(plugin.GetInstance()),
 		CredentialMode: credentialMode,
