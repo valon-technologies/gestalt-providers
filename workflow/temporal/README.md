@@ -101,7 +101,6 @@ update; already-polled tasks cannot be recalled by the provider.
 - `ListRuns` reads IndexedDB run projections only
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
-  ownership metadata; provider startup removes stale records that still contain
-  unsupported old run handles before serving
+  ownership metadata
 - event-trigger runs can create execution references for the publishing subject
   before the target operation is invoked
