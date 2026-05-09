@@ -18,6 +18,7 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type workflowHost interface {
@@ -524,7 +525,7 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 		return nil, status.Errorf(codes.Internal, "pause temporal schedule: %v", err)
 	}
 	schedule.Paused = true
-	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
+	schedule.UpdatedAt = timestamppb.New(time.Now().UTC())
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -547,7 +548,7 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 		return nil, status.Errorf(codes.Internal, "resume temporal schedule: %v", err)
 	}
 	schedule.Paused = false
-	gestalt.SetTime(&schedule.UpdatedAt, time.Now().UTC())
+	schedule.UpdatedAt = timestamppb.New(time.Now().UTC())
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -668,7 +669,7 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.
 		ref.CreatedAt = existing.GetCreatedAt()
 	}
 	if ref.GetCreatedAt() == nil || !ref.GetCreatedAt().IsValid() {
-		gestalt.SetTime(&ref.CreatedAt, time.Now().UTC())
+		ref.CreatedAt = timestamppb.New(time.Now().UTC())
 	}
 	if err := b.state.putExecutionRef(ctx, ref); err != nil {
 		return nil, err
@@ -823,7 +824,7 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", id)
 	}
 	trigger.Paused = paused
-	gestalt.SetTime(&trigger.UpdatedAt, time.Now().UTC())
+	trigger.UpdatedAt = timestamppb.New(time.Now().UTC())
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -886,7 +887,7 @@ func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *pro
 	if err != nil || len(desc.Info.NextActionTimes) == 0 {
 		return
 	}
-	gestalt.SetTime(&schedule.NextRunAt, desc.Info.NextActionTimes[0].UTC())
+	schedule.NextRunAt = timestamppb.New(desc.Info.NextActionTimes[0].UTC())
 }
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {

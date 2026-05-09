@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -5079,7 +5080,7 @@ func (r workflowSignalRecord) signalProto() *proto.WorkflowSignal {
 		signal.Sequence = r.Sequence
 	}
 	if signal.CreatedAt == nil && !r.CreatedAt.IsZero() {
-		gestalt.SetTime(&signal.CreatedAt, r.CreatedAt)
+		signal.CreatedAt = timestamppb.New(r.CreatedAt)
 	}
 	return signal
 }

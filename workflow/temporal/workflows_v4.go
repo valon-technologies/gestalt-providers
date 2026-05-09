@@ -10,6 +10,7 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type runWorkflowV4Input struct {
@@ -76,7 +77,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	appendSignal := func(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 		signal = cloneSignal(signal)
 		if signal.GetCreatedAt() == nil {
-			gestalt.SetTime(&signal.CreatedAt, workflow.Now(ctx).UTC())
+			signal.CreatedAt = timestamppb.New(workflow.Now(ctx).UTC())
 		}
 		if signal.GetSequence() <= 0 {
 			signal.Sequence = nextSignalSequence
@@ -138,7 +139,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		completedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		gestalt.SetTime(&state.CompletedAt, completedAt)
+		state.CompletedAt = timestamppb.New(completedAt)
 		state.StatusMessage = strings.TrimSpace(reason)
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
@@ -174,7 +175,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		startedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-		gestalt.SetTime(&state.StartedAt, startedAt)
+		state.StartedAt = timestamppb.New(startedAt)
 		state.CompletedAt = nil
 		state.StatusMessage = ""
 		project(ctx)
@@ -202,7 +203,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		gestalt.SetTime(&state.CompletedAt, completedAt)
+		state.CompletedAt = timestamppb.New(completedAt)
 		if invokeErr != nil {
 			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 			state.StatusMessage = invokeErr.Error()
