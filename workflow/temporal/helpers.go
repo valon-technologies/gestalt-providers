@@ -190,13 +190,9 @@ func signalResponseFromPayload(data []byte) *proto.SignalWorkflowRunResponse {
 	return cloneSignalResponse(&resp)
 }
 
-func scopeHash(scopeID string) string {
-	return hashID("scope", scopeID)
-}
-
 func workflowID(scopeID, kind string, parts ...string) string {
 	values := append([]string{scopeID, kind}, parts...)
-	return "gestalt/" + scopeHash(scopeID) + "/" + strings.Trim(strings.ReplaceAll(kind, " ", "-"), "/") + "/" + hashID(values...)
+	return "gestalt/" + hashID("scope", scopeID) + "/" + strings.Trim(strings.ReplaceAll(kind, " ", "-"), "/") + "/" + hashID(values...)
 }
 
 func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {

@@ -320,7 +320,7 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	}
 	var run proto.BoundWorkflowRun
 	if err := update.Get(ctx, &run); err != nil {
-		return nil, mapWorkflowUpdateError(err)
+		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
 	return &run, nil
 }
@@ -408,7 +408,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	}
 	var out proto.SignalWorkflowRunResponse
 	if err := update.Get(ctx, &out); err != nil {
-		return nil, mapWorkflowUpdateError(err)
+		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
 	resp := &out
 	if ledgerKey != "" {
@@ -1006,39 +1006,15 @@ func (b *temporalBackend) temporalScheduleID(scheduleID string) string {
 	return workflowID(b.cfg.ScopeID, "schedule", scheduleID)
 }
 
-func (b *temporalBackend) startOptions(workflowID string) client.StartWorkflowOptions {
+func (b *temporalBackend) runStartOptions(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) client.StartWorkflowOptions {
 	return client.StartWorkflowOptions{
 		ID:                                       workflowID,
 		TaskQueue:                                b.cfg.TaskQueue,
-		WorkflowIDConflictPolicy:                 enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowIDReusePolicy:                    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy:                 conflict,
+		WorkflowIDReusePolicy:                    reuse,
 		WorkflowExecutionErrorWhenAlreadyStarted: false,
 		WorkflowTaskTimeout:                      b.cfg.WorkflowTaskTimeout,
-	}
-}
-
-func (b *temporalBackend) runStartOptions(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) client.StartWorkflowOptions {
-	opts := b.startOptions(workflowID)
-	opts.WorkflowIDConflictPolicy = conflict
-	opts.WorkflowIDReusePolicy = reuse
-	opts.WorkflowRunTimeout = b.cfg.WorkflowRunTimeout
-	return opts
-}
-
-func mapWorkflowUpdateError(err error) error {
-	if err == nil {
-		return nil
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "not found"):
-		return status.Error(codes.NotFound, msg)
-	case strings.Contains(msg, "failed_precondition"):
-		return status.Error(codes.FailedPrecondition, msg)
-	case strings.Contains(msg, "invalid_argument"):
-		return status.Error(codes.InvalidArgument, msg)
-	default:
-		return status.Errorf(codes.Internal, "temporal workflow update: %v", err)
+		WorkflowRunTimeout:                       b.cfg.WorkflowRunTimeout,
 	}
 }
 
@@ -1078,21 +1054,6 @@ func signalUpdateID(signal *proto.WorkflowSignal) string {
 		return "signal-id:" + hashID(signal.GetId())
 	}
 	return "signal:" + uuid.NewString()
-}
-
-func retrySignalOrStart(ctx context.Context, err error) bool {
-	msg := err.Error()
-	if !strings.Contains(msg, "not found") && !strings.Contains(msg, "failed_precondition") {
-		return false
-	}
-	timer := time.NewTimer(50 * time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }
 
 func cloneSignalResponse(resp *proto.SignalWorkflowRunResponse) *proto.SignalWorkflowRunResponse {
