@@ -14,7 +14,6 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -95,18 +94,14 @@ func hashID(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func workflowInvokeMetadata(workflowKey string) *structpb.Struct {
+func workflowInvokeMetadataInput(workflowKey string) any {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil
 	}
-	meta, err := structpb.NewStruct(map[string]any{
+	return map[string]any{
 		workflowInvokeMetadataWorkflowKey: workflowKey,
-	})
-	if err != nil {
-		return nil
 	}
-	return meta
 }
 
 func protoHashID(msg gproto.Message) string {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -75,6 +74,14 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 		normalized.Id = uuid.NewString()
 	}
 
+	expiresAt, err := gestalt.TimePtrFromTimestamp(normalized.GetExpiresAt())
+	if err != nil {
+		expiresAt = nil
+	}
+	lastRefreshedAt, err := gestalt.TimePtrFromTimestamp(normalized.GetLastRefreshedAt())
+	if err != nil {
+		lastRefreshedAt = nil
+	}
 	createdAt := credentialCreatedAt(normalized, now)
 	updatedAt := credentialUpdatedAt(normalized, now, preserveTimestamps)
 	record := gestalt.Record{
@@ -84,8 +91,8 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 		"access_token_encrypted":  accessEnc,
 		"refresh_token_encrypted": refreshEnc,
 		"scopes":                  normalized.GetScopes(),
-		"expires_at":              timeFromProto(normalized.GetExpiresAt()),
-		"last_refreshed_at":       timeFromProto(normalized.GetLastRefreshedAt()),
+		"expires_at":              utcTimePtr(expiresAt),
+		"last_refreshed_at":       utcTimePtr(lastRefreshedAt),
 		"refresh_error_count":     normalized.GetRefreshErrorCount(),
 		"metadata_json":           normalized.GetMetadataJson(),
 		"updated_at":              updatedAt,
@@ -431,11 +438,10 @@ func recordTimePtr(record gestalt.Record, key string) *time.Time {
 	return &value
 }
 
-func timeFromProto(value *timestamppb.Timestamp) *time.Time {
-	asTime, err := gestalt.TimePtrFromTimestamp(value)
-	if err != nil || asTime == nil {
+func utcTimePtr(value *time.Time) *time.Time {
+	if value == nil {
 		return nil
 	}
-	utc := asTime.UTC()
+	utc := value.UTC()
 	return &utc
 }
