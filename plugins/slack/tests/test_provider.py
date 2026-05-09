@@ -610,7 +610,7 @@ class SlackProviderTests(unittest.TestCase):
         return result, captured
 
     def _slack_bot_service_account_request(
-        self, token: str = "", agent_slack_user_id: str = ""
+        self, token: str = "xoxb-resolved-bot", agent_slack_user_id: str = ""
     ) -> gestalt.Request:
         kwargs: dict[str, Any] = {}
         if agent_slack_user_id:
@@ -620,7 +620,7 @@ class SlackProviderTests(unittest.TestCase):
             )
         return gestalt.Request(
             token=token,
-            credential=gestalt.Credential(mode="none"),
+            credential=gestalt.Credential(mode="user", connection="bot"),
             subject=gestalt.Subject(
                 id="service_account:slack-bot", kind="service_account"
             ),
@@ -1169,7 +1169,7 @@ class SlackProviderTests(unittest.TestCase):
             ["array"],
         )
 
-    def test_manifest_models_bot_connection_as_platform_bearer(self) -> None:
+    def test_manifest_models_bot_connection_as_user_owned_bearer(self) -> None:
         manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())
         rest_ops = {
             op["name"]: op for op in manifest["spec"]["surfaces"]["rest"]["operations"]
@@ -1200,8 +1200,8 @@ class SlackProviderTests(unittest.TestCase):
             },
         )
         bot_connection = connections["bot"]
-        self.assertEqual(bot_connection["mode"], "platform")
-        self.assertEqual(bot_connection["exposure"], "internal")
+        self.assertNotIn("mode", bot_connection)
+        self.assertNotIn("exposure", bot_connection)
         self.assertEqual(bot_connection["auth"], {"type": "bearer"})
         self.assertNotIn("postConnect", bot_connection)
         self.assertNotIn("instance" + "Selector", json.dumps(manifest))
@@ -1248,12 +1248,10 @@ class SlackProviderTests(unittest.TestCase):
             self.assertNotIn("connectionSelector", operation)
             self.assertNotIn("actor", _manifest_parameter_names(operation))
 
-    def test_chat_post_message_uses_configured_bot_token_for_slack_bot_service_account(
+    def test_chat_post_message_uses_resolved_bot_token_for_slack_bot_service_account(
         self,
     ) -> None:
-        provider_module.configure(
-            "slack", {"bot": {"token": "xoxb-configured-bot"}}
-        )
+        provider_module.configure("slack", {})
 
         result, captured = self._capture_chat_post_message(
             provider_module.ChatPostMessageInput(
@@ -1266,7 +1264,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             result, {"ok": True, "channel": "C123", "ts": "1712161830.000400"}
         )
-        self.assertEqual(captured["authorization"], "Bearer xoxb-configured-bot")
+        self.assertEqual(captured["authorization"], "Bearer xoxb-resolved-bot")
         payload = captured["payload"]
         self.assertEqual(payload["channel"], "C123")
         self.assertEqual(payload["text"], "hello from gestalt")
@@ -1286,17 +1284,15 @@ class SlackProviderTests(unittest.TestCase):
             },
         )
 
-    def test_chat_post_message_service_account_ignores_request_token(self) -> None:
-        provider_module.configure(
-            "slack", {"bot": {"token": "xoxb-configured-bot"}}
-        )
+    def test_chat_post_message_service_account_uses_request_token(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-configured-bot"}})
 
         _, captured = self._capture_chat_post_message(
             provider_module.ChatPostMessageInput(channel="C123", text="hello"),
-            self._slack_bot_service_account_request(token="xoxp-wrong-token"),
+            self._slack_bot_service_account_request(token="xoxb-managed-bot"),
         )
 
-        self.assertEqual(captured["authorization"], "Bearer xoxb-configured-bot")
+        self.assertEqual(captured["authorization"], "Bearer xoxb-managed-bot")
 
     def test_chat_post_message_service_account_footer_identifies_agent_actor(
         self,
@@ -1362,21 +1358,19 @@ class SlackProviderTests(unittest.TestCase):
             other_service_account["authorization"], "Bearer xoxp-service-account"
         )
 
-    def test_chat_post_message_validates_bot_config_and_request_token(self) -> None:
+    def test_chat_post_message_validates_request_token(self) -> None:
         provider_module.configure("slack", {})
 
-        missing_bot_token = provider_module.chat_post_message(
+        missing_service_account_token = provider_module.chat_post_message(
             provider_module.ChatPostMessageInput(channel="C123", text="hello"),
-            self._slack_bot_service_account_request(),
+            self._slack_bot_service_account_request(token=""),
         )
-        self.assertIsInstance(missing_bot_token, gestalt.Response)
+        self.assertIsInstance(missing_service_account_token, gestalt.Response)
         self.assertEqual(
-            cast(gestalt.Response[dict[str, str]], missing_bot_token).status,
-            HTTPStatus.PRECONDITION_FAILED,
-        )
-        self.assertEqual(
-            cast(gestalt.Response[dict[str, str]], missing_bot_token).body,
-            {"error": "Slack bot token is not configured"},
+            cast(
+                gestalt.Response[dict[str, str]], missing_service_account_token
+            ).status,
+            HTTPStatus.UNAUTHORIZED,
         )
 
         other_service_account_missing_token = provider_module.chat_post_message(
@@ -1408,9 +1402,7 @@ class SlackProviderTests(unittest.TestCase):
         )
 
     def test_chat_post_message_preserves_caller_blocks_and_metadata(self) -> None:
-        provider_module.configure(
-            "slack", {"bot": {"token": "xoxb-configured-bot"}}
-        )
+        provider_module.configure("slack", {"bot": {"token": "xoxb-configured-bot"}})
 
         caller_blocks = [{"type": "divider"}]
         caller_metadata = {
@@ -1425,7 +1417,7 @@ class SlackProviderTests(unittest.TestCase):
                 blocks=caller_blocks,
                 metadata=caller_metadata,
             ),
-            self._slack_bot_service_account_request(token="xoxp-wrong-token"),
+            self._slack_bot_service_account_request(token="xoxb-managed-bot"),
         )
 
         payload = captured["payload"]
@@ -4804,7 +4796,9 @@ class SlackProviderTests(unittest.TestCase):
 
         response = provider_module.slack_interactions_handle(
             {"payload": json.dumps(interaction_payload)},
-            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123", kind="user")),
+            gestalt.Request(
+                subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+            ),
         )
 
         self.assertIsInstance(response, gestalt.Response)

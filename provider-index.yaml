@@ -749,6 +749,17 @@ packages:
     displayName: "Default External Credentials"
     description: "External credentials provider backed by the host IndexedDB service."
     versions:
+      "0.0.1-alpha.10":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.10/provider-release.yaml"
+        kind: "external_credentials"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
       "0.0.1-alpha.9":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.9/provider-release.yaml"
         kind: "external_credentials"
@@ -1642,6 +1653,17 @@ packages:
     displayName: "Gmail"
     description: "Read, send, and manage Gmail messages, threads, drafts, and labels."
     versions:
+      "0.0.1-alpha.17":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.17/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
       "0.0.1-alpha.16":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.16/provider-release.yaml"
         kind: "plugin"
@@ -2263,6 +2285,17 @@ packages:
     displayName: "Slack"
     description: "Read public and private conversations, DMs, and group DMs; send messages; and manage channels."
     versions:
+      "0.0.1-alpha.66":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.66/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
       "0.0.1-alpha.65":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.65/provider-release.yaml"
         kind: "plugin"

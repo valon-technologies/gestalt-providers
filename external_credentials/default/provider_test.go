@@ -237,44 +237,14 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 	}
 }
 
-func TestExternalCredentialProviderResolvePlatformRefreshToken(t *testing.T) {
+func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	lifecycle, providerConn := startTestProviderServer(t)
 	defer func() { _ = providerConn.Close() }()
 
 	configureProvider(t, lifecycle, map[string]any{
-		"encryptionKey": "provider-platform-refresh-token-key",
+		"encryptionKey": "provider-platform-mode-unsupported-key",
 	})
-
-	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		if r.URL.Path != "/tenant/acme/token" {
-			t.Errorf("path = %q, want /tenant/acme/token", r.URL.Path)
-		}
-		if err := r.ParseForm(); err != nil {
-			t.Errorf("ParseForm: %v", err)
-		}
-		if r.Form.Get("grant_type") != "refresh_token" {
-			t.Errorf("grant_type = %q, want refresh_token", r.Form.Get("grant_type"))
-		}
-		if r.Form.Get("refresh_token") != "platform-refresh-token" {
-			t.Errorf("refresh_token = %q, want platform refresh token", r.Form.Get("refresh_token"))
-		}
-		if r.Form.Get("client_id") != "client-id" || r.Form.Get("client_secret") != "client-secret" {
-			t.Errorf("client credentials = %q/%q", r.Form.Get("client_id"), r.Form.Get("client_secret"))
-		}
-		if r.Form.Get("audience") != "gmail-platform" {
-			t.Errorf("audience = %q, want gmail-platform", r.Form.Get("audience"))
-		}
-		if r.Form.Get("scope") != "" {
-			t.Errorf("scope = %q, want empty refresh-token request scope", r.Form.Get("scope"))
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"platform-access-token","expires_in":3600}`))
-	}))
-	defer tokenServer.Close()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -282,71 +252,41 @@ func TestExternalCredentialProviderResolvePlatformRefreshToken(t *testing.T) {
 	}
 	defer func() { _ = client.Close() }()
 
-	resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
+	auth := &proto.ExternalCredentialAuthConfig{
+		Type:         "oauth2",
+		GrantType:    "refresh_token",
+		TokenUrl:     "https://oauth2.googleapis.com/token",
+		ClientId:     "client-id",
+		ClientSecret: "client-secret",
+		RefreshToken: "platform-refresh-token",
+	}
+
+	err = client.ValidateCredentialConfig(context.Background(), &proto.ValidateExternalCredentialConfigRequest{
 		Provider:     "gmail",
 		Connection:   "platform",
 		ConnectionId: "gmail:platform",
 		Mode:         "platform",
-		Auth: &proto.ExternalCredentialAuthConfig{
-			Type:         "oauth2",
-			GrantType:    "refresh_token",
-			TokenUrl:     tokenServer.URL + "/tenant/{tenant}/token",
-			ClientId:     "client-id",
-			ClientSecret: "client-secret",
-			RefreshToken: "platform-refresh-token",
-			RefreshParams: map[string]string{
-				"audience": "gmail-platform",
-			},
-		},
-		ConnectionParams: map[string]string{"tenant": "acme"},
+		Auth:         auth,
 	})
-	if err != nil {
-		t.Fatalf("ResolveCredential(platform refresh_token): %v", err)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("ValidateCredentialConfig code = %v, want %v (err=%v)", status.Code(err), codes.InvalidArgument, err)
 	}
-	if resolved.GetToken() != "platform-access-token" {
-		t.Fatalf("token = %q, want platform-access-token", resolved.GetToken())
+	if !strings.Contains(status.Convert(err).Message(), "credential mode platform is not supported") {
+		t.Fatalf("ValidateCredentialConfig error = %v, want platform unsupported", err)
 	}
-	if resolved.GetExpiresAt() == nil {
-		t.Fatal("expires_at is nil, want token expiry")
-	}
-	if resolved.GetParams()["tenant"] != "acme" {
-		t.Fatalf("params = %#v, want tenant copied", resolved.GetParams())
-	}
-}
-
-func TestExternalCredentialProviderResolvePlatformRefreshTokenRequiresRefreshToken(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	lifecycle, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
-	configureProvider(t, lifecycle, map[string]any{
-		"encryptionKey": "provider-platform-refresh-token-required-key",
-	})
-
-	client, err := gestalt.ExternalCredentials()
-	if err != nil {
-		t.Fatalf("ExternalCredentials: %v", err)
-	}
-	defer func() { _ = client.Close() }()
 
 	_, err = client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
 		Provider:     "gmail",
 		Connection:   "platform",
 		ConnectionId: "gmail:platform",
 		Mode:         "platform",
-		Auth: &proto.ExternalCredentialAuthConfig{
-			Type:         "oauth2",
-			GrantType:    "refresh_token",
-			TokenUrl:     "https://oauth2.googleapis.com/token",
-			ClientId:     "client-id",
-			ClientSecret: "client-secret",
-		},
+		Auth:         auth,
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("ResolveCredential code = %v, want %v (err=%v)", status.Code(err), codes.InvalidArgument, err)
 	}
-	if !strings.Contains(status.Convert(err).Message(), "auth.refreshToken is required") {
-		t.Fatalf("ResolveCredential error = %v, want refreshToken required", err)
+	if !strings.Contains(status.Convert(err).Message(), "credential mode platform is not supported") {
+		t.Fatalf("ResolveCredential error = %v, want platform unsupported", err)
 	}
 }
 
@@ -1138,75 +1078,6 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 				}
 			}
 		})
-	}
-}
-
-func TestExternalCredentialProviderGoogleServiceAccountImpersonation(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	lifecycle, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
-	configureProvider(t, lifecycle, map[string]any{
-		"encryptionKey": "provider-google-impersonation-key",
-	})
-
-	expireTime := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	iamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer source-adc-token" {
-			t.Errorf("authorization = %q, want source token bearer", got)
-		}
-		var payload struct {
-			Scope    []string `json:"scope"`
-			Lifetime string   `json:"lifetime"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("Decode(payload): %v", err)
-		}
-		if len(payload.Scope) != 1 || payload.Scope[0] != "https://www.googleapis.com/auth/cloud-platform" {
-			t.Errorf("scope = %#v, want cloud-platform scope", payload.Scope)
-		}
-		if payload.Lifetime != "900s" {
-			t.Errorf("lifetime = %q, want 900s", payload.Lifetime)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"accessToken":"impersonated-access-token","expireTime":%q}`, expireTime)
-	}))
-	defer iamServer.Close()
-
-	client, err := gestalt.ExternalCredentials()
-	if err != nil {
-		t.Fatalf("ExternalCredentials: %v", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	resolved, err := client.ResolveCredential(context.Background(), &proto.ResolveExternalCredentialRequest{
-		Provider:     "vertex",
-		Connection:   "kimi",
-		ConnectionId: "vertex:kimi",
-		Mode:         "platform",
-		Auth: &proto.ExternalCredentialAuthConfig{
-			TokenExchangeDrivers: []*proto.ExternalCredentialTokenExchangeDriver{
-				{
-					Type:            "google_service_account_impersonation",
-					TargetPrincipal: "gestalt-agent@example.iam.gserviceaccount.com",
-					Endpoint:        iamServer.URL,
-					Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
-					LifetimeSeconds: 900,
-					Params: map[string]string{
-						"sourceAccessToken": "source-adc-token",
-					},
-				},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("ResolveCredential(google impersonation): %v", err)
-	}
-	if resolved.GetToken() != "impersonated-access-token" {
-		t.Fatalf("token = %q, want impersonated-access-token", resolved.GetToken())
-	}
-	if resolved.GetExpiresAt() == nil {
-		t.Fatal("expires_at is nil, want IAM expireTime mapped")
 	}
 }
 

@@ -7,7 +7,6 @@ require (
 	github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.49.0
-	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -15,7 +14,6 @@ require (
 )
 
 require (
-	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

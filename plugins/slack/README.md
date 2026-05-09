@@ -19,10 +19,16 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 Slack Events API agent replies and declarative REST operations that run as the
 bot use the app's bot token. Generic workflow event publishing does not require
 a bot token. Configure the token as both a provider secret-backed value for
-event helper code and an internal deployment-owned `bot` connection for
-runtime-only REST calls when agent replies or bot REST operations are enabled:
+event helper code and a subject-owned `bot` connection for runtime-only REST
+calls when agent replies or bot REST operations are enabled:
 
 ```yaml
+connections:
+  slack-bot:
+    mode: user
+    auth:
+      type: bearer
+
 plugins:
   slack:
     config:
@@ -34,19 +40,14 @@ plugins:
             name: slack-bot-token
     connections:
       bot:
-        mode: platform
-        exposure: internal
-        auth:
-          type: bearer
-          token:
-            secret:
-              provider: secrets
-              name: slack-bot-token
+        ref: slack-bot
 ```
 
 Because Gestalt does not perform Slack bot OAuth for this connection, the Slack
 app that issues `slack-bot-token` must be granted the bot scopes needed by the
-enabled behaviors. The full scope set used by this provider's bot behaviors is:
+enabled behaviors. Provision the bot token credential onto the service account
+or other subject that invokes bot REST operations. The full scope set used by
+this provider's bot behaviors is:
 `app_mentions:read`, `channels:read`, `channels:history`, `groups:read`,
 `groups:history`, `im:read`, `im:history`, `mpim:read`, `mpim:history`,
 `im:write`, `mpim:write`, `users:read`, `files:read`, `chat:write`,
@@ -63,7 +64,7 @@ reactions, setting channel topics, inviting users, creating canvases, building
 thread context, and reading Slack file or image contents.
 
 Authenticates user operations with Slack OAuth 2.0 (user scope). Operations with
-fixed bot behavior use the internal deployment-owned `bot` bearer connection.
+fixed bot behavior use the subject-owned `bot` bearer connection.
 Public REST and MCP callers use the user OAuth connection by default; hidden
 selector parameters such as `actor` are runtime-only and are not part of the
 public invocation contract.
@@ -612,7 +613,7 @@ Connections and authentication:
 
 - `default` uses OAuth 2.0.
   - Requested scopes: `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `search:read`, `users:read`, `users:read.email`, `files:read`, `chat:write`, `reactions:write`, `channels:write`, `groups:write`, `canvases:write`.
-- `bot` uses bearer token; mode `platform`; exposure `internal`.
+- `bot` uses a bearer token provisioned as a subject-owned credential.
 
 Operation surfaces: REST.
 

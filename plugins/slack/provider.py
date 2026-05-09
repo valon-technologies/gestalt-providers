@@ -70,7 +70,6 @@ ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 plugin = gestalt.Plugin("slack")
-SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID = "service_account:slack-bot"
 SLACK_POST_MESSAGE_FOOTER_APP_NAME = "Gestalt"
 SLACK_MAX_BLOCKS = 50
 SLACK_MAX_SECTION_TEXT_CHARS = 3000
@@ -878,16 +877,6 @@ def files_get(input: GetFileInput, req: gestalt.Request) -> OperationResult:
 
 
 def _chat_post_message_token(req: gestalt.Request) -> str | ErrorResponse:
-    subject_id = str(getattr(req.subject, "id", "") or "").strip()
-    if subject_id == SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID:
-        bot_token = _agent._agent_config.bot.token
-        if not bot_token:
-            return gestalt.Response(
-                status=HTTPStatus.PRECONDITION_FAILED,
-                body={"error": "Slack bot token is not configured"},
-            )
-        return bot_token
-
     token_error = _validate_token(req)
     if token_error is not None:
         return token_error
@@ -926,13 +915,11 @@ def _slack_user_id_from_external_identity(identity: Any) -> str:
 
 def _chat_post_message_footer_text(req: gestalt.Request) -> str:
     gestalt_label = _chat_post_message_gestalt_label()
-    subject_id = str(getattr(req.subject, "id", "") or "").strip()
-    if subject_id == SLACK_BOT_SERVICE_ACCOUNT_SUBJECT_ID:
-        user_id = _slack_user_id_from_external_identity(
-            getattr(req, "agent_external_identity", None)
-        )
-        if user_id:
-            return f"Sent by <@{user_id}> with {gestalt_label}"
+    user_id = _slack_user_id_from_external_identity(
+        getattr(req, "agent_external_identity", None)
+    )
+    if user_id:
+        return f"Sent by <@{user_id}> with {gestalt_label}"
     return f"Sent with {gestalt_label}"
 
 
