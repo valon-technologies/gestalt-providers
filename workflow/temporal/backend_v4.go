@@ -179,7 +179,7 @@ func (b *temporalBackend) signalExistingWorkflowKeyRunV4(ctx context.Context, wo
 	}
 	var out proto.SignalWorkflowRunResponse
 	if err := update.Get(ctx, &out); err != nil {
-		return nil, mapWorkflowUpdateError(err)
+		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
 	if out.GetRun() == nil {
 		out.Run = cloneRun(run)
@@ -210,7 +210,7 @@ func (b *temporalBackend) releaseClaimedRunV4(ctx context.Context, run *proto.Bo
 		return mapTemporalWorkflowCallError("claim temporal workflow", err)
 	}
 	if err := update.Get(ctx, nil); err != nil {
-		return mapWorkflowUpdateError(err)
+		return mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
 	return nil
 }
@@ -255,7 +255,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 	}
 	var out proto.SignalWorkflowRunResponse
 	if err := update.Get(ctx, &out); err != nil {
-		return nil, mapWorkflowUpdateError(err)
+		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
 	startedRun, err := startOperation.Get(ctx)
 	if err != nil {
