@@ -10,22 +10,17 @@ import (
 )
 
 const (
-	providerVersion = "0.0.1-alpha.23"
+	providerVersion = "0.0.1-alpha.24"
 
-	defaultWorkflowRunTimeout               = 5 * time.Minute
-	defaultWorkflowTaskTimeout              = 10 * time.Second
-	defaultActivityStartToCloseTimeout      = 5 * time.Minute
-	defaultScheduleCatchupWindow            = time.Minute
-	defaultIdempotencyRetention             = 7 * 24 * time.Hour
-	defaultWorkerDeploymentPromotionTimeout = 30 * time.Second
+	defaultWorkflowRunTimeout          = 5 * time.Minute
+	defaultWorkflowTaskTimeout         = 10 * time.Second
+	defaultActivityStartToCloseTimeout = 5 * time.Minute
+	defaultScheduleCatchupWindow       = time.Minute
+	defaultIdempotencyRetention        = 7 * 24 * time.Hour
 )
 
 const (
 	versioningBehaviorAutoUpgrade = "autoUpgrade"
-
-	promotionModeNone    = "none"
-	promotionModeCurrent = "current"
-	promotionModeRamping = "ramping"
 )
 
 type config struct {
@@ -45,35 +40,24 @@ type config struct {
 }
 
 type versioningConfig struct {
-	Enabled                   bool            `yaml:"enabled"`
-	DeploymentName            string          `yaml:"deploymentName"`
-	BuildID                   string          `yaml:"buildID"`
-	BuildIDEnv                string          `yaml:"buildIDEnv"`
-	DefaultVersioningBehavior string          `yaml:"defaultVersioningBehavior"`
-	Promotion                 promotionConfig `yaml:"promotion"`
-	ResolvedBuildID           string          `yaml:"-"`
-}
-
-type promotionConfig struct {
-	Mode                string        `yaml:"mode"`
-	Timeout             time.Duration `yaml:"timeout"`
-	RampPercentage      *float32      `yaml:"rampPercentage"`
-	AllowReplaceCurrent bool          `yaml:"allowReplaceCurrent"`
+	Enabled                   bool   `yaml:"enabled"`
+	DeploymentName            string `yaml:"deploymentName"`
+	BuildID                   string `yaml:"buildID"`
+	BuildIDEnv                string `yaml:"buildIDEnv"`
+	DefaultVersioningBehavior string `yaml:"defaultVersioningBehavior"`
+	ResolvedBuildID           string `yaml:"-"`
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
+	if hasNestedMapKey(raw, "versioning", "promotion") {
+		return config{}, fmt.Errorf("versioning.promotion is no longer supported; promote Temporal worker deployments from the deploy pipeline")
+	}
 	cfg := config{
 		WorkflowRunTimeout:          defaultWorkflowRunTimeout,
 		WorkflowTaskTimeout:         defaultWorkflowTaskTimeout,
 		ActivityStartToCloseTimeout: defaultActivityStartToCloseTimeout,
 		ScheduleCatchupWindow:       defaultScheduleCatchupWindow,
 		IdempotencyRetention:        defaultIdempotencyRetention,
-		Versioning: versioningConfig{
-			Promotion: promotionConfig{
-				Mode:    promotionModeNone,
-				Timeout: defaultWorkerDeploymentPromotionTimeout,
-			},
-		},
 	}
 	if len(raw) > 0 {
 		data, err := yaml.Marshal(raw)
@@ -134,13 +118,6 @@ func normalizeVersioningConfig(cfg versioningConfig) versioningConfig {
 	cfg.BuildID = strings.TrimSpace(cfg.BuildID)
 	cfg.BuildIDEnv = strings.TrimSpace(cfg.BuildIDEnv)
 	cfg.DefaultVersioningBehavior = strings.TrimSpace(cfg.DefaultVersioningBehavior)
-	cfg.Promotion.Mode = strings.TrimSpace(cfg.Promotion.Mode)
-	if cfg.Promotion.Mode == "" {
-		cfg.Promotion.Mode = promotionModeNone
-	}
-	if cfg.Promotion.Timeout == 0 {
-		cfg.Promotion.Timeout = defaultWorkerDeploymentPromotionTimeout
-	}
 	return cfg
 }
 
@@ -173,27 +150,25 @@ func validateVersioningConfig(cfg *versioningConfig) error {
 	if cfg.DefaultVersioningBehavior != versioningBehaviorAutoUpgrade {
 		return fmt.Errorf("versioning.defaultVersioningBehavior must be %q", versioningBehaviorAutoUpgrade)
 	}
-	switch cfg.Promotion.Mode {
-	case promotionModeNone:
-		if cfg.Promotion.RampPercentage != nil {
-			return fmt.Errorf("versioning.promotion.rampPercentage is only valid when mode is %q", promotionModeRamping)
-		}
-	case promotionModeCurrent:
-		if cfg.Promotion.RampPercentage != nil {
-			return fmt.Errorf("versioning.promotion.rampPercentage is only valid when mode is %q", promotionModeRamping)
-		}
-	case promotionModeRamping:
-		if cfg.Promotion.RampPercentage == nil {
-			return fmt.Errorf("versioning.promotion.rampPercentage is required when mode is %q", promotionModeRamping)
-		}
-		if *cfg.Promotion.RampPercentage <= 0 || *cfg.Promotion.RampPercentage > 100 {
-			return fmt.Errorf("versioning.promotion.rampPercentage must be greater than 0 and no more than 100")
-		}
-	default:
-		return fmt.Errorf("versioning.promotion.mode must be one of %q, %q, or %q", promotionModeNone, promotionModeCurrent, promotionModeRamping)
-	}
-	if cfg.Promotion.Timeout <= 0 {
-		return fmt.Errorf("versioning.promotion.timeout must be positive")
-	}
 	return nil
+}
+
+func hasNestedMapKey(raw map[string]any, outerKey, innerKey string) bool {
+	if raw == nil {
+		return false
+	}
+	outer, ok := raw[outerKey]
+	if !ok {
+		return false
+	}
+	switch m := outer.(type) {
+	case map[string]any:
+		_, ok := m[innerKey]
+		return ok
+	case map[interface{}]interface{}:
+		_, ok := m[innerKey]
+		return ok
+	default:
+		return false
+	}
 }
