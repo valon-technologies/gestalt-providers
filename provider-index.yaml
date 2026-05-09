@@ -1271,6 +1271,17 @@ packages:
     displayName: "GitHub"
     description: "Repository, issue, pull request, workflow, and code search operations."
     versions:
+      "0.0.1-alpha.40":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.40/provider-release.yaml"
+        kind: "plugin"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
       "0.0.1-alpha.39":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.39/provider-release.yaml"
         kind: "plugin"
