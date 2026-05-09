@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"runtime"
 	"slices"
@@ -2974,7 +2973,7 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 				Connection:     strings.TrimSpace(pluginTarget.GetConnection()),
 				Instance:       strings.TrimSpace(pluginTarget.GetInstance()),
 				CredentialMode: credentialMode,
-				Input:          structFromAny(cloneStructMap(pluginTarget.GetInput())),
+				Input:          structFromAny(gestalt.MapFromStruct(pluginTarget.GetInput())),
 			},
 		},
 	}
@@ -3061,7 +3060,7 @@ func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName st
 		Operation:  operation,
 		Connection: strings.TrimSpace(deliveryTarget.GetConnection()),
 		Instance:   strings.TrimSpace(deliveryTarget.GetInstance()),
-		Input:      structFromAny(cloneStructMap(deliveryTarget.GetInput())),
+		Input:      structFromAny(gestalt.MapFromStruct(deliveryTarget.GetInput())),
 	}
 	delivery.CredentialMode = credentialMode
 	for _, binding := range delivery.GetInputBindings() {
@@ -4425,26 +4424,6 @@ func scheduleRunID(scheduleID string, scheduledFor time.Time) string {
 	return "schedule:" + scheduleID + ":" + scheduledFor.UTC().Format(time.RFC3339Nano)
 }
 
-func cloneStructMap(value *structpb.Struct) map[string]any {
-	if value == nil {
-		return nil
-	}
-	return cloneMap(value.AsMap())
-}
-
-func cloneMap(value map[string]any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	out := maps.Clone(value)
-	for key, item := range out {
-		if nested, ok := item.(map[string]any); ok {
-			out[key] = cloneMap(nested)
-		}
-	}
-	return out
-}
-
 func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
 	if actor == nil {
 		return nil
@@ -4461,42 +4440,39 @@ func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
 	if event == nil {
 		return nil
 	}
-	return &proto.WorkflowEvent{
-		Id:              event.GetId(),
+	out, err := gestalt.NewWorkflowEvent(gestalt.WorkflowEventInput{
+		ID:              event.GetId(),
 		Source:          event.GetSource(),
 		SpecVersion:     event.GetSpecVersion(),
 		Type:            event.GetType(),
 		Subject:         event.GetSubject(),
-		Time:            gestalt.CloneTimestamp(event.GetTime()),
-		Datacontenttype: event.GetDatacontenttype(),
-		Data:            gestalt.CloneStruct(event.GetData()),
-		Extensions:      cloneExtensions(event.GetExtensions()),
+		Time:            gestalt.TimeFromTimestamp(event.GetTime()),
+		DataContentType: event.GetDatacontenttype(),
+		Data:            gestalt.MapFromStruct(event.GetData()),
+		Extensions:      gestalt.MapFromValues(event.GetExtensions()),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("clone workflow event: %v", err))
 	}
+	return out
 }
 
 func cloneSignal(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 	if signal == nil {
 		return nil
 	}
-	return &proto.WorkflowSignal{
-		Id:             signal.GetId(),
+	out, err := gestalt.NewWorkflowSignal(gestalt.WorkflowSignalInput{
+		ID:             signal.GetId(),
 		Name:           signal.GetName(),
-		Payload:        gestalt.CloneStruct(signal.GetPayload()),
-		Metadata:       gestalt.CloneStruct(signal.GetMetadata()),
+		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
+		Metadata:       gestalt.MapFromStruct(signal.GetMetadata()),
 		CreatedBy:      cloneActor(signal.GetCreatedBy()),
-		CreatedAt:      gestalt.CloneTimestamp(signal.GetCreatedAt()),
+		CreatedAt:      gestalt.TimeFromTimestamp(signal.GetCreatedAt()),
 		IdempotencyKey: signal.GetIdempotencyKey(),
 		Sequence:       signal.GetSequence(),
-	}
-}
-
-func cloneExtensions(values map[string]*structpb.Value) map[string]*structpb.Value {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(map[string]*structpb.Value, len(values))
-	for key, value := range values {
-		out[key] = value
+	})
+	if err != nil {
+		panic(fmt.Sprintf("clone workflow signal: %v", err))
 	}
 	return out
 }
@@ -4512,7 +4488,7 @@ func pluginTargetInput(target *proto.BoundWorkflowTarget) map[string]any {
 	if target == nil || target.GetPlugin() == nil {
 		return nil
 	}
-	return cloneStructMap(target.GetPlugin().GetInput())
+	return gestalt.MapFromStruct(target.GetPlugin().GetInput())
 }
 
 func targetJSON(target *proto.BoundWorkflowTarget) string {
@@ -4607,7 +4583,7 @@ func eventToMap(event *proto.WorkflowEvent) map[string]any {
 		"type":            event.GetType(),
 		"subject":         event.GetSubject(),
 		"datacontenttype": event.GetDatacontenttype(),
-		"data":            cloneStructMap(event.GetData()),
+		"data":            gestalt.MapFromStruct(event.GetData()),
 		"extensions":      extensionsToMap(event.GetExtensions()),
 	}
 	if ts := event.GetTime(); ts != nil && ts.IsValid() {
@@ -5372,21 +5348,26 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 	if ref == nil {
 		return nil
 	}
-	return &proto.WorkflowExecutionReference{
-		Id:                  ref.GetId(),
+	revokedAt, err := gestalt.TimePtrFromTimestamp(ref.GetRevokedAt())
+	if err != nil {
+		panic(fmt.Sprintf("clone workflow execution reference revoked_at: %v", err))
+	}
+	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+		ID:                  ref.GetId(),
 		ProviderName:        ref.GetProviderName(),
 		Target:              cloneTarget(ref.GetTarget()),
-		SubjectId:           ref.GetSubjectId(),
+		SubjectID:           ref.GetSubjectId(),
+		CredentialSubjectID: ref.GetCredentialSubjectId(),
+		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
+		CreatedAt:           gestalt.TimeFromTimestamp(ref.GetCreatedAt()),
+		RevokedAt:           revokedAt,
 		SubjectKind:         ref.GetSubjectKind(),
 		DisplayName:         ref.GetDisplayName(),
 		AuthSource:          ref.GetAuthSource(),
-		CredentialSubjectId: ref.GetCredentialSubjectId(),
-		RunAs:               cloneRunAsSubject(ref.GetRunAs()),
-		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
 		CallerPluginName:    ref.GetCallerPluginName(),
-		CreatedAt:           gestalt.CloneTimestamp(ref.GetCreatedAt()),
-		RevokedAt:           gestalt.CloneTimestamp(ref.GetRevokedAt()),
-	}
+		RunAs:               cloneRunAsSubject(ref.GetRunAs()),
+		SourceDefinitionID:  ref.GetSourceDefinitionId(),
+	})
 }
 
 func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
