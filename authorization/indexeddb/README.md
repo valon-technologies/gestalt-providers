@@ -36,9 +36,10 @@ Configuration fields:
 
 ## Authorization Model
 
-`WriteModel` now accepts a typed `AuthorizationModel`. This provider supports
-only direct relationships and action-to-relation mapping. The logical model
-shape is:
+`WriteModel` accepts a typed `AuthorizationModel`. The provider supports direct
+relationships, generalized relationship targets, action-to-relation mapping, and
+Zanzibar-style rewrites for `this`, `computed_userset`, `tuple_to_userset`, and
+`union`. The logical model shape is:
 
 ```yaml
 version: 1

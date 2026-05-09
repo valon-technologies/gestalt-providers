@@ -221,6 +221,17 @@ func (s *store) relationshipExists(ctx context.Context, subjectType, subjectID, 
 	return true, nil
 }
 
+func (s *store) directRelationshipExists(ctx context.Context, target compiledRelationshipTarget, relation string, resource *gestalt.AuthorizationResource) (bool, error) {
+	_, err := s.relationships.Get(ctx, relationshipTargetTupleID(target, relation, resource.GetType(), resource.GetId()))
+	if err != nil {
+		if errors.Is(err, gestalt.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *store) candidateRelationships(ctx context.Context, subject *gestalt.AuthorizationSubject, resource *gestalt.AuthorizationResource) ([]*gestalt.Relationship, error) {
 	var (
 		records []gestalt.Record
@@ -254,11 +265,11 @@ func relationshipRecord(relationship *gestalt.Relationship) (gestalt.Record, err
 	if relationship == nil {
 		return nil, status.Error(codes.InvalidArgument, "relationship is required")
 	}
-	subject := relationship.GetSubject()
-	resource := relationship.GetResource()
-	if err := validateSubject(subject); err != nil {
+	target, subject, err := normalizedRelationshipTarget(relationship.GetTarget(), relationship.GetSubject())
+	if err != nil {
 		return nil, err
 	}
+	resource := relationship.GetResource()
 	if err := validateResource(resource); err != nil {
 		return nil, err
 	}
@@ -266,24 +277,38 @@ func relationshipRecord(relationship *gestalt.Relationship) (gestalt.Record, err
 	if relation == "" {
 		return nil, status.Error(codes.InvalidArgument, "relationship relation is required")
 	}
-	return gestalt.Record{
-		"id":                  relationshipTupleID(subject.GetType(), subject.GetId(), relation, resource.GetType(), resource.GetId()),
-		"subject_type":        subject.GetType(),
-		"subject_id":          subject.GetId(),
-		"subject_properties":  nilIfEmptyMap(gestalt.MapFromStruct(subject.GetProperties())),
+	record := gestalt.Record{
+		"id":                  relationshipTargetTupleID(target, relation, resource.GetType(), resource.GetId()),
+		"target_kind":         target.Kind,
 		"relation":            relation,
 		"resource_type":       resource.GetType(),
 		"resource_id":         resource.GetId(),
 		"resource_properties": nilIfEmptyMap(gestalt.MapFromStruct(resource.GetProperties())),
 		"properties":          nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetProperties())),
-	}, nil
+	}
+	if subject != nil {
+		record["subject_type"] = subject.GetType()
+		record["subject_id"] = subject.GetId()
+		record["subject_properties"] = nilIfEmptyMap(gestalt.MapFromStruct(subject.GetProperties()))
+	}
+	switch target.Kind {
+	case "subject":
+		record["target_subject_type"] = target.SubjectType
+		record["target_subject_id"] = target.SubjectID
+	case "resource":
+		record["target_resource_type"] = target.ResourceType
+		record["target_resource_id"] = target.ResourceID
+		record["target_resource_properties"] = nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetTarget().GetResource().GetProperties()))
+	case "subject_set":
+		record["target_subject_set_resource_type"] = target.SubjectSetResourceType
+		record["target_subject_set_resource_id"] = target.SubjectSetResourceID
+		record["target_subject_set_relation"] = target.SubjectSetRelation
+		record["target_subject_set_resource_properties"] = nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetTarget().GetSubjectSet().GetResource().GetProperties()))
+	}
+	return record, nil
 }
 
 func relationshipFromRecord(record gestalt.Record) (*gestalt.Relationship, error) {
-	subjectProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["subject_properties"]))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "decode subject properties: %v", err)
-	}
 	resourceProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["resource_properties"]))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode resource properties: %v", err)
@@ -293,21 +318,20 @@ func relationshipFromRecord(record gestalt.Record) (*gestalt.Relationship, error
 		return nil, status.Errorf(codes.Internal, "decode relationship properties: %v", err)
 	}
 
-	subjectType, _ := record["subject_type"].(string)
-	subjectID, _ := record["subject_id"].(string)
+	_, target, subject, err := relationshipTargetFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
 	resourceType, _ := record["resource_type"].(string)
 	resourceID, _ := record["resource_id"].(string)
 	relation, _ := record["relation"].(string)
-	if subjectType == "" || subjectID == "" || resourceType == "" || resourceID == "" || relation == "" {
+	if resourceType == "" || resourceID == "" || relation == "" {
 		return nil, status.Error(codes.Internal, "stored relationship is incomplete")
 	}
 
 	return &gestalt.Relationship{
-		Subject: &gestalt.AuthorizationSubject{
-			Type:       subjectType,
-			Id:         subjectID,
-			Properties: subjectProperties,
-		},
+		Subject:  subject,
+		Target:   target,
 		Relation: relation,
 		Resource: &gestalt.AuthorizationResource{
 			Type:       resourceType,
@@ -316,6 +340,101 @@ func relationshipFromRecord(record gestalt.Record) (*gestalt.Relationship, error
 		},
 		Properties: relationshipProperties,
 	}, nil
+}
+
+func normalizedRelationshipTarget(target *gestalt.AuthorizationRelationshipTarget, subject *gestalt.AuthorizationSubject) (compiledRelationshipTarget, *gestalt.AuthorizationSubject, error) {
+	if target == nil {
+		if err := validateSubject(subject); err != nil {
+			return compiledRelationshipTarget{}, nil, err
+		}
+		return compiledRelationshipTarget{Kind: "subject", SubjectType: subject.GetType(), SubjectID: subject.GetId()}, subject, nil
+	}
+	if targetSubject := target.GetSubject(); targetSubject != nil {
+		if err := validateSubject(targetSubject); err != nil {
+			return compiledRelationshipTarget{}, nil, err
+		}
+		if subject != nil && (subject.GetType() != targetSubject.GetType() || subject.GetId() != targetSubject.GetId()) {
+			return compiledRelationshipTarget{}, nil, status.Error(codes.InvalidArgument, "relationship subject and target subject do not match")
+		}
+		return compiledRelationshipTarget{Kind: "subject", SubjectType: targetSubject.GetType(), SubjectID: targetSubject.GetId()}, targetSubject, nil
+	}
+	if subject != nil {
+		return compiledRelationshipTarget{}, nil, status.Error(codes.InvalidArgument, "relationship subject cannot be set with a non-subject target")
+	}
+	if targetResource := target.GetResource(); targetResource != nil {
+		if err := validateResource(targetResource); err != nil {
+			return compiledRelationshipTarget{}, nil, err
+		}
+		return compiledRelationshipTarget{Kind: "resource", ResourceType: targetResource.GetType(), ResourceID: targetResource.GetId()}, nil, nil
+	}
+	if targetSet := target.GetSubjectSet(); targetSet != nil {
+		resource := targetSet.GetResource()
+		if err := validateResource(resource); err != nil {
+			return compiledRelationshipTarget{}, nil, err
+		}
+		relation := strings.TrimSpace(targetSet.GetRelation())
+		if relation == "" {
+			return compiledRelationshipTarget{}, nil, status.Error(codes.InvalidArgument, "subject set relation is required")
+		}
+		return compiledRelationshipTarget{Kind: "subject_set", SubjectSetResourceType: resource.GetType(), SubjectSetResourceID: resource.GetId(), SubjectSetRelation: relation}, nil, nil
+	}
+	return compiledRelationshipTarget{}, nil, status.Error(codes.InvalidArgument, "relationship target kind is required")
+}
+
+func relationshipTargetFromRecord(record gestalt.Record) (compiledRelationshipTarget, *gestalt.AuthorizationRelationshipTarget, *gestalt.AuthorizationSubject, error) {
+	kind, _ := record["target_kind"].(string)
+	if kind == "" {
+		kind = "subject"
+	}
+	subjectProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["subject_properties"]))
+	if err != nil {
+		return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "decode subject properties: %v", err)
+	}
+	subjectType, _ := record["subject_type"].(string)
+	subjectID, _ := record["subject_id"].(string)
+	switch kind {
+	case "subject":
+		targetSubjectType, _ := record["target_subject_type"].(string)
+		targetSubjectID, _ := record["target_subject_id"].(string)
+		if targetSubjectType == "" {
+			targetSubjectType = subjectType
+		}
+		if targetSubjectID == "" {
+			targetSubjectID = subjectID
+		}
+		if targetSubjectType == "" || targetSubjectID == "" {
+			return compiledRelationshipTarget{}, nil, nil, status.Error(codes.Internal, "stored relationship subject target is incomplete")
+		}
+		subject := &gestalt.AuthorizationSubject{Type: targetSubjectType, Id: targetSubjectID, Properties: subjectProperties}
+		return compiledRelationshipTarget{Kind: "subject", SubjectType: targetSubjectType, SubjectID: targetSubjectID}, gestalt.NewAuthorizationSubjectTarget(subject), subject, nil
+	case "resource":
+		resourceType, _ := record["target_resource_type"].(string)
+		resourceID, _ := record["target_resource_id"].(string)
+		if resourceType == "" || resourceID == "" {
+			return compiledRelationshipTarget{}, nil, nil, status.Error(codes.Internal, "stored relationship resource target is incomplete")
+		}
+		properties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["target_resource_properties"]))
+		if err != nil {
+			return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "decode target resource properties: %v", err)
+		}
+		resource := &gestalt.AuthorizationResource{Type: resourceType, Id: resourceID, Properties: properties}
+		return compiledRelationshipTarget{Kind: "resource", ResourceType: resourceType, ResourceID: resourceID}, gestalt.NewAuthorizationResourceTarget(resource), nil, nil
+	case "subject_set":
+		resourceType, _ := record["target_subject_set_resource_type"].(string)
+		resourceID, _ := record["target_subject_set_resource_id"].(string)
+		relation, _ := record["target_subject_set_relation"].(string)
+		if resourceType == "" || resourceID == "" || relation == "" {
+			return compiledRelationshipTarget{}, nil, nil, status.Error(codes.Internal, "stored relationship subject-set target is incomplete")
+		}
+		properties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["target_subject_set_resource_properties"]))
+		if err != nil {
+			return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "decode target subject-set resource properties: %v", err)
+		}
+		resource := &gestalt.AuthorizationResource{Type: resourceType, Id: resourceID, Properties: properties}
+		return compiledRelationshipTarget{Kind: "subject_set", SubjectSetResourceType: resourceType, SubjectSetResourceID: resourceID, SubjectSetRelation: relation}, gestalt.NewAuthorizationSubjectSetTarget(resource, relation), nil, nil
+	default:
+		return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "stored relationship has unsupported target kind %q", kind)
+	}
 }
 
 func nilIfEmptyMap(value map[string]any) map[string]any {
@@ -343,7 +462,8 @@ func relationshipKeyID(key *gestalt.RelationshipKey) (string, error) {
 	if key == nil {
 		return "", status.Error(codes.InvalidArgument, "relationship key is required")
 	}
-	if err := validateSubject(key.GetSubject()); err != nil {
+	target, _, err := normalizedRelationshipTarget(key.GetTarget(), key.GetSubject())
+	if err != nil {
 		return "", err
 	}
 	if err := validateResource(key.GetResource()); err != nil {
@@ -353,11 +473,29 @@ func relationshipKeyID(key *gestalt.RelationshipKey) (string, error) {
 	if relation == "" {
 		return "", status.Error(codes.InvalidArgument, "relationship relation is required")
 	}
-	return relationshipTupleID(key.GetSubject().GetType(), key.GetSubject().GetId(), relation, key.GetResource().GetType(), key.GetResource().GetId()), nil
+	return relationshipTargetTupleID(target, relation, key.GetResource().GetType(), key.GetResource().GetId()), nil
 }
 
 func relationshipTupleID(subjectType, subjectID, relation, resourceType, resourceID string) string {
 	parts := []string{subjectType, subjectID, relation, resourceType, resourceID}
+	encoded := make([]string, len(parts))
+	for i, part := range parts {
+		encoded[i] = base64.RawURLEncoding.EncodeToString([]byte(part))
+	}
+	return strings.Join(encoded, ".")
+}
+
+func relationshipTargetTupleID(target compiledRelationshipTarget, relation, resourceType, resourceID string) string {
+	if target.Kind == "subject" {
+		return relationshipTupleID(target.SubjectType, target.SubjectID, relation, resourceType, resourceID)
+	}
+	parts := []string{
+		"target", target.Kind,
+		target.SubjectType, target.SubjectID,
+		target.ResourceType, target.ResourceID,
+		target.SubjectSetResourceType, target.SubjectSetResourceID, target.SubjectSetRelation,
+		relation, resourceType, resourceID,
+	}
 	encoded := make([]string, len(parts))
 	for i, part := range parts {
 		encoded[i] = base64.RawURLEncoding.EncodeToString([]byte(part))
