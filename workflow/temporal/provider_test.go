@@ -34,13 +34,7 @@ import (
 )
 
 func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
@@ -248,13 +242,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 }
 
 func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 	if err := state.db.DeleteObjectStore(ctx, storeTemporalRunProjections); err != nil {
 		t.Fatalf("DeleteObjectStore(%s): %v", storeTemporalRunProjections, err)
 	}
@@ -646,12 +634,7 @@ func TestTemporalVersioningConfigValidation(t *testing.T) {
 }
 
 func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	state, err := openWorkflowStateStore(context.Background(), "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	_, state := newTestWorkflowStateStore(t)
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
 	trigger := &proto.BoundWorkflowEventTrigger{
@@ -739,13 +722,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 }
 
 func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	nextRunAt := time.Unix(200, 0).UTC()
 	tc := &recordingTemporalClient{}
@@ -791,13 +768,7 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 }
 
 func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -825,13 +796,7 @@ func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 }
 
 func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -874,13 +839,7 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 }
 
 func TestStartRunWithWorkflowKeyRejectsActiveOwnerBeforeExecuting(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -891,7 +850,7 @@ func TestStartRunWithWorkflowKeyRejectsActiveOwnerBeforeExecuting(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("StartRun(first): %v", err)
 	}
-	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+	_, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      pluginTarget("slack", "sendMessage"),
 		CreatedBy:   &proto.WorkflowActor{SubjectId: "user-2"},
@@ -905,13 +864,7 @@ func TestStartRunWithWorkflowKeyRejectsActiveOwnerBeforeExecuting(t *testing.T) 
 }
 
 func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -953,13 +906,7 @@ func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
 }
 
 func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	workflowKey := "thread-1"
 	key := "start-1"
@@ -1018,13 +965,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 }
 
 func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 	if err := state.db.DeleteObjectStore(ctx, storeTemporalRunProjections); err != nil {
 		t.Fatalf("DeleteObjectStore(%s): %v", storeTemporalRunProjections, err)
 	}
@@ -1045,13 +986,7 @@ func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
 }
 
 func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1080,17 +1015,11 @@ func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
 }
 
 func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
-	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+	_, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		Target:         pluginTarget("slack", "postMessage"),
 		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
@@ -1112,13 +1041,7 @@ func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
 }
 
 func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	tc.afterExecute = func() {
@@ -1128,7 +1051,7 @@ func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
 	}
 	backend := newRecordingTemporalBackend(tc, state)
 
-	_, err = backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
+	_, err := backend.StartRun(ctx, &proto.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		Target:         pluginTarget("slack", "postMessage"),
 		CreatedBy:      &proto.WorkflowActor{SubjectId: "user-1"},
@@ -1142,13 +1065,7 @@ func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
 }
 
 func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	ownerKey := "slack"
 	key := "start-1"
@@ -1175,13 +1092,7 @@ func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
 }
 
 func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1240,13 +1151,7 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 }
 
 func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1292,13 +1197,7 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 }
 
 func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1318,13 +1217,7 @@ func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
 }
 
 func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1340,7 +1233,7 @@ func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *t
 	updateCount := len(tc.updates)
 	duplicateReq := cloneSignalOrStartRequest(req)
 	duplicateReq.Signal.Name = "slack.changed"
-	_, err = backend.SignalOrStartRun(ctx, duplicateReq)
+	_, err := backend.SignalOrStartRun(ctx, duplicateReq)
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("SignalOrStartRun(conflict) error = %v, want FailedPrecondition", err)
 	}
@@ -1350,13 +1243,7 @@ func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *t
 }
 
 func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1402,13 +1289,7 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 }
 
 func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1448,13 +1329,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 }
 
 func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	stale := workflowKeyClaimRun("stale", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	if _, claimed, err := state.claimWorkflowKeyRun(ctx, "thread-1", stale, time.Unix(100, 0).UTC()); err != nil || !claimed {
@@ -1484,13 +1359,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 }
 
 func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	run := workflowKeyClaimRun("signal-idem", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	tc := &recordingTemporalClient{}
@@ -1530,13 +1399,7 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 }
 
 func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	run := workflowKeyClaimRun("strict-signal-id", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	tc := &recordingTemporalClient{}
@@ -1548,7 +1411,7 @@ func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.
 		t.Fatalf("SignalRun(first): %v", err)
 	}
 	updateCount := len(tc.updates)
-	_, err = backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
+	_, err := backend.SignalRun(ctx, &proto.SignalWorkflowProviderRunRequest{
 		RunId:  run.GetId(),
 		Signal: &proto.WorkflowSignal{Id: "signal-id-1", Name: "slack.changed", IdempotencyKey: "owner-key-1"},
 	})
@@ -1561,13 +1424,7 @@ func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.
 }
 
 func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	workflowKey := "slack:T:C:1778164397.804829"
 	now := time.Unix(200, 0).UTC()
@@ -1643,13 +1500,7 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 }
 
 func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	workflowKey := "thread-terminal"
 	terminal := workflowKeyClaimRun("terminal", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED)
@@ -1763,13 +1614,7 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 }
 
 func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	workflowKey := "thread-race"
 	runs := []*proto.BoundWorkflowRun{
@@ -1818,13 +1663,7 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 }
 
 func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 
 	legacyID := encodeTemporalRunHandle(temporalRunHandle{
 		Kind:             "temporal-run-v3",
@@ -1917,13 +1756,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 }
 
 func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	ctx, state := newTestWorkflowStateStore(t)
 	run := &proto.BoundWorkflowRun{
 		Id: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    "run-projected-workflow",
@@ -1954,12 +1787,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 }
 
 func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	state, err := openWorkflowStateStore(context.Background(), "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	_, state := newTestWorkflowStateStore(t)
 	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
 
 	trigger := &proto.BoundWorkflowEventTrigger{
@@ -1993,12 +1821,7 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 }
 
 func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	state, err := openWorkflowStateStore(context.Background(), "", "scope")
-	if err != nil {
-		t.Fatalf("openWorkflowStateStore: %v", err)
-	}
-	t.Cleanup(func() { _ = state.Close() })
+	_, state := newTestWorkflowStateStore(t)
 
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -2040,7 +1863,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		}
 	}
 
-	err = backend.PublishEvent(context.Background(), &proto.PublishWorkflowProviderEventRequest{
+	err := backend.PublishEvent(context.Background(), &proto.PublishWorkflowProviderEventRequest{
 		PluginName: "slack",
 		Event:      &proto.WorkflowEvent{Id: "event-1", Source: "slack", Type: "message.created"},
 	})
@@ -2407,6 +2230,18 @@ func baseTemporalConfig() config {
 		ScheduleCatchupWindow:       time.Minute,
 		IdempotencyRetention:        time.Hour,
 	}
+}
+
+func newTestWorkflowStateStore(t *testing.T) (context.Context, *workflowStateStore) {
+	t.Helper()
+	startTestIndexedDBBackend(t)
+	ctx := context.Background()
+	state, err := openWorkflowStateStore(ctx, "", "scope")
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	return ctx, state
 }
 
 func newRecordingTemporalBackend(tc *recordingTemporalClient, state *workflowStateStore) *temporalBackend {
