@@ -29,8 +29,6 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
@@ -94,7 +92,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 			if resp.GetSignal().GetIdempotencyKey() != "signal-1" {
 				t.Fatalf("queued signal response = %#v, want signal-1", resp.GetSignal())
 			}
-		}), &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()})
+		}), &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: gestalt.TimestampFromTime(time.Now())})
 		if len(host.calls) != 0 {
 			t.Fatalf("host calls before claim = %d, want 0", len(host.calls))
 		}
@@ -144,7 +142,7 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
 		TriggerPayload:                protoPayload(newManualTrigger()),
 		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()}),
+		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: gestalt.TimestampFromTime(time.Now())}),
 		RequireSignal:                 true,
 		RequireClaim:                  true,
 	})
@@ -192,7 +190,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
 		TriggerPayload:                protoPayload(newManualTrigger()),
 		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()}),
+		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", CreatedAt: gestalt.TimestampFromTime(time.Now())}),
 		RequireSignal:                 true,
 		RequireClaim:                  true,
 	})
@@ -228,7 +226,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 	}).Maybe()
 
 	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), &proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()})
+		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), &proto.WorkflowSignal{Name: "slack.event", CreatedAt: gestalt.TimestampFromTime(time.Now())})
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
@@ -691,8 +689,8 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		Id:        "trigger-1",
 		Match:     &proto.WorkflowEventMatch{Type: "message.created"},
 		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: timestamppb.Now(),
-		UpdatedAt: timestamppb.Now(),
+		CreatedAt: gestalt.TimestampFromTime(time.Now()),
+		UpdatedAt: gestalt.TimestampFromTime(time.Now()),
 	}
 
 	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
@@ -717,7 +715,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		ProviderName: "temporal",
 		Target:       pluginTarget("slack", "postMessage"),
 		SubjectId:    "user-1",
-		CreatedAt:    timestamppb.Now(),
+		CreatedAt:    gestalt.TimestampFromTime(time.Now()),
 		RunAs: &proto.WorkflowRunAsSubject{
 			SubjectId:   "service_account:slack-sync",
 			SubjectKind: "service_account",
@@ -806,8 +804,8 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 		Cron:      "0 * * * *",
 		Timezone:  "America/New_York",
 		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+		CreatedAt: gestalt.TimestampFromTime(time.Unix(100, 0).UTC()),
+		UpdatedAt: gestalt.TimestampFromTime(time.Unix(100, 0).UTC()),
 	}); err != nil {
 		t.Fatalf("putSchedule: %v", err)
 	}
@@ -1049,7 +1047,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:      target,
 		WorkflowKey: workflowKey,
-		CreatedAt:   timestamppb.New(time.Unix(100, 0).UTC()),
+		CreatedAt:   gestalt.TimestampFromTime(time.Unix(100, 0).UTC()),
 	}
 	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, time.Unix(100, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("claimWorkflowKeyRun claimed=%v err=%v", claimed, err)
@@ -2116,7 +2114,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
 		Target:    pluginTarget("slack", "postMessage"),
 		Trigger:   newManualTrigger(),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+		CreatedAt: gestalt.TimestampFromTime(time.Unix(100, 0).UTC()),
 	}
 	if err := state.putRun(ctx, run); err != nil {
 		t.Fatalf("putRun: %v", err)
@@ -2163,8 +2161,8 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 		Id:        "trigger-1",
 		Match:     &proto.WorkflowEventMatch{Type: "message.created"},
 		Target:    pluginTarget("slack", "postMessage"),
-		CreatedAt: timestamppb.Now(),
-		UpdatedAt: timestamppb.Now(),
+		CreatedAt: gestalt.TimestampFromTime(time.Now()),
+		UpdatedAt: gestalt.TimestampFromTime(time.Now()),
 	}
 	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
 		t.Fatalf("state.putTrigger(first): %v", err)
@@ -2220,23 +2218,23 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			Id:        "trigger-plugin-1",
 			Match:     &proto.WorkflowEventMatch{Type: "message.created"},
 			Target:    pluginTarget("slack", "postMessage"),
-			CreatedAt: timestamppb.Now(),
-			UpdatedAt: timestamppb.Now(),
+			CreatedAt: gestalt.TimestampFromTime(time.Now()),
+			UpdatedAt: gestalt.TimestampFromTime(time.Now()),
 		},
 		{
 			Id:        "trigger-plugin-2",
 			Match:     &proto.WorkflowEventMatch{Type: "message.created"},
 			Target:    pluginTarget("slack", "sendMessage"),
-			CreatedAt: timestamppb.Now(),
-			UpdatedAt: timestamppb.Now(),
+			CreatedAt: gestalt.TimestampFromTime(time.Now()),
+			UpdatedAt: gestalt.TimestampFromTime(time.Now()),
 		},
 		{
 			Id:        "trigger-paused",
 			Match:     &proto.WorkflowEventMatch{Type: "message.created"},
 			Target:    pluginTarget("slack", "archiveMessage"),
 			Paused:    true,
-			CreatedAt: timestamppb.Now(),
-			UpdatedAt: timestamppb.Now(),
+			CreatedAt: gestalt.TimestampFromTime(time.Now()),
+			UpdatedAt: gestalt.TimestampFromTime(time.Now()),
 		},
 	} {
 		if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
@@ -2290,7 +2288,7 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 		ProviderName: "temporal",
 		Target:       pluginTarget("slack", "postMessage"),
 		SubjectId:    "user-1",
-		CreatedAt:    timestamppb.Now(),
+		CreatedAt:    gestalt.TimestampFromTime(time.Now()),
 		RunAs: &proto.WorkflowRunAsSubject{
 			SubjectId:   "service_account:slack-sync",
 			SubjectKind: "service_account",
@@ -2321,7 +2319,7 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 		t.Fatalf("scoped ref run_as lost: scopeA=%#v scopeB=%#v", gotA.GetRunAs(), gotB.GetRunAs())
 	}
 
-	trigger := &proto.BoundWorkflowEventTrigger{Id: "trigger-1", Match: &proto.WorkflowEventMatch{Type: "message.created"}, Target: pluginTarget("slack", "postMessage"), CreatedAt: timestamppb.Now(), UpdatedAt: timestamppb.Now()}
+	trigger := &proto.BoundWorkflowEventTrigger{Id: "trigger-1", Match: &proto.WorkflowEventMatch{Type: "message.created"}, Target: pluginTarget("slack", "postMessage"), CreatedAt: gestalt.TimestampFromTime(time.Now()), UpdatedAt: gestalt.TimestampFromTime(time.Now())}
 	if err := scopeA.putTrigger(ctx, trigger); err != nil {
 		t.Fatalf("scopeA put trigger: %v", err)
 	}
@@ -2400,7 +2398,7 @@ func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunSta
 		Status:      status,
 		Target:      pluginTarget("slack", "postMessage"),
 		WorkflowKey: strings.TrimSpace(workflowKey),
-		CreatedAt:   timestamppb.New(time.Unix(100, 0).UTC()),
+		CreatedAt:   gestalt.TimestampFromTime(time.Unix(100, 0).UTC()),
 	}
 }
 
@@ -2453,7 +2451,7 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req *proto.InvokeWor
 func (h *blockingHost) Close() error { return nil }
 
 func pluginTarget(plugin, operation string) *proto.BoundWorkflowTarget {
-	input, _ := structpb.NewStruct(map[string]any{"text": "hello"})
+	input, _ := gestalt.StructFromMap(map[string]any{"text": "hello"})
 	return &proto.BoundWorkflowTarget{Kind: &proto.BoundWorkflowTarget_Plugin{Plugin: &proto.BoundWorkflowPluginTarget{
 		PluginName: strings.TrimSpace(plugin),
 		Operation:  strings.TrimSpace(operation),

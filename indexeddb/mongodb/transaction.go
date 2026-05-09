@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const mongoCommitRetryTimeout = 120 * time.Second
@@ -143,28 +143,28 @@ func (t *mongoTransaction) GetKey(ctx context.Context, req *proto.ObjectStoreReq
 	return t.provider.GetKey(t.txContext(ctx), req)
 }
 
-func (t *mongoTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (t *mongoTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}
 	return t.provider.Add(t.txContext(ctx), req)
 }
 
-func (t *mongoTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (t *mongoTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}
 	return t.provider.Put(t.txContext(ctx), req)
 }
 
-func (t *mongoTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
+func (t *mongoTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*gestalt.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}
 	return t.provider.Delete(t.txContext(ctx), req)
 }
 
-func (t *mongoTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
+func (t *mongoTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*gestalt.Empty, error) {
 	if err := t.requireStore(req.GetStore()); err != nil {
 		return nil, err
 	}

@@ -13,7 +13,6 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -104,11 +103,11 @@ func workflowInvokeMetadataInput(workflowKey string) any {
 	}
 }
 
-func protoHashID(msg gproto.Message) string {
+func protoHashID(msg gestalt.ProtoMessage) string {
 	if msg == nil {
 		return ""
 	}
-	data, err := gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	data, err := gestalt.MarshalProtoDeterministic(msg)
 	if err != nil {
 		return hashID("proto-marshal-error", err.Error())
 	}
@@ -116,7 +115,7 @@ func protoHashID(msg gproto.Message) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func protoPayload(msg gproto.Message) []byte {
+func protoPayload(msg gestalt.ProtoMessage) []byte {
 	data, err := marshalProto(msg)
 	if err != nil {
 		return nil
@@ -129,7 +128,7 @@ func targetFromPayload(data []byte) *proto.BoundWorkflowTarget {
 		return nil
 	}
 	var target proto.BoundWorkflowTarget
-	if err := gproto.Unmarshal(data, &target); err != nil {
+	if err := gestalt.UnmarshalProto(data, &target); err != nil {
 		return nil
 	}
 	return cloneTarget(&target)
@@ -140,7 +139,7 @@ func triggerFromPayload(data []byte) *proto.WorkflowRunTrigger {
 		return nil
 	}
 	var trigger proto.WorkflowRunTrigger
-	if err := gproto.Unmarshal(data, &trigger); err != nil {
+	if err := gestalt.UnmarshalProto(data, &trigger); err != nil {
 		return nil
 	}
 	return cloneRunTrigger(&trigger)
@@ -151,7 +150,7 @@ func actorFromPayload(data []byte) *proto.WorkflowActor {
 		return nil
 	}
 	var actor proto.WorkflowActor
-	if err := gproto.Unmarshal(data, &actor); err != nil {
+	if err := gestalt.UnmarshalProto(data, &actor); err != nil {
 		return nil
 	}
 	return cloneActor(&actor)
@@ -162,7 +161,7 @@ func signalFromPayload(data []byte) *proto.WorkflowSignal {
 		return nil
 	}
 	var signal proto.WorkflowSignal
-	if err := gproto.Unmarshal(data, &signal); err != nil {
+	if err := gestalt.UnmarshalProto(data, &signal); err != nil {
 		return nil
 	}
 	return cloneSignal(&signal)
@@ -173,7 +172,7 @@ func runFromPayload(data []byte) *proto.BoundWorkflowRun {
 		return nil
 	}
 	var run proto.BoundWorkflowRun
-	if err := gproto.Unmarshal(data, &run); err != nil {
+	if err := gestalt.UnmarshalProto(data, &run); err != nil {
 		return nil
 	}
 	return cloneRun(&run)
@@ -184,7 +183,7 @@ func signalResponseFromPayload(data []byte) *proto.SignalWorkflowRunResponse {
 		return nil
 	}
 	var resp proto.SignalWorkflowRunResponse
-	if err := gproto.Unmarshal(data, &resp); err != nil {
+	if err := gestalt.UnmarshalProto(data, &resp); err != nil {
 		return nil
 	}
 	return cloneSignalResponse(&resp)

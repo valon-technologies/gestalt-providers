@@ -12,10 +12,7 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
 )
-
-var deterministicProtoMarshal = gproto.MarshalOptions{Deterministic: true}
 
 type genericRecordRow struct {
 	pkHash     []byte
@@ -42,7 +39,7 @@ func encodeKeyValue(value any) (encodedKey, error) {
 	if err != nil {
 		return encodedKey{}, status.Errorf(codes.InvalidArgument, "encode key: %v", err)
 	}
-	raw, err := deterministicProtoMarshal.Marshal(kv)
+	raw, err := gestalt.MarshalProtoDeterministic(kv)
 	if err != nil {
 		return encodedKey{}, status.Errorf(codes.Internal, "marshal key: %v", err)
 	}
@@ -56,7 +53,7 @@ func encodeKeyValue(value any) (encodedKey, error) {
 
 func decodeKeyValue(raw []byte) (any, error) {
 	kv := &proto.KeyValue{}
-	if err := gproto.Unmarshal(raw, kv); err != nil {
+	if err := gestalt.UnmarshalProto(raw, kv); err != nil {
 		return nil, status.Errorf(codes.Internal, "decode key: %v", err)
 	}
 	value, err := gestalt.KeyValueToAny(kv)

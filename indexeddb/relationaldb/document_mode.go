@@ -9,7 +9,6 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 func extractStringID(record *proto.Record) (string, error) {
@@ -28,7 +27,7 @@ func marshalRecordBlob(record *proto.Record) ([]byte, error) {
 	if record == nil {
 		return nil, status.Error(codes.InvalidArgument, "record is required")
 	}
-	raw, err := gproto.Marshal(record)
+	raw, err := gestalt.MarshalProtoDeterministic(record)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal record payload: %v", err)
 	}
@@ -40,7 +39,7 @@ func unmarshalRecordBlob(raw []byte) (*proto.Record, error) {
 		return nil, status.Error(codes.Internal, "record payload is empty")
 	}
 	record := &proto.Record{}
-	if err := gproto.Unmarshal(raw, record); err != nil {
+	if err := gestalt.UnmarshalProto(raw, record); err != nil {
 		return nil, status.Errorf(codes.Internal, "unmarshal record payload: %v", err)
 	}
 	return record, nil

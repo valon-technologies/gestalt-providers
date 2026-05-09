@@ -25,9 +25,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestExternalCredentialProviderRoundTrip(t *testing.T) {
@@ -39,7 +36,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		"encryptionKey": "provider-roundtrip-key",
 	})
 
-	health, err := lifecycle.HealthCheck(context.Background(), &emptypb.Empty{}, grpc.WaitForReady(true))
+	health, err := lifecycle.HealthCheck(context.Background(), &gestalt.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("HealthCheck: %v", err)
 	}
@@ -47,7 +44,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("ready = false, message = %q", health.GetMessage())
 	}
 
-	meta, err := lifecycle.GetProviderIdentity(context.Background(), &emptypb.Empty{}, grpc.WaitForReady(true))
+	meta, err := lifecycle.GetProviderIdentity(context.Background(), &gestalt.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("GetProviderIdentity: %v", err)
 	}
@@ -329,7 +326,7 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 			Instance:     "default",
 			AccessToken:  "expired-access-token",
 			RefreshToken: refreshSource,
-			ExpiresAt:    timestamppb.New(time.Now().Add(-time.Minute)),
+			ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(-time.Minute)),
 			MetadataJson: `{"tenant":"acme"}`,
 		},
 	})
@@ -433,7 +430,7 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 					Instance:     lookup.GetInstance(),
 					AccessToken:  "old-access-token",
 					RefreshToken: "revoked-refresh-token",
-					ExpiresAt:    timestamppb.New(tc.expiresAt),
+					ExpiresAt:    gestalt.TimestampFromTime(tc.expiresAt),
 				},
 			})
 			if err != nil {
@@ -513,7 +510,7 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 					Instance:     lookup.GetInstance(),
 					AccessToken:  "old-access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    timestamppb.New(tc.expiresAt),
+					ExpiresAt:    gestalt.TimestampFromTime(tc.expiresAt),
 				},
 			})
 			if err != nil {
@@ -599,7 +596,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 		Instance:     "default",
 		AccessToken:  "old-due-access-token",
 		RefreshToken: "due-refresh-token",
-		ExpiresAt:    timestamppb.New(now.Add(5 * time.Minute)),
+		ExpiresAt:    gestalt.TimestampFromTime(now.Add(5 * time.Minute)),
 	})
 	seedCredential(t, client, &proto.ExternalCredential{
 		SubjectId:    "user:future",
@@ -607,7 +604,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 		Instance:     "default",
 		AccessToken:  "future-access-token",
 		RefreshToken: "future-refresh-token",
-		ExpiresAt:    timestamppb.New(now.Add(2 * time.Hour)),
+		ExpiresAt:    gestalt.TimestampFromTime(now.Add(2 * time.Hour)),
 	})
 	seedCredential(t, client, &proto.ExternalCredential{
 		SubjectId:    "user:slack",
@@ -615,7 +612,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 		Instance:     "default",
 		AccessToken:  "slack-access-token",
 		RefreshToken: "slack-refresh-token",
-		ExpiresAt:    timestamppb.New(now.Add(5 * time.Minute)),
+		ExpiresAt:    gestalt.TimestampFromTime(now.Add(5 * time.Minute)),
 	})
 	db, err := gestalt.IndexedDB()
 	if err != nil {
@@ -681,9 +678,9 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsConflictingResolv
 		},
 	}
 	cfg["resolvedConnections"] = append(connections, duplicate)
-	pbConfig, err := structpb.NewStruct(cfg)
+	pbConfig, err := gestalt.StructFromMap(cfg)
 	if err != nil {
-		t.Fatalf("structpb.NewStruct: %v", err)
+		t.Fatalf("gestalt.StructFromMap: %v", err)
 	}
 	_, err = lifecycle.ConfigureProvider(context.Background(), &proto.ConfigureProviderRequest{
 		Name:            "default",
@@ -708,9 +705,9 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthCo
 	target := connections[0].(map[string]any)
 	auth := target["auth"].(map[string]any)
 	auth["tokenExchange"] = "xml"
-	pbConfig, err := structpb.NewStruct(cfg)
+	pbConfig, err := gestalt.StructFromMap(cfg)
 	if err != nil {
-		t.Fatalf("structpb.NewStruct: %v", err)
+		t.Fatalf("gestalt.StructFromMap: %v", err)
 	}
 	_, err = lifecycle.ConfigureProvider(context.Background(), &proto.ConfigureProviderRequest{
 		Name:            "default",
@@ -742,7 +739,7 @@ func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *test
 			Instance:     "default",
 			AccessToken:  "old-access-token",
 			RefreshToken: "immediate-refresh-token",
-			ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+			ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
 		},
 	})
 	if err != nil {
@@ -793,7 +790,7 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 			Instance:     "default",
 			AccessToken:  "old-access-token",
 			RefreshToken: "rotating-refresh-token",
-			ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+			ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
 		},
 	})
 	if err != nil {
@@ -911,7 +908,7 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 		Instance:     "default",
 		AccessToken:  "old-access-token",
 		RefreshToken: "refresh-token",
-		ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+		ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
 	})
 
 	_ = provider.runCredentialRefreshOnce(context.Background())
@@ -947,7 +944,7 @@ func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *t
 		Instance:     "default",
 		AccessToken:  "old-access-token",
 		RefreshToken: "revoked-refresh-token",
-		ExpiresAt:    timestamppb.New(time.Now().Add(5 * time.Minute)),
+		ExpiresAt:    gestalt.TimestampFromTime(time.Now().Add(5 * time.Minute)),
 	})
 
 	_ = provider.runCredentialRefreshOnce(context.Background())
@@ -1107,8 +1104,8 @@ func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
 			ConnectionId: "github:default",
 			Instance:     "org-1",
 			AccessToken:  "gho_123",
-			CreatedAt:    timestamppb.New(createdAt),
-			UpdatedAt:    timestamppb.New(updatedAt),
+			CreatedAt:    gestalt.TimestampFromTime(createdAt),
+			UpdatedAt:    gestalt.TimestampFromTime(updatedAt),
 		},
 	})
 	if err != nil {
@@ -1399,9 +1396,9 @@ func getCredential(t *testing.T, client *gestalt.ExternalCredentialClient, subje
 func configureProvider(t *testing.T, lifecycle proto.ProviderLifecycleClient, cfg map[string]any) {
 	t.Helper()
 
-	pbConfig, err := structpb.NewStruct(cfg)
+	pbConfig, err := gestalt.StructFromMap(cfg)
 	if err != nil {
-		t.Fatalf("structpb.NewStruct: %v", err)
+		t.Fatalf("gestalt.StructFromMap: %v", err)
 	}
 	resp, err := lifecycle.ConfigureProvider(context.Background(), &proto.ConfigureProviderRequest{
 		Name:            "default",

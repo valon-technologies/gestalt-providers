@@ -21,7 +21,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -156,7 +155,7 @@ func (s *store) getIndexDef(storeName, indexName string) (*indexDef, error) {
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*gestalt.Empty, error) {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -190,10 +189,10 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateO
 	}
 
 	st.schemas[req.Name] = sc
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
-func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*gestalt.Empty, error) {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -220,7 +219,7 @@ func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteO
 			return nil, wrapErr(err)
 		}
 	}
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
 func (p *providerCore) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
@@ -245,7 +244,7 @@ func (p *providerCore) GetKey(ctx context.Context, req *proto.ObjectStoreRequest
 	return &proto.KeyResponse{Key: req.Id}, nil
 }
 
-func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
 	st := p.store
 	id, err := extractID(req.Record)
 	if err != nil {
@@ -287,10 +286,10 @@ func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*empt
 	if err := st.deleteLegacyUniqueIndexItems(ctx, idxItems); err != nil {
 		return nil, err
 	}
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
-func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*gestalt.Empty, error) {
 	st := p.store
 	id, err := extractID(req.Record)
 	if err != nil {
@@ -350,17 +349,17 @@ func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*empt
 	if err := st.deleteLegacyUniqueIndexItems(ctx, append(oldIdxItems, idxItems...)); err != nil {
 		return nil, err
 	}
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
-func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*gestalt.Empty, error) {
 	if err := p.store.deleteRecordByID(ctx, req.Store, req.Id); err != nil {
 		return nil, err
 	}
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
-func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*gestalt.Empty, error) {
 	st := p.store
 	prefixes := []string{req.Store}
 	if sc, ok := st.getSchema(req.Store); ok {
@@ -373,7 +372,7 @@ func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequ
 			return nil, wrapErr(err)
 		}
 	}
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
 func (p *providerCore) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
@@ -1173,12 +1172,12 @@ func marshalIndexKey(values []*proto.TypedValue) ([]byte, error) {
 	for i, value := range values {
 		record.Fields[fmt.Sprintf("%d", i)] = gproto.Clone(value).(*proto.TypedValue)
 	}
-	return gproto.Marshal(record)
+	return gestalt.MarshalProtoDeterministic(record)
 }
 
 func unmarshalIndexKey(raw []byte, keyParts int) ([]any, error) {
 	record := &proto.Record{}
-	if err := gproto.Unmarshal(raw, record); err != nil {
+	if err := gestalt.UnmarshalProto(raw, record); err != nil {
 		return nil, err
 	}
 
@@ -1253,7 +1252,7 @@ func getS(item map[string]ddbtypes.AttributeValue, key string) string {
 func parseData(item map[string]ddbtypes.AttributeValue) (*proto.Record, error) {
 	if raw, ok := item[attrData].(*ddbtypes.AttributeValueMemberB); ok {
 		record := &proto.Record{}
-		if err := gproto.Unmarshal(raw.Value, record); err != nil {
+		if err := gestalt.UnmarshalProto(raw.Value, record); err != nil {
 			return nil, err
 		}
 		return record, nil
@@ -1316,7 +1315,7 @@ func marshalRecord(record *proto.Record) ([]byte, error) {
 	if record == nil {
 		return nil, status.Error(codes.InvalidArgument, "record is required")
 	}
-	return gproto.Marshal(record)
+	return gestalt.MarshalProtoDeterministic(record)
 }
 
 func typedValueKeyString(value *proto.TypedValue) string {

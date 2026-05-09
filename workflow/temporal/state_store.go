@@ -12,8 +12,6 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -1483,19 +1481,19 @@ func executionRefFromRecord(record gestalt.Record) (*proto.WorkflowExecutionRefe
 	return cloneExecutionReference(&ref), nil
 }
 
-func marshalProto(msg gproto.Message) ([]byte, error) {
+func marshalProto(msg gestalt.ProtoMessage) ([]byte, error) {
 	if msg == nil {
 		return nil, nil
 	}
-	return gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	return gestalt.MarshalProtoDeterministic(msg)
 }
 
-func unmarshalRecordPayload(record gestalt.Record, msg gproto.Message) error {
+func unmarshalRecordPayload(record gestalt.Record, msg gestalt.ProtoMessage) error {
 	payload := recordBytes(record, "payload")
 	if len(payload) == 0 {
 		return fmt.Errorf("record %q has empty payload", recordString(record, "id"))
 	}
-	return gproto.Unmarshal(payload, msg)
+	return gestalt.UnmarshalProto(payload, msg)
 }
 
 func recordBytes(record gestalt.Record, key string) []byte {
@@ -1576,7 +1574,7 @@ func (s *workflowStateStore) unscopedID(id string) string {
 	return strings.TrimSpace(strings.TrimPrefix(id, prefix))
 }
 
-func timeFromProto(value *timestamppb.Timestamp) *time.Time {
+func timeFromProto(value *gestalt.Timestamp) *time.Time {
 	asTime, err := gestalt.TimePtrFromTimestamp(value)
 	if err != nil || asTime == nil {
 		return nil
@@ -1585,7 +1583,7 @@ func timeFromProto(value *timestamppb.Timestamp) *time.Time {
 	return &utc
 }
 
-func timeFromProtoOrNow(value *timestamppb.Timestamp, fallback time.Time) time.Time {
+func timeFromProtoOrNow(value *gestalt.Timestamp, fallback time.Time) time.Time {
 	if asTime := timeFromProto(value); asTime != nil {
 		return *asTime
 	}
