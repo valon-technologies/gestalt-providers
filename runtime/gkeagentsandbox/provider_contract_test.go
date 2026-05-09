@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
@@ -1415,19 +1414,19 @@ func startPluginLifecycleServer(t *testing.T) string {
 		Methods: []grpc.MethodDesc{{
 			MethodName: "GetProviderIdentity",
 			Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-				var req emptypb.Empty
+				var req gestalt.Empty
 				if err := dec(&req); err != nil {
 					return nil, err
 				}
 				if interceptor == nil {
-					return &emptypb.Empty{}, nil
+					return &gestalt.Empty{}, nil
 				}
 				info := &grpc.UnaryServerInfo{
 					Server:     srv,
 					FullMethod: "/gestalt.provider.v1.ProviderLifecycle/GetProviderIdentity",
 				}
 				return interceptor(ctx, &req, info, func(context.Context, interface{}) (interface{}, error) {
-					return &emptypb.Empty{}, nil
+					return &gestalt.Empty{}, nil
 				})
 			},
 		}},

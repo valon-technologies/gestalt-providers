@@ -15,14 +15,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestAuthorizationProviderRoundTrip(t *testing.T) {
 	sess := newProviderSession(t)
 
-	meta, err := sess.runtime.GetProviderIdentity(sess.ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
+	meta, err := sess.runtime.GetProviderIdentity(sess.ctx, &gestalt.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("GetProviderIdentity: %v", err)
 	}
@@ -48,7 +46,7 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 		t.Fatalf("model version = %q, want 1", modelRef.GetVersion())
 	}
 
-	authzMeta, err := sess.client.GetMetadata(sess.ctx, &emptypb.Empty{})
+	authzMeta, err := sess.client.GetMetadata(sess.ctx, &gestalt.Empty{})
 	if err != nil {
 		t.Fatalf("GetMetadata: %v", err)
 	}
@@ -192,7 +190,7 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 		t.Fatalf("ReadRelationships pairs = %#v", got)
 	}
 
-	active, err := sess.client.GetActiveModel(sess.ctx, &emptypb.Empty{})
+	active, err := sess.client.GetActiveModel(sess.ctx, &gestalt.Empty{})
 	if err != nil {
 		t.Fatalf("GetActiveModel: %v", err)
 	}
@@ -449,7 +447,7 @@ func newProviderSession(t *testing.T) *providerSession {
 
 func (s *providerSession) configure(t *testing.T, config map[string]any) {
 	t.Helper()
-	cfg, err := structpb.NewStruct(config)
+	cfg, err := gestalt.StructFromMap(config)
 	if err != nil {
 		t.Fatalf("NewStruct: %v", err)
 	}
@@ -537,9 +535,9 @@ func waitServeResult(t *testing.T, errCh <-chan error) {
 	}
 }
 
-func mustStruct(t *testing.T, fields map[string]any) *structpb.Struct {
+func mustStruct(t *testing.T, fields map[string]any) *gestalt.Struct {
 	t.Helper()
-	value, err := structpb.NewStruct(fields)
+	value, err := gestalt.StructFromMap(fields)
 	if err != nil {
 		t.Fatalf("NewStruct: %v", err)
 	}

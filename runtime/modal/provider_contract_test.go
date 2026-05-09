@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
@@ -933,7 +932,7 @@ func (f *fakeModalControlPlane) SandboxCreate(ctx context.Context, req *modalpro
 	return modalproto.SandboxCreateResponse_builder{SandboxId: sandboxID}.Build(), nil
 }
 
-func (f *fakeModalControlPlane) SandboxTagsSet(ctx context.Context, req *modalproto.SandboxTagsSetRequest) (*emptypb.Empty, error) {
+func (f *fakeModalControlPlane) SandboxTagsSet(ctx context.Context, req *modalproto.SandboxTagsSetRequest) (*gestalt.Empty, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -945,7 +944,7 @@ func (f *fakeModalControlPlane) SandboxTagsSet(ctx context.Context, req *modalpr
 	}
 	sandbox.tags = modalTagsToMap(req.GetTags())
 	f.events = append(f.events, "tags-set:"+sandbox.id)
-	return &emptypb.Empty{}, nil
+	return &gestalt.Empty{}, nil
 }
 
 func (f *fakeModalControlPlane) SandboxGetTunnels(ctx context.Context, req *modalproto.SandboxGetTunnelsRequest) (*modalproto.SandboxGetTunnelsResponse, error) {

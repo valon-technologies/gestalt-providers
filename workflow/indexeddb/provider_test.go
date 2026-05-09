@@ -19,8 +19,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
@@ -526,7 +524,7 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 			Id:             fmt.Sprintf("other-signal-%02d", i),
 			Name:           "github.app.webhook",
 			Payload:        mustStruct(t, map[string]any{"body": largePayload}),
-			CreatedAt:      timestamppb.New(now),
+			CreatedAt:      gestalt.TimestampFromTime(now),
 			IdempotencyKey: fmt.Sprintf("other-event-%02d", i),
 			Sequence:       int64(i + 1),
 		}
@@ -1448,7 +1446,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "roadmap", Operations: []string{"sync", "preview"}},
 			},
-			CreatedAt: timestamppb.New(firstCreatedAt),
+			CreatedAt: gestalt.TimestampFromTime(firstCreatedAt),
 		},
 	})
 	if err != nil {
@@ -1479,8 +1477,8 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "roadmap", Operations: []string{"sync"}},
 			},
-			CreatedAt: timestamppb.New(secondCreatedAt),
-			RevokedAt: timestamppb.New(revokedAt),
+			CreatedAt: gestalt.TimestampFromTime(secondCreatedAt),
+			RevokedAt: gestalt.TimestampFromTime(revokedAt),
 		},
 	})
 	if err != nil {
@@ -1498,7 +1496,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Id:        "ref-2",
 			Target:    protoBoundTarget(t, "roadmap", "sync", nil),
 			SubjectId: "user:123",
-			CreatedAt: timestamppb.New(secondCreatedAt),
+			CreatedAt: gestalt.TimestampFromTime(secondCreatedAt),
 		},
 	}); err != nil {
 		t.Fatalf("PutExecutionReference(ref-2): %v", err)
@@ -1508,7 +1506,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Id:        "ref-3",
 			Target:    protoBoundTarget(t, "billing", "collect", nil),
 			SubjectId: "user:999",
-			CreatedAt: timestamppb.New(secondCreatedAt.Add(time.Minute)),
+			CreatedAt: gestalt.TimestampFromTime(secondCreatedAt.Add(time.Minute)),
 		},
 	}); err != nil {
 		t.Fatalf("PutExecutionReference(ref-3): %v", err)
@@ -1641,7 +1639,7 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
 			},
-			CreatedAt: timestamppb.New(createdAt),
+			CreatedAt: gestalt.TimestampFromTime(createdAt),
 		},
 	})
 	if err != nil {
@@ -4104,14 +4102,14 @@ func protoWorkflowSignal(t *testing.T, id, idempotencyKey, text string) *proto.W
 	}
 }
 
-func mustStruct(t *testing.T, value map[string]any) *structpb.Struct {
+func mustStruct(t *testing.T, value map[string]any) *gestalt.Struct {
 	t.Helper()
 	if len(value) == 0 {
 		return nil
 	}
-	pb, err := structpb.NewStruct(value)
+	pb, err := gestalt.StructFromMap(value)
 	if err != nil {
-		t.Fatalf("structpb.NewStruct(%#v): %v", value, err)
+		t.Fatalf("gestalt.StructFromMap(%#v): %v", value, err)
 	}
 	return pb
 }

@@ -6,20 +6,20 @@ import (
 	"io"
 	"strings"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type Backend interface {
 	Get(context.Context, *proto.ObjectStoreRequest) (*proto.RecordResponse, error)
 	GetKey(context.Context, *proto.ObjectStoreRequest) (*proto.KeyResponse, error)
-	Add(context.Context, *proto.RecordRequest) (*emptypb.Empty, error)
-	Put(context.Context, *proto.RecordRequest) (*emptypb.Empty, error)
-	Delete(context.Context, *proto.ObjectStoreRequest) (*emptypb.Empty, error)
-	Clear(context.Context, *proto.ObjectStoreNameRequest) (*emptypb.Empty, error)
+	Add(context.Context, *proto.RecordRequest) (*gestalt.Empty, error)
+	Put(context.Context, *proto.RecordRequest) (*gestalt.Empty, error)
+	Delete(context.Context, *proto.ObjectStoreRequest) (*gestalt.Empty, error)
+	Clear(context.Context, *proto.ObjectStoreNameRequest) (*gestalt.Empty, error)
 	GetAll(context.Context, *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error)
 	GetAllKeys(context.Context, *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error)
 	Count(context.Context, *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error)

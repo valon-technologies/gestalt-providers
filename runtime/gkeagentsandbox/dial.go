@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const providerLifecycleGetIdentityMethod = "/gestalt.provider.v1.ProviderLifecycle/GetProviderIdentity"
@@ -31,7 +31,7 @@ func waitForPluginReady(ctx context.Context, dialTarget string) error {
 		)
 		if err == nil {
 			callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			rpcErr := conn.Invoke(callCtx, providerLifecycleGetIdentityMethod, &emptypb.Empty{}, &emptypb.Empty{})
+			rpcErr := conn.Invoke(callCtx, providerLifecycleGetIdentityMethod, &gestalt.Empty{}, &gestalt.Empty{})
 			cancel()
 			_ = conn.Close()
 			if rpcErr == nil {
