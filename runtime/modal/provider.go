@@ -23,7 +23,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -52,8 +51,7 @@ const (
 )
 
 const (
-	envProviderSocket                  = "GESTALT_PLUGIN_SOCKET"
-	providerLifecycleGetIdentityMethod = "/gestalt.provider.v1.ProviderLifecycle/GetProviderIdentity"
+	envProviderSocket = "GESTALT_PLUGIN_SOCKET"
 )
 
 var sandboxNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -1340,7 +1338,7 @@ func waitForPluginReady(ctx context.Context, host string, port int) error {
 	for {
 		conn, err := dialTLSPlugin(deadlineCtx, host, port)
 		if err == nil {
-			rpcErr := conn.Invoke(deadlineCtx, providerLifecycleGetIdentityMethod, &emptypb.Empty{}, &emptypb.Empty{})
+			rpcErr := gestalt.ProbeProviderLifecycle(deadlineCtx, conn)
 			_ = conn.Close()
 			if rpcErr == nil {
 				return nil
