@@ -270,7 +270,7 @@ func (s *store) recordToCredential(record gestalt.Record) (*gestalt.ExternalCred
 		return nil, fmt.Errorf("decrypt credential pair: %w", err)
 	}
 
-	return &gestalt.ExternalCredential{
+	credential := &gestalt.ExternalCredential{
 		Id:                recordString(record, "id"),
 		SubjectId:         credentialRecordSubjectID(record),
 		ConnectionId:      recordString(record, "connection_id"),
@@ -278,13 +278,14 @@ func (s *store) recordToCredential(record gestalt.Record) (*gestalt.ExternalCred
 		AccessToken:       accessToken,
 		RefreshToken:      refreshToken,
 		Scopes:            recordString(record, "scopes"),
-		ExpiresAt:         timeToProto(recordTimePtr(record, "expires_at")),
-		LastRefreshedAt:   timeToProto(recordTimePtr(record, "last_refreshed_at")),
 		RefreshErrorCount: int32(recordInt(record, "refresh_error_count")),
 		MetadataJson:      recordString(record, "metadata_json"),
-		CreatedAt:         timeToProto(recordTimePtr(record, "created_at")),
-		UpdatedAt:         timeToProto(recordTimePtr(record, "updated_at")),
-	}, nil
+	}
+	gestalt.SetOptionalTime(&credential.ExpiresAt, recordTimePtr(record, "expires_at"))
+	gestalt.SetOptionalTime(&credential.LastRefreshedAt, recordTimePtr(record, "last_refreshed_at"))
+	gestalt.SetOptionalTime(&credential.CreatedAt, recordTimePtr(record, "created_at"))
+	gestalt.SetOptionalTime(&credential.UpdatedAt, recordTimePtr(record, "updated_at"))
+	return credential, nil
 }
 
 func normalizeCredential(credential *gestalt.ExternalCredential) *gestalt.ExternalCredential {
@@ -428,13 +429,6 @@ func recordTimePtr(record gestalt.Record, key string) *time.Time {
 		return nil
 	}
 	return &value
-}
-
-func timeToProto(value *time.Time) *timestamppb.Timestamp {
-	if value == nil || value.IsZero() {
-		return nil
-	}
-	return gestalt.TimestampFromTime(value.UTC())
 }
 
 func timeFromProto(value *timestamppb.Timestamp) *time.Time {

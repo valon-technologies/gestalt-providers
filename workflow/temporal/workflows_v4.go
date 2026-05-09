@@ -81,7 +81,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	appendSignal := func(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 		signal = cloneSignal(signal)
 		if signal.GetCreatedAt() == nil {
-			signal.CreatedAt = gestalt.TimestampFromTime(workflow.Now(ctx).UTC())
+			gestalt.SetTime(&signal.CreatedAt, workflow.Now(ctx).UTC())
 		}
 		if signal.GetSequence() <= 0 {
 			signal.Sequence = nextSignalSequence
@@ -148,7 +148,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		completedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
+		gestalt.SetTime(&state.CompletedAt, completedAt)
 		state.StatusMessage = strings.TrimSpace(reason)
 		if state.GetStatusMessage() == "" {
 			state.StatusMessage = "canceled"
@@ -184,7 +184,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		startedAt := workflow.Now(ctx).UTC()
 		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-		state.StartedAt = gestalt.TimestampFromTime(startedAt)
+		gestalt.SetTime(&state.StartedAt, startedAt)
 		state.CompletedAt = nil
 		state.StatusMessage = ""
 		project(ctx)
@@ -212,7 +212,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		state.CompletedAt = gestalt.TimestampFromTime(completedAt)
+		gestalt.SetTime(&state.CompletedAt, completedAt)
 		if invokeErr != nil {
 			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
 			state.StatusMessage = invokeErr.Error()
