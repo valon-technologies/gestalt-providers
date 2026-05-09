@@ -13,11 +13,6 @@ import (
 )
 
 type runWorkflowV4Input struct {
-	ProviderName                  string        `json:"provider_name"`
-	ScopeID                       string        `json:"scope_id"`
-	TaskQueue                     string        `json:"task_queue"`
-	WorkflowRunTimeoutNS          time.Duration `json:"workflow_run_timeout_ns"`
-	WorkflowTaskTimeoutNS         time.Duration `json:"workflow_task_timeout_ns"`
 	ActivityStartToCloseTimeoutNS time.Duration `json:"activity_start_to_close_timeout_ns"`
 	ScheduleID                    string        `json:"schedule_id,omitempty"`
 	ExecutionRef                  string        `json:"execution_ref,omitempty"`

@@ -20,8 +20,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const workflowScheduleMemoKey = "gestalt.workflow_schedule"
-
 type workflowHost interface {
 	InvokeOperation(context.Context, *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error)
 	Close() error
@@ -946,9 +944,6 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
-	scheduleMemo := map[string]interface{}{
-		workflowScheduleMemoKey: cloneSchedule(schedule),
-	}
 	actionInput := b.runV4Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), false)
 	actionInput.ScheduleID = schedule.GetId()
 	action := &client.ScheduleWorkflowAction{
@@ -957,7 +952,6 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 		TaskQueue:           b.cfg.TaskQueue,
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout: b.cfg.WorkflowTaskTimeout,
-		Memo:                scheduleMemo,
 	}
 	temporalID := b.temporalScheduleID(schedule.GetId())
 	spec := client.ScheduleSpec{
@@ -977,7 +971,6 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 			Overlap:       enumspb.SCHEDULE_OVERLAP_POLICY_SKIP,
 			CatchupWindow: b.cfg.ScheduleCatchupWindow,
 			Paused:        schedule.GetPaused(),
-			Memo:          scheduleMemo,
 		})
 		if err != nil {
 			return status.Errorf(codes.Internal, "create temporal schedule: %v", err)
