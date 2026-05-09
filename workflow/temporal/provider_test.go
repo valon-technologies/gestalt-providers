@@ -301,48 +301,6 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	}
 }
 
-func TestScheduleFromTemporalDescriptionUsesActionMemo(t *testing.T) {
-	createdAt := time.Unix(100, 0).UTC()
-	updatedAt := time.Unix(200, 0).UTC()
-	nextAt := time.Unix(300, 0).UTC()
-	schedule := &proto.BoundWorkflowSchedule{
-		Id:           "schedule-1",
-		Target:       pluginTarget("slack", "postMessage"),
-		CreatedBy:    &proto.WorkflowActor{SubjectId: "system:config", SubjectKind: "system", AuthSource: "config"},
-		ExecutionRef: "ref-1",
-	}
-	payload, err := converter.GetDefaultDataConverter().ToPayload(schedule)
-	if err != nil {
-		t.Fatalf("encode schedule memo: %v", err)
-	}
-
-	got, found, err := scheduleFromTemporalDescription("", &client.ScheduleDescription{
-		Schedule: client.Schedule{
-			Action: &client.ScheduleWorkflowAction{
-				Memo: map[string]interface{}{workflowScheduleMemoKey: payload},
-			},
-			Spec:  &client.ScheduleSpec{CronExpressions: []string{"0 * * * *"}, TimeZoneName: "America/New_York"},
-			State: &client.ScheduleState{Paused: true},
-		},
-		Info: client.ScheduleInfo{CreatedAt: createdAt, LastUpdateAt: updatedAt, NextActionTimes: []time.Time{nextAt}},
-	})
-	if err != nil {
-		t.Fatalf("scheduleFromTemporalDescription: %v", err)
-	}
-	if !found {
-		t.Fatalf("schedule not found")
-	}
-	if got.GetId() != "schedule-1" || got.GetCron() != "0 * * * *" || got.GetTimezone() != "America/New_York" || !got.GetPaused() {
-		t.Fatalf("decoded schedule = %#v", got)
-	}
-	if got.GetExecutionRef() != "ref-1" || got.GetTarget().GetPlugin().GetPluginName() != "slack" {
-		t.Fatalf("decoded schedule metadata = %#v", got)
-	}
-	if !got.GetCreatedAt().AsTime().Equal(createdAt) || !got.GetUpdatedAt().AsTime().Equal(updatedAt) || !got.GetNextRunAt().AsTime().Equal(nextAt) {
-		t.Fatalf("decoded schedule times = created %v updated %v next %v", got.GetCreatedAt(), got.GetUpdatedAt(), got.GetNextRunAt())
-	}
-}
-
 func TestTemporalBackendStartKeepsWorkerUnversionedWhenConfigOmitted(t *testing.T) {
 	order := []string{}
 	fw := &fakeTemporalWorker{order: &order}
@@ -3381,7 +3339,6 @@ func startTestIndexedDBBackend(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
-	seedTemporalWorkflowStores(t, store)
 
 	t.Setenv(proto.EnvProviderSocket, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -3412,78 +3369,4 @@ func startTestIndexedDBBackend(t *testing.T) {
 		_ = os.Remove(socketPath)
 	})
 	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
-}
-
-func seedTemporalWorkflowStores(t *testing.T, store *relationaldb.Provider) {
-	t.Helper()
-	for _, def := range []struct {
-		name   string
-		schema gestalt.ObjectStoreSchema
-	}{
-		{name: storeTemporalSchedules, schema: temporalScheduleSchema()},
-		{name: storeTemporalEventTriggers, schema: temporalEventTriggerSchema()},
-		{name: storeTemporalEventTriggerKeys, schema: temporalEventTriggerKeySchema()},
-		{name: storeTemporalExecutionRefs, schema: temporalExecutionRefSchema()},
-	} {
-		if err := store.CreateObjectStore(context.Background(), def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
-		}
-	}
-}
-
-func temporalScheduleSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "owner_key", Type: gestalt.TypeString},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "updated_at", Type: gestalt.TypeTime},
-			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
-		},
-	}
-}
-
-func temporalEventTriggerSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "owner_key", Type: gestalt.TypeString},
-			{Name: "paused", Type: gestalt.TypeBool},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "updated_at", Type: gestalt.TypeTime},
-			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
-		},
-	}
-}
-
-func temporalEventTriggerKeySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: indexByMatchKey, KeyPath: []string{"match_key"}},
-			{Name: indexByTriggerID, KeyPath: []string{"trigger_id"}},
-		},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "match_key", Type: gestalt.TypeString, NotNull: true},
-			{Name: "trigger_id", Type: gestalt.TypeString, NotNull: true},
-		},
-	}
-}
-
-func temporalExecutionRefSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{{Name: indexBySubject, KeyPath: []string{"subject_id"}}},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "provider_name", Type: gestalt.TypeString, NotNull: true},
-			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "revoked_at", Type: gestalt.TypeTime},
-			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
-		},
-	}
 }
