@@ -759,7 +759,6 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-          - "generic"
       "0.0.1-alpha.9":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/external_credentials/default/v0.0.1-alpha.9/provider-release.yaml"
         kind: "external_credentials"
