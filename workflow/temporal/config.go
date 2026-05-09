@@ -20,7 +20,6 @@ const (
 )
 
 type config struct {
-	IndexedDB                   string           `yaml:"indexeddb"`
 	HostPort                    string           `yaml:"hostPort"`
 	Namespace                   string           `yaml:"namespace"`
 	APIKey                      string           `yaml:"apiKey"`
@@ -63,7 +62,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 			return config{}, fmt.Errorf("decode config: %w", err)
 		}
 	}
-	cfg.IndexedDB = strings.TrimSpace(cfg.IndexedDB)
 	cfg.HostPort = strings.TrimSpace(cfg.HostPort)
 	cfg.Namespace = strings.TrimSpace(cfg.Namespace)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)

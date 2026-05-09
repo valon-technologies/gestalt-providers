@@ -56,7 +56,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		Target:       targetFromPayload(input.TargetPayload),
 		Trigger:      triggerFromPayload(input.TriggerPayload),
 		CreatedAt:    now,
-		CreatedBy:    actorFromPayload(input.CreatedByPayload),
+		CreatedBy:    actorInputPtr(actorFromPayload(input.CreatedByPayload)),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 	})

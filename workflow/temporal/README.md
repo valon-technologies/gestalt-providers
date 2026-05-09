@@ -51,7 +51,7 @@ after the new worker version is deployed and polling.
 ## Runtime Requirements
 
 - Gestalt host support for `ProviderLifecycle.StartProvider`
-- `GESTALT_INDEXEDDB_SOCKET` must point at an IndexedDB provider socket
+- the provider's IndexedDB binding must point at an IndexedDB provider socket
 - `GESTALT_WORKFLOW_HOST_SOCKET` must point at the workflow host socket
 - A Temporal Cloud namespace reachable at `hostPort`
 - A Temporal Cloud API key with permission to start workflows, update

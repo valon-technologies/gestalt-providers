@@ -1330,12 +1330,12 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	scopeA, err := openWorkflowStateStore(ctx, "", "scope-a")
+	scopeA, err := openWorkflowStateStore(ctx, "scope-a")
 	if err != nil {
 		t.Fatalf("open scope-a: %v", err)
 	}
 	t.Cleanup(func() { _ = scopeA.Close() })
-	scopeB, err := openWorkflowStateStore(ctx, "", "scope-b")
+	scopeB, err := openWorkflowStateStore(ctx, "scope-b")
 	if err != nil {
 		t.Fatalf("open scope-b: %v", err)
 	}
@@ -1676,12 +1676,12 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	scopeA, err := openWorkflowStateStore(ctx, "", "scope-a")
+	scopeA, err := openWorkflowStateStore(ctx, "scope-a")
 	if err != nil {
 		t.Fatalf("open scope-a: %v", err)
 	}
 	t.Cleanup(func() { _ = scopeA.Close() })
-	scopeB, err := openWorkflowStateStore(ctx, "", "scope-b")
+	scopeB, err := openWorkflowStateStore(ctx, "scope-b")
 	if err != nil {
 		t.Fatalf("open scope-b: %v", err)
 	}
@@ -2020,7 +2020,7 @@ func newTestWorkflowStateStore(t *testing.T) (context.Context, *workflowStateSto
 	t.Helper()
 	startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "", "scope")
+	state, err := openWorkflowStateStore(ctx, "scope")
 	if err != nil {
 		t.Fatalf("openWorkflowStateStore: %v", err)
 	}

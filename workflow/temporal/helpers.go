@@ -423,7 +423,7 @@ func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*prot
 		Name:           name,
 		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
 		Metadata:       gestalt.MapFromStruct(signal.GetMetadata()),
-		CreatedBy:      cloneActor(signal.GetCreatedBy()),
+		CreatedBy:      actorInputPtr(signal.GetCreatedBy()),
 		CreatedAt:      createdAt,
 		IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
 		Sequence:       signal.GetSequence(),
@@ -451,6 +451,15 @@ func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
 		DisplayName: strings.TrimSpace(actor.GetDisplayName()),
 		AuthSource:  strings.TrimSpace(actor.GetAuthSource()),
 	}
+}
+
+func actorInputPtr(actor *proto.WorkflowActor) *gestalt.WorkflowActorInput {
+	actor = cloneActor(actor)
+	if actor == nil {
+		return nil
+	}
+	input := gestalt.WorkflowActorInputFromActor(actor)
+	return &input
 }
 
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {

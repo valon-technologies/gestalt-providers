@@ -45,21 +45,12 @@ type workflowStateStore struct {
 	workflowKeys      *gestalt.ObjectStoreClient
 }
 
-func openWorkflowStateStore(ctx context.Context, binding, scopeID string) (*workflowStateStore, error) {
-	binding = strings.TrimSpace(binding)
+func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowStateStore, error) {
 	scopeID = strings.TrimSpace(scopeID)
 	if scopeID == "" {
 		return nil, fmt.Errorf("scopeID is required")
 	}
-	var (
-		db  *gestalt.IndexedDBClient
-		err error
-	)
-	if binding == "" {
-		db, err = gestalt.IndexedDB()
-	} else {
-		db, err = gestalt.IndexedDB(binding)
-	}
+	db, err := gestalt.IndexedDB()
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
