@@ -40,13 +40,10 @@ logical Gestalt workflow environment.
 as unversioned workers. When enabled, the provider starts Temporal Worker
 Deployment Versioning with `DeploymentOptions.UseVersioning`, the configured
 `deploymentName`, the resolved build ID, and Temporal auto-upgrade workflow
-behavior. Use either `buildID` or `buildIDEnv`; if `buildIDEnv` is used, the
-environment variable must be present in the provider process environment. Hosted
-provider processes may not inherit every environment variable from the parent
-runtime, so config interpolation into `buildID` is usually the safer deployment
-interface. The provider does not update Temporal Worker Deployment routing
-during startup; deploy pipelines must promote or ramp worker deployment versions
-after the new worker version is deployed and polling.
+behavior. Deployment configs should interpolate runtime revision variables into
+`buildID` before provider startup. The provider does not update Temporal Worker
+Deployment routing during startup; deploy pipelines must promote or ramp worker
+deployment versions after the new worker version is deployed and polling.
 
 ## Runtime Requirements
 

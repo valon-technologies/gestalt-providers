@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -38,7 +37,6 @@ type versioningConfig struct {
 	Enabled         bool   `yaml:"enabled"`
 	DeploymentName  string `yaml:"deploymentName"`
 	BuildID         string `yaml:"buildID"`
-	BuildIDEnv      string `yaml:"buildIDEnv"`
 	ResolvedBuildID string `yaml:"-"`
 }
 
@@ -109,7 +107,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 func normalizeVersioningConfig(cfg versioningConfig) versioningConfig {
 	cfg.DeploymentName = strings.TrimSpace(cfg.DeploymentName)
 	cfg.BuildID = strings.TrimSpace(cfg.BuildID)
-	cfg.BuildIDEnv = strings.TrimSpace(cfg.BuildIDEnv)
 	return cfg
 }
 
@@ -123,21 +120,9 @@ func validateVersioningConfig(cfg *versioningConfig) error {
 	if strings.Contains(cfg.DeploymentName, ".") {
 		return fmt.Errorf("versioning.deploymentName cannot contain %q", ".")
 	}
-	hasBuildID := cfg.BuildID != ""
-	hasBuildIDEnv := cfg.BuildIDEnv != ""
-	if hasBuildID == hasBuildIDEnv {
-		return fmt.Errorf("exactly one of versioning.buildID or versioning.buildIDEnv is required when versioning is enabled")
-	}
-	if hasBuildIDEnv {
-		cfg.ResolvedBuildID = strings.TrimSpace(os.Getenv(cfg.BuildIDEnv))
-		if cfg.ResolvedBuildID == "" {
-			return fmt.Errorf("versioning.buildIDEnv %q is not set or is empty", cfg.BuildIDEnv)
-		}
-	} else {
-		cfg.ResolvedBuildID = cfg.BuildID
-	}
+	cfg.ResolvedBuildID = cfg.BuildID
 	if cfg.ResolvedBuildID == "" {
-		return fmt.Errorf("versioning build ID resolved to an empty value")
+		return fmt.Errorf("versioning.buildID is required when versioning is enabled")
 	}
 	return nil
 }
