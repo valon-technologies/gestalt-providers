@@ -97,7 +97,14 @@ func (p *Provider) GetMetadata(ctx context.Context) (*gestalt.AuthorizationMetad
 		return nil, err
 	}
 	return &gestalt.AuthorizationMetadata{
-		Capabilities:  []string{"decision_plane", "relationship_control_plane", "model_control_plane"},
+		Capabilities: []string{
+			"decision_plane",
+			"relationship_control_plane",
+			"model_control_plane",
+			"effective_search_resources",
+			"effective_search_subjects",
+			"expand",
+		},
 		ActiveModelId: activeModelID,
 	}, nil
 }
@@ -179,6 +186,16 @@ func (p *Provider) ReadRelationships(ctx context.Context, req *gestalt.ReadRelat
 			return nil, err
 		}
 	}
+	var targetFilter compiledRelationshipTarget
+	targetFilterSet := false
+	if req.GetTarget() != nil {
+		target, _, err := normalizedRelationshipTarget(req.GetTarget(), req.GetSubject())
+		if err != nil {
+			return nil, err
+		}
+		targetFilter = target
+		targetFilterSet = true
+	}
 
 	model, err := p.resolveModel(ctx, req.GetModelId(), false)
 	if err != nil {
@@ -192,6 +209,15 @@ func (p *Provider) ReadRelationships(ctx context.Context, req *gestalt.ReadRelat
 	for _, relationship := range relationships {
 		if req.GetRelation() != "" && relationship.GetRelation() != req.GetRelation() {
 			continue
+		}
+		if targetFilterSet {
+			target, _, err := normalizedRelationshipTarget(relationship.GetTarget(), relationship.GetSubject())
+			if err != nil {
+				return nil, err
+			}
+			if !sameRelationshipTarget(target, targetFilter) {
+				continue
+			}
 		}
 		filtered = append(filtered, relationship)
 	}
@@ -238,7 +264,11 @@ func (p *Provider) WriteRelationships(ctx context.Context, req *gestalt.WriteRel
 			return err
 		}
 		if model != nil {
-			if err := model.compiled.validateRelationship(relationship.GetSubject().GetType(), relationship.GetRelation(), relationship.GetResource().GetType()); err != nil {
+			target, _, err := normalizedRelationshipTarget(relationship.GetTarget(), relationship.GetSubject())
+			if err != nil {
+				return err
+			}
+			if err := model.compiled.validateRelationshipTarget(target, relationship.GetRelation(), relationship.GetResource().GetType()); err != nil {
 				return status.Errorf(codes.InvalidArgument, "relationship rejected by model %q: %v", model.ref.GetId(), err)
 			}
 		}
@@ -367,6 +397,8 @@ func (p *Provider) resolveModel(ctx context.Context, requestedModelID string, re
 }
 
 var _ gestalt.AuthorizationProvider = (*Provider)(nil)
+var _ gestalt.AuthorizationProviderEffectiveSearch = (*Provider)(nil)
+var _ gestalt.AuthorizationProviderExpansion = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)

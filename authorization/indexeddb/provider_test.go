@@ -390,6 +390,257 @@ func TestAuthorizationProviderWriteModelIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
+	sess := newProviderSession(t)
+	sess.configure(t, map[string]any{
+		"indexeddb": "test",
+	})
+
+	modelRef, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: zanzibarSessionModel()})
+	if err != nil {
+		t.Fatalf("WriteModel: %v", err)
+	}
+	_, err = sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
+		Writes: []*proto.Relationship{
+			{
+				Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "everyone", Id: "global"}, "member"),
+				Relation: "viewer",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-public"},
+			},
+			{
+				Subject:  &proto.Subject{Type: "subject", Id: "user:alice"},
+				Relation: "member",
+				Resource: &proto.Resource{Type: "team", Id: "team-ml"},
+			},
+			{
+				Subject:  &proto.Subject{Type: "subject", Id: "user:bob"},
+				Relation: "member",
+				Resource: &proto.Resource{Type: "slack_channel", Id: "C123"},
+			},
+			{
+				Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml", Properties: mustStruct(t, map[string]any{"name": "ML"})}, "member"),
+				Relation: "viewer",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
+			},
+			{
+				Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "slack_channel", Id: "C123"}, "member"),
+				Relation: "editor",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-slack"},
+			},
+			{
+				Subject:  &proto.Subject{Type: "subject", Id: "user:charlie"},
+				Relation: "viewer",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-parent"},
+			},
+			{
+				Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-parent", Properties: mustStruct(t, map[string]any{"title": "Parent"})}),
+				Relation: "parent",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-child"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRelationships: %v", err)
+	}
+
+	assertDecision(t, sess, "user:dana", "view", "session-public", true)
+	assertDecision(t, sess, "user:alice", "view", "session-team", true)
+	assertDecision(t, sess, "user:alice", "edit", "session-team", false)
+	assertDecision(t, sess, "user:bob", "edit", "session-slack", true)
+	assertDecision(t, sess, "user:bob", "view", "session-slack", true)
+	assertDecision(t, sess, "user:charlie", "view", "session-child", true)
+	assertDecision(t, sess, "user:charlie", "edit", "session-child", false)
+
+	directResources, err := sess.client.SearchResources(sess.ctx, &proto.ResourceSearchRequest{
+		Subject:      &proto.Subject{Type: "subject", Id: "user:alice"},
+		Action:       &proto.Action{Name: "view"},
+		ResourceType: "agent_session",
+	})
+	if err != nil {
+		t.Fatalf("SearchResources: %v", err)
+	}
+	if got := resourceIDs(directResources.GetResources()); len(got) != 0 {
+		t.Fatalf("direct SearchResources ids = %#v, want empty", got)
+	}
+
+	actionSearch, err := sess.client.SearchActions(sess.ctx, &proto.ActionSearchRequest{
+		Subject:  &proto.Subject{Type: "subject", Id: "user:alice"},
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
+	})
+	if err != nil {
+		t.Fatalf("SearchActions(effective): %v", err)
+	}
+	if got := actionNames(actionSearch.GetActions()); !reflect.DeepEqual(got, []string{"view"}) {
+		t.Fatalf("SearchActions(effective) actions = %#v, want view", got)
+	}
+
+	effectiveResources, err := sess.client.EffectiveSearchResources(sess.ctx, &proto.ResourceSearchRequest{
+		Subject:      &proto.Subject{Type: "subject", Id: "user:alice"},
+		Action:       &proto.Action{Name: "view"},
+		ResourceType: "agent_session",
+	})
+	if err != nil {
+		t.Fatalf("EffectiveSearchResources: %v", err)
+	}
+	if got := resourceIDs(effectiveResources.GetResources()); !reflect.DeepEqual(got, []string{"session-public", "session-team"}) {
+		t.Fatalf("EffectiveSearchResources ids = %#v, want public and team sessions", got)
+	}
+	if effectiveResources.GetModelId() != modelRef.GetId() {
+		t.Fatalf("EffectiveSearchResources model_id = %q, want %q", effectiveResources.GetModelId(), modelRef.GetId())
+	}
+
+	targetResp, err := sess.client.EffectiveSearchSubjects(sess.ctx, &proto.EffectiveSubjectSearchRequest{
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-slack"},
+		Action:   &proto.Action{Name: "edit"},
+	})
+	if err != nil {
+		t.Fatalf("EffectiveSearchSubjects: %v", err)
+	}
+	if got := targetSummaries(targetResp.GetTargets()); !reflect.DeepEqual(got, []string{"set:slack_channel/C123#member"}) {
+		t.Fatalf("EffectiveSearchSubjects targets = %#v", got)
+	}
+
+	readResp, err := sess.client.ReadRelationships(sess.ctx, &proto.ReadRelationshipsRequest{
+		Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
+	})
+	if err != nil {
+		t.Fatalf("ReadRelationships(target): %v", err)
+	}
+	if got := relationshipPairs(readResp.GetRelationships()); !reflect.DeepEqual(got, []string{"viewer:agent_session/session-team"}) {
+		t.Fatalf("ReadRelationships(target) pairs = %#v", got)
+	}
+	if got := targetSummary(readResp.GetRelationships()[0].GetTarget()); got != "set:team/team-ml#member" {
+		t.Fatalf("ReadRelationships(target) target = %q, want set:team/team-ml#member", got)
+	}
+	if got := readResp.GetRelationships()[0].GetTarget().GetSubjectSet().GetResource().GetProperties().AsMap()["name"]; got != "ML" {
+		t.Fatalf("ReadRelationships(target) target resource property name = %#v, want ML", got)
+	}
+
+	parentReadResp, err := sess.client.ReadRelationships(sess.ctx, &proto.ReadRelationshipsRequest{
+		Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-parent"}),
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-child"},
+	})
+	if err != nil {
+		t.Fatalf("ReadRelationships(parent target): %v", err)
+	}
+	if got := relationshipPairs(parentReadResp.GetRelationships()); !reflect.DeepEqual(got, []string{"parent:agent_session/session-child"}) {
+		t.Fatalf("ReadRelationships(parent target) pairs = %#v", got)
+	}
+	if got := parentReadResp.GetRelationships()[0].GetTarget().GetResource().GetProperties().AsMap()["title"]; got != "Parent" {
+		t.Fatalf("ReadRelationships(parent target) target resource property title = %#v, want Parent", got)
+	}
+
+	expandResp, err := sess.client.Expand(sess.ctx, &proto.ExpandRequest{
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-child"},
+		Relation: "viewer",
+		MaxDepth: 8,
+	})
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	if !expandContainsTarget(expandResp.GetRoot(), "subject:subject/user:charlie") {
+		t.Fatalf("Expand tree did not include inherited charlie viewer: %#v", expandResp.GetRoot())
+	}
+
+	_, err = sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
+		Deletes: []*proto.RelationshipKey{{
+			Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
+			Relation: "viewer",
+			Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("WriteRelationships(delete target): %v", err)
+	}
+	assertDecision(t, sess, "user:alice", "view", "session-team", false)
+}
+
+func TestAuthorizationProviderRejectsMismatchedRelationshipTargets(t *testing.T) {
+	sess := newProviderSession(t)
+	sess.configure(t, map[string]any{
+		"indexeddb": "test",
+	})
+	if _, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: zanzibarSessionModel()}); err != nil {
+		t.Fatalf("WriteModel: %v", err)
+	}
+
+	_, err := sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
+		Writes: []*proto.Relationship{{
+			Subject:  &proto.Subject{Type: "subject", Id: "user:alice"},
+			Target:   gestalt.NewAuthorizationSubjectTarget(&proto.Subject{Type: "subject", Id: "user:bob"}),
+			Relation: "viewer",
+			Resource: &proto.Resource{Type: "agent_session", Id: "session-1"},
+		}},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("mismatched subject target code = %v, want INVALID_ARGUMENT", err)
+	}
+
+	_, err = sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
+		Writes: []*proto.Relationship{{
+			Subject:  &proto.Subject{Type: "subject", Id: "user:alice"},
+			Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
+			Relation: "viewer",
+			Resource: &proto.Resource{Type: "agent_session", Id: "session-1"},
+		}},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("subject plus non-subject target code = %v, want INVALID_ARGUMENT", err)
+	}
+}
+
+func TestAuthorizationProviderExpandDetectsCyclesAndMaxDepth(t *testing.T) {
+	sess := newProviderSession(t)
+	sess.configure(t, map[string]any{
+		"indexeddb": "test",
+	})
+	if _, err := sess.client.WriteModel(sess.ctx, &proto.WriteModelRequest{Model: zanzibarSessionModel()}); err != nil {
+		t.Fatalf("WriteModel: %v", err)
+	}
+	_, err := sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
+		Writes: []*proto.Relationship{
+			{
+				Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-b"}),
+				Relation: "parent",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-a"},
+			},
+			{
+				Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-a"}),
+				Relation: "parent",
+				Resource: &proto.Resource{Type: "agent_session", Id: "session-b"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRelationships: %v", err)
+	}
+
+	cycleResp, err := sess.client.Expand(sess.ctx, &proto.ExpandRequest{
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-a"},
+		Relation: "viewer",
+		MaxDepth: 8,
+	})
+	if err != nil {
+		t.Fatalf("Expand(cycle): %v", err)
+	}
+	if !cycleResp.GetCycleDetected() {
+		t.Fatal("Expand(cycle) did not report cycle_detected")
+	}
+
+	depthResp, err := sess.client.Expand(sess.ctx, &proto.ExpandRequest{
+		Resource: &proto.Resource{Type: "agent_session", Id: "session-a"},
+		Relation: "viewer",
+		MaxDepth: 1,
+	})
+	if err != nil {
+		t.Fatalf("Expand(max depth): %v", err)
+	}
+	if !depthResp.GetMaxDepthReached() || !depthResp.GetTruncated() {
+		t.Fatalf("Expand(max depth) flags = max_depth_reached:%v truncated:%v, want both true", depthResp.GetMaxDepthReached(), depthResp.GetTruncated())
+	}
+}
+
 type providerSession struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -578,6 +829,57 @@ func relationshipPairs(relationships []*proto.Relationship) []string {
 	return out
 }
 
+func targetSummaries(targets []*proto.RelationshipTarget) []string {
+	out := make([]string, len(targets))
+	for i, target := range targets {
+		out[i] = targetSummary(target)
+	}
+	return out
+}
+
+func targetSummary(target *proto.RelationshipTarget) string {
+	if subject := target.GetSubject(); subject != nil {
+		return "subject:" + subject.GetType() + "/" + subject.GetId()
+	}
+	if resource := target.GetResource(); resource != nil {
+		return "resource:" + resource.GetType() + "/" + resource.GetId()
+	}
+	if set := target.GetSubjectSet(); set != nil {
+		return "set:" + set.GetResource().GetType() + "/" + set.GetResource().GetId() + "#" + set.GetRelation()
+	}
+	return "<nil>"
+}
+
+func expandContainsTarget(node *proto.ExpandNode, summary string) bool {
+	if node == nil {
+		return false
+	}
+	if targetSummary(node.GetTarget()) == summary {
+		return true
+	}
+	for _, child := range node.GetChildren() {
+		if expandContainsTarget(child, summary) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertDecision(t *testing.T, sess *providerSession, subjectID, action, sessionID string, want bool) {
+	t.Helper()
+	resp, err := sess.client.Evaluate(sess.ctx, &proto.AccessEvaluationRequest{
+		Subject:  &proto.Subject{Type: "subject", Id: subjectID},
+		Action:   &proto.Action{Name: action},
+		Resource: &proto.Resource{Type: "agent_session", Id: sessionID},
+	})
+	if err != nil {
+		t.Fatalf("Evaluate(%s, %s, %s): %v", subjectID, action, sessionID, err)
+	}
+	if resp.GetAllowed() != want {
+		t.Fatalf("Evaluate(%s, %s, %s) = %v, want %v", subjectID, action, sessionID, resp.GetAllowed(), want)
+	}
+}
+
 func roundTripModel() *proto.AuthorizationModel {
 	return &proto.AuthorizationModel{
 		Version: 1,
@@ -627,6 +929,82 @@ func rotatedModel() *proto.AuthorizationModel {
 				{Name: "read", Relations: []string{"viewer", "editor"}},
 				{Name: "write", Relations: []string{"editor"}},
 			},
+		}},
+	}
+}
+
+func zanzibarSessionModel() *proto.AuthorizationModel {
+	return &proto.AuthorizationModel{
+		Version: 1,
+		ResourceTypes: []*proto.AuthorizationModelResourceType{
+			{
+				Name: "agent_session",
+				Relations: []*proto.AuthorizationModelRelation{
+					zanzibarSessionAccessRelation("viewer"),
+					zanzibarSessionAccessRelation("editor"),
+					{
+						Name:           "parent",
+						SubjectTypes:   []string{"subject"},
+						AllowedTargets: []*proto.AuthorizationModelAllowedTarget{gestalt.NewAuthorizationModelResourceTypeTarget("agent_session")},
+					},
+				},
+				Actions: []*proto.AuthorizationModelAction{
+					{
+						Name:      "view",
+						Relations: []string{"viewer", "editor"},
+						Rewrite: gestalt.NewAuthorizationModelUnionRewrite(
+							gestalt.NewAuthorizationModelComputedUsersetRewrite("viewer"),
+							gestalt.NewAuthorizationModelComputedUsersetRewrite("editor"),
+						),
+					},
+					{
+						Name:      "edit",
+						Relations: []string{"editor"},
+						Rewrite:   gestalt.NewAuthorizationModelComputedUsersetRewrite("editor"),
+					},
+				},
+			},
+			membershipResourceType("everyone"),
+			membershipResourceType("team"),
+			membershipResourceType("slack_channel"),
+		},
+	}
+}
+
+func zanzibarSessionAccessRelation(name string) *proto.AuthorizationModelRelation {
+	children := []*proto.AuthorizationModelRewrite{gestalt.NewAuthorizationModelThisRewrite()}
+	if name == "viewer" {
+		children = append(children, gestalt.NewAuthorizationModelComputedUsersetRewrite("editor"))
+	}
+	children = append(children, gestalt.NewAuthorizationModelTupleToUsersetRewrite("parent", name))
+	return &proto.AuthorizationModelRelation{
+		Name:         name,
+		SubjectTypes: []string{"subject"},
+		AllowedTargets: []*proto.AuthorizationModelAllowedTarget{
+			gestalt.NewAuthorizationModelSubjectTypeTarget("subject"),
+			gestalt.NewAuthorizationModelSubjectSetAllowedTarget("everyone", "member"),
+			gestalt.NewAuthorizationModelSubjectSetAllowedTarget("team", "member"),
+			gestalt.NewAuthorizationModelSubjectSetAllowedTarget("slack_channel", "member"),
+		},
+		Rewrite: gestalt.NewAuthorizationModelUnionRewrite(children...),
+	}
+}
+
+func membershipResourceType(name string) *proto.AuthorizationModelResourceType {
+	return &proto.AuthorizationModelResourceType{
+		Name: name,
+		Relations: []*proto.AuthorizationModelRelation{{
+			Name:         "member",
+			SubjectTypes: []string{"subject"},
+			AllowedTargets: []*proto.AuthorizationModelAllowedTarget{
+				gestalt.NewAuthorizationModelSubjectTypeTarget("subject"),
+			},
+			Rewrite: gestalt.NewAuthorizationModelThisRewrite(),
+		}},
+		Actions: []*proto.AuthorizationModelAction{{
+			Name:      "member",
+			Relations: []string{"member"},
+			Rewrite:   gestalt.NewAuthorizationModelComputedUsersetRewrite("member"),
 		}},
 	}
 }
