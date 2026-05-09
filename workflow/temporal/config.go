@@ -34,15 +34,11 @@ type config struct {
 }
 
 type versioningConfig struct {
-	DeploymentName  string `yaml:"deploymentName"`
-	BuildID         string `yaml:"buildID"`
-	ResolvedBuildID string `yaml:"-"`
+	DeploymentName string `yaml:"deploymentName"`
+	BuildID        string `yaml:"buildID"`
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
-	if hasNestedMapKey(raw, "versioning", "promotion") {
-		return config{}, fmt.Errorf("versioning.promotion is no longer supported; promote Temporal worker deployments from the deploy pipeline")
-	}
 	cfg := config{
 		WorkflowRunTimeout:          defaultWorkflowRunTimeout,
 		WorkflowTaskTimeout:         defaultWorkflowTaskTimeout,
@@ -116,29 +112,8 @@ func validateVersioningConfig(cfg *versioningConfig) error {
 	if strings.Contains(cfg.DeploymentName, ".") {
 		return fmt.Errorf("versioning.deploymentName cannot contain %q", ".")
 	}
-	cfg.ResolvedBuildID = cfg.BuildID
-	if cfg.ResolvedBuildID == "" {
+	if cfg.BuildID == "" {
 		return fmt.Errorf("versioning.buildID is required")
 	}
 	return nil
-}
-
-func hasNestedMapKey(raw map[string]any, outerKey, innerKey string) bool {
-	if raw == nil {
-		return false
-	}
-	outer, ok := raw[outerKey]
-	if !ok {
-		return false
-	}
-	switch m := outer.(type) {
-	case map[string]any:
-		_, ok := m[innerKey]
-		return ok
-	case map[interface{}]interface{}:
-		_, ok := m[innerKey]
-		return ok
-	default:
-		return false
-	}
 }
