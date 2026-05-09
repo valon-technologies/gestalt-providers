@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
-use gestalt::proto::v1 as proto;
+use gestalt::{proto::v1 as proto, protocol};
 use prost_types::{Struct, Timestamp};
 
 #[derive(Clone)]
@@ -473,13 +473,7 @@ pub fn event_to_proto(event: StoredEvent) -> proto::AgentTurnEvent {
 }
 
 pub fn now_ts() -> Timestamp {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    Timestamp {
-        seconds: duration.as_secs() as i64,
-        nanos: duration.subsec_nanos() as i32,
-    }
+    protocol::timestamp_from_system_time(SystemTime::now())
 }
 
 fn is_terminal(status: i32) -> bool {
@@ -493,37 +487,9 @@ fn timestamp_key(ts: Option<&Timestamp>) -> (i64, i32) {
 }
 
 pub fn json_to_struct(value: serde_json::Value) -> Option<Struct> {
-    match value {
-        serde_json::Value::Object(object) => {
-            let fields = object
-                .into_iter()
-                .map(|(key, value)| (key, json_to_value(value)))
-                .collect();
-            Some(Struct { fields })
-        }
-        _ => None,
-    }
+    protocol::struct_from_json(value).ok()
 }
 
 pub fn json_to_value(value: serde_json::Value) -> prost_types::Value {
-    use prost_types::value::Kind;
-    prost_types::Value {
-        kind: Some(match value {
-            serde_json::Value::Null => Kind::NullValue(0),
-            serde_json::Value::Bool(value) => Kind::BoolValue(value),
-            serde_json::Value::Number(value) => {
-                Kind::NumberValue(value.as_f64().unwrap_or_default())
-            }
-            serde_json::Value::String(value) => Kind::StringValue(value),
-            serde_json::Value::Array(values) => Kind::ListValue(prost_types::ListValue {
-                values: values.into_iter().map(json_to_value).collect(),
-            }),
-            serde_json::Value::Object(object) => Kind::StructValue(Struct {
-                fields: object
-                    .into_iter()
-                    .map(|(key, value)| (key, json_to_value(value)))
-                    .collect(),
-            }),
-        }),
-    }
+    protocol::value_from_json(value)
 }

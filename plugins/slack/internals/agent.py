@@ -14,11 +14,6 @@ from typing import Any, Iterable, TypeAlias, cast
 
 import gestalt
 
-try:
-    from gestalt.protocol.v1 import authorization_pb2 as _authorization_pb2
-except ModuleNotFoundError:
-    from gestalt._gen.v1 import authorization_pb2 as _authorization_pb2
-
 from .client import SlackAPIError, SlackClientError
 from .config import agent_config_from_provider_config, normalize_suggested_prompts
 from .helpers import map_field, map_slice, string_field
@@ -904,37 +899,20 @@ def _grant_agent_session_editor(
 
 
 def _agent_session_editor_write_request(subject_id: str, session_id: str) -> Any:
-    try:
-        subject = gestalt.AuthorizationSubject(
-            type=AUTHORIZATION_SUBJECT_TYPE_SUBJECT,
-            id=subject_id,
-        )
-        resource = gestalt.AuthorizationResource(
-            type=AGENT_SESSION_RESOURCE_TYPE,
-            id=session_id,
-        )
-        relationship = gestalt.Relationship(
-            subject=subject,
-            relation=AGENT_SESSION_RELATION_EDITOR,
-            resource=resource,
-        )
-        return gestalt.WriteRelationshipsRequest(writes=[relationship])
-    except AttributeError:
-        return _authorization_pb2.WriteRelationshipsRequest(
-            writes=[
-                _authorization_pb2.Relationship(
-                    subject=_authorization_pb2.Subject(
-                        type=AUTHORIZATION_SUBJECT_TYPE_SUBJECT,
-                        id=subject_id,
-                    ),
-                    relation=AGENT_SESSION_RELATION_EDITOR,
-                    resource=_authorization_pb2.Resource(
-                        type=AGENT_SESSION_RESOURCE_TYPE,
-                        id=session_id,
-                    ),
-                )
-            ]
-        )
+    subject = gestalt.AuthorizationSubject(
+        type=AUTHORIZATION_SUBJECT_TYPE_SUBJECT,
+        id=subject_id,
+    )
+    resource = gestalt.AuthorizationResource(
+        type=AGENT_SESSION_RESOURCE_TYPE,
+        id=session_id,
+    )
+    relationship = gestalt.Relationship(
+        subject=subject,
+        relation=AGENT_SESSION_RELATION_EDITOR,
+        resource=resource,
+    )
+    return gestalt.WriteRelationshipsRequest(writes=[relationship])
 
 
 def set_slack_event_status(
