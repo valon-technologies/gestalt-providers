@@ -445,7 +445,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 		Paused:       req.GetPaused(),
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
-		CreatedBy:    createdBy,
+		CreatedBy:    actorInputPtr(createdBy),
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	})
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
@@ -591,7 +591,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.Ups
 		Paused:       req.GetPaused(),
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
-		CreatedBy:    createdBy,
+		CreatedBy:    actorInputPtr(createdBy),
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	})
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
@@ -957,5 +957,3 @@ func cloneSignalResponse(resp *proto.SignalWorkflowRunResponse) *proto.SignalWor
 		WorkflowKey: strings.TrimSpace(resp.GetWorkflowKey()),
 	}
 }
-
-var _ workflowHost = (*gestalt.WorkflowHostClient)(nil)

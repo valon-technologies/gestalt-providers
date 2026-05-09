@@ -34,7 +34,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	if err != nil {
 		return fmt.Errorf("temporal workflow: %w", err)
 	}
-	state, err := openWorkflowStateStore(ctx, cfg.IndexedDB, cfg.ScopeID)
+	state, err := openWorkflowStateStore(ctx, cfg.ScopeID)
 	if err != nil {
 		return fmt.Errorf("temporal workflow: open state store: %w", err)
 	}
@@ -55,13 +55,77 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		return fmt.Errorf("temporal workflow: connect temporal: %w", err)
 	}
 	providerName := strings.TrimSpace(name)
-	backend := newTemporalBackend(providerName, cfg, tc, host, state)
+	backend := newTemporalBackend(providerName, cfg, tc, &sdkWorkflowHost{client: host}, state)
 	p.mu.Lock()
 	p.name = providerName
 	p.backend = backend
 	p.mu.Unlock()
 	return nil
 }
+
+type sdkWorkflowHost struct {
+	client *gestalt.WorkflowHostClient
+}
+
+func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, req *proto.InvokeWorkflowOperationRequest) (*proto.InvokeWorkflowOperationResponse, error) {
+	input, err := invokeOperationInputFromProto(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := h.client.InvokeOperation(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, nil
+	}
+	return &proto.InvokeWorkflowOperationResponse{
+		Status: resp.GetStatus(),
+		Body:   resp.GetBody(),
+	}, nil
+}
+
+func (h *sdkWorkflowHost) Close() error {
+	if h == nil || h.client == nil {
+		return nil
+	}
+	return h.client.Close()
+}
+
+func invokeOperationInputFromProto(req *proto.InvokeWorkflowOperationRequest) (gestalt.InvokeWorkflowOperationInput, error) {
+	if req == nil {
+		return gestalt.InvokeWorkflowOperationInput{}, nil
+	}
+	var target *gestalt.BoundWorkflowTargetInput
+	if req.GetTarget() != nil {
+		input := gestalt.BoundWorkflowTargetInputFromTarget(req.GetTarget())
+		target = &input
+	}
+	var trigger *gestalt.WorkflowRunTriggerInput
+	if req.GetTrigger() != nil {
+		input, err := gestalt.WorkflowRunTriggerInputFromTrigger(req.GetTrigger())
+		if err != nil {
+			return gestalt.InvokeWorkflowOperationInput{}, err
+		}
+		trigger = &input
+	}
+	signals := make([]gestalt.WorkflowSignalInput, 0, len(req.GetSignals()))
+	for _, signal := range req.GetSignals() {
+		signals = append(signals, gestalt.WorkflowSignalInputFromSignal(signal))
+	}
+	return gestalt.InvokeWorkflowOperationInput{
+		Target:       target,
+		RunID:        req.GetRunId(),
+		Trigger:      trigger,
+		Input:        gestalt.MapFromStruct(req.GetInput()),
+		Metadata:     gestalt.MapFromStruct(req.GetMetadata()),
+		CreatedBy:    actorInputPtr(req.GetCreatedBy()),
+		ExecutionRef: req.GetExecutionRef(),
+		Signals:      signals,
+	}, nil
+}
+
+var _ workflowHost = (*sdkWorkflowHost)(nil)
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
 	p.mu.RLock()
