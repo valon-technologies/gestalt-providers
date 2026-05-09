@@ -98,7 +98,7 @@ update; already-polled tasks cannot be recalled by the provider.
   payloads while explicit signal IDs remain strict
 - public run IDs are opaque V4 handles that identify the run workflow and
   Temporal run ID
-- `ListRuns` reads IndexedDB run projections only
+- `GetRun` and `ListRuns` read IndexedDB run projections only
 - IndexedDB stores schedule, event-trigger, execution-reference, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
   ownership metadata

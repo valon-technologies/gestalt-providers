@@ -23,7 +23,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
@@ -323,8 +322,8 @@ func TestTemporalBackendStartRegistersOnlyRunWorkflow(t *testing.T) {
 	if fw.registeredWorkflows != 1 || fw.registeredActivities != 1 {
 		t.Fatalf("registered workflows=%d activities=%d, want only v4 workflow and activities", fw.registeredWorkflows, fw.registeredActivities)
 	}
-	if len(tc.updates) != 0 || len(tc.queries) != 0 {
-		t.Fatalf("startup touched workflow APIs queries=%#v updates=%#v", tc.queries, tc.updates)
+	if len(tc.updates) != 0 {
+		t.Fatalf("startup touched workflow updates=%#v", tc.updates)
 	}
 }
 
@@ -658,10 +657,6 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if len(matched) != 1 || matched[0].GetId() != trigger.GetId() {
 		t.Fatalf("matched triggers = %#v, want %q", matched, trigger.GetId())
 	}
-	if len(tc.queries) != 0 {
-		t.Fatalf("state.matchTriggers touched workflow queries=%#v", tc.queries)
-	}
-
 	ref := &proto.WorkflowExecutionReference{
 		Id:           "ref-1",
 		ProviderName: "temporal",
@@ -691,10 +686,6 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if refs[0].GetRunAs().GetSubjectId() != "service_account:slack-sync" {
 		t.Fatalf("ref run_as = %#v, want slack sync service account", refs[0].GetRunAs())
 	}
-	if len(tc.queries) != 0 {
-		t.Fatalf("state.listExecutionRefs touched workflow queries=%#v", tc.queries)
-	}
-
 	tc.scheduleClient = newFakeScheduleClient(map[string]*client.ScheduleDescription{
 		backend.temporalScheduleID("schedule-1"): {
 			Schedule: client.Schedule{
@@ -715,9 +706,6 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	}
 	if len(tc.updates) != 0 {
 		t.Fatalf("UpsertSchedule touched workflow updates=%#v", tc.updates)
-	}
-	if len(tc.queries) != 0 {
-		t.Fatalf("UpsertSchedule touched workflow queries=%#v", tc.queries)
 	}
 }
 
@@ -762,8 +750,8 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 	if scheduleClient.listCount != 0 {
 		t.Fatalf("Temporal schedule list calls = %d, want 0", scheduleClient.listCount)
 	}
-	if len(tc.queries) != 0 || len(tc.updates) != 0 {
-		t.Fatalf("ListSchedules touched workflow APIs queries=%#v updates=%#v", tc.queries, tc.updates)
+	if len(tc.updates) != 0 {
+		t.Fatalf("ListSchedules touched workflow updates=%#v", tc.updates)
 	}
 }
 
@@ -1140,9 +1128,6 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	}
 	if !addSignalUpdateFound {
 		t.Fatalf("updates = %#v, want add-signal update", tc.updates)
-	}
-	if len(tc.queries) != 0 {
-		t.Fatalf("queries = %#v, want no temporal lookup", tc.queries)
 	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
 	if err != nil || !found || owned.GetId() != resp.GetRun().GetId() {
@@ -1755,6 +1740,20 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 	}
 }
 
+func TestGetRunUsesIndexedDBRunProjectionOnly(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
+	missingID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "missing-workflow",
+		RunTemporalRunID: "missing-run",
+		OwnerKey:         "slack",
+	})
+
+	if _, err := backend.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: missingID}); status.Code(err) != codes.NotFound {
+		t.Fatalf("GetRun error = %v, want NotFound", err)
+	}
+}
+
 func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 	run := &proto.BoundWorkflowRun{
@@ -1781,8 +1780,8 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].GetId() != run.GetId() {
 		t.Fatalf("runs = %#v, want projected run", resp.GetRuns())
 	}
-	if len(tc.queries) != 0 || len(tc.updates) != 0 {
-		t.Fatalf("temporal calls queries=%#v updates=%#v, want indexeddb-only list", tc.queries, tc.updates)
+	if len(tc.updates) != 0 {
+		t.Fatalf("temporal updates=%#v, want indexeddb-only list", tc.updates)
 	}
 }
 
@@ -2293,12 +2292,6 @@ type recordedUpdate struct {
 	WaitForStage client.WorkflowUpdateStage
 }
 
-type recordedQuery struct {
-	WorkflowID string
-	Name       string
-	Args       []any
-}
-
 type recordedExecution struct {
 	WorkflowID string
 	Args       []any
@@ -2310,7 +2303,6 @@ type recordingTemporalClient struct {
 	executions       []recordedExecution
 	updates          []recordedUpdate
 	updateErrs       []error
-	queries          []recordedQuery
 	scheduleClient   client.ScheduleClient
 	deploymentClient *fakeWorkerDeploymentClient
 	afterExecute     func()
@@ -2387,18 +2379,6 @@ func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, opt
 	}
 	c.updates = append(c.updates, update)
 	return recordingUpdateHandle{update: update}, nil
-}
-
-func (c *recordingTemporalClient) QueryWorkflow(ctx context.Context, workflowID string, _ string, queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	query := recordedQuery{
-		WorkflowID: workflowID,
-		Name:       queryType,
-		Args:       args,
-	}
-	c.mu.Lock()
-	c.queries = append(c.queries, query)
-	c.mu.Unlock()
-	return recordingEncodedValue{}, nil
 }
 
 func (c *recordingTemporalClient) TerminateWorkflow(_ context.Context, workflowID string, runID string, reason string, details ...interface{}) error {
@@ -2633,22 +2613,6 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 				}
 				out.StartedRun = true
 			}
-		}
-	}
-	return nil
-}
-
-type recordingEncodedValue struct {
-	value any
-}
-
-func (v recordingEncodedValue) HasValue() bool { return true }
-
-func (v recordingEncodedValue) Get(valuePtr interface{}) error {
-	switch out := valuePtr.(type) {
-	case *proto.BoundWorkflowRun:
-		if run, ok := v.value.(*proto.BoundWorkflowRun); ok {
-			*out = *cloneRun(run)
 		}
 	}
 	return nil

@@ -8,8 +8,6 @@ import (
 )
 
 const (
-	queryRunState = "gestalt.run_state"
-
 	updateAddSignal = "gestalt.add_signal"
 	updateCancelRun = "gestalt.cancel_run"
 	updateClaimRun  = "gestalt.claim_run"

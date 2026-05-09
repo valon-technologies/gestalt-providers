@@ -270,8 +270,7 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	handle, err := decodeTemporalRunHandle(runID)
-	if err != nil {
+	if _, err := decodeTemporalRunHandle(runID); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if run, found, err := b.state.getRun(ctx, runID); err != nil {
@@ -279,12 +278,7 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	} else if found {
 		return run, nil
 	}
-	run, err := b.queryRunWorkflow(ctx, handle)
-	if err != nil {
-		return nil, err
-	}
-	_ = b.state.putRun(ctx, run)
-	return run, nil
+	return nil, status.Errorf(codes.NotFound, "workflow run %q not found", runID)
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {

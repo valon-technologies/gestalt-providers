@@ -375,24 +375,6 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 	return out
 }
 
-func (b *temporalBackend) queryRunWorkflow(ctx context.Context, handle *temporalRunHandle) (*proto.BoundWorkflowRun, error) {
-	value, err := b.client.QueryWorkflow(ctx, handle.RunWorkflowID, handle.RunTemporalRunID, queryRunState)
-	if err != nil {
-		if isNotFoundLike(err) {
-			return nil, status.Errorf(codes.NotFound, "workflow run %q not found", encodeTemporalRunHandle(*handle))
-		}
-		return nil, status.Errorf(codes.Internal, "query temporal workflow: %v", err)
-	}
-	var run proto.BoundWorkflowRun
-	if err := value.Get(&run); err != nil {
-		return nil, status.Errorf(codes.Internal, "decode temporal workflow run: %v", err)
-	}
-	if run.GetId() == "" {
-		run.Id = encodeTemporalRunHandle(*handle)
-	}
-	return cloneRun(&run), nil
-}
-
 func (b *temporalBackend) startWorkflowOptions(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) client.StartWorkflowOptions {
 	opts := b.runStartOptions(workflowID, conflict, reuse)
 	opts.WorkflowIDReusePolicy = reuse
