@@ -487,6 +487,11 @@ class FakeAuthorization:
         if self.write_error is not None:
             raise self.write_error
 
+    def grant_agent_session_editor(self, subject_id: str, session_id: str) -> None:
+        self.write_relationships(
+            gestalt.agent_session_editor_write_request(subject_id, session_id)
+        )
+
 
 class FakeWorkflowManager:
     def __init__(self) -> None:
