@@ -229,6 +229,13 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
             "gestalt_call_tool".to_string(),
         ]
     );
+    let call_schema = mcp_tool_schema(&mcp_result["result"]["list"], "gestalt_call_tool");
+    assert!(
+        call_schema.get("oneOf").is_none(),
+        "proxy selector schema should avoid top-level oneOf: {call_schema}"
+    );
+    assert!(call_schema["properties"]["mcp_name"].is_object());
+    assert!(call_schema["properties"]["ref"].is_object());
     assert!(mcp_result["result"]["list"]["result"]["nextCursor"].is_null());
     let search_payload = tool_call_payload(&mcp_result["result"]["search"]);
     assert_eq!(
@@ -1321,6 +1328,20 @@ fn mcp_tool_names(list_result: &JsonValue) -> Vec<String> {
         .flat_map(|tools| tools.iter())
         .filter_map(|tool| tool["name"].as_str().map(str::to_string))
         .collect()
+}
+
+fn mcp_tool_schema<'a>(list_result: &'a JsonValue, name: &str) -> &'a JsonValue {
+    list_result["result"]["tools"]
+        .as_array()
+        .into_iter()
+        .flat_map(|tools| tools.iter())
+        .find(|tool| tool["name"].as_str() == Some(name))
+        .and_then(|tool| {
+            tool.get("inputSchema")
+                .or_else(|| tool.get("input_schema"))
+                .or_else(|| tool.get("input_schema_json"))
+        })
+        .unwrap_or_else(|| panic!("MCP list result missing schema for {name}: {list_result}"))
 }
 
 fn tool_call_payload(call_result: &JsonValue) -> JsonValue {

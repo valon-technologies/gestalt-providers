@@ -41,7 +41,7 @@ import {
   type CursorAgentProvider,
 } from "../src/provider.ts";
 import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
-import type { ToolEntry } from "../src/tools.ts";
+import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 
 const {
   AgentHost: AgentHostService,
@@ -75,6 +75,54 @@ afterEach(async () => {
 });
 
 describe("Cursor agent provider contract", () => {
+  test("projects provider-hostile listed tool schemas", () => {
+    const schema = schemaFromJson(
+      JSON.stringify({
+        type: ["object", "null"],
+        properties: { root: { type: "string" } },
+        required: ["root"],
+        allOf: [
+          {
+            properties: { fromAllOf: { type: "string" } },
+            required: ["fromAllOf"],
+          },
+        ],
+        oneOf: [
+          {
+            properties: { fromOneOf: { type: "string" } },
+            required: ["fromOneOf"],
+          },
+        ],
+      }),
+    );
+
+    expect(schema.type).toBe("object");
+    expect(schema.allOf).toBeUndefined();
+    expect(schema.oneOf).toBeUndefined();
+    expect(Object.keys(schema.properties ?? {}).sort()).toEqual([
+      "fromAllOf",
+      "fromOneOf",
+      "root",
+    ]);
+    expect(schema.required).toEqual(["fromAllOf", "root"]);
+  });
+
+  test("falls back when listed tool schema branches conflict", () => {
+    const schema = schemaFromJson(
+      JSON.stringify({
+        type: "object",
+        properties: { same: { type: "string" } },
+        allOf: [{ properties: { same: { type: "integer" } } }],
+      }),
+    );
+
+    expect(schema).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: true,
+    });
+  });
+
   test("package metadata declares an agent provider target", () => {
     const pkg = JSON.parse(
       readFileSync(resolve(import.meta.dir, "../package.json"), "utf8"),

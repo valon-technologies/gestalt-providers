@@ -132,10 +132,133 @@ export function schemaFromJson(value: string): ObjectJsonSchema {
   if (!isRecord(payload)) {
     return { type: "object", additionalProperties: true };
   }
-  if (payload.type !== "object") {
+  const projected = projectObjectSchema(payload);
+  if (!projected) {
     return { type: "object", properties: {}, additionalProperties: true };
   }
-  return payload as ObjectJsonSchema;
+  return projected;
+}
+
+function projectObjectSchema(schema: Record<string, unknown>): ObjectJsonSchema | undefined {
+  if (!schemaTypeSupportsObject(schema.type)) {
+    return undefined;
+  }
+  const schemaProperties = schema.properties;
+  if (schemaProperties !== undefined && !isRecord(schemaProperties)) {
+    return undefined;
+  }
+  const properties: Record<string, unknown> = {
+    ...(isRecord(schemaProperties) ? schemaProperties : {}),
+  };
+  const required = new Set<string>();
+  for (const [key, unionRequired] of [
+    ["allOf", true],
+    ["oneOf", false],
+    ["anyOf", false],
+  ] as const) {
+    if (!mergeSchemaBranches(schema[key], properties, required, unionRequired)) {
+      return undefined;
+    }
+  }
+  for (const name of schemaRequired(schema.required, properties)) {
+    required.add(name);
+  }
+  const projected: ObjectJsonSchema = { type: "object" };
+  if (typeof schema.additionalProperties === "boolean") {
+    projected.additionalProperties = schema.additionalProperties;
+  }
+  if (Object.keys(properties).length > 0) {
+    projected.properties = properties;
+  }
+  if (required.size > 0) {
+    projected.required = [...required].sort();
+  }
+  return projected;
+}
+
+function schemaTypeSupportsObject(value: unknown): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (value === "object") {
+    return true;
+  }
+  return Array.isArray(value) && value.includes("object");
+}
+
+function mergeSchemaBranches(
+  branches: unknown,
+  properties: Record<string, unknown>,
+  required: Set<string>,
+  unionRequired: boolean,
+): boolean {
+  if (branches === undefined) {
+    return true;
+  }
+  if (!Array.isArray(branches)) {
+    return false;
+  }
+  for (const branch of branches) {
+    if (!isRecord(branch)) {
+      return false;
+    }
+    const projected = projectObjectSchema(branch);
+    if (!projected) {
+      return false;
+    }
+    for (const [name, value] of Object.entries(projected.properties ?? {})) {
+      if (
+        Object.hasOwn(properties, name) &&
+        !jsonValueEqual(properties[name], value)
+      ) {
+        return false;
+      }
+      properties[name] = value;
+    }
+    if (unionRequired) {
+      for (const name of schemaRequired(projected.required, properties)) {
+        required.add(name);
+      }
+    }
+  }
+  return true;
+}
+
+function schemaRequired(value: unknown, properties: Record<string, unknown>): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (item): item is string =>
+      typeof item === "string" && Object.hasOwn(properties, item),
+  );
+}
+
+function jsonValueEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((value, index) => jsonValueEqual(value, right[index]));
+  }
+  if (isRecord(left) || isRecord(right)) {
+    if (!isRecord(left) || !isRecord(right)) {
+      return false;
+    }
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length) {
+      return false;
+    }
+    return leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && jsonValueEqual(left[key], right[key]),
+    );
+  }
+  return false;
 }
 
 function annotationsFromTool(

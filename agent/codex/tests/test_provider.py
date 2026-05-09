@@ -26,7 +26,7 @@ from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
 from internals.gestalt_mcp_bridge import BridgeContext
 from internals.http_bridge import BridgeHTTPServer
-from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools
+from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools, schema_from_json
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -197,6 +197,38 @@ class CodexProviderTests(unittest.TestCase):
         _FakeCodexMCPServer.mode = "success"
         _FakeCodexMCPServer.result_style = "structured"
         _FakeCodexMCPServer.instances.clear()
+
+    def test_agent_tool_schema_projection_merges_provider_hostile_combinators(self) -> None:
+        schema = schema_from_json(
+            json.dumps(
+                {
+                    "type": ["object", "null"],
+                    "properties": {"root": {"type": "string"}},
+                    "required": ["root"],
+                    "allOf": [{"properties": {"from_all_of": {"type": "string"}}, "required": ["from_all_of"]}],
+                    "oneOf": [{"properties": {"from_one_of": {"type": "string"}}, "required": ["from_one_of"]}],
+                }
+            )
+        )
+
+        self.assertEqual(schema["type"], "object")
+        self.assertNotIn("allOf", schema)
+        self.assertNotIn("oneOf", schema)
+        self.assertEqual(set(schema["properties"]), {"root", "from_all_of", "from_one_of"})
+        self.assertEqual(schema["required"], ["from_all_of", "root"])
+
+    def test_agent_tool_schema_projection_falls_back_on_conflicts(self) -> None:
+        schema = schema_from_json(
+            json.dumps(
+                {
+                    "type": "object",
+                    "properties": {"same": {"type": "string"}},
+                    "allOf": [{"properties": {"same": {"type": "integer"}}}],
+                }
+            )
+        )
+
+        self.assertEqual(schema, {"type": "object", "properties": {}, "additionalProperties": True})
 
     def test_provider_completes_turn_through_codex_mcp_with_catalog_tools(self) -> None:
         host = _host_servicer
