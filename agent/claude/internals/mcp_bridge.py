@@ -34,6 +34,7 @@ TOOL_ERROR_MAX_CHARS = 1200
 TOOL_SEARCH_METADATA_MAX_CHARS = 800
 _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
+_UNSUPPORTED_TOP_LEVEL_SCHEMA_COMBINATORS = ("oneOf", "anyOf", "allOf")
 
 
 @dataclass(slots=True)
@@ -404,6 +405,12 @@ def _schema_from_json(value: str) -> dict[str, Any]:
         return {"type": "object", "additionalProperties": True}
     if payload.get("type") != "object":
         payload = {"type": "object", "properties": {}, "additionalProperties": True}
+    payload = dict(payload)
+    if any(combinator in payload for combinator in _UNSUPPORTED_TOP_LEVEL_SCHEMA_COMBINATORS):
+        for combinator in _UNSUPPORTED_TOP_LEVEL_SCHEMA_COMBINATORS:
+            payload.pop(combinator, None)
+        payload["type"] = "object"
+        payload["additionalProperties"] = True
     return payload
 
 

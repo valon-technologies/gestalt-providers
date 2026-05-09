@@ -57,6 +57,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests: list[dict[str, Any]] = []
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.include_top_level_schema_combinators = False
         self.metadata_supported = False
         self.list_error = ""
         self.execute_error = ""
@@ -66,6 +67,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
         self.execute_requests.clear()
         self.large_catalog = False
         self.include_reconnect_sentinel = False
+        self.include_top_level_schema_combinators = False
         self.metadata_supported = False
         self.list_error = ""
         self.execute_error = ""
@@ -99,6 +101,17 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                         tool.tags.extend(["pr", "prs"])
                         tool.search_text = "github pull request repository owner number"
                 tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
+                if self.include_top_level_schema_combinators and index == 59:
+                    tool.input_schema = json.dumps(
+                        {
+                            "type": "object",
+                            "properties": {"query": {"type": "string"}},
+                            "oneOf": [{"required": ["query"]}],
+                            "anyOf": [{"properties": {"query": {"minLength": 1}}}],
+                            "allOf": [{"additionalProperties": False}],
+                            "additionalProperties": False,
+                        }
+                    )
                 setattr(tool.ref, "plugin", plugin)
                 setattr(tool.ref, "operation", f"operation{index}")
             return response
@@ -1186,6 +1199,28 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(execute_result.content[0].text, '{"ok":true}')
         self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
         self.assertEqual(host.execute_requests[-1]["arguments"], {"query": "mine"})
+
+    def test_sdk_mcp_bridge_removes_unsupported_top_level_schema_combinators(self) -> None:
+        host = _host_servicer
+        assert host is not None
+        host.large_catalog = True
+        host.include_top_level_schema_combinators = True
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        options = runner._options(
+            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
+        )
+
+        bridged = asyncio.run(_list_tools_json_through_sdk_bridge(options))
+        schema = bridged["result"]["tools"][-1]["inputSchema"]
+
+        self.assertEqual(schema["type"], "object")
+        self.assertEqual(schema["properties"]["query"]["type"], "string")
+        self.assertTrue(schema["additionalProperties"])
+        self.assertNotIn("oneOf", schema)
+        self.assertNotIn("anyOf", schema)
+        self.assertNotIn("allOf", schema)
 
     def test_sdk_mcp_bridge_marks_unavailable_sentinel_call_as_error(self) -> None:
         host = _host_servicer
