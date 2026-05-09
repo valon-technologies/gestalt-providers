@@ -28,7 +28,6 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -4446,10 +4445,6 @@ func cloneMap(value map[string]any) map[string]any {
 	return out
 }
 
-func cloneStruct(value *structpb.Struct) *structpb.Struct {
-	return gestalt.CloneStruct(value)
-}
-
 func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
 	if actor == nil {
 		return nil
@@ -4472,9 +4467,9 @@ func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
 		SpecVersion:     event.GetSpecVersion(),
 		Type:            event.GetType(),
 		Subject:         event.GetSubject(),
-		Time:            cloneTimestamp(event.GetTime()),
+		Time:            gestalt.CloneTimestamp(event.GetTime()),
 		Datacontenttype: event.GetDatacontenttype(),
-		Data:            cloneStruct(event.GetData()),
+		Data:            gestalt.CloneStruct(event.GetData()),
 		Extensions:      cloneExtensions(event.GetExtensions()),
 	}
 }
@@ -4486,17 +4481,13 @@ func cloneSignal(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 	return &proto.WorkflowSignal{
 		Id:             signal.GetId(),
 		Name:           signal.GetName(),
-		Payload:        cloneStruct(signal.GetPayload()),
-		Metadata:       cloneStruct(signal.GetMetadata()),
+		Payload:        gestalt.CloneStruct(signal.GetPayload()),
+		Metadata:       gestalt.CloneStruct(signal.GetMetadata()),
 		CreatedBy:      cloneActor(signal.GetCreatedBy()),
-		CreatedAt:      cloneTimestamp(signal.GetCreatedAt()),
+		CreatedAt:      gestalt.CloneTimestamp(signal.GetCreatedAt()),
 		IdempotencyKey: signal.GetIdempotencyKey(),
 		Sequence:       signal.GetSequence(),
 	}
-}
-
-func cloneTimestamp(ts *timestamppb.Timestamp) *timestamppb.Timestamp {
-	return gestalt.CloneTimestamp(ts)
 }
 
 func cloneExtensions(values map[string]*structpb.Value) map[string]*structpb.Value {
@@ -5393,8 +5384,8 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		RunAs:               cloneRunAsSubject(ref.GetRunAs()),
 		Permissions:         cloneAccessPermissions(ref.GetPermissions()),
 		CallerPluginName:    ref.GetCallerPluginName(),
-		CreatedAt:           cloneTimestamp(ref.GetCreatedAt()),
-		RevokedAt:           cloneTimestamp(ref.GetRevokedAt()),
+		CreatedAt:           gestalt.CloneTimestamp(ref.GetCreatedAt()),
+		RevokedAt:           gestalt.CloneTimestamp(ref.GetRevokedAt()),
 	}
 }
 

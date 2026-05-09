@@ -9,9 +9,8 @@ use std::sync::Arc;
 
 use acp::{AcpNotification, AcpProcess};
 use config::HermesConfig;
-use gestalt::proto::v1 as proto;
+use gestalt::{proto::v1 as proto, protocol};
 use mcp_bridge::McpBridgeHandle;
-use prost_types::{Struct, value::Kind};
 use serde_json::{Value as JsonValue, json};
 use store::{
     BeginTurnResult, CreateSessionResult, Store, event_to_proto, json_to_value, session_to_proto,
@@ -962,7 +961,7 @@ fn message_part_to_json(part: &proto::AgentMessagePart) -> JsonValue {
     match part_type {
         proto::AgentMessagePartType::Text => json!({ "type": "text", "text": part.text }),
         proto::AgentMessagePartType::Json => {
-            json!({ "type": "json", "json": part.json.as_ref().map(struct_to_json).unwrap_or(JsonValue::Null) })
+            json!({ "type": "json", "json": part.json.as_ref().map(protocol::json_from_struct).unwrap_or(JsonValue::Null) })
         }
         proto::AgentMessagePartType::ImageRef => json!({
             "type": "image_ref",
@@ -974,7 +973,7 @@ fn message_part_to_json(part: &proto::AgentMessagePart) -> JsonValue {
                 "type": "tool_call",
                 "id": tool_call.id,
                 "tool_id": tool_call.tool_id,
-                "arguments": tool_call.arguments.as_ref().map(struct_to_json).unwrap_or(JsonValue::Null)
+                "arguments": tool_call.arguments.as_ref().map(protocol::json_from_struct).unwrap_or(JsonValue::Null)
             }),
             None => json!({ "type": "tool_call" }),
         },
@@ -984,36 +983,11 @@ fn message_part_to_json(part: &proto::AgentMessagePart) -> JsonValue {
                 "tool_call_id": tool_result.tool_call_id,
                 "status": tool_result.status,
                 "content": tool_result.content,
-                "output": tool_result.output.as_ref().map(struct_to_json).unwrap_or(JsonValue::Null)
+                "output": tool_result.output.as_ref().map(protocol::json_from_struct).unwrap_or(JsonValue::Null)
             }),
             None => json!({ "type": "tool_result" }),
         },
         proto::AgentMessagePartType::Unspecified => json!({ "type": "unspecified" }),
-    }
-}
-
-fn struct_to_json(value: &Struct) -> JsonValue {
-    JsonValue::Object(
-        value
-            .fields
-            .iter()
-            .map(|(key, value)| (key.clone(), prost_value_to_json(value)))
-            .collect(),
-    )
-}
-
-fn prost_value_to_json(value: &prost_types::Value) -> JsonValue {
-    match value.kind.as_ref() {
-        Some(Kind::NullValue(_)) | None => JsonValue::Null,
-        Some(Kind::NumberValue(value)) => serde_json::Number::from_f64(*value)
-            .map(JsonValue::Number)
-            .unwrap_or(JsonValue::Null),
-        Some(Kind::StringValue(value)) => JsonValue::String(value.clone()),
-        Some(Kind::BoolValue(value)) => JsonValue::Bool(*value),
-        Some(Kind::StructValue(value)) => struct_to_json(value),
-        Some(Kind::ListValue(value)) => {
-            JsonValue::Array(value.values.iter().map(prost_value_to_json).collect())
-        }
     }
 }
 

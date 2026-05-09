@@ -254,7 +254,7 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	normalized := &proto.BoundWorkflowPluginTarget{
 		PluginName:     pluginName,
 		Operation:      operation,
-		Input:          cloneStruct(plugin.GetInput()),
+		Input:          gestalt.CloneStruct(plugin.GetInput()),
 		Connection:     strings.TrimSpace(plugin.GetConnection()),
 		Instance:       strings.TrimSpace(plugin.GetInstance()),
 		CredentialMode: credentialMode,
@@ -477,10 +477,6 @@ func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.Workf
 		return nil
 	}
 	return gproto.Clone(ref).(*proto.WorkflowExecutionReference)
-}
-
-func cloneStruct(value *structpb.Struct) *structpb.Struct {
-	return gestalt.CloneStruct(value)
 }
 
 func eventMatchesTrigger(event *proto.WorkflowEvent, trigger *proto.BoundWorkflowEventTrigger) bool {
