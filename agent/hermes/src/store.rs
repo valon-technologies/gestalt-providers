@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use gestalt::{proto::v1 as proto, protocol};
-use prost_types::{Struct, Timestamp};
 
 #[derive(Clone)]
 pub struct StoredSession {
@@ -12,11 +11,11 @@ pub struct StoredSession {
     pub model: String,
     pub client_ref: String,
     pub state: i32,
-    pub metadata: Option<Struct>,
+    pub metadata: Option<serde_json::Value>,
     pub created_by: Option<proto::AgentActor>,
-    pub created_at: Option<Timestamp>,
-    pub updated_at: Option<Timestamp>,
-    pub last_turn_at: Option<Timestamp>,
+    pub created_at: Option<SystemTime>,
+    pub updated_at: Option<SystemTime>,
+    pub last_turn_at: Option<SystemTime>,
     pub active_turn_id: Option<String>,
 }
 
@@ -31,9 +30,9 @@ pub struct StoredTurn {
     pub output_text: String,
     pub status_message: String,
     pub created_by: Option<proto::AgentActor>,
-    pub created_at: Option<Timestamp>,
-    pub started_at: Option<Timestamp>,
-    pub completed_at: Option<Timestamp>,
+    pub created_at: Option<SystemTime>,
+    pub started_at: Option<SystemTime>,
+    pub completed_at: Option<SystemTime>,
     pub execution_ref: String,
     pub tool_refs: Vec<proto::AgentToolRef>,
     pub tool_source: i32,
@@ -48,9 +47,9 @@ pub struct StoredEvent {
     pub event_type: String,
     pub source: String,
     pub visibility: String,
-    pub data: Option<Struct>,
+    pub data: serde_json::Value,
     pub display: Option<proto::AgentTurnDisplay>,
-    pub created_at: Option<Timestamp>,
+    pub created_at: Option<SystemTime>,
 }
 
 #[derive(Default)]
@@ -104,7 +103,7 @@ impl Store {
             }
         }
 
-        let now = now_ts();
+        let now = SystemTime::now();
         let session = StoredSession {
             id: session_id.to_string(),
             provider_name: provider_name.to_string(),
@@ -112,7 +111,7 @@ impl Store {
             model,
             client_ref: req.client_ref.trim().to_string(),
             state: proto::AgentSessionState::Active as i32,
-            metadata: req.metadata.clone(),
+            metadata: req.metadata.as_ref().map(protocol::json_from_struct),
             created_by: req.created_by.clone(),
             created_at: Some(now),
             updated_at: Some(now),
@@ -195,7 +194,7 @@ impl Store {
         id: &str,
         client_ref: &str,
         state: i32,
-        metadata: Option<Struct>,
+        metadata: Option<serde_json::Value>,
     ) -> Option<StoredSession> {
         let session = self.sessions.get_mut(id.trim())?;
         if !client_ref.trim().is_empty() {
@@ -207,7 +206,7 @@ impl Store {
         if metadata.is_some() {
             session.metadata = metadata;
         }
-        session.updated_at = Some(now_ts());
+        session.updated_at = Some(SystemTime::now());
         Some(session.clone())
     }
 
@@ -253,7 +252,7 @@ impl Store {
             ));
         }
 
-        let now = now_ts();
+        let now = SystemTime::now();
         let turn = StoredTurn {
             id: turn_id.to_string(),
             session_id: session_id.to_string(),
@@ -354,7 +353,7 @@ impl Store {
         status: i32,
         status_message: String,
     ) -> Option<StoredTurn> {
-        let now = now_ts();
+        let now = SystemTime::now();
         let turn = self.turns.get_mut(turn_id.trim())?;
         if is_terminal(turn.status) {
             return Some(turn.clone());
@@ -396,9 +395,9 @@ impl Store {
             event_type: event_type.to_string(),
             source: source.to_string(),
             visibility: "public".to_string(),
-            data: json_to_struct(data),
+            data,
             display,
-            created_at: Some(now_ts()),
+            created_at: Some(SystemTime::now()),
         };
         events.push(event.clone());
         event
@@ -427,11 +426,19 @@ pub fn session_to_proto(session: StoredSession, summary_only: bool) -> proto::Ag
         model: session.model,
         client_ref: session.client_ref,
         state: session.state,
-        metadata: if summary_only { None } else { session.metadata },
+        metadata: if summary_only {
+            None
+        } else {
+            session
+                .metadata
+                .and_then(|metadata| protocol::struct_from_json(metadata).ok())
+        },
         created_by: session.created_by,
-        created_at: session.created_at,
-        updated_at: session.updated_at,
-        last_turn_at: session.last_turn_at,
+        created_at: session.created_at.map(protocol::timestamp_from_system_time),
+        updated_at: session.updated_at.map(protocol::timestamp_from_system_time),
+        last_turn_at: session
+            .last_turn_at
+            .map(protocol::timestamp_from_system_time),
     }
 }
 
@@ -451,9 +458,9 @@ pub fn turn_to_proto(turn: StoredTurn, summary_only: bool) -> proto::AgentTurn {
         structured_output: None,
         status_message: turn.status_message,
         created_by: turn.created_by,
-        created_at: turn.created_at,
-        started_at: turn.started_at,
-        completed_at: turn.completed_at,
+        created_at: turn.created_at.map(protocol::timestamp_from_system_time),
+        started_at: turn.started_at.map(protocol::timestamp_from_system_time),
+        completed_at: turn.completed_at.map(protocol::timestamp_from_system_time),
         execution_ref: turn.execution_ref,
     }
 }
@@ -466,14 +473,10 @@ pub fn event_to_proto(event: StoredEvent) -> proto::AgentTurnEvent {
         r#type: event.event_type,
         source: event.source,
         visibility: event.visibility,
-        data: event.data,
-        created_at: event.created_at,
+        data: protocol::struct_from_json(event.data).ok(),
+        created_at: event.created_at.map(protocol::timestamp_from_system_time),
         display: event.display,
     }
-}
-
-pub fn now_ts() -> Timestamp {
-    protocol::timestamp_from_system_time(SystemTime::now())
 }
 
 fn is_terminal(status: i32) -> bool {
@@ -482,14 +485,6 @@ fn is_terminal(status: i32) -> bool {
         || status == proto::AgentExecutionStatus::Canceled as i32
 }
 
-fn timestamp_key(ts: Option<&Timestamp>) -> (i64, i32) {
-    ts.map(|ts| (ts.seconds, ts.nanos)).unwrap_or_default()
-}
-
-pub fn json_to_struct(value: serde_json::Value) -> Option<Struct> {
-    protocol::struct_from_json(value).ok()
-}
-
-pub fn json_to_value(value: serde_json::Value) -> prost_types::Value {
-    protocol::value_from_json(value)
+fn timestamp_key(ts: Option<&SystemTime>) -> SystemTime {
+    ts.copied().unwrap_or(UNIX_EPOCH)
 }

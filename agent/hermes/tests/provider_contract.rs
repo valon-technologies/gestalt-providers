@@ -4,12 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use gestalt::proto::v1 as proto;
 use gestalt::proto::v1::agent_host_server::{
     AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
 };
 use gestalt::proto::v1::agent_provider_server::AgentProvider as AgentProviderService;
-use prost_types::{Struct, Value as ProstValue, value::Kind};
+use gestalt::{proto::v1 as proto, protocol};
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
@@ -952,7 +951,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            response_schema: Some(non_empty_struct()),
+            response_schema: protocol::struct_from_json(json!({ "type": "object" })).ok(),
             ..Default::default()
         }))
         .await
@@ -968,7 +967,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            model_options: Some(non_empty_struct()),
+            model_options: protocol::struct_from_json(json!({ "type": "object" })).ok(),
             ..Default::default()
         }))
         .await
@@ -1602,19 +1601,6 @@ fn json_map(value: JsonValue) -> JsonMap<String, JsonValue> {
     match value {
         JsonValue::Object(map) => map,
         _ => panic!("expected object"),
-    }
-}
-
-fn non_empty_struct() -> Struct {
-    Struct {
-        fields: [(
-            "type".to_string(),
-            ProstValue {
-                kind: Some(Kind::StringValue("object".to_string())),
-            },
-        )]
-        .into_iter()
-        .collect(),
     }
 }
 
