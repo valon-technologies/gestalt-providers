@@ -28,7 +28,6 @@ type config struct {
 	WorkflowTaskTimeout         time.Duration    `yaml:"workflowTaskTimeout"`
 	ActivityStartToCloseTimeout time.Duration    `yaml:"activityStartToCloseTimeout"`
 	ScheduleCatchupWindow       time.Duration    `yaml:"scheduleCatchupWindow"`
-	IdempotencyRetention        time.Duration    `yaml:"idempotencyRetention"`
 	Versioning                  versioningConfig `yaml:"versioning"`
 }
 
@@ -43,7 +42,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 		WorkflowTaskTimeout:         defaultWorkflowTaskTimeout,
 		ActivityStartToCloseTimeout: defaultActivityStartToCloseTimeout,
 		ScheduleCatchupWindow:       defaultScheduleCatchupWindow,
-		IdempotencyRetention:        defaultIdempotencyRetention,
 	}
 	if len(raw) > 0 {
 		data, err := yaml.Marshal(raw)
@@ -87,9 +85,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 	}
 	if cfg.ScheduleCatchupWindow <= 0 {
 		return config{}, fmt.Errorf("scheduleCatchupWindow must be positive")
-	}
-	if cfg.IdempotencyRetention <= 0 {
-		return config{}, fmt.Errorf("idempotencyRetention must be positive")
 	}
 	if err := validateVersioningConfig(&cfg.Versioning); err != nil {
 		return config{}, err

@@ -18,7 +18,7 @@ func (b *temporalBackend) reserveSignalIdempotency(ctx context.Context, req sign
 		return nil, nil
 	}
 
-	entry, existing, err := b.state.reserveSignalIdempotency(ctx, req, b.cfg.IdempotencyRetention, time.Now().UTC())
+	entry, existing, err := b.state.reserveSignalIdempotency(ctx, req, defaultIdempotencyRetention, time.Now().UTC())
 	if err != nil {
 		var conflict *runIdempotencyConflictError
 		if errors.As(err, &conflict) {
@@ -42,7 +42,7 @@ func (b *temporalBackend) completeSignalIdempotency(ctx context.Context, key, fi
 	if key == "" {
 		return nil
 	}
-	if err := b.state.completeSignalIdempotency(ctx, key, fingerprint, resp, allowPayloadVariance, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+	if err := b.state.completeSignalIdempotency(ctx, key, fingerprint, resp, allowPayloadVariance, defaultIdempotencyRetention, time.Now().UTC()); err != nil {
 		var conflict *runIdempotencyConflictError
 		if errors.As(err, &conflict) {
 			return status.Error(codes.FailedPrecondition, err.Error())
