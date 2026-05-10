@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.2"
+const providerVersion = "0.0.1-alpha.6"
 
 type Provider struct {
 	mu    sync.RWMutex
@@ -62,6 +62,9 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	st, err := p.configuredStore()
 	if err != nil {
 		return err
+	}
+	if st.requireTenant {
+		return nil
 	}
 	_, err = st.state.Count(ctx, nil)
 	return err
@@ -288,8 +291,12 @@ func (p *Provider) WriteRelationships(ctx context.Context, req *gestalt.WriteRel
 		}
 	}
 
+	dbCtx, err := st.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	for _, id := range deleteIDs {
-		if err := st.relationships.Delete(ctx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+		if err := st.relationships.Delete(dbCtx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
 			if rollbackErr := restoreRelationshipSnapshots(ctx, st, snapshots); rollbackErr != nil {
 				return errors.Join(err, fmt.Errorf("rollback relationship batch: %w", rollbackErr))
 			}
@@ -297,7 +304,7 @@ func (p *Provider) WriteRelationships(ctx context.Context, req *gestalt.WriteRel
 		}
 	}
 	for _, record := range writeRecords {
-		if err := st.relationships.Put(ctx, record); err != nil {
+		if err := st.relationships.Put(dbCtx, record); err != nil {
 			if rollbackErr := restoreRelationshipSnapshots(ctx, st, snapshots); rollbackErr != nil {
 				return errors.Join(err, fmt.Errorf("rollback relationship batch: %w", rollbackErr))
 			}
@@ -313,6 +320,11 @@ type relationshipSnapshot struct {
 }
 
 func snapshotRelationshipRecord(ctx context.Context, st *store, snapshots map[string]relationshipSnapshot, id string) error {
+	var err error
+	ctx, err = st.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	if _, ok := snapshots[id]; ok {
 		return nil
 	}
@@ -330,6 +342,11 @@ func snapshotRelationshipRecord(ctx context.Context, st *store, snapshots map[st
 }
 
 func restoreRelationshipSnapshots(ctx context.Context, st *store, snapshots map[string]relationshipSnapshot) error {
+	var ctxErr error
+	ctx, ctxErr = st.dbContext(ctx)
+	if ctxErr != nil {
+		return ctxErr
+	}
 	var restoreErr error
 	for id, snapshot := range snapshots {
 		if snapshot.present {

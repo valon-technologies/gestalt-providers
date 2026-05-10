@@ -11,11 +11,13 @@ import (
 )
 
 type config struct {
-	DSN         string           `yaml:"dsn"`
-	TablePrefix string           `yaml:"table_prefix"`
-	Prefix      string           `yaml:"prefix"`
-	Schema      string           `yaml:"schema"`
-	Connection  connectionConfig `yaml:"connection"`
+	DSN         string            `yaml:"dsn"`
+	TablePrefix string            `yaml:"table_prefix"`
+	Prefix      string            `yaml:"prefix"`
+	Schema      string            `yaml:"schema"`
+	Connection  connectionConfig  `yaml:"connection"`
+	TenantScope tenantScopeConfig `yaml:"tenantScope"`
+	Tenancy     tenantScopeConfig `yaml:"tenancy"`
 }
 
 type connectionConfig struct {
@@ -79,7 +81,19 @@ func (c config) storeOptions() (storeOptions, error) {
 		return options, err
 	}
 	options.Connection = connectionOptions
+	tenantOptions, err := c.mergedTenantScope().options()
+	if err != nil {
+		return options, err
+	}
+	options.Tenant = tenantOptions
 	return options, nil
+}
+
+func (c config) mergedTenantScope() tenantScopeConfig {
+	if !c.TenantScope.isZero() {
+		return c.TenantScope
+	}
+	return c.Tenancy
 }
 
 func (c connectionConfig) options() (connectionOptions, error) {

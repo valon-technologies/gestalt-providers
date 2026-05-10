@@ -29,6 +29,7 @@ const (
 
 type store struct {
 	client        *gestalt.IndexedDBClient
+	requireTenant bool
 	stateName     string
 	modelsName    string
 	relationsName string
@@ -59,6 +60,7 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 
 	st := &store{
 		client:        client,
+		requireTenant: cfg.RequireTenant,
 		stateName:     stateStoreName,
 		modelsName:    modelsStoreName,
 		relationsName: relationsStoreName,
@@ -76,7 +78,16 @@ func (s *store) Close() error {
 	return s.client.Close()
 }
 
+func (s *store) dbContext(ctx context.Context) (context.Context, error) {
+	return tenantOutgoingContext(ctx, s.requireTenant)
+}
+
 func (s *store) activeModelID(ctx context.Context) (string, error) {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return "", err
+	}
 	record, err := s.state.Get(ctx, stateRecordID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -89,6 +100,11 @@ func (s *store) activeModelID(ctx context.Context) (string, error) {
 }
 
 func (s *store) setActiveModelID(ctx context.Context, modelID string) error {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	return s.state.Put(ctx, gestalt.Record{
 		"id":               stateRecordID,
 		activeModelIDField: strings.TrimSpace(modelID),
@@ -96,6 +112,11 @@ func (s *store) setActiveModelID(ctx context.Context, modelID string) error {
 }
 
 func (s *store) writeModel(ctx context.Context, ref *gestalt.AuthorizationModelRef, modelJSON string) error {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	if ref == nil {
 		return status.Error(codes.InvalidArgument, "model ref is required")
 	}
@@ -112,6 +133,11 @@ func (s *store) writeModel(ctx context.Context, ref *gestalt.AuthorizationModelR
 }
 
 func (s *store) loadModel(ctx context.Context, modelID string) (*storedModel, error) {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	record, err := s.models.Get(ctx, modelID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -123,6 +149,11 @@ func (s *store) loadModel(ctx context.Context, modelID string) (*storedModel, er
 }
 
 func (s *store) listModels(ctx context.Context) ([]*gestalt.AuthorizationModelRef, error) {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	records, err := s.models.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -191,6 +222,11 @@ func recordTime(value any) (time.Time, error) {
 }
 
 func (s *store) putRelationship(ctx context.Context, relationship *gestalt.Relationship) error {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	record, err := relationshipRecord(relationship)
 	if err != nil {
 		return err
@@ -199,6 +235,11 @@ func (s *store) putRelationship(ctx context.Context, relationship *gestalt.Relat
 }
 
 func (s *store) deleteRelationship(ctx context.Context, key *gestalt.RelationshipKey) error {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	id, err := relationshipKeyID(key)
 	if err != nil {
 		return err
@@ -211,7 +252,12 @@ func (s *store) deleteRelationship(ctx context.Context, key *gestalt.Relationshi
 }
 
 func (s *store) relationshipExists(ctx context.Context, subjectType, subjectID, relation, resourceType, resourceID string) (bool, error) {
-	_, err := s.relationships.Get(ctx, relationshipTupleID(subjectType, subjectID, relation, resourceType, resourceID))
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, err = s.relationships.Get(ctx, relationshipTupleID(subjectType, subjectID, relation, resourceType, resourceID))
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
 			return false, nil
@@ -222,7 +268,12 @@ func (s *store) relationshipExists(ctx context.Context, subjectType, subjectID, 
 }
 
 func (s *store) directRelationshipExists(ctx context.Context, target compiledRelationshipTarget, relation string, resource *gestalt.AuthorizationResource) (bool, error) {
-	_, err := s.relationships.Get(ctx, relationshipTargetTupleID(target, relation, resource.GetType(), resource.GetId()))
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, err = s.relationships.Get(ctx, relationshipTargetTupleID(target, relation, resource.GetType(), resource.GetId()))
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
 			return false, nil
@@ -233,10 +284,12 @@ func (s *store) directRelationshipExists(ctx context.Context, target compiledRel
 }
 
 func (s *store) candidateRelationships(ctx context.Context, subject *gestalt.AuthorizationSubject, resource *gestalt.AuthorizationResource) ([]*gestalt.Relationship, error) {
-	var (
-		records []gestalt.Record
-		err     error
-	)
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var records []gestalt.Record
 	switch {
 	case subject != nil && resource != nil:
 		records, err = s.relationships.Index(relationshipsByPair).GetAll(ctx, nil, subject.GetType(), subject.GetId(), resource.GetType(), resource.GetId())

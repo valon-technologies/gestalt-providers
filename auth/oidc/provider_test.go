@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestBeginLoginPKCEDoesNotExposeVerifier(t *testing.T) {
@@ -37,7 +39,7 @@ func TestBeginLoginPKCEDoesNotExposeVerifier(t *testing.T) {
 	if !strings.Contains(resp.AuthorizationUrl, "code_challenge=") {
 		t.Fatalf("BeginLogin() authorization URL missing code_challenge: %s", resp.AuthorizationUrl)
 	}
-	if _, ok := p.pkceVerifier("host-state"); !ok {
+	if _, ok := p.pkceVerifier(resolvedOIDCInfo{}, "host-state"); !ok {
 		t.Fatal("BeginLogin() did not retain verifier server-side")
 	}
 }
@@ -95,7 +97,7 @@ func TestCompleteLoginPKCEUsesStoredVerifier(t *testing.T) {
 	if len(resp.ProviderState) != 0 {
 		t.Fatalf("BeginLogin() exposed ProviderState = %q", string(resp.ProviderState))
 	}
-	wantCodeVerifier, ok := p.pkceVerifier(hostState)
+	wantCodeVerifier, ok := p.pkceVerifier(resolvedOIDCInfo{}, hostState)
 	if !ok {
 		t.Fatal("BeginLogin() did not retain verifier")
 	}
@@ -113,11 +115,150 @@ func TestCompleteLoginPKCEUsesStoredVerifier(t *testing.T) {
 	if gotCodeVerifier != wantCodeVerifier {
 		t.Fatalf("CompleteLogin() used code_verifier %q, want %q", gotCodeVerifier, wantCodeVerifier)
 	}
-	if _, ok := p.pkceVerifier(hostState); ok {
+	if _, ok := p.pkceVerifier(resolvedOIDCInfo{}, hostState); ok {
 		t.Fatal("CompleteLogin() left verifier cached after successful exchange")
 	}
 	if user.Email != "user@example.com" {
 		t.Fatalf("CompleteLogin() email = %q, want %q", user.Email, "user@example.com")
+	}
+}
+
+func TestBeginLoginUsesTenantRedirectURL(t *testing.T) {
+	p := New()
+	p.cfg = config{
+		ClientID: "client-id",
+		TenantSettings: tenantSettings{
+			Source: "config",
+			Tenants: map[string]tenantOIDCInfo{
+				"vt": {
+					RedirectURL:    "https://vt.dev.valon.tools/auth/callback",
+					AllowedDomains: []string{"valon.com"},
+				},
+			},
+		},
+	}
+	p.doc = discoveryDocument{
+		AuthorizationEndpoint: "https://issuer.example/auth",
+		TokenEndpoint:         "https://issuer.example/token",
+		UserinfoEndpoint:      "https://issuer.example/userinfo",
+	}
+
+	resp, err := p.BeginLogin(tenantTestContext("vt", "vt.dev.valon.tools"), &gestalt.BeginLoginRequest{
+		CallbackUrl: "https://fallback.dev.valon.tools/auth/callback",
+		HostState:   "state",
+	})
+	if err != nil {
+		t.Fatalf("BeginLogin() error = %v", err)
+	}
+	parsed, err := url.Parse(resp.AuthorizationUrl)
+	if err != nil {
+		t.Fatalf("Parse AuthorizationUrl: %v", err)
+	}
+	if got := parsed.Query().Get("redirect_uri"); got != "https://vt.dev.valon.tools/auth/callback" {
+		t.Fatalf("redirect_uri = %q, want tenant redirect", got)
+	}
+}
+
+func TestCompleteLoginRejectsTenantHostMismatchForPKCE(t *testing.T) {
+	const hostState = "host-state"
+	p := New()
+	p.cfg = config{
+		ClientID: "client-id",
+		PKCE:     true,
+		TenantSettings: tenantSettings{
+			Source: "config",
+			Tenants: map[string]tenantOIDCInfo{
+				"vt": {
+					RedirectURL:    "https://vt.dev.valon.tools/auth/callback",
+					AllowedDomains: []string{"valon.com"},
+				},
+				"acme": {
+					RedirectURL:    "https://acme.dev.valon.tools/auth/callback",
+					AllowedDomains: []string{"acme.com"},
+				},
+			},
+		},
+	}
+	p.doc = discoveryDocument{
+		AuthorizationEndpoint: "https://issuer.example/auth",
+		TokenEndpoint:         "https://issuer.example/token",
+		UserinfoEndpoint:      "https://issuer.example/userinfo",
+	}
+
+	if _, err := p.BeginLogin(tenantTestContext("vt", "vt.dev.valon.tools"), &gestalt.BeginLoginRequest{
+		HostState: hostState,
+	}); err != nil {
+		t.Fatalf("BeginLogin(vt): %v", err)
+	}
+	_, err := p.CompleteLogin(tenantTestContext("acme", "acme.dev.valon.tools"), &gestalt.CompleteLoginRequest{
+		Query: map[string]string{
+			"code":  "auth-code",
+			"state": hostState,
+		},
+	})
+	if err == nil {
+		t.Fatal("CompleteLogin(acme with vt state) succeeded, want failure")
+	}
+	if !strings.Contains(err.Error(), "pkce verifier not found") {
+		t.Fatalf("CompleteLogin error = %v, want verifier isolation", err)
+	}
+}
+
+func TestValidateExternalTokenUsesTenantAllowedDomains(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"sub":            "user-123",
+			"email":          "user@acme.com",
+			"email_verified": true,
+		})
+	}))
+	defer server.Close()
+
+	p := New()
+	p.httpClient = server.Client()
+	p.cfg = config{
+		ClientID: "client-id",
+		TenantSettings: tenantSettings{
+			Source: "config",
+			Tenants: map[string]tenantOIDCInfo{
+				"vt":   {AllowedDomains: []string{"valon.com"}},
+				"acme": {AllowedDomains: []string{"acme.com"}},
+			},
+		},
+	}
+	p.doc = discoveryDocument{UserinfoEndpoint: server.URL}
+
+	if _, err := p.ValidateExternalToken(tenantTestContext("acme", "acme.dev.valon.tools"), "token"); err != nil {
+		t.Fatalf("ValidateExternalToken(acme): %v", err)
+	}
+	if _, err := p.ValidateExternalToken(tenantTestContext("vt", "vt.dev.valon.tools"), "token"); err == nil {
+		t.Fatal("ValidateExternalToken(vt) succeeded for acme.com user, want denial")
+	}
+}
+
+func TestTenantConfigAliasTakesPrecedence(t *testing.T) {
+	cfg := config{
+		TenantConfig: tenantSettings{
+			Source: "config",
+			Tenants: map[string]tenantOIDCInfo{
+				"vt": {RedirectURL: "https://vt.dev.valon.tools/auth/callback"},
+			},
+		},
+		TenantSettings: tenantSettings{
+			Source: "legacy",
+			Tenants: map[string]tenantOIDCInfo{
+				"legacy": {RedirectURL: "https://legacy.dev.valon.tools/auth/callback"},
+			},
+		},
+	}
+
+	got := cfg.mergedTenantSettings()
+	if got.Source != "config" {
+		t.Fatalf("merged source = %q, want config", got.Source)
+	}
+	if _, ok := got.Tenants["vt"]; !ok {
+		t.Fatalf("merged tenants = %#v, want tenantConfig tenants", got.Tenants)
 	}
 }
 
@@ -229,16 +370,16 @@ func TestPKCEVerifierExpires(t *testing.T) {
 	p.now = func() time.Time { return now }
 	p.pkceVerifierTTL = 10 * time.Minute
 
-	if err := p.storePKCEVerifier("host-state", "verifier"); err != nil {
+	if err := p.storePKCEVerifier(resolvedOIDCInfo{}, "host-state", "verifier"); err != nil {
 		t.Fatalf("storePKCEVerifier() error = %v", err)
 	}
-	if got, ok := p.pkceVerifier("host-state"); !ok || got != "verifier" {
+	if got, ok := p.pkceVerifier(resolvedOIDCInfo{}, "host-state"); !ok || got != "verifier" {
 		t.Fatalf("pkceVerifier() = (%q, %t), want (%q, true)", got, ok, "verifier")
 	}
 
 	now = now.Add(10*time.Minute + time.Second)
 
-	if got, ok := p.pkceVerifier("host-state"); ok || got != "" {
+	if got, ok := p.pkceVerifier(resolvedOIDCInfo{}, "host-state"); ok || got != "" {
 		t.Fatalf("pkceVerifier() after TTL = (%q, %t), want (\"\", false)", got, ok)
 	}
 	if len(p.pkceVerifiers) != 0 {
@@ -253,13 +394,13 @@ func TestPKCEVerifierRejectsNewEntryWhenCacheIsFull(t *testing.T) {
 	p.pkceVerifierTTL = 10 * time.Minute
 	p.pkceVerifierMaxItems = 2
 
-	if err := p.storePKCEVerifier("state-1", "verifier-1"); err != nil {
+	if err := p.storePKCEVerifier(resolvedOIDCInfo{}, "state-1", "verifier-1"); err != nil {
 		t.Fatalf("storePKCEVerifier(state-1) error = %v", err)
 	}
-	if err := p.storePKCEVerifier("state-2", "verifier-2"); err != nil {
+	if err := p.storePKCEVerifier(resolvedOIDCInfo{}, "state-2", "verifier-2"); err != nil {
 		t.Fatalf("storePKCEVerifier(state-2) error = %v", err)
 	}
-	err := p.storePKCEVerifier("state-3", "verifier-3")
+	err := p.storePKCEVerifier(resolvedOIDCInfo{}, "state-3", "verifier-3")
 	if err == nil {
 		t.Fatal("storePKCEVerifier(state-3) error = nil, want cache full rejection")
 	}
@@ -267,13 +408,13 @@ func TestPKCEVerifierRejectsNewEntryWhenCacheIsFull(t *testing.T) {
 		t.Fatalf("storePKCEVerifier(state-3) error = %v, want cache full rejection", err)
 	}
 
-	if got, ok := p.pkceVerifier("state-1"); !ok || got != "verifier-1" {
+	if got, ok := p.pkceVerifier(resolvedOIDCInfo{}, "state-1"); !ok || got != "verifier-1" {
 		t.Fatalf("pkceVerifier(state-1) = (%q, %t), want (%q, true)", got, ok, "verifier-1")
 	}
-	if got, ok := p.pkceVerifier("state-2"); !ok || got != "verifier-2" {
+	if got, ok := p.pkceVerifier(resolvedOIDCInfo{}, "state-2"); !ok || got != "verifier-2" {
 		t.Fatalf("pkceVerifier(state-2) = (%q, %t), want (%q, true)", got, ok, "verifier-2")
 	}
-	if got, ok := p.pkceVerifier("state-3"); ok || got != "" {
+	if got, ok := p.pkceVerifier(resolvedOIDCInfo{}, "state-3"); ok || got != "" {
 		t.Fatalf("pkceVerifier(state-3) = (%q, %t), want (\"\", false)", got, ok)
 	}
 }
@@ -389,4 +530,12 @@ func newTLSDiscoveryServer(t *testing.T, doc discoveryDocument) *httptest.Server
 		_ = json.NewEncoder(w).Encode(doc)
 	}))
 	return server
+}
+
+func tenantTestContext(tenantID, host string) context.Context {
+	return metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		tenantIDMetadataKey, tenantID,
+		tenantHostMetadataKey, host,
+		tenantBoundMetadataKey, "true",
+	))
 }

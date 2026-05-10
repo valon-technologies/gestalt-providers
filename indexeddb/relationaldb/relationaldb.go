@@ -48,6 +48,7 @@ type storeOptions struct {
 	TablePrefix string
 	Schema      string
 	Connection  connectionOptions
+	Tenant      tenantOptions
 }
 
 type Store struct {
@@ -58,6 +59,7 @@ type Store struct {
 	schemaName  string
 	tablePrefix string
 	conn        connectionOptions
+	tenant      tenantOptions
 	mu          sync.RWMutex
 }
 
@@ -89,6 +91,7 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		schemaName:  options.Schema,
 		tablePrefix: options.TablePrefix,
 		conn:        options.Connection,
+		tenant:      options.Tenant,
 	}
 
 	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
@@ -100,6 +103,10 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		return nil, err
 	}
 
+	if err := s.backfillTenantRows(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -135,6 +142,16 @@ func (s *Store) metadataStoreKey(storeName string) string {
 		return storeName
 	}
 	return s.tablePrefix + storeName
+}
+
+func (s *Store) currentMetadataStoreName(key string) (string, bool) {
+	if !s.usesNamespacedMetadata() {
+		return key, true
+	}
+	if !strings.HasPrefix(key, s.tablePrefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(key, s.tablePrefix), true
 }
 
 func (s *Store) loadStoreMetadata(ctx context.Context, storeName string) (*storeMeta, bool, error) {
@@ -423,6 +440,69 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, sche
 	return nil
 }
 
+func (s *Store) backfillTenantRows(ctx context.Context) error {
+	if !s.tenant.Enabled || strings.TrimSpace(s.tenant.BackfillTenantID) == "" {
+		return nil
+	}
+	tenantID := strings.TrimSpace(s.tenant.BackfillTenantID)
+	storeNames, err := s.logicalStoreNames(ctx)
+	if err != nil {
+		return err
+	}
+	if len(storeNames) == 0 {
+		return nil
+	}
+	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		for _, storeName := range storeNames {
+			scopedName := tenantScopedStoreName(tenantID, storeName)
+			if scopedName == storeName {
+				continue
+			}
+			statements := []string{
+				"UPDATE " + quoteTableName(s.dialect, s.genericRecordsTable()) +
+					" SET " + quoteIdent(s.dialect, "store_name") + " = ?" +
+					" WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
+				"UPDATE " + quoteTableName(s.dialect, s.genericIndexTable()) +
+					" SET " + quoteIdent(s.dialect, "store_name") + " = ?" +
+					" WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
+				"UPDATE " + quoteTableName(s.dialect, s.genericUniqueIndexTable()) +
+					" SET " + quoteIdent(s.dialect, "store_name") + " = ?" +
+					" WHERE " + quoteIdent(s.dialect, "store_name") + " = ?",
+			}
+			for _, stmt := range statements {
+				if _, err := tx.ExecContext(txCtx, s.q(stmt), scopedName, storeName); err != nil {
+					return fmt.Errorf("relationaldb: backfill tenant rows for %q into tenant %q: %w", storeName, tenantID, err)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) logicalStoreNames(ctx context.Context) ([]string, error) {
+	rows, err := s.query(ctx, "SELECT "+quoteIdent(s.dialect, "name")+" FROM "+quoteTableName(s.dialect, s.metadataTable()))
+	if err != nil {
+		return nil, fmt.Errorf("relationaldb: list metadata stores: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("relationaldb: scan metadata store: %w", err)
+		}
+		if name, ok := s.currentMetadataStoreName(key); ok && strings.TrimSpace(name) != "" {
+			names = append(names, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("relationaldb: list metadata stores: %w", err)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // ---- Lifecycle ----
 
 func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
@@ -522,7 +602,7 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 	if _, ok, err := s.loadStoreMetadata(ctx, req.Name); err != nil {
 		return nil, status.Errorf(codes.Internal, "load metadata: %v", err)
 	} else if ok {
-		if err := s.clearGeneric(ctx, req.Name); err != nil {
+		if err := s.clearLogicalStore(ctx, req.Name); err != nil {
 			return nil, err
 		}
 	}
@@ -533,6 +613,31 @@ func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectSt
 	return &emptypb.Empty{}, nil
 }
 
+func (s *Store) clearLogicalStore(ctx context.Context, storeName string) error {
+	if !s.tenant.Enabled {
+		return s.clearGeneric(ctx, storeName)
+	}
+
+	pattern := sqlLikeEscape(tenantStoreKeyPrefix) + "%" + sqlLikeEscape("__"+storeName)
+	tables := []string{s.genericRecordsTable(), s.genericIndexTable(), s.genericUniqueIndexTable()}
+	for _, table := range tables {
+		stmt := "DELETE FROM " + quoteTableName(s.dialect, table) +
+			" WHERE " + quoteIdent(s.dialect, "store_name") + " = ?" +
+			" OR " + quoteIdent(s.dialect, "store_name") + " LIKE ? ESCAPE '\\'"
+		if _, err := s.exec(ctx, stmt, storeName, pattern); err != nil {
+			return fmt.Errorf("relationaldb: clear object store %q: %w", storeName, err)
+		}
+	}
+	return nil
+}
+
+func sqlLikeEscape(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+	return value
+}
+
 // ---- Primary key CRUD ----
 
 func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
@@ -540,7 +645,11 @@ func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.genericGet(ctx, req.Store, m, req.Id)
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	record, err := s.genericGet(ctx, storeName, m, req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -552,7 +661,11 @@ func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*pro
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.genericGet(ctx, req.Store, m, req.Id)
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	record, err := s.genericGet(ctx, storeName, m, req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +681,11 @@ func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	if err != nil {
 		return nil, err
 	}
-	if err := s.addGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.addGeneric(ctx, storeName, m, req.GetRecord()); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -579,7 +696,11 @@ func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Emp
 	if err != nil {
 		return nil, err
 	}
-	if err := s.putGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.putGeneric(ctx, storeName, m, req.GetRecord()); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -590,7 +711,11 @@ func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emp
 	if err != nil {
 		return nil, err
 	}
-	if err := s.deleteGeneric(ctx, req.Store, m, req.Id); err != nil {
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.deleteGeneric(ctx, storeName, m, req.Id); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -602,7 +727,11 @@ func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*
 	if _, err := s.getMetaForContext(ctx, req.Store); err != nil {
 		return nil, err
 	}
-	if err := s.clearGeneric(ctx, req.Store); err != nil {
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.clearGeneric(ctx, storeName); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -613,7 +742,11 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, false)
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.genericObjectStoreEntries(ctx, storeName, m, req.Range, false)
 	if err != nil {
 		return nil, err
 	}
@@ -629,7 +762,11 @@ func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeReque
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.genericObjectStoreEntries(ctx, storeName, m, req.Range, true)
 	if err != nil {
 		return nil, err
 	}
@@ -645,14 +782,18 @@ func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (
 	if err != nil {
 		return nil, err
 	}
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
 	if req.Range == nil {
-		count, err := s.countGenericRecords(ctx, req.Store)
+		count, err := s.countGenericRecords(ctx, storeName)
 		if err != nil {
 			return nil, err
 		}
 		return &proto.CountResponse{Count: count}, nil
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+	entries, err := s.genericObjectStoreEntries(ctx, storeName, m, req.Range, true)
 	if err != nil {
 		return nil, err
 	}
@@ -664,11 +805,15 @@ func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequ
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+	storeName, err := s.scopedStoreName(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
-	deleted, err := s.deleteGenericEntries(ctx, req.Store, entries)
+	entries, err := s.genericObjectStoreEntries(ctx, storeName, m, req.Range, true)
+	if err != nil {
+		return nil, err
+	}
+	deleted, err := s.deleteGenericEntries(ctx, storeName, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -736,7 +881,11 @@ func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (
 	if err != nil {
 		return nil, err
 	}
-	deleted, err := s.deleteGenericEntries(ctx, req.Store, entries)
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, err
+	}
+	deleted, err := s.deleteGenericEntries(ctx, storeName, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -750,11 +899,15 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 	if err != nil {
 		return nil, nil, err
 	}
+	storeName, err := s.scopedStoreName(ctx, req.Store)
+	if err != nil {
+		return nil, nil, err
+	}
 	idx := findIndex(m, req.Index)
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 	}
-	entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.GetValues(), req.GetRange(), keyOnly)
+	entries, err := s.genericIndexEntries(ctx, storeName, m, idx, req.GetValues(), req.GetRange(), keyOnly)
 	if err != nil {
 		return nil, nil, err
 	}

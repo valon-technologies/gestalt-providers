@@ -332,7 +332,8 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 		return sandboxSession{}, err
 	}
 	objectMeta := runtimeObjectMeta(req)
-	podLabels := runtimeLabels(req.PluginName)
+	podLabels := runtimeLabels(req.PluginName, req.Metadata)
+	podAnnotations := runtimeAnnotations(req.Metadata)
 	sessionLabel := sanitizeLabelValue(req.Name)
 	if sessionLabel != "" {
 		podLabels[runtimeSessionLabel] = sessionLabel
@@ -347,7 +348,8 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 			Replicas: &replicas,
 			PodTemplate: sandboxv1alpha1.PodTemplate{
 				ObjectMeta: sandboxv1alpha1.PodMetadata{
-					Labels: podLabels,
+					Labels:      podLabels,
+					Annotations: podAnnotations,
 				},
 				Spec: podSpec,
 			},
@@ -1776,7 +1778,7 @@ const (
 	metadataImageMatch           = "runtime.imageMatch"
 )
 
-func runtimeLabels(pluginName string) map[string]string {
+func runtimeLabels(pluginName string, runtimeMetadata map[string]string) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/managed-by": "gestalt",
 		"gestalt.dev/runtime":          "gke-agent-sandbox",
@@ -1784,15 +1786,21 @@ func runtimeLabels(pluginName string) map[string]string {
 	if value := sanitizeLabelValue(pluginName); value != "" {
 		labels["gestalt.dev/plugin"] = value
 	}
+	if value := sanitizeLabelValue(runtimeMetadata[sessionTenantIDMetadataKey]); value != "" {
+		labels[runtimeTenantLabel] = value
+	}
 	return labels
 }
 
 func runtimeObjectMeta(req startSandboxRequest) metav1.ObjectMeta {
-	labels := runtimeLabels(req.PluginName)
+	labels := runtimeLabels(req.PluginName, req.Metadata)
 	if sessionLabel := sanitizeLabelValue(req.Name); sessionLabel != "" {
 		labels[runtimeSessionLabel] = sessionLabel
 	}
-	annotations := map[string]string{}
+	annotations := runtimeAnnotations(req.Metadata)
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
 	if pluginName := strings.TrimSpace(req.PluginName); pluginName != "" {
 		annotations[sessionPluginAnnotation] = pluginName
 	}
@@ -1950,6 +1958,20 @@ func addHandleMetadata(metadata map[string]string, handle sandboxHandle) {
 	if handle.PodName != "" {
 		metadata["kubernetes.pod"] = handle.PodName
 	}
+}
+
+func runtimeAnnotations(runtimeMetadata map[string]string) map[string]string {
+	annotations := map[string]string{}
+	if tenantID := strings.TrimSpace(runtimeMetadata[sessionTenantIDMetadataKey]); tenantID != "" {
+		annotations[runtimeTenantAnnotation] = tenantID
+	}
+	if host := strings.TrimSpace(runtimeMetadata[sessionTenantHostMetadataKey]); host != "" {
+		annotations[runtimeTenantHostAnnotation] = host
+	}
+	if len(annotations) == 0 {
+		return nil
+	}
+	return annotations
 }
 
 func (r *kubernetesSandboxRuntime) hostnameEgressSelector(ctx context.Context, handle sandboxHandle, cfg hostnameEgressConfig) (map[string]string, error) {

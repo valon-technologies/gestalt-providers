@@ -13,6 +13,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -190,6 +191,27 @@ func TestProviderConfigureRejectsInvalidConnectionSettings(t *testing.T) {
 	}
 }
 
+func TestProviderConfigureAppliesTenantScopeConfig(t *testing.T) {
+	options, err := (config{
+		TenantScope: tenantScopeConfig{
+			Mode:             "requestContext",
+			BackfillTenantID: "vt",
+			Storage: tenantStorageConfig{
+				Strategy: "storeNamePrefix",
+			},
+		},
+	}).storeOptions()
+	if err != nil {
+		t.Fatalf("storeOptions: %v", err)
+	}
+	if !options.Tenant.Enabled {
+		t.Fatal("options.Tenant.Enabled = false, want true")
+	}
+	if options.Tenant.BackfillTenantID != "vt" {
+		t.Fatalf("BackfillTenantID = %q, want vt", options.Tenant.BackfillTenantID)
+	}
+}
+
 func TestStoreNamesUseConfiguredSchemaAndPrefix(t *testing.T) {
 	s := &Store{
 		schemaName:  "analytics",
@@ -213,6 +235,147 @@ func TestNewStoreWithSchemaRejectsSQLite(t *testing.T) {
 	if !strings.Contains(err.Error(), "schema is not supported for sqlite") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestTenantScopedStoreRequiresTenantScope(t *testing.T) {
+	s := testStoreWithOptions(t, "file:"+filepath.Join(t.TempDir(), "tenant-required.sqlite"), storeOptions{
+		Tenant: tenantOptions{Enabled: true},
+	})
+	if _, err := s.CreateObjectStore(context.Background(), &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+
+	_, err := s.Add(context.Background(), &proto.RecordRequest{
+		Store:  "widgets",
+		Record: makeWidget("a", "W-001", "Widget A"),
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("Add without tenant code = %v, want %v: %v", status.Code(err), codes.FailedPrecondition, err)
+	}
+}
+
+func TestTenantScopedStoreIsolatesPrimaryKeyAndBulkOperations(t *testing.T) {
+	s := testStoreWithOptions(t, "file:"+filepath.Join(t.TempDir(), "tenant-isolation.sqlite"), storeOptions{
+		Tenant: tenantOptions{Enabled: true},
+	})
+	if _, err := s.CreateObjectStore(context.Background(), &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+
+	vtCtx := tenantTestContext("vt", "vt.dev.valon.tools")
+	acmeCtx := tenantTestContext("acme", "acme.dev.valon.tools")
+	if _, err := s.Put(vtCtx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("shared", "VT-001", "VT Widget")}); err != nil {
+		t.Fatalf("Put(vt): %v", err)
+	}
+	if _, err := s.Put(acmeCtx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("shared", "ACME-001", "Acme Widget")}); err != nil {
+		t.Fatalf("Put(acme): %v", err)
+	}
+
+	vtRecord, err := s.Get(vtCtx, &proto.ObjectStoreRequest{Store: "widgets", Id: "shared"})
+	if err != nil {
+		t.Fatalf("Get(vt): %v", err)
+	}
+	acmeRecord, err := s.Get(acmeCtx, &proto.ObjectStoreRequest{Store: "widgets", Id: "shared"})
+	if err != nil {
+		t.Fatalf("Get(acme): %v", err)
+	}
+	if got := vtRecord.GetRecord().GetFields()["code"].GetStringValue(); got != "VT-001" {
+		t.Fatalf("vt code = %q, want VT-001", got)
+	}
+	if got := acmeRecord.GetRecord().GetFields()["code"].GetStringValue(); got != "ACME-001" {
+		t.Fatalf("acme code = %q, want ACME-001", got)
+	}
+
+	if _, err := s.DeleteRange(vtCtx, &proto.ObjectStoreRangeRequest{Store: "widgets"}); err != nil {
+		t.Fatalf("DeleteRange(vt): %v", err)
+	}
+	acmeCount, err := s.Count(acmeCtx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	if err != nil {
+		t.Fatalf("Count(acme): %v", err)
+	}
+	if acmeCount.GetCount() != 1 {
+		t.Fatalf("acme count = %d, want 1", acmeCount.GetCount())
+	}
+}
+
+func TestTenantScopedDeleteObjectStoreClearsAllTenants(t *testing.T) {
+	s := testStoreWithOptions(t, "file:"+filepath.Join(t.TempDir(), "tenant-delete-store.sqlite"), storeOptions{
+		Tenant: tenantOptions{Enabled: true},
+	})
+	if _, err := s.CreateObjectStore(context.Background(), &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+
+	for _, tenantID := range []string{"vt", "acme"} {
+		if _, err := s.Put(tenantTestContext(tenantID, tenantID+".dev.valon.tools"), &proto.RecordRequest{
+			Store:  "widgets",
+			Record: makeWidget("shared", tenantID+"-001", tenantID+" Widget"),
+		}); err != nil {
+			t.Fatalf("Put(%s): %v", tenantID, err)
+		}
+	}
+
+	if _, err := s.DeleteObjectStore(context.Background(), &proto.DeleteObjectStoreRequest{Name: "widgets"}); err != nil {
+		t.Fatalf("DeleteObjectStore: %v", err)
+	}
+	for _, tenantID := range []string{"vt", "acme"} {
+		count, err := s.countGenericRecords(context.Background(), tenantScopedStoreName(tenantID, "widgets"))
+		if err != nil {
+			t.Fatalf("countGenericRecords(%s): %v", tenantID, err)
+		}
+		if count != 0 {
+			t.Fatalf("tenant %s row count = %d, want 0", tenantID, count)
+		}
+	}
+}
+
+func TestTenantScopedStoreBackfillsExistingRowsToDefaultTenant(t *testing.T) {
+	dsn := "file:" + filepath.Join(t.TempDir(), "tenant-backfill.sqlite")
+	initial := testStoreWithOptions(t, dsn, storeOptions{})
+	if _, err := initial.CreateObjectStore(context.Background(), &proto.CreateObjectStoreRequest{
+		Name: "widgets", Schema: widgetsSchema(),
+	}); err != nil {
+		t.Fatalf("CreateObjectStore(initial): %v", err)
+	}
+	if _, err := initial.Put(context.Background(), &proto.RecordRequest{
+		Store:  "widgets",
+		Record: makeWidget("legacy", "LEG-001", "Legacy Widget"),
+	}); err != nil {
+		t.Fatalf("Put(initial): %v", err)
+	}
+	if err := initial.Close(); err != nil {
+		t.Fatalf("Close(initial): %v", err)
+	}
+
+	scoped := testStoreWithOptions(t, dsn, storeOptions{
+		Tenant: tenantOptions{Enabled: true, BackfillTenantID: "vt"},
+	})
+	if _, err := scoped.Get(tenantTestContext("vt", "vt.dev.valon.tools"), &proto.ObjectStoreRequest{
+		Store: "widgets",
+		Id:    "legacy",
+	}); err != nil {
+		t.Fatalf("Get(vt legacy): %v", err)
+	}
+	if _, err := scoped.Get(tenantTestContext("acme", "acme.dev.valon.tools"), &proto.ObjectStoreRequest{
+		Store: "widgets",
+		Id:    "legacy",
+	}); status.Code(err) != codes.NotFound {
+		t.Fatalf("Get(acme legacy) code = %v, want %v: %v", status.Code(err), codes.NotFound, err)
+	}
+}
+
+func tenantTestContext(tenantID, host string) context.Context {
+	return metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		tenantIDMetadataKey, tenantID,
+		tenantHostMetadataKey, host,
+		tenantBoundMetadataKey, "true",
+	))
 }
 
 func widgetsSchema() *proto.ObjectStoreSchema {

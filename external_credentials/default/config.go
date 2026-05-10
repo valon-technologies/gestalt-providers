@@ -14,7 +14,10 @@ type config struct {
 	IndexedDB           string                     `yaml:"indexeddb"`
 	EncryptionKey       string                     `yaml:"encryptionKey"`
 	ResolvedConnections []resolvedConnectionConfig `yaml:"resolvedConnections"`
+	TenantScope         tenantScopeConfig          `yaml:"tenantScope"`
+	Tenancy             tenantScopeConfig          `yaml:"tenancy"`
 	RefreshTargets      []credentialRefreshTarget  `yaml:"-"`
+	RequireTenant       bool
 }
 
 type resolvedConnectionConfig struct {
@@ -96,6 +99,12 @@ func decodeConfig(raw map[string]any) (config, error) {
 		return cfg, err
 	}
 	cfg.RefreshTargets = targets
+	cfg.TenantScope = cfg.mergedTenantScope()
+	requireTenant, err := cfg.TenantScope.requireTenant()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.RequireTenant = requireTenant
 	return cfg, nil
 }
 
@@ -284,4 +293,11 @@ func (auth resolvedConnectionAuthConfig) toProto() *gestalt.ExternalCredentialAu
 		AccessTokenPath:      auth.AccessTokenPath,
 		TokenExchangeDrivers: drivers,
 	}
+}
+
+func (c config) mergedTenantScope() tenantScopeConfig {
+	if !c.TenantScope.isZero() {
+		return c.TenantScope
+	}
+	return c.Tenancy
 }

@@ -226,6 +226,25 @@ func seedReadyClaimSandbox(ctx context.Context, runtime *kubernetesSandboxRuntim
 	return err
 }
 
+func TestRuntimeLabelsAndAnnotationsIncludeTenantMetadata(t *testing.T) {
+	metadata := map[string]string{
+		sessionTenantIDMetadataKey:   "acme",
+		sessionTenantHostMetadataKey: "acme.dev.valon.tools",
+	}
+
+	labels := runtimeLabels("github", metadata)
+	if got, want := labels[runtimeTenantLabel], "acme"; got != want {
+		t.Fatalf("tenant label = %q, want %q", got, want)
+	}
+	annotations := runtimeAnnotations(metadata)
+	if got, want := annotations[runtimeTenantAnnotation], "acme"; got != want {
+		t.Fatalf("tenant annotation = %q, want %q", got, want)
+	}
+	if got, want := annotations[runtimeTenantHostAnnotation], "acme.dev.valon.tools"; got != want {
+		t.Fatalf("tenant host annotation = %q, want %q", got, want)
+	}
+}
+
 func TestRuntimeContractHostnameEgressPolicyRejectsManagedTemplates(t *testing.T) {
 	t.Parallel()
 

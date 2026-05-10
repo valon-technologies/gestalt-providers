@@ -33,11 +33,15 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorReq
 	if err != nil {
 		return nil, err
 	}
+	storeName, err := s.scopedStoreName(ctx, req.GetStore())
+	if err != nil {
+		return nil, err
+	}
 
 	cursor := &relationalCursor{
 		Snapshot:  cursorutil.NewSnapshot(req),
 		store:     s,
-		storeName: req.GetStore(),
+		storeName: storeName,
 		meta:      meta,
 	}
 	if cursor.IndexCursor {
@@ -49,9 +53,9 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorReq
 
 	var entries []cursorutil.Entry
 	if cursor.IndexCursor {
-		entries, err = s.genericIndexEntries(ctx, req.GetStore(), meta, cursor.index, req.GetValues(), req.GetRange(), cursor.KeysOnly)
+		entries, err = s.genericIndexEntries(ctx, storeName, meta, cursor.index, req.GetValues(), req.GetRange(), cursor.KeysOnly)
 	} else {
-		entries, err = s.genericObjectStoreEntries(ctx, req.GetStore(), meta, req.GetRange(), cursor.KeysOnly)
+		entries, err = s.genericObjectStoreEntries(ctx, storeName, meta, req.GetRange(), cursor.KeysOnly)
 	}
 	if err != nil {
 		return nil, err
@@ -80,10 +84,7 @@ func (c *relationalCursor) UpdateCurrent(ctx context.Context, record *proto.Reco
 		return nil, err
 	}
 
-	if _, err := c.store.Put(ctx, &proto.RecordRequest{
-		Store:  c.storeName,
-		Record: cloned,
-	}); err != nil {
+	if err := c.store.putGeneric(ctx, c.storeName, c.meta, cloned); err != nil {
 		return nil, err
 	}
 

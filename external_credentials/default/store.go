@@ -20,9 +20,10 @@ const (
 )
 
 type store struct {
-	client      *gestalt.IndexedDBClient
-	credentials *gestalt.ObjectStoreClient
-	encryptor   *aesgcmEncryptor
+	client        *gestalt.IndexedDBClient
+	credentials   *gestalt.ObjectStoreClient
+	encryptor     *aesgcmEncryptor
+	requireTenant bool
 }
 
 func openStore(ctx context.Context, cfg config) (*store, error) {
@@ -46,9 +47,10 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	}
 
 	st := &store{
-		client:      client,
-		credentials: client.ObjectStore(storeName),
-		encryptor:   encryptor,
+		client:        client,
+		credentials:   client.ObjectStore(storeName),
+		encryptor:     encryptor,
+		requireTenant: cfg.RequireTenant,
 	}
 	return st, nil
 }
@@ -60,7 +62,16 @@ func (s *store) Close() error {
 	return s.client.Close()
 }
 
+func (s *store) dbContext(ctx context.Context) (context.Context, error) {
+	return tenantOutgoingContext(ctx, s.requireTenant)
+}
+
 func (s *store) upsertCredential(ctx context.Context, credential *gestalt.ExternalCredential, preserveTimestamps bool, now time.Time) (*gestalt.ExternalCredential, error) {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if credential == nil {
 		return nil, fmt.Errorf("credential is required")
 	}
@@ -123,6 +134,11 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 }
 
 func (s *store) getCredential(ctx context.Context, subjectID, connectionID, instance string) (*gestalt.ExternalCredential, error) {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	record, err := s.credentialRecord(ctx, subjectID, connectionID, instance)
 	if err != nil {
 		return nil, err
@@ -131,10 +147,12 @@ func (s *store) getCredential(ctx context.Context, subjectID, connectionID, inst
 }
 
 func (s *store) listCredentials(ctx context.Context, subjectID, connectionID, instance string) ([]*gestalt.ExternalCredential, error) {
-	var (
-		records []gestalt.Record
-		err     error
-	)
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var records []gestalt.Record
 	switch {
 	case connectionID != "":
 		records, err = s.listCredentialRecords(ctx, indexBySubjectConnection, subjectID, connectionID)
@@ -166,6 +184,11 @@ func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionI
 	if len(connectionIDs) == 0 {
 		return nil, nil
 	}
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	records, err := s.credentials.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -176,7 +199,7 @@ func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionI
 	records = dedupeCredentialRecords(records)
 	credentials := make([]*gestalt.ExternalCredential, 0, len(records))
 	for _, record := range records {
-		if _, ok := connectionIDs[recordString(record, "connection_id")]; !ok {
+		if _, ok := connectionIDs[credentialRecordConnectionID(record)]; !ok {
 			continue
 		}
 		credential, err := s.recordToCredential(record)
@@ -188,7 +211,27 @@ func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionI
 	return credentials, nil
 }
 
+func (s *store) singleCredential(ctx context.Context, subjectID, connectionID string) (*gestalt.ExternalCredential, error) {
+	credentials, err := s.listCredentials(ctx, subjectID, connectionID, "")
+	if err != nil {
+		return nil, err
+	}
+	switch len(credentials) {
+	case 0:
+		return nil, gestalt.ErrExternalCredentialNotFound
+	case 1:
+		return credentials[0], nil
+	default:
+		return nil, gestalt.FailedPrecondition("multiple external credentials matched; instance is required")
+	}
+}
+
 func (s *store) deleteCredential(ctx context.Context, id string) error {
+	var err error
+	ctx, err = s.dbContext(ctx)
+	if err != nil {
+		return err
+	}
 	record, err := s.credentials.Get(ctx, id)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil
@@ -199,7 +242,7 @@ func (s *store) deleteCredential(ctx context.Context, id string) error {
 
 	records, err := s.credentials.Index(indexByLookup).GetAll(ctx, nil,
 		credentialRecordSubjectID(record),
-		recordString(record, "connection_id"),
+		credentialRecordConnectionID(record),
 		recordString(record, "instance"),
 	)
 	if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
@@ -269,10 +312,10 @@ func (s *store) recordToCredential(record gestalt.Record) (*gestalt.ExternalCred
 		return nil, fmt.Errorf("decrypt credential pair: %w", err)
 	}
 
-	credential := &gestalt.ExternalCredential{
+	return &gestalt.ExternalCredential{
 		ID:                recordString(record, "id"),
 		SubjectID:         credentialRecordSubjectID(record),
-		ConnectionID:      recordString(record, "connection_id"),
+		ConnectionID:      credentialRecordConnectionID(record),
 		Instance:          recordString(record, "instance"),
 		AccessToken:       accessToken,
 		RefreshToken:      refreshToken,
@@ -283,8 +326,7 @@ func (s *store) recordToCredential(record gestalt.Record) (*gestalt.ExternalCred
 		LastRefreshedAt:   utcTimePtr(recordTimePtr(record, "last_refreshed_at")),
 		CreatedAt:         utcTimePtr(recordTimePtr(record, "created_at")),
 		UpdatedAt:         utcTimePtr(recordTimePtr(record, "updated_at")),
-	}
-	return credential, nil
+	}, nil
 }
 
 func normalizeCredential(credential *gestalt.ExternalCredential) *gestalt.ExternalCredential {
@@ -317,6 +359,10 @@ func credentialRecordSubjectID(record gestalt.Record) string {
 	return strings.TrimSpace(recordString(record, "subject_id"))
 }
 
+func credentialRecordConnectionID(record gestalt.Record) string {
+	return strings.TrimSpace(recordString(record, "connection_id"))
+}
+
 func dedupeCredentialRecords(records []gestalt.Record) []gestalt.Record {
 	if len(records) <= 1 {
 		return records
@@ -343,7 +389,7 @@ func dedupeCredentialRecords(records []gestalt.Record) []gestalt.Record {
 
 func credentialLookupKey(record gestalt.Record) string {
 	return credentialRecordSubjectID(record) + "\x00" +
-		recordString(record, "connection_id") + "\x00" +
+		credentialRecordConnectionID(record) + "\x00" +
 		recordString(record, "instance")
 }
 

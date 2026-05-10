@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	providerVersion      = "0.0.1-alpha.17"
+	providerVersion      = "0.0.1-alpha.19"
 	sessionStatePending  = "pending"
 	sessionStateReady    = "ready"
 	sessionStateStarting = "starting"
@@ -133,6 +133,7 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartPluginRunt
 		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.execution.runtime.image or execution.runtime.template is required when using the gke agent sandbox runtime", req.PluginName)
 	}
 
+	requestMetadata := addTenantMetadata(ctx, cloneStringMap(req.Metadata))
 	sessionID := sandboxResourceName(req.PluginName, p.runtimeInstanceID(), p.newID("session"))
 	session, err := runtime.Start(ctx, startSandboxRequest{
 		Name:       sessionID,
@@ -140,7 +141,7 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartPluginRunt
 		Namespace:  cfg.Namespace,
 		Template:   template,
 		Image:      image,
-		Metadata:   cloneStringMap(req.Metadata),
+		Metadata:   requestMetadata,
 	})
 	if err != nil {
 		return gestalt.PluginRuntimeSession{}, status.Errorf(codes.Internal, "start gke agent sandbox session: %v", err)

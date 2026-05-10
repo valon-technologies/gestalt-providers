@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -1258,6 +1259,78 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 	}
 }
 
+func TestExternalCredentialProviderScopesStorageByTenant(t *testing.T) {
+	startTestIndexedDBBackendAtEnvWithConfig(t, gestalt.EnvIndexedDBSocket, "external_credentials_tenant.sqlite", map[string]any{
+		"tenantScope": map[string]any{"mode": "requestContext"},
+	})
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	configureProvider(t, lifecycle, map[string]any{
+		"encryptionKey": "provider-tenant-key",
+		"tenantScope":   map[string]any{"mode": "requestContext"},
+	})
+
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	request := func(token string) *gestalt.UpsertExternalCredentialRequest {
+		return &gestalt.UpsertExternalCredentialRequest{
+			Credential: &gestalt.ExternalCredential{
+				SubjectID:    "user:shared",
+				ConnectionID: "connection-default",
+				Instance:     "workspace-1",
+				AccessToken:  token,
+			},
+		}
+	}
+	if _, err := client.UpsertCredential(tenantContext("vt"), request("vt-token")); err != nil {
+		t.Fatalf("UpsertCredential(vt): %v", err)
+	}
+	if _, err := client.UpsertCredential(tenantContext("acme"), request("acme-token")); err != nil {
+		t.Fatalf("UpsertCredential(acme): %v", err)
+	}
+
+	lookup := &gestalt.GetExternalCredentialRequest{Lookup: &gestalt.ExternalCredentialLookup{
+		SubjectID:    "user:shared",
+		ConnectionID: "connection-default",
+		Instance:     "workspace-1",
+	}}
+	vtCredential, err := client.GetCredential(tenantContext("vt"), lookup)
+	if err != nil {
+		t.Fatalf("GetCredential(vt): %v", err)
+	}
+	if vtCredential.GetAccessToken() != "vt-token" {
+		t.Fatalf("vt access token = %q, want vt-token", vtCredential.GetAccessToken())
+	}
+	acmeCredential, err := client.GetCredential(tenantContext("acme"), lookup)
+	if err != nil {
+		t.Fatalf("GetCredential(acme): %v", err)
+	}
+	if acmeCredential.GetAccessToken() != "acme-token" {
+		t.Fatalf("acme access token = %q, want acme-token", acmeCredential.GetAccessToken())
+	}
+
+	listed, err := client.ListCredentials(tenantContext("vt"), &gestalt.ListExternalCredentialsRequest{
+		SubjectID:    "user:shared",
+		ConnectionID: "connection-default",
+	})
+	if err != nil {
+		t.Fatalf("ListCredentials(vt): %v", err)
+	}
+	if len(listed.GetCredentials()) != 1 || listed.GetCredentials()[0].GetAccessToken() != "vt-token" {
+		t.Fatalf("vt credentials = %#v, want one vt token", listed.GetCredentials())
+	}
+
+	_, err = client.GetCredential(context.Background(), lookup)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("GetCredential(no tenant) code = %v, want %v", status.Code(err), codes.FailedPrecondition)
+	}
+}
+
 func startTestIndexedDBBackend(t *testing.T) {
 	t.Helper()
 	startTestIndexedDBBackendAtEnv(t, gestalt.EnvIndexedDBSocket, "external_credentials.sqlite")
@@ -1265,12 +1338,21 @@ func startTestIndexedDBBackend(t *testing.T) {
 
 func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 	t.Helper()
+	startTestIndexedDBBackendAtEnvWithConfig(t, envName, sqliteName, nil)
+}
+
+func startTestIndexedDBBackendAtEnvWithConfig(t *testing.T, envName, sqliteName string, extraConfig map[string]any) {
+	t.Helper()
 
 	socketPath := newSocketPath(t, "indexeddb.sock")
 	store := relationaldb.New()
-	if err := store.Configure(context.Background(), "external_credentials_state", map[string]any{
+	config := map[string]any{
 		"dsn": "file:" + filepath.Join(t.TempDir(), sqliteName) + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
-	}); err != nil {
+	}
+	for key, value := range extraConfig {
+		config[key] = value
+	}
+	if err := store.Configure(context.Background(), "external_credentials_state", config); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 	seedExternalCredentialStore(t, store)
@@ -1322,6 +1404,14 @@ func externalCredentialTestSchema() gestalt.ObjectStoreSchema {
 			{Name: "updated_at", Type: gestalt.TypeTime},
 		},
 	}
+}
+
+func tenantContext(tenantID string) context.Context {
+	return metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		tenantIDMetadataKey, tenantID,
+		tenantHostMetadataKey, tenantID+".dev.valon.tools",
+		tenantBoundMetadataKey, "true",
+	))
 }
 
 func startTestProviderServer(t *testing.T) (proto.ProviderLifecycleClient, *grpc.ClientConn) {

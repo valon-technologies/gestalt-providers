@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	providerVersion             = "0.0.1-alpha.2"
+	providerVersion             = "0.0.1-alpha.4"
 	defaultSessionTTL           = 24 * time.Hour
 	defaultDisplayName          = "SSO"
 	defaultHTTPTimeout          = 10 * time.Second
@@ -37,22 +37,44 @@ type discoveryDocument struct {
 }
 
 type config struct {
-	IssuerURL            string        `yaml:"issuerUrl"`
-	ClientID             string        `yaml:"clientId"`
-	ClientSecret         string        `yaml:"clientSecret"`
-	RedirectURL          string        `yaml:"redirectUrl"`
-	AllowedDomains       []string      `yaml:"allowedDomains"`
-	Scopes               []string      `yaml:"scopes"`
-	SessionTTL           time.Duration `yaml:"sessionTtl"`
-	PKCE                 bool          `yaml:"pkce"`
-	DisplayName          string        `yaml:"displayName"`
-	AllowInsecureHTTP    bool          `yaml:"allowInsecureHttp"`
-	PKCEVerifierTTL      time.Duration `yaml:"pkceVerifierTtl"`
-	PKCEVerifierMaxItems int           `yaml:"pkceVerifierMaxItems"`
+	IssuerURL            string         `yaml:"issuerUrl"`
+	ClientID             string         `yaml:"clientId"`
+	ClientSecret         string         `yaml:"clientSecret"`
+	RedirectURL          string         `yaml:"redirectUrl"`
+	AllowedDomains       []string       `yaml:"allowedDomains"`
+	Scopes               []string       `yaml:"scopes"`
+	SessionTTL           time.Duration  `yaml:"sessionTtl"`
+	PKCE                 bool           `yaml:"pkce"`
+	DisplayName          string         `yaml:"displayName"`
+	AllowInsecureHTTP    bool           `yaml:"allowInsecureHttp"`
+	PKCEVerifierTTL      time.Duration  `yaml:"pkceVerifierTtl"`
+	PKCEVerifierMaxItems int            `yaml:"pkceVerifierMaxItems"`
+	TenantConfig         tenantSettings `yaml:"tenantConfig"`
+	TenantSettings       tenantSettings `yaml:"tenantSettings"`
+}
+
+type tenantSettings struct {
+	Source  string                    `yaml:"source"`
+	Tenants map[string]tenantOIDCInfo `yaml:"tenants"`
+}
+
+type tenantOIDCInfo struct {
+	RedirectURL    string   `yaml:"redirectUrl"`
+	AllowedDomains []string `yaml:"allowedDomains"`
+}
+
+type resolvedOIDCInfo struct {
+	TenantID       string
+	Host           string
+	RedirectURL    string
+	AllowedDomains []string
+	TenantScoped   bool
 }
 
 type pkceVerifierEntry struct {
 	verifier  string
+	tenantID  string
+	host      string
 	expiresAt time.Time
 }
 
@@ -97,6 +119,10 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	if err := validateEndpointURL("issuerUrl", cfg.IssuerURL, cfg.AllowInsecureHTTP); err != nil {
 		return err
 	}
+	cfg.TenantSettings = cfg.mergedTenantSettings()
+	if err := validateTenantSettings(cfg); err != nil {
+		return err
+	}
 	doc, err := discover(ctx, p.httpClient, cfg.IssuerURL, cfg.AllowInsecureHTTP)
 	if err != nil {
 		return err
@@ -130,6 +156,17 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 	}
 }
 
+func (cfg config) mergedTenantSettings() tenantSettings {
+	if !cfg.TenantConfig.isZero() {
+		return cfg.TenantConfig
+	}
+	return cfg.TenantSettings
+}
+
+func (s tenantSettings) isZero() bool {
+	return strings.TrimSpace(s.Source) == "" && len(s.Tenants) == 0
+}
+
 func (p *Provider) SessionTTL() time.Duration {
 	if p.cfg.SessionTTL > 0 {
 		return p.cfg.SessionTTL
@@ -137,8 +174,12 @@ func (p *Provider) SessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
-func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
-	oauthCfg := p.oauthConfig(req.CallbackUrl)
+func (p *Provider) BeginLogin(ctx context.Context, req *gestalt.BeginLoginRequest) (*gestalt.BeginLoginResponse, error) {
+	resolved, err := p.resolveOIDCInfo(ctx, req.CallbackUrl)
+	if err != nil {
+		return nil, err
+	}
+	oauthCfg := p.oauthConfig(resolved.RedirectURL)
 	if !p.cfg.PKCE {
 		return &gestalt.BeginLoginResponse{
 			AuthorizationUrl: oauthCfg.AuthCodeURL(req.HostState, oauth2.AccessTypeOffline),
@@ -152,7 +193,7 @@ func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest)
 	if req.HostState == "" {
 		return nil, fmt.Errorf("oidc auth: host state is required when pkce is enabled")
 	}
-	if err := p.storePKCEVerifier(req.HostState, verifier); err != nil {
+	if err := p.storePKCEVerifier(resolved, req.HostState, verifier); err != nil {
 		return nil, err
 	}
 	challenge := computeS256Challenge(verifier)
@@ -168,7 +209,11 @@ func (p *Provider) BeginLogin(_ context.Context, req *gestalt.BeginLoginRequest)
 }
 
 func (p *Provider) CompleteLogin(ctx context.Context, req *gestalt.CompleteLoginRequest) (*gestalt.AuthenticatedUser, error) {
-	oauthCfg := p.oauthConfig(req.CallbackUrl)
+	resolved, err := p.resolveOIDCInfo(ctx, req.CallbackUrl)
+	if err != nil {
+		return nil, err
+	}
+	oauthCfg := p.oauthConfig(resolved.RedirectURL)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
 	opts := []oauth2.AuthCodeOption{}
 	pkceState := ""
@@ -177,7 +222,7 @@ func (p *Provider) CompleteLogin(ctx context.Context, req *gestalt.CompleteLogin
 		if pkceState == "" {
 			return nil, fmt.Errorf("oidc auth: state is required when pkce is enabled")
 		}
-		verifier, ok := p.pkceVerifier(pkceState)
+		verifier, ok := p.pkceVerifier(resolved, pkceState)
 		if !ok {
 			return nil, fmt.Errorf("oidc auth: pkce verifier not found for state")
 		}
@@ -188,23 +233,23 @@ func (p *Provider) CompleteLogin(ctx context.Context, req *gestalt.CompleteLogin
 		return nil, fmt.Errorf("oidc auth: exchange code: %w", err)
 	}
 	if pkceState != "" {
-		p.deletePKCEVerifier(pkceState)
+		p.deletePKCEVerifier(resolved, pkceState)
 	}
-	return p.fetchUserInfo(ctx, tok.AccessToken)
+	return p.fetchUserInfo(ctx, tok.AccessToken, resolved.AllowedDomains)
 }
 
 func (p *Provider) ValidateExternalToken(ctx context.Context, token string) (*gestalt.AuthenticatedUser, error) {
 	if token == "" {
 		return nil, fmt.Errorf("oidc auth: token is required")
 	}
-	return p.fetchUserInfo(ctx, token)
+	resolved, err := p.resolveOIDCInfo(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	return p.fetchUserInfo(ctx, token, resolved.AllowedDomains)
 }
 
-func (p *Provider) oauthConfig(callbackURL string) *oauth2.Config {
-	redirectURL := p.cfg.RedirectURL
-	if redirectURL == "" {
-		redirectURL = callbackURL
-	}
+func (p *Provider) oauthConfig(redirectURL string) *oauth2.Config {
 	scopes := p.cfg.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"openid", "email", "profile"}
@@ -221,7 +266,44 @@ func (p *Provider) oauthConfig(callbackURL string) *oauth2.Config {
 	}
 }
 
-func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.AuthenticatedUser, error) {
+func (p *Provider) resolveOIDCInfo(ctx context.Context, callbackURL string) (resolvedOIDCInfo, error) {
+	tenantScoped := strings.EqualFold(strings.TrimSpace(p.cfg.TenantSettings.Source), "config") || len(p.cfg.TenantSettings.Tenants) > 0
+	if !tenantScoped {
+		redirectURL := p.cfg.RedirectURL
+		if redirectURL == "" {
+			redirectURL = callbackURL
+		}
+		return resolvedOIDCInfo{
+			RedirectURL:    redirectURL,
+			AllowedDomains: append([]string(nil), p.cfg.AllowedDomains...),
+		}, nil
+	}
+
+	scope, ok := tenantScopeFromContext(ctx)
+	if !ok || scope.TenantID == "" || !scope.TenantBound {
+		return resolvedOIDCInfo{}, fmt.Errorf("oidc auth: tenant scope is required")
+	}
+	info, ok := p.cfg.TenantSettings.Tenants[scope.TenantID]
+	if !ok {
+		return resolvedOIDCInfo{}, fmt.Errorf("oidc auth: tenant %q is not configured", scope.TenantID)
+	}
+	redirectURL := strings.TrimSpace(info.RedirectURL)
+	if redirectURL == "" {
+		redirectURL = callbackURL
+	}
+	if err := validateTenantHost(scope, redirectURL); err != nil {
+		return resolvedOIDCInfo{}, err
+	}
+	return resolvedOIDCInfo{
+		TenantID:       scope.TenantID,
+		Host:           scope.Host,
+		RedirectURL:    redirectURL,
+		AllowedDomains: append([]string(nil), info.AllowedDomains...),
+		TenantScoped:   true,
+	}, nil
+}
+
+func (p *Provider) fetchUserInfo(ctx context.Context, token string, allowedDomains []string) (*gestalt.AuthenticatedUser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.doc.UserinfoEndpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("oidc auth: create userinfo request: %w", err)
@@ -249,7 +331,7 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 	if !userinfo.EmailVerified(info.EmailVerified) {
 		return nil, fmt.Errorf("oidc auth: email %s is not verified", info.Email)
 	}
-	if err := userinfo.CheckAllowedDomains("oidc", p.cfg.AllowedDomains, info.Email); err != nil {
+	if err := userinfo.CheckAllowedDomains("oidc", allowedDomains, info.Email); err != nil {
 		return nil, err
 	}
 	return &gestalt.AuthenticatedUser{
@@ -259,6 +341,39 @@ func (p *Provider) fetchUserInfo(ctx context.Context, token string) (*gestalt.Au
 		DisplayName:   info.Name,
 		AvatarUrl:     info.Picture,
 	}, nil
+}
+
+func validateTenantSettings(cfg config) error {
+	if !strings.EqualFold(strings.TrimSpace(cfg.TenantSettings.Source), "config") && len(cfg.TenantSettings.Tenants) == 0 {
+		return nil
+	}
+	for tenantID, info := range cfg.TenantSettings.Tenants {
+		tenantID = strings.TrimSpace(tenantID)
+		if tenantID == "" {
+			return fmt.Errorf("oidc auth: tenantSettings tenant id is required")
+		}
+		if info.RedirectURL != "" {
+			if err := validateEndpointURL("tenantSettings.redirectUrl", info.RedirectURL, cfg.AllowInsecureHTTP); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateTenantHost(scope tenantScope, redirectURL string) error {
+	if scope.Host == "" || redirectURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(redirectURL)
+	if err != nil || parsed.Hostname() == "" {
+		return nil
+	}
+	redirectHost := strings.ToLower(strings.Trim(parsed.Host, "."))
+	if redirectHost != scope.Host {
+		return fmt.Errorf("oidc auth: tenant %q resolved for host %q cannot use redirect host %q", scope.TenantID, scope.Host, redirectHost)
+	}
+	return nil
 }
 
 func discover(ctx context.Context, client *http.Client, issuerURL string, allowInsecureHTTP bool) (discoveryDocument, error) {
@@ -344,41 +459,45 @@ func computeS256Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-func (p *Provider) storePKCEVerifier(hostState, verifier string) error {
+func (p *Provider) storePKCEVerifier(resolved resolvedOIDCInfo, hostState, verifier string) error {
 	p.pkceMu.Lock()
 	defer p.pkceMu.Unlock()
 	now := p.currentTime()
 	p.evictExpiredPKCEVerifiersLocked(now)
-	if _, ok := p.pkceVerifiers[hostState]; !ok && len(p.pkceVerifiers) >= p.maxPKCEVerifierItems() {
+	key := pkceVerifierKey(resolved, hostState)
+	if _, ok := p.pkceVerifiers[key]; !ok && len(p.pkceVerifiers) >= p.maxPKCEVerifierItems() {
 		return fmt.Errorf("oidc auth: too many in-flight PKCE login attempts; increase pkceVerifierMaxItems or wait for older attempts to complete")
 	}
-	p.pkceVerifiers[hostState] = pkceVerifierEntry{
+	p.pkceVerifiers[key] = pkceVerifierEntry{
 		verifier:  verifier,
+		tenantID:  resolved.TenantID,
+		host:      resolved.Host,
 		expiresAt: now.Add(p.pkceTTL()),
 	}
 	return nil
 }
 
-func (p *Provider) pkceVerifier(hostState string) (string, bool) {
+func (p *Provider) pkceVerifier(resolved resolvedOIDCInfo, hostState string) (string, bool) {
 	p.pkceMu.Lock()
 	defer p.pkceMu.Unlock()
 	now := p.currentTime()
 	p.evictExpiredPKCEVerifiersLocked(now)
-	entry, ok := p.pkceVerifiers[hostState]
+	key := pkceVerifierKey(resolved, hostState)
+	entry, ok := p.pkceVerifiers[key]
 	if !ok {
 		return "", false
 	}
 	if !entry.expiresAt.After(now) {
-		delete(p.pkceVerifiers, hostState)
+		delete(p.pkceVerifiers, key)
 		return "", false
 	}
 	return entry.verifier, true
 }
 
-func (p *Provider) deletePKCEVerifier(hostState string) {
+func (p *Provider) deletePKCEVerifier(resolved resolvedOIDCInfo, hostState string) {
 	p.pkceMu.Lock()
 	defer p.pkceMu.Unlock()
-	delete(p.pkceVerifiers, hostState)
+	delete(p.pkceVerifiers, pkceVerifierKey(resolved, hostState))
 }
 
 func (p *Provider) evictExpiredPKCEVerifiersLocked(now time.Time) {
@@ -387,6 +506,13 @@ func (p *Provider) evictExpiredPKCEVerifiersLocked(now time.Time) {
 			delete(p.pkceVerifiers, hostState)
 		}
 	}
+}
+
+func pkceVerifierKey(resolved resolvedOIDCInfo, hostState string) string {
+	if !resolved.TenantScoped {
+		return hostState
+	}
+	return resolved.TenantID + "\x00" + resolved.Host + "\x00" + hostState
 }
 
 func (p *Provider) pkceTTL() time.Duration {

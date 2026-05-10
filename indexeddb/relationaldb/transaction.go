@@ -17,6 +17,12 @@ func (s *Store) Transaction(stream proto.IndexedDB_TransactionServer) error {
 }
 
 func (s *Store) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
+	if s.tenant.Enabled {
+		if _, err := s.scopedStoreName(ctx, "__transaction_scope__"); err != nil {
+			return nil, err
+		}
+	}
+
 	s.mu.RLock()
 
 	scope := make(map[string]struct{}, len(req.GetStores()))

@@ -8,7 +8,10 @@ import (
 )
 
 type config struct {
-	IndexedDB string `yaml:"indexeddb"`
+	IndexedDB     string            `yaml:"indexeddb"`
+	TenantScope   tenantScopeConfig `yaml:"tenantScope"`
+	Tenancy       tenantScopeConfig `yaml:"tenancy"`
+	RequireTenant bool
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
@@ -21,5 +24,18 @@ func decodeConfig(raw map[string]any) (config, error) {
 		return cfg, fmt.Errorf("decode config: %w", err)
 	}
 	cfg.IndexedDB = strings.TrimSpace(cfg.IndexedDB)
+	cfg.TenantScope = cfg.mergedTenantScope()
+	requireTenant, err := cfg.TenantScope.requireTenant()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.RequireTenant = requireTenant
 	return cfg, nil
+}
+
+func (c config) mergedTenantScope() tenantScopeConfig {
+	if !c.TenantScope.isZero() {
+		return c.TenantScope
+	}
+	return c.Tenancy
 }

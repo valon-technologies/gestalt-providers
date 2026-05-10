@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.7"
+const providerVersion = "0.0.1-alpha.11"
 
 type Provider struct {
 	mu            sync.RWMutex
@@ -81,6 +81,9 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	st, err := p.configuredStore()
 	if err != nil {
 		return err
+	}
+	if st.requireTenant {
+		return nil
 	}
 	_, err = st.credentials.Count(ctx, nil)
 	return err

@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -638,6 +639,38 @@ func TestAuthorizationProviderExpandDetectsCyclesAndMaxDepth(t *testing.T) {
 	}
 	if !depthResp.GetMaxDepthReached() || !depthResp.GetTruncated() {
 		t.Fatalf("Expand(max depth) flags = max_depth_reached:%v truncated:%v, want both true", depthResp.GetMaxDepthReached(), depthResp.GetTruncated())
+	}
+}
+
+func TestTenantOutgoingContextCopiesTenantScope(t *testing.T) {
+	_, err := tenantOutgoingContext(context.Background(), true)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("tenantOutgoingContext(no tenant) code = %v, want %v", status.Code(err), codes.FailedPrecondition)
+	}
+
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		tenantIDMetadataKey, "vt",
+		tenantHostMetadataKey, "vt.dev.valon.tools",
+		tenantBoundMetadataKey, "true",
+		tenantPrincipalIDMetadataKey, "user:123",
+	))
+	out, err := tenantOutgoingContext(ctx, true)
+	if err != nil {
+		t.Fatalf("tenantOutgoingContext: %v", err)
+	}
+	md, ok := metadata.FromOutgoingContext(out)
+	if !ok {
+		t.Fatal("tenantOutgoingContext did not attach outgoing metadata")
+	}
+	for key, want := range map[string]string{
+		tenantIDMetadataKey:          "vt",
+		tenantHostMetadataKey:        "vt.dev.valon.tools",
+		tenantBoundMetadataKey:       "true",
+		tenantPrincipalIDMetadataKey: "user:123",
+	} {
+		if got := firstMetadataValue(md, key); got != want {
+			t.Fatalf("metadata %s = %q, want %q", key, got, want)
+		}
 	}
 }
 

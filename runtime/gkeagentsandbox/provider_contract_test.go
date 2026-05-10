@@ -14,6 +14,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -39,7 +40,11 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		sessions: map[string]*localSession{},
 	})
 
-	ctx := context.Background()
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		tenantIDMetadataKey, "acme",
+		tenantHostMetadataKey, "acme.dev.valon.tools",
+		tenantBoundMetadataKey, "true",
+	))
 	pluginName := "github_plugin.with-a-very-long-name-that-preserves-session-suffix"
 	support, err := client.GetSupport(ctx)
 	if err != nil {
@@ -92,6 +97,12 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 	}
 	if got, want := startRequests[0].Metadata["tenant"], "dev"; got != want {
 		t.Fatalf("runtime Start metadata tenant = %q, want %q", got, want)
+	}
+	if got, want := startRequests[0].Metadata[sessionTenantIDMetadataKey], "acme"; got != want {
+		t.Fatalf("runtime Start metadata tenant.id = %q, want %q", got, want)
+	}
+	if got, want := session.Metadata[sessionTenantHostMetadataKey], "acme.dev.valon.tools"; got != want {
+		t.Fatalf("StartSession metadata tenant.host = %q, want %q", got, want)
 	}
 
 	const hostServiceEnv = gestalt.EnvAgentHostSocket
