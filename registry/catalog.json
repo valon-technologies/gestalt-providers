@@ -4405,7 +4405,7 @@
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.69",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/slack/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.69",
+      "manifestVersion": "0.0.1-alpha.70",
       "name": "slack",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/slack",
       "packagePath": "plugins/slack",
@@ -5439,20 +5439,28 @@
         "entryKind": "plugin",
         "section": "plugins"
       },
-      "description": "",
-      "displayName": "vanta",
-      "docs": [],
-      "iconUrl": null,
+      "description": "Query and mutate security, compliance, audit, and vendor data via the Vanta REST API.",
+      "displayName": "Vanta",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/vanta/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/vanta/README.md",
+          "sourcePath": "plugins/vanta/README.md",
+          "title": "Vanta"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/vanta/assets/icon.svg",
       "kind": "plugin",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": null,
-      "manifestVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/vanta/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
       "name": "vanta",
       "package": "github.com/valon-technologies/gestalt-providers/plugins/vanta",
       "packagePath": "plugins/vanta",
-      "readmeUrl": null,
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/vanta/README.md",
       "registryPath": "/providers/plugin/vanta/",
-      "sourceUrl": null,
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/vanta",
       "versions": [
         {
           "kind": "plugin",
