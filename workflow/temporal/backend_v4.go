@@ -332,9 +332,9 @@ func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string,
 		ExecutionRef:                  strings.TrimSpace(executionRef),
 		WorkflowKey:                   strings.TrimSpace(workflowKey),
 		OwnerKey:                      strings.TrimSpace(ownerKey),
-		Target:                        workflowTargetInput(target),
-		Trigger:                       workflowTriggerInput(trigger),
-		CreatedBy:                     actorInputPtr(createdBy),
+		TargetPayload:                 protoPayload(target),
+		TriggerPayload:                protoPayload(trigger),
+		CreatedByPayload:              protoPayload(createdBy),
 		RequireSignal:                 requireSignal,
 	}
 }
@@ -353,6 +353,9 @@ func (b *temporalBackend) executeRunV4(ctx context.Context, workflowID string, i
 
 func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, input runWorkflowV4Input) *proto.BoundWorkflowRun {
 	now := time.Now().UTC()
+	if input.ScheduleID != "" {
+		input.TriggerPayload = protoPayload(scheduleTrigger(input.ScheduleID, now))
+	}
 	publicID := encodeTemporalRunHandle(temporalRunHandle{
 		RunWorkflowID:    run.GetID(),
 		RunTemporalRunID: run.GetRunID(),
@@ -362,10 +365,10 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 	out, err := gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
 		ID:           publicID,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:       input.targetInput(),
-		Trigger:      input.triggerInput(now),
+		Target:       workflowTargetInput(targetFromPayload(input.TargetPayload)),
+		Trigger:      workflowTriggerInput(triggerFromPayload(input.TriggerPayload)),
 		CreatedAt:    now,
-		CreatedBy:    input.createdByInput(),
+		CreatedBy:    actorInputPtr(actorFromPayload(input.CreatedByPayload)),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 	})
