@@ -1957,7 +1957,6 @@ func baseTemporalConfigRaw() map[string]any {
 		"taskQueue":                   "gestalt-workflow",
 		"scopeID":                     "scope",
 		"workflowRunTimeout":          time.Minute,
-		"workflowTaskTimeout":         time.Second,
 		"activityStartToCloseTimeout": time.Minute,
 		"scheduleCatchupWindow":       time.Minute,
 		"versioning": map[string]any{
@@ -1975,7 +1974,6 @@ func baseTemporalConfig() config {
 		ScopeID:                     "scope",
 		TaskQueue:                   "gestalt-workflow",
 		WorkflowRunTimeout:          time.Minute,
-		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
 		Versioning: versioningConfig{

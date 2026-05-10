@@ -862,7 +862,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 		Args:                []any{actionInput},
 		TaskQueue:           b.cfg.TaskQueue,
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
-		WorkflowTaskTimeout: b.cfg.WorkflowTaskTimeout,
+		WorkflowTaskTimeout: defaultWorkflowTaskTimeout,
 	}
 	temporalID := b.temporalScheduleID(schedule.GetId())
 	spec := client.ScheduleSpec{
@@ -930,7 +930,7 @@ func (b *temporalBackend) runStartOptions(workflowID string, conflict enumspb.Wo
 		WorkflowIDConflictPolicy:                 conflict,
 		WorkflowIDReusePolicy:                    reuse,
 		WorkflowExecutionErrorWhenAlreadyStarted: false,
-		WorkflowTaskTimeout:                      b.cfg.WorkflowTaskTimeout,
+		WorkflowTaskTimeout:                      defaultWorkflowTaskTimeout,
 		WorkflowRunTimeout:                       b.cfg.WorkflowRunTimeout,
 	}
 }

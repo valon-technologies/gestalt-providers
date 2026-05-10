@@ -25,7 +25,6 @@ type config struct {
 	TaskQueue                   string           `yaml:"taskQueue"`
 	ScopeID                     string           `yaml:"scopeID"`
 	WorkflowRunTimeout          time.Duration    `yaml:"workflowRunTimeout"`
-	WorkflowTaskTimeout         time.Duration    `yaml:"workflowTaskTimeout"`
 	ActivityStartToCloseTimeout time.Duration    `yaml:"activityStartToCloseTimeout"`
 	ScheduleCatchupWindow       time.Duration    `yaml:"scheduleCatchupWindow"`
 	Versioning                  versioningConfig `yaml:"versioning"`
@@ -39,7 +38,6 @@ type versioningConfig struct {
 func decodeConfig(raw map[string]any) (config, error) {
 	cfg := config{
 		WorkflowRunTimeout:          defaultWorkflowRunTimeout,
-		WorkflowTaskTimeout:         defaultWorkflowTaskTimeout,
 		ActivityStartToCloseTimeout: defaultActivityStartToCloseTimeout,
 		ScheduleCatchupWindow:       defaultScheduleCatchupWindow,
 	}
@@ -76,9 +74,6 @@ func decodeConfig(raw map[string]any) (config, error) {
 	}
 	if cfg.WorkflowRunTimeout <= 0 {
 		return config{}, fmt.Errorf("workflowRunTimeout must be positive")
-	}
-	if cfg.WorkflowTaskTimeout <= 0 {
-		return config{}, fmt.Errorf("workflowTaskTimeout must be positive")
 	}
 	if cfg.ActivityStartToCloseTimeout <= 0 {
 		return config{}, fmt.Errorf("activityStartToCloseTimeout must be positive")
