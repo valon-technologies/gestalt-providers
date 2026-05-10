@@ -22,7 +22,6 @@ providers:
         taskQueue: gestalt-workflow
         scopeID: prod-main
         workflowRunTimeout: 5m
-        workflowTaskTimeout: 10s
         activityStartToCloseTimeout: 5m
         scheduleCatchupWindow: 1m
         versioning:
