@@ -6,6 +6,8 @@
 #                                  <python-env-var> <release-platform> <plugin-dir> <version>
 #
 # Requires: UV_PYTHON and RUNNER_TEMP environment variables.
+# Optionally set GESTALT_SDK_HOST_DIR to a checked-out gestalt/sdk/python
+# directory; when present, it replaces the provider lockfile's gestalt-sdk.
 
 set -euo pipefail
 
@@ -24,6 +26,18 @@ case "$base_image" in
   *)        install_cmd="apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates git curl zlib1g-dev libffi-dev cargo rustc" ;;
 esac
 
+sdk_mount=()
+if [ -n "${GESTALT_SDK_HOST_DIR:-}" ]; then
+  if [ ! -d "${GESTALT_SDK_HOST_DIR}" ]; then
+    echo "GESTALT_SDK_HOST_DIR does not exist: ${GESTALT_SDK_HOST_DIR}" >&2
+    exit 1
+  fi
+  sdk_mount=(
+    -e GESTALT_SDK_CONTAINER_DIR=/gestalt-sdk
+    -v "${GESTALT_SDK_HOST_DIR}:/gestalt-sdk:ro"
+  )
+fi
+
 echo "=== Packaging ${release_platform} (${base_image}) ==="
 
 docker run --rm --platform "${docker_platform}" \
@@ -35,6 +49,7 @@ docker run --rm --platform "${docker_platform}" \
   -e INSTALL_CMD="${install_cmd}" \
   -v "${PWD}:/workspace" \
   -v "${RUNNER_TEMP}/bin/${gestaltd_bin}:/usr/local/bin/gestaltd:ro" \
+  "${sdk_mount[@]}" \
   -w "/workspace/${plugin_dir}" \
   "${base_image}" \
   sh -ceu '
@@ -47,6 +62,11 @@ docker run --rm --platform "${docker_platform}" \
 
     rm -rf .venv
     uv sync --frozen --no-dev --python "${UV_PYTHON}"
+    if [ -n "${GESTALT_SDK_CONTAINER_DIR:-}" ]; then
+      rm -rf /tmp/gestalt-sdk
+      cp -R "${GESTALT_SDK_CONTAINER_DIR}" /tmp/gestalt-sdk
+      uv pip install --python "$PWD/.venv/bin/python" --reinstall --no-deps /tmp/gestalt-sdk
+    fi
     export "${PYTHON_ENV_VAR}=$PWD/.venv/bin/python"
     gestaltd provider release --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
     chmod -R a+rX dist

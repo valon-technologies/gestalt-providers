@@ -3062,7 +3062,8 @@ packages:
         platforms:
           - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/vanta:
-    displayName: "vanta"
+    displayName: "Vanta"
+    description: "Query and mutate security, compliance, audit, and vendor data via the Vanta REST API."
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vanta/v0.0.1-alpha.1/provider-release.yaml"

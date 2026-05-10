@@ -153,6 +153,7 @@ jobs:
           PROVIDER_DIR: ${{ matrix.provider.dir }}
           SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
           RUNNER_TEMP: ${{ runner.temp }}
+          GESTALT_SDK_HOST_DIR: ${{ github.workspace }}/../gestalt/sdk/python
         run: |
           set -euo pipefail
           rm -rf "${PROVIDER_DIR}/dist"
