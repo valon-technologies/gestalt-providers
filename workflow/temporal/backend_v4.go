@@ -29,7 +29,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
 	if key != "" {
-		entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, b.cfg.IdempotencyRetention, now)
+		entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, defaultIdempotencyRetention, now)
 		if err != nil {
 			var conflict *runIdempotencyConflictError
 			if errors.As(err, &conflict) {
@@ -53,7 +53,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 			if err := b.releaseClaimedRunV4(ctx, existing); err != nil {
 				return nil, err
 			}
-			if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, existing, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+			if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, existing, defaultIdempotencyRetention, time.Now().UTC()); err != nil {
 				return nil, status.Errorf(codes.Internal, "complete workflow run idempotency: %v", err)
 			}
 			return existing, nil
@@ -79,7 +79,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 		return nil, err
 	}
 	if key != "" {
-		if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, owner, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+		if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, owner, defaultIdempotencyRetention, time.Now().UTC()); err != nil {
 			var conflict *runIdempotencyConflictError
 			if errors.As(err, &conflict) {
 				return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -92,7 +92,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 
 func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTarget, req *proto.StartWorkflowProviderRunRequest, key, fingerprint string) (*proto.BoundWorkflowRun, error) {
 	now := time.Now().UTC()
-	entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, b.cfg.IdempotencyRetention, now)
+	entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, defaultIdempotencyRetention, now)
 	if err != nil {
 		var conflict *runIdempotencyConflictError
 		if errors.As(err, &conflict) {
@@ -113,7 +113,7 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 	if err != nil {
 		return nil, err
 	}
-	if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, run, b.cfg.IdempotencyRetention, time.Now().UTC()); err != nil {
+	if err := b.state.completeRunIdempotency(ctx, target.OwnerKey, key, fingerprint, run, defaultIdempotencyRetention, time.Now().UTC()); err != nil {
 		var conflict *runIdempotencyConflictError
 		if errors.As(err, &conflict) {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())

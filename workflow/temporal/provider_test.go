@@ -1978,7 +1978,6 @@ func baseTemporalConfig() config {
 		WorkflowTaskTimeout:         time.Second,
 		ActivityStartToCloseTimeout: time.Minute,
 		ScheduleCatchupWindow:       time.Minute,
-		IdempotencyRetention:        time.Hour,
 		Versioning: versioningConfig{
 			DeploymentName: "valon-tools-test",
 			BuildID:        "revision-1",
