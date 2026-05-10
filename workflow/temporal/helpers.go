@@ -495,6 +495,162 @@ func workflowSignalInputs(signals []*proto.WorkflowSignal) []gestalt.WorkflowSig
 	return out
 }
 
+func workflowTargetProto(input *gestalt.BoundWorkflowTargetInput) (*proto.BoundWorkflowTarget, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewBoundWorkflowTarget(*input)
+}
+
+func workflowActorProto(input *gestalt.WorkflowActorInput) *proto.WorkflowActor {
+	if input == nil {
+		return nil
+	}
+	return gestalt.NewWorkflowActor(*input)
+}
+
+func workflowEventProto(input *gestalt.WorkflowEventInput) (*proto.WorkflowEvent, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewWorkflowEvent(*input)
+}
+
+func workflowSignalProto(input *gestalt.WorkflowSignalInput) (*proto.WorkflowSignal, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewWorkflowSignal(*input)
+}
+
+func workflowExecutionReferenceProto(input *gestalt.WorkflowExecutionReferenceInput) (*proto.WorkflowExecutionReference, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewWorkflowExecutionReference(*input)
+}
+
+func runInputFromProto(run *proto.BoundWorkflowRun, err error) (*gestalt.BoundWorkflowRunInput, error) {
+	if err != nil || run == nil {
+		return nil, err
+	}
+	input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+	if err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func runInputsFromProto(runs []*proto.BoundWorkflowRun) ([]gestalt.BoundWorkflowRunInput, error) {
+	out := make([]gestalt.BoundWorkflowRunInput, 0, len(runs))
+	for _, run := range runs {
+		input, err := runInputFromProto(run, nil)
+		if err != nil {
+			return nil, err
+		}
+		if input != nil {
+			out = append(out, *input)
+		}
+	}
+	return out, nil
+}
+
+func scheduleInputFromProto(schedule *proto.BoundWorkflowSchedule, err error) (*gestalt.BoundWorkflowScheduleInput, error) {
+	if err != nil || schedule == nil {
+		return nil, err
+	}
+	input, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+	if err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func scheduleInputsFromProto(schedules []*proto.BoundWorkflowSchedule) ([]gestalt.BoundWorkflowScheduleInput, error) {
+	out := make([]gestalt.BoundWorkflowScheduleInput, 0, len(schedules))
+	for _, schedule := range schedules {
+		input, err := scheduleInputFromProto(schedule, nil)
+		if err != nil {
+			return nil, err
+		}
+		if input != nil {
+			out = append(out, *input)
+		}
+	}
+	return out, nil
+}
+
+func eventTriggerInputFromProto(trigger *proto.BoundWorkflowEventTrigger, err error) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	if err != nil || trigger == nil {
+		return nil, err
+	}
+	input, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(trigger)
+	if err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func eventTriggerInputsFromProto(triggers []*proto.BoundWorkflowEventTrigger) ([]gestalt.BoundWorkflowEventTriggerInput, error) {
+	out := make([]gestalt.BoundWorkflowEventTriggerInput, 0, len(triggers))
+	for _, trigger := range triggers {
+		input, err := eventTriggerInputFromProto(trigger, nil)
+		if err != nil {
+			return nil, err
+		}
+		if input != nil {
+			out = append(out, *input)
+		}
+	}
+	return out, nil
+}
+
+func executionReferenceInputFromProto(ref *proto.WorkflowExecutionReference, err error) (*gestalt.WorkflowExecutionReferenceInput, error) {
+	if err != nil || ref == nil {
+		return nil, err
+	}
+	input, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
+	if err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func executionReferenceInputsFromProto(refs []*proto.WorkflowExecutionReference) ([]gestalt.WorkflowExecutionReferenceInput, error) {
+	out := make([]gestalt.WorkflowExecutionReferenceInput, 0, len(refs))
+	for _, ref := range refs {
+		input, err := executionReferenceInputFromProto(ref, nil)
+		if err != nil {
+			return nil, err
+		}
+		if input != nil {
+			out = append(out, *input)
+		}
+	}
+	return out, nil
+}
+
+func signalRunResponseInputFromProto(resp *proto.SignalWorkflowRunResponse, err error) (*gestalt.SignalWorkflowRunResponse, error) {
+	if err != nil || resp == nil {
+		return nil, err
+	}
+	run, err := runInputFromProto(resp.GetRun(), nil)
+	if err != nil {
+		return nil, err
+	}
+	var signal *gestalt.WorkflowSignalInput
+	if resp.GetSignal() != nil {
+		input := gestalt.WorkflowSignalInputFromSignal(resp.GetSignal())
+		signal = &input
+	}
+	return &gestalt.SignalWorkflowRunResponse{
+		Run:         run,
+		Signal:      signal,
+		StartedRun:  resp.GetStartedRun(),
+		WorkflowKey: resp.GetWorkflowKey(),
+	}, nil
+}
+
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
 	if event == nil {
 		return nil
