@@ -5065,21 +5065,22 @@ func signalRecordFromRecord(record gestalt.Record) (workflowSignalRecord, error)
 }
 
 func (r workflowSignalRecord) signalProto() *proto.WorkflowSignal {
-	signal := cloneSignal(r.Signal)
-	if signal == nil {
-		signal = &proto.WorkflowSignal{}
+	input := gestalt.WorkflowSignalInputFromSignal(r.Signal)
+	if input.ID == "" {
+		input.ID = r.ID
 	}
-	if signal.Id == "" {
-		signal.Id = r.ID
+	if input.IdempotencyKey == "" {
+		input.IdempotencyKey = r.IdempotencyKey
 	}
-	if signal.IdempotencyKey == "" {
-		signal.IdempotencyKey = r.IdempotencyKey
+	if input.Sequence == 0 {
+		input.Sequence = r.Sequence
 	}
-	if signal.Sequence == 0 {
-		signal.Sequence = r.Sequence
+	if input.CreatedAt.IsZero() && !r.CreatedAt.IsZero() {
+		input.CreatedAt = r.CreatedAt
 	}
-	if signal.CreatedAt == nil && !r.CreatedAt.IsZero() {
-		gestalt.SetTime(&signal.CreatedAt, r.CreatedAt)
+	signal, err := gestalt.NewWorkflowSignal(input)
+	if err != nil {
+		panic(fmt.Sprintf("build workflow signal: %v", err))
 	}
 	return signal
 }

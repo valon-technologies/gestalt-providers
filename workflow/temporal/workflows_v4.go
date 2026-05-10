@@ -73,26 +73,41 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		})
 		_ = workflow.ExecuteActivity(activityCtx, (*workflowActivities).ProjectRun, cloneRun(state)).Get(activityCtx, nil)
 	}
-	appendSignal := func(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
-		signal = cloneSignal(signal)
-		if signal.GetCreatedAt() == nil {
-			gestalt.SetTime(&signal.CreatedAt, workflow.Now(ctx).UTC())
+	rebuildRun := func(mutate func(*gestalt.BoundWorkflowRunInput)) error {
+		input, err := gestalt.BoundWorkflowRunInputFromRun(state)
+		if err != nil {
+			return err
 		}
-		if signal.GetSequence() <= 0 {
-			signal.Sequence = nextSignalSequence
+		mutate(&input)
+		state = gestalt.NewBoundWorkflowRun(input)
+		return nil
+	}
+	appendSignal := func(signal *proto.WorkflowSignal) (*proto.WorkflowSignal, error) {
+		input := gestalt.WorkflowSignalInputFromSignal(signal)
+		if input.CreatedAt.IsZero() {
+			input.CreatedAt = workflow.Now(ctx).UTC()
 		}
-		if signal.GetSequence() >= nextSignalSequence {
-			nextSignalSequence = signal.GetSequence() + 1
+		if input.Sequence <= 0 {
+			input.Sequence = nextSignalSequence
 		}
-		if strings.TrimSpace(signal.GetId()) == "" {
-			signal.Id = "signal:" + hashID(state.GetId(), signal.GetName(), fmt.Sprintf("%d", signal.GetSequence()), signal.GetIdempotencyKey())
+		if input.Sequence >= nextSignalSequence {
+			nextSignalSequence = input.Sequence + 1
+		}
+		if strings.TrimSpace(input.ID) == "" {
+			input.ID = "signal:" + hashID(state.GetId(), input.Name, fmt.Sprintf("%d", input.Sequence), input.IdempotencyKey)
+		}
+		signal, err := gestalt.NewWorkflowSignal(input)
+		if err != nil {
+			return nil, err
 		}
 		pendingSignals = append(pendingSignals, signal)
 		signalCount++
-		return signal
+		return signal, nil
 	}
 	if initial := signalFromPayload(input.InitialSignalPayload); initial != nil {
-		appendSignal(initial)
+		if _, err := appendSignal(initial); err != nil {
+			return nil, err
+		}
 	}
 	if err := workflow.SetUpdateHandler(ctx, updateAddSignal, func(ctx workflow.Context, signal *proto.WorkflowSignal) (*proto.SignalWorkflowRunResponse, error) {
 		if err := runMutex.Lock(ctx); err != nil {
@@ -102,7 +117,10 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		if workflowRunTerminal(state.GetStatus()) {
 			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.GetId(), state.GetStatus().String())
 		}
-		signal = appendSignal(signal)
+		signal, err := appendSignal(signal)
+		if err != nil {
+			return nil, err
+		}
 		if workflow.GetVersion(ctx, changeV4AddSignalProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
 			project(ctx)
 		}
@@ -137,11 +155,16 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s; only pending runs can be canceled", state.GetId(), state.GetStatus().String())
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
-		gestalt.SetTime(&state.CompletedAt, completedAt)
-		state.StatusMessage = strings.TrimSpace(reason)
-		if state.GetStatusMessage() == "" {
-			state.StatusMessage = "canceled"
+		statusMessage := strings.TrimSpace(reason)
+		if statusMessage == "" {
+			statusMessage = "canceled"
+		}
+		if err := rebuildRun(func(input *gestalt.BoundWorkflowRunInput) {
+			input.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
+			input.CompletedAt = &completedAt
+			input.StatusMessage = statusMessage
+		}); err != nil {
+			return nil, err
 		}
 		project(ctx)
 		return cloneRun(state), nil
@@ -173,10 +196,15 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		startedAt := workflow.Now(ctx).UTC()
-		state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-		gestalt.SetTime(&state.StartedAt, startedAt)
-		state.CompletedAt = nil
-		state.StatusMessage = ""
+		if err := rebuildRun(func(input *gestalt.BoundWorkflowRunInput) {
+			input.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+			input.StartedAt = &startedAt
+			input.CompletedAt = nil
+			input.StatusMessage = ""
+		}); err != nil {
+			runMutex.Unlock()
+			return nil, err
+		}
 		project(ctx)
 		batch := pendingSignals
 		pendingSignals = nil
@@ -202,26 +230,33 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			return nil, err
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		gestalt.SetTime(&state.CompletedAt, completedAt)
+		runInput, err := gestalt.BoundWorkflowRunInputFromRun(state)
+		if err != nil {
+			runMutex.Unlock()
+			return nil, err
+		}
+		runInput.CompletedAt = &completedAt
 		if invokeErr != nil {
-			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
-			state.StatusMessage = invokeErr.Error()
+			runInput.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
+			runInput.StatusMessage = invokeErr.Error()
 		} else if resp.GetStatus() >= http.StatusBadRequest {
-			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
-			state.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.GetStatus())
-			state.ResultBody = resp.GetBody()
+			runInput.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
+			runInput.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.GetStatus())
+			runInput.ResultBody = resp.GetBody()
 		} else {
-			state.ResultBody = resp.GetBody()
+			runInput.ResultBody = resp.GetBody()
 			if len(pendingSignals) > 0 {
-				state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
-				state.CompletedAt = nil
+				runInput.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+				runInput.CompletedAt = nil
+				state = gestalt.NewBoundWorkflowRun(runInput)
 				project(ctx)
 				runMutex.Unlock()
 				continue
 			}
-			state.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
-			state.StatusMessage = ""
+			runInput.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
+			runInput.StatusMessage = ""
 		}
+		state = gestalt.NewBoundWorkflowRun(runInput)
 		runMutex.Unlock()
 		break
 	}
